@@ -1,10 +1,10 @@
 # mt5cli
 
-[![CI/CD](https://github.com/dceoy/mt5cli/actions/workflows/ci.yml/badge.svg)](https://github.com/dceoy/mt5cli/actions/workflows/ci.yml)
+Command-line tool for MetaTrader 5 data export.
 
-Command-line tool for exporting MetaTrader 5 data to CSV, JSON, Parquet, and SQLite3.
+## Overview
 
-Built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data handler for MetaTrader 5.
+mt5cli is a CLI application that exports MetaTrader 5 trading data to multiple file formats. It is built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data handler for MetaTrader 5.
 
 ## Features
 
@@ -17,10 +17,10 @@ Built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data han
 ## Installation
 
 ```bash
-pip install -U mt5cli MetaTrader5
+pip install mt5cli
 ```
 
-## Usage
+## Quick Start
 
 ```bash
 # Export account information to CSV
@@ -42,44 +42,76 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
   -o positions.csv positions
 ```
 
-Run as a Python module:
-
-```bash
-python -m mt5cli -o account.csv account-info
-```
-
 ## Commands
+
+### Rates
 
 | Command | Description |
 |---------|-------------|
 | `rates-from` | Export rates from a start date |
 | `rates-from-pos` | Export rates from a start position |
 | `rates-range` | Export rates for a date range |
+
+### Ticks
+
+| Command | Description |
+|---------|-------------|
 | `ticks-from` | Export ticks from a start date |
 | `ticks-range` | Export ticks for a date range |
+
+### Information
+
+| Command | Description |
+|---------|-------------|
 | `account-info` | Export account information |
 | `terminal-info` | Export terminal information |
 | `symbols` | Export symbol list |
 | `symbol-info` | Export symbol details |
+
+### Trading
+
+| Command | Description |
+|---------|-------------|
 | `orders` | Export active orders |
 | `positions` | Export open positions |
 | `history-orders` | Export historical orders |
 | `history-deals` | Export historical deals |
 
+## Global Options
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output` | Output file path (required) |
+| `-f, --format` | Output format (auto-detected from extension if omitted) |
+| `--table` | Table name for SQLite3 output (default: "data") |
+| `--login` | Trading account login |
+| `--password` | Trading account password |
+| `--server` | Trading server name |
+| `--path` | Path to MetaTrader5 terminal EXE file |
+| `--timeout` | Connection timeout in milliseconds |
+| `--log-level` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+
 ## Requirements
 
 - Python 3.11+
 - Windows OS (MetaTrader 5 requirement)
-- MetaTrader 5 platform installed
+- MetaTrader 5 platform
+
+## API Reference
+
+Browse the API documentation for detailed module information:
+
+- [CLI Module](api/cli.md) - CLI application with export commands and utility functions
 
 ## Development
 
-```bash
-git clone https://github.com/dceoy/mt5cli.git
-cd mt5cli
-uv sync
-```
+This project follows strict code quality standards:
+
+- Type hints required (strict mode)
+- Comprehensive linting with Ruff
+- Test coverage tracking
+- Google-style docstrings
 
 ## License
 
-[MIT](LICENSE)
+MIT License - see [LICENSE](https://github.com/dceoy/mt5cli/blob/main/LICENSE) file for details.
