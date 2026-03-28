@@ -11,6 +11,7 @@ requires-python = ">= 3.11, < 3.14"
 dependencies = [
   "pdmt5 >= 0.2.3",
   "click >= 8.1.0",
+  "pyarrow >= 19.0.0",
   "typer >= 0.15.0",
 ]
 classifiers = [
@@ -147,6 +148,7 @@ exclude = ["build", ".venv"]
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "strict"
+reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]
 addopts = [
@@ -166,6 +168,7 @@ minversion = "6.0"
 source = ["mt5cli"]
 omit = [
   "**/__init__.py",
+  "**/__main__.py",
   "tests/**",
 ]
 

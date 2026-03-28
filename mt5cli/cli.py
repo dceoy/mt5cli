@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Annotated, cast
 
 import click
 import typer
-
 from pdmt5 import Mt5Config, Mt5DataClient
 
 if TYPE_CHECKING:

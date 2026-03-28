@@ -50,21 +50,21 @@ python -m mt5cli -o account.csv account-info
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `rates-from` | Export rates from a start date |
+| Command          | Description                        |
+| ---------------- | ---------------------------------- |
+| `rates-from`     | Export rates from a start date     |
 | `rates-from-pos` | Export rates from a start position |
-| `rates-range` | Export rates for a date range |
-| `ticks-from` | Export ticks from a start date |
-| `ticks-range` | Export ticks for a date range |
-| `account-info` | Export account information |
-| `terminal-info` | Export terminal information |
-| `symbols` | Export symbol list |
-| `symbol-info` | Export symbol details |
-| `orders` | Export active orders |
-| `positions` | Export open positions |
-| `history-orders` | Export historical orders |
-| `history-deals` | Export historical deals |
+| `rates-range`    | Export rates for a date range      |
+| `ticks-from`     | Export ticks from a start date     |
+| `ticks-range`    | Export ticks for a date range      |
+| `account-info`   | Export account information         |
+| `terminal-info`  | Export terminal information        |
+| `symbols`        | Export symbol list                 |
+| `symbol-info`    | Export symbol details              |
+| `orders`         | Export active orders               |
+| `positions`      | Export open positions              |
+| `history-orders` | Export historical orders           |
+| `history-deals`  | Export historical deals            |
 
 ## Requirements
 

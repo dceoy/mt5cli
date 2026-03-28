@@ -46,50 +46,50 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 
 ### Rates
 
-| Command | Description |
-|---------|-------------|
-| `rates-from` | Export rates from a start date |
+| Command          | Description                        |
+| ---------------- | ---------------------------------- |
+| `rates-from`     | Export rates from a start date     |
 | `rates-from-pos` | Export rates from a start position |
-| `rates-range` | Export rates for a date range |
+| `rates-range`    | Export rates for a date range      |
 
 ### Ticks
 
-| Command | Description |
-|---------|-------------|
-| `ticks-from` | Export ticks from a start date |
-| `ticks-range` | Export ticks for a date range |
+| Command       | Description                    |
+| ------------- | ------------------------------ |
+| `ticks-from`  | Export ticks from a start date |
+| `ticks-range` | Export ticks for a date range  |
 
 ### Information
 
-| Command | Description |
-|---------|-------------|
-| `account-info` | Export account information |
+| Command         | Description                 |
+| --------------- | --------------------------- |
+| `account-info`  | Export account information  |
 | `terminal-info` | Export terminal information |
-| `symbols` | Export symbol list |
-| `symbol-info` | Export symbol details |
+| `symbols`       | Export symbol list          |
+| `symbol-info`   | Export symbol details       |
 
 ### Trading
 
-| Command | Description |
-|---------|-------------|
-| `orders` | Export active orders |
-| `positions` | Export open positions |
+| Command          | Description              |
+| ---------------- | ------------------------ |
+| `orders`         | Export active orders     |
+| `positions`      | Export open positions    |
 | `history-orders` | Export historical orders |
-| `history-deals` | Export historical deals |
+| `history-deals`  | Export historical deals  |
 
 ## Global Options
 
-| Option | Description |
-|--------|-------------|
-| `-o, --output` | Output file path (required) |
+| Option         | Description                                             |
+| -------------- | ------------------------------------------------------- |
+| `-o, --output` | Output file path (required)                             |
 | `-f, --format` | Output format (auto-detected from extension if omitted) |
-| `--table` | Table name for SQLite3 output (default: "data") |
-| `--login` | Trading account login |
-| `--password` | Trading account password |
-| `--server` | Trading server name |
-| `--path` | Path to MetaTrader5 terminal EXE file |
-| `--timeout` | Connection timeout in milliseconds |
-| `--log-level` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `--table`      | Table name for SQLite3 output (default: "data")         |
+| `--login`      | Trading account login                                   |
+| `--password`   | Trading account password                                |
+| `--server`     | Trading server name                                     |
+| `--path`       | Path to MetaTrader5 terminal EXE file                   |
+| `--timeout`    | Connection timeout in milliseconds                      |
+| `--log-level`  | Logging level (DEBUG, INFO, WARNING, ERROR)             |
 
 ## Requirements
 
