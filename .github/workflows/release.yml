@@ -1,7 +1,7 @@
 ---
 name: Release
 on:
-  workflow_dispatch:  # checkov:skip=CKV_GHA_7:workflow_dispatch inputs are required for manual runs
+  workflow_dispatch:
 permissions:
   contents: read
 defaults:
@@ -57,16 +57,18 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}  # zizmor: ignore[secrets-outside-env] caller-provided secret
+          REPOSITORY: ${{ github.repository }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" --repo '${{ github.repository }}' --generate-notes --verify-tag
+          gh release create "${GITHUB_REF_NAME}" --repo "${REPOSITORY}" --generate-notes --verify-tag
       - name: Upload artifact signatures to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}  # zizmor: ignore[secrets-outside-env] caller-provided secret
+          REPOSITORY: ${{ github.repository }}
         # Upload to GitHub Release using the `gh` CLI.
         # `dist/` contains the built packages, and the
         # sigstore-produced signatures and certificates.
         run: |
-          gh release upload "${GITHUB_REF_NAME}" dist/** --repo '${{ github.repository }}'
+          gh release upload "${GITHUB_REF_NAME}" dist/** --repo "${REPOSITORY}"
   publish-to-pypi:
     name: Publish the Python 🐍 distribution 📦 to PyPI
     if: >
