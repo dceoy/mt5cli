@@ -59,6 +59,7 @@ jobs:
     uses: dceoy/gh-actions-for-devops/.github/workflows/python-package-mkdocs-gh-deploy.yml@main  # zizmor: ignore[unpinned-uses]
     with:
       package-path: .
+      mkdocs-theme: material
       runs-on: ubuntu-slim
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
