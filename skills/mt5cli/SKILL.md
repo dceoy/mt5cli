@@ -83,9 +83,8 @@ mt5cli -o ticks.json ticks-range \
 # USD symbols into a named table in SQLite3.
 mt5cli -o data.db --table symbols symbols --group "*USD*"
 
-# Historical deals filtered by symbol, with explicit credentials.
-mt5cli --login 12345 --password mypass --server MyBroker-Demo \
-  -o deals.csv history-deals --symbol EURUSD --date-from 2024-01-01
+# Historical deals filtered by symbol (using an already-logged-in MT5 terminal).
+mt5cli -o deals.csv history-deals --symbol EURUSD --date-from 2024-01-01
 ```
 
 ## Guidelines
@@ -96,6 +95,9 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
   Prefer `rates-range` / `ticks-range` when a fixed window is known.
 - Credentials (`--login`, `--password`, `--server`) are optional when the
   local MT5 terminal is already logged in.
+- Avoid passing `--password` on the command line in shared or logged
+  environments — it is visible in `ps`, shell history, and CI logs. Prefer
+  logging in through the MT5 terminal first, then omit credentials here.
 - Reach for `--log-level DEBUG` when a command fails silently — MT5
   connection errors surface there.
 - If the user asks to run from source in this repo, prefix with `uv run`
