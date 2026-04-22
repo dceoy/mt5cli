@@ -50,21 +50,21 @@ Global options MUST precede the subcommand.
 
 ## Commands
 
-| Command          | Required options                                       | Optional options                                    |
-| ---------------- | ------------------------------------------------------ | --------------------------------------------------- |
-| `rates-from`     | `--symbol`, `--timeframe`, `--date-from`, `--count`    | —                                                   |
-| `rates-from-pos` | `--symbol`, `--timeframe`, `--start-pos`, `--count`    | —                                                   |
-| `rates-range`    | `--symbol`, `--timeframe`, `--date-from`, `--date-to`  | —                                                   |
-| `ticks-from`     | `--symbol`, `--date-from`, `--count`, `--flags`        | —                                                   |
-| `ticks-range`    | `--symbol`, `--date-from`, `--date-to`, `--flags`      | —                                                   |
-| `account-info`   | —                                                      | —                                                   |
-| `terminal-info`  | —                                                      | —                                                   |
-| `symbols`        | —                                                      | `--group` (e.g., `*USD*`)                           |
-| `symbol-info`    | `--symbol`                                             | —                                                   |
-| `orders`         | —                                                      | `--symbol`, `--group`, `--ticket`                   |
-| `positions`      | —                                                      | `--symbol`, `--group`, `--ticket`                   |
-| `history-orders` | —                                                      | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position` |
-| `history-deals`  | —                                                      | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position` |
+| Command          | Required options                                      | Optional options                                                            |
+| ---------------- | ----------------------------------------------------- | --------------------------------------------------------------------------- |
+| `rates-from`     | `--symbol`, `--timeframe`, `--date-from`, `--count`   | —                                                                           |
+| `rates-from-pos` | `--symbol`, `--timeframe`, `--start-pos`, `--count`   | —                                                                           |
+| `rates-range`    | `--symbol`, `--timeframe`, `--date-from`, `--date-to` | —                                                                           |
+| `ticks-from`     | `--symbol`, `--date-from`, `--count`, `--flags`       | —                                                                           |
+| `ticks-range`    | `--symbol`, `--date-from`, `--date-to`, `--flags`     | —                                                                           |
+| `account-info`   | —                                                     | —                                                                           |
+| `terminal-info`  | —                                                     | —                                                                           |
+| `symbols`        | —                                                     | `--group` (e.g., `*USD*`)                                                   |
+| `symbol-info`    | `--symbol`                                            | —                                                                           |
+| `orders`         | —                                                     | `--symbol`, `--group`, `--ticket`                                           |
+| `positions`      | —                                                     | `--symbol`, `--group`, `--ticket`                                           |
+| `history-orders` | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position` |
+| `history-deals`  | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position` |
 
 ## Examples
 
