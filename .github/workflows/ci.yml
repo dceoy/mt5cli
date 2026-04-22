@@ -73,7 +73,8 @@ jobs:
     uses: dceoy/gh-actions-for-devops/.github/workflows/python-package-release-on-pypi-and-github.yml@main  # zizmor: ignore[unpinned-uses]
     with:
       package-path: .
-      create-releases: false
+      create-github-release: false
+      publish-to-pypi: false
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   dependabot-auto-merge:
