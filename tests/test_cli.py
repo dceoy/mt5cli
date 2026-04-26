@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -36,6 +37,12 @@ from mt5cli.cli import (
 )
 
 runner = CliRunner()
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def normalize_cli_output(output: str) -> str:
+    """Normalize CLI output for cross-platform assertions."""
+    return " ".join(_ANSI_ESCAPE_RE.sub("", output).split())
 
 
 # ---------------------------------------------------------------------------
@@ -792,7 +799,7 @@ class TestCommands:
             ["-o", str(output), "order-check", "--request", "not-json"],
         )
         assert result.exit_code != 0
-        assert "Invalid JSON request" in result.output
+        assert "Invalid JSON request" in normalize_cli_output(result.output)
 
     def test_order_check_missing_request_file(
         self,
@@ -807,7 +814,9 @@ class TestCommands:
             ["-o", str(output), "order-check", "--request", f"@{missing}"],
         )
         assert result.exit_code != 0
-        assert "Failed to read JSON request file" in result.output
+        assert "Failed to read JSON request file" in normalize_cli_output(
+            result.output,
+        )
 
     def test_order_send(
         self,
@@ -874,7 +883,9 @@ class TestCommands:
             ["-o", str(output), "order-send", "--request", request],
         )
         assert result.exit_code != 0
-        assert "Pass --yes to send a live trade request" in result.output
+        assert "Pass --yes to send a live trade request" in normalize_cli_output(
+            result.output,
+        )
         mock_client.order_send_as_df.assert_not_called()
 
     def test_order_send_invalid_request(
@@ -889,7 +900,7 @@ class TestCommands:
             ["-o", str(output), "order-send", "--request", "[1,2]", "--yes"],
         )
         assert result.exit_code != 0
-        assert "must be a JSON object" in result.output
+        assert "must be a JSON object" in normalize_cli_output(result.output)
 
 
 # ---------------------------------------------------------------------------
@@ -908,7 +919,7 @@ class TestCallback:
             ["-o", str(output), "account-info"],
         )
         assert result.exit_code != 0
-        assert "Cannot detect format" in result.output
+        assert "Cannot detect format" in normalize_cli_output(result.output)
 
     def test_connection_args_forwarded(
         self,
