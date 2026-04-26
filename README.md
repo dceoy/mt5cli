@@ -50,27 +50,29 @@ python -m mt5cli -o account.csv account-info
 
 ## Commands
 
-| Command            | Description                                  |
-| ------------------ | -------------------------------------------- |
-| `rates-from`       | Export rates from a start date               |
-| `rates-from-pos`   | Export rates from a start position           |
-| `rates-range`      | Export rates for a date range                |
-| `ticks-from`       | Export ticks from a start date               |
-| `ticks-range`      | Export ticks for a date range                |
-| `account-info`     | Export account information                   |
-| `terminal-info`    | Export terminal information                  |
-| `version`          | Export MetaTrader 5 version information      |
-| `last-error`       | Export the last error information            |
-| `symbols`          | Export symbol list                           |
-| `symbol-info`      | Export symbol details                        |
-| `symbol-info-tick` | Export the last tick for a symbol            |
-| `market-book`      | Export market depth (order book)             |
-| `orders`           | Export active orders                         |
-| `positions`        | Export open positions                        |
-| `history-orders`   | Export historical orders                     |
-| `history-deals`    | Export historical deals                      |
-| `order-check`      | Check funds sufficiency for a trade request  |
-| `order-send`       | Send a trade request to the trade server     |
+| Command            | Description                                 |
+| ------------------ | ------------------------------------------- |
+| `rates-from`       | Export rates from a start date              |
+| `rates-from-pos`   | Export rates from a start position          |
+| `rates-range`      | Export rates for a date range               |
+| `ticks-from`       | Export ticks from a start date              |
+| `ticks-range`      | Export ticks for a date range               |
+| `account-info`     | Export account information                  |
+| `terminal-info`    | Export terminal information                 |
+| `version`          | Export MetaTrader 5 version information     |
+| `last-error`       | Export the last error information           |
+| `symbols`          | Export symbol list                          |
+| `symbol-info`      | Export symbol details                       |
+| `symbol-info-tick` | Export the last tick for a symbol           |
+| `market-book`      | Export market depth (order book)            |
+| `orders`           | Export active orders                        |
+| `positions`        | Export open positions                       |
+| `history-orders`   | Export historical orders                    |
+| `history-deals`    | Export historical deals                     |
+| `order-check`      | Check funds sufficiency for a trade request |
+| `order-send`       | Send a trade request to the trade server (`--yes` required) |
+
+Use `order-check` to validate a request payload before running `order-send --yes`.
 
 ## Requirements
 

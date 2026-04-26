@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from mt5cli.cli import (
     DATETIME_TYPE,
+    REQUEST_TYPE,
     TICK_FLAG_MAP,
     TICK_FLAGS_TYPE,
     TIMEFRAME_MAP,
@@ -230,9 +231,15 @@ class TestParseRequest:
             parse_request("not json")
 
     def test_non_object_raises(self) -> None:
-        """Test that a non-object JSON raises TypeError."""
-        with pytest.raises(TypeError, match="must be a JSON object"):
+        """Test that a non-object JSON raises ValueError."""
+        with pytest.raises(ValueError, match="must be a JSON object"):
             parse_request("[1, 2, 3]")
+
+    def test_missing_file_raises(self, tmp_path: Path) -> None:
+        """Test that a missing request file raises ValueError."""
+        path = tmp_path / "missing.json"
+        with pytest.raises(ValueError, match="Failed to read JSON request file"):
+            parse_request(f"@{path}")
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +316,19 @@ class TestTickFlagsType:
         """Test that invalid values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid tick flags"):
             TICK_FLAGS_TYPE.convert("bad", None, None)
+
+
+class TestRequestType:
+    """Tests for _RequestType."""
+
+    def test_convert_string(self) -> None:
+        """Test converting a JSON string to a request dictionary."""
+        assert REQUEST_TYPE.convert('{"action": 1}', None, None) == {"action": 1}
+
+    def test_convert_invalid(self) -> None:
+        """Test that invalid values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid JSON request"):
+            REQUEST_TYPE.convert("bad", None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -739,6 +759,27 @@ class TestCommands:
             request={"action": 1, "symbol": "EURUSD", "volume": 0.1},
         )
 
+    def test_order_check_file_reference(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test order-check command with file-based JSON."""
+        output = tmp_path / "out.csv"
+        req_path = tmp_path / "req.json"
+        req_path.write_text(
+            json.dumps({"action": 2, "symbol": "EURUSD"}),
+            encoding="utf-8",
+        )
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "order-check", "--request", f"@{req_path}"],
+        )
+        assert result.exit_code == 0, result.output
+        mock_client.order_check_as_df.assert_called_once_with(
+            request={"action": 2, "symbol": "EURUSD"},
+        )
+
     def test_order_check_invalid_request(
         self,
         tmp_path: Path,
@@ -752,6 +793,21 @@ class TestCommands:
         )
         assert result.exit_code != 0
         assert "Invalid JSON request" in result.output
+
+    def test_order_check_missing_request_file(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,  # noqa: ARG002
+    ) -> None:
+        """Test order-check rejects a missing request file."""
+        output = tmp_path / "out.csv"
+        missing = tmp_path / "missing.json"
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "order-check", "--request", f"@{missing}"],
+        )
+        assert result.exit_code != 0
+        assert "Failed to read JSON request file" in result.output
 
     def test_order_send(
         self,
@@ -767,12 +823,59 @@ class TestCommands:
         )
         result = runner.invoke(
             app,
-            ["-o", str(output), "order-send", "--request", f"@{req_path}"],
+            [
+                "-o",
+                str(output),
+                "order-send",
+                "--request",
+                f"@{req_path}",
+                "--yes",
+            ],
         )
         assert result.exit_code == 0, result.output
         mock_client.order_send_as_df.assert_called_once_with(
             request={"action": 2, "symbol": "EURUSD"},
         )
+
+    def test_order_send_inline_json(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test order-send command with inline JSON."""
+        output = tmp_path / "out.csv"
+        request = json.dumps({"action": 1, "symbol": "EURUSD", "volume": 0.1})
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "order-send",
+                "--request",
+                request,
+                "--yes",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        mock_client.order_send_as_df.assert_called_once_with(
+            request={"action": 1, "symbol": "EURUSD", "volume": 0.1},
+        )
+
+    def test_order_send_requires_yes(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test order-send requires explicit confirmation."""
+        output = tmp_path / "out.csv"
+        request = json.dumps({"action": 1, "symbol": "EURUSD"})
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "order-send", "--request", request],
+        )
+        assert result.exit_code != 0
+        assert "Pass --yes to send a live trade request" in result.output
+        mock_client.order_send_as_df.assert_not_called()
 
     def test_order_send_invalid_request(
         self,
@@ -783,7 +886,7 @@ class TestCommands:
         output = tmp_path / "out.csv"
         result = runner.invoke(
             app,
-            ["-o", str(output), "order-send", "--request", "[1,2]"],
+            ["-o", str(output), "order-send", "--request", "[1,2]", "--yes"],
         )
         assert result.exit_code != 0
         assert "must be a JSON object" in result.output
