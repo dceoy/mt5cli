@@ -864,12 +864,28 @@
 <td>Export terminal information</td>
 </tr>
 <tr>
+<td><code>version</code></td>
+<td>Export MetaTrader 5 version information</td>
+</tr>
+<tr>
+<td><code>last-error</code></td>
+<td>Export the last error information</td>
+</tr>
+<tr>
 <td><code>symbols</code></td>
 <td>Export symbol list</td>
 </tr>
 <tr>
 <td><code>symbol-info</code></td>
 <td>Export symbol details</td>
+</tr>
+<tr>
+<td><code>symbol-info-tick</code></td>
+<td>Export the last tick for a symbol</td>
+</tr>
+<tr>
+<td><code>market-book</code></td>
+<td>Export market depth (order book)</td>
 </tr>
 </tbody>
 </table>
@@ -898,8 +914,17 @@
 <td><code>history-deals</code></td>
 <td>Export historical deals</td>
 </tr>
+<tr>
+<td><code>order-check</code></td>
+<td>Check funds sufficiency for a trade request</td>
+</tr>
+<tr>
+<td><code>order-send</code></td>
+<td>Send a trade request to the trade server (<code>--yes</code> required)</td>
+</tr>
 </tbody>
 </table>
+<p>Use <code>order-check</code> to validate a request payload before running <code>order-send --yes</code>.</p>
 <h2 id="global-options">Global Options<a class="headerlink" href="#global-options" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
