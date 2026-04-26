@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path  # noqa: TC003
-from typing import TYPE_CHECKING, Annotated, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import click
 import typer
@@ -340,6 +341,34 @@ def parse_tick_flags(value: str) -> int:
         valid = ", ".join(TICK_FLAG_MAP)
         msg = f"Invalid tick flags: '{value}'. Use one of: {valid}, or an integer."
         raise ValueError(msg) from None
+
+
+def parse_request(value: str) -> dict[str, Any]:
+    """Parse a JSON-formatted order request string or file reference.
+
+    Args:
+        value: JSON object string, or '@path' to read JSON from a file.
+
+    Returns:
+        Parsed request dictionary.
+
+    Raises:
+        ValueError: If the value cannot be parsed as JSON.
+        TypeError: If the parsed JSON is not an object.
+    """
+    if value.startswith("@"):
+        text = Path(value[1:]).read_text(encoding="utf-8")
+    else:
+        text = value
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        msg = f"Invalid JSON request: {exc}"
+        raise ValueError(msg) from exc
+    if not isinstance(parsed, dict):
+        msg = "Order request must be a JSON object."
+        raise TypeError(msg)
+    return cast("dict[str, Any]", parsed)
 
 
 # ---------------------------------------------------------------------------
@@ -744,6 +773,98 @@ def history_deals(
             ticket=ticket,
             position=position,
         ),
+    )
+
+
+@app.command()
+def version(ctx: typer.Context) -> None:
+    """Export MetaTrader5 version information."""
+    _execute_export(ctx, lambda c: c.version_as_df())
+
+
+@app.command()
+def last_error(ctx: typer.Context) -> None:
+    """Export the last error information."""
+    _execute_export(ctx, lambda c: c.last_error_as_df())
+
+
+@app.command()
+def symbol_info_tick(
+    ctx: typer.Context,
+    symbol: Annotated[str, typer.Option(help="Symbol name.")],
+) -> None:
+    """Export the last tick for a symbol."""
+    _execute_export(
+        ctx,
+        lambda c: c.symbol_info_tick_as_df(symbol=symbol),
+    )
+
+
+@app.command()
+def market_book(
+    ctx: typer.Context,
+    symbol: Annotated[str, typer.Option(help="Symbol name.")],
+) -> None:
+    """Export market depth (order book) for a symbol."""
+    _execute_export(
+        ctx,
+        lambda c: c.market_book_get_as_df(symbol=symbol),
+    )
+
+
+@app.command()
+def order_check(
+    ctx: typer.Context,
+    request: Annotated[
+        str,
+        typer.Option(
+            help=(
+                "Order request as a JSON object string, or '@path' to load"
+                " JSON from a file."
+            ),
+        ),
+    ],
+) -> None:
+    """Check funds sufficiency for a trading operation.
+
+    Raises:
+        typer.BadParameter: If the request cannot be parsed.
+    """
+    try:
+        parsed = parse_request(request)
+    except (ValueError, TypeError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _execute_export(
+        ctx,
+        lambda c: c.order_check_as_df(request=parsed),
+    )
+
+
+@app.command()
+def order_send(
+    ctx: typer.Context,
+    request: Annotated[
+        str,
+        typer.Option(
+            help=(
+                "Order request as a JSON object string, or '@path' to load"
+                " JSON from a file."
+            ),
+        ),
+    ],
+) -> None:
+    """Send a trading operation request to the trade server.
+
+    Raises:
+        typer.BadParameter: If the request cannot be parsed.
+    """
+    try:
+        parsed = parse_request(request)
+    except (ValueError, TypeError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _execute_export(
+        ctx,
+        lambda c: c.order_send_as_df(request=parsed),
     )
 
 

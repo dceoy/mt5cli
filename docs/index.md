@@ -61,21 +61,27 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 
 ### Information
 
-| Command         | Description                 |
-| --------------- | --------------------------- |
-| `account-info`  | Export account information  |
-| `terminal-info` | Export terminal information |
-| `symbols`       | Export symbol list          |
-| `symbol-info`   | Export symbol details       |
+| Command            | Description                             |
+| ------------------ | --------------------------------------- |
+| `account-info`     | Export account information              |
+| `terminal-info`    | Export terminal information             |
+| `version`          | Export MetaTrader 5 version information |
+| `last-error`       | Export the last error information       |
+| `symbols`          | Export symbol list                      |
+| `symbol-info`      | Export symbol details                   |
+| `symbol-info-tick` | Export the last tick for a symbol       |
+| `market-book`      | Export market depth (order book)        |
 
 ### Trading
 
-| Command          | Description              |
-| ---------------- | ------------------------ |
-| `orders`         | Export active orders     |
-| `positions`      | Export open positions    |
-| `history-orders` | Export historical orders |
-| `history-deals`  | Export historical deals  |
+| Command          | Description                                 |
+| ---------------- | ------------------------------------------- |
+| `orders`         | Export active orders                        |
+| `positions`      | Export open positions                       |
+| `history-orders` | Export historical orders                    |
+| `history-deals`  | Export historical deals                     |
+| `order-check`    | Check funds sufficiency for a trade request |
+| `order-send`     | Send a trade request to the trade server    |
 
 ## Global Options
 
