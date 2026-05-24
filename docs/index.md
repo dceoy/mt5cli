@@ -74,13 +74,13 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 
 ### Trading
 
-| Command          | Description                                 |
-| ---------------- | ------------------------------------------- |
-| `orders`         | Export active orders                        |
-| `positions`      | Export open positions                       |
-| `history-orders` | Export historical orders                    |
-| `history-deals`  | Export historical deals                     |
-| `order-check`    | Check funds sufficiency for a trade request |
+| Command          | Description                                                 |
+| ---------------- | ----------------------------------------------------------- |
+| `orders`         | Export active orders                                        |
+| `positions`      | Export open positions                                       |
+| `history-orders` | Export historical orders                                    |
+| `history-deals`  | Export historical deals                                     |
+| `order-check`    | Check funds sufficiency for a trade request                 |
 | `order-send`     | Send a trade request to the trade server (`--yes` required) |
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
