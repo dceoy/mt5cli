@@ -56,6 +56,19 @@ TICK_FLAG_MAP: dict[str, int] = {
     "TRADE": 4,
 }
 
+_TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)
+_TRADE_DEAL_TYPES_SQL = f"({', '.join(str(value) for value in _TRADE_DEAL_TYPES)})"
+_POSITIONS_VIEW_REQUIRED_COLUMNS: frozenset[str] = frozenset({
+    "position_id",
+    "symbol",
+    "time",
+    "type",
+    "entry",
+    "volume",
+    "price",
+    "profit",
+})
+
 _FORMAT_EXTENSIONS: dict[str, str] = {
     ".csv": "csv",
     ".json": "json",
@@ -87,6 +100,31 @@ class LogLevel(StrEnum):
     INFO = "INFO"
     WARNING = "WARNING"
     ERROR = "ERROR"
+
+
+class Dataset(StrEnum):
+    """Datasets supported by the ``collect-history`` command."""
+
+    rates = "rates"
+    ticks = "ticks"
+    history_orders = "history-orders"
+    history_deals = "history-deals"
+
+
+class IfExists(StrEnum):
+    """SQLite table conflict behavior for the ``collect-history`` command."""
+
+    APPEND = "append"
+    REPLACE = "replace"
+    FAIL = "fail"
+
+
+_DATASET_TABLE_NAMES: dict[Dataset, str] = {
+    Dataset.rates: "rates",
+    Dataset.ticks: "ticks",
+    Dataset.history_orders: "history_orders",
+    Dataset.history_deals: "history_deals",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -892,6 +930,521 @@ def order_send(
         ctx,
         lambda c: c.order_send_as_df(request=request),
     )
+
+
+def _create_cash_events_view(
+    conn: sqlite3.Connection,
+    deals_columns: set[str],
+) -> bool:
+    """Create the cash_events SQLite view derived from history_deals.
+
+    Args:
+        conn: Open SQLite connection.
+        deals_columns: Column names present in the history_deals table.
+
+    Returns:
+        True if the view was created, False if required columns are missing.
+    """
+    if "type" not in deals_columns:
+        logger.warning("Skipping cash_events view: history_deals.type is missing")
+        return False
+    conn.execute("DROP VIEW IF EXISTS cash_events")
+    conn.execute(
+        "CREATE VIEW cash_events AS"  # noqa: S608
+        f" SELECT * FROM history_deals WHERE type NOT IN {_TRADE_DEAL_TYPES_SQL}",
+    )
+    return True
+
+
+def _create_positions_reconstructed_view(
+    conn: sqlite3.Connection,
+    deals_columns: set[str],
+) -> bool:
+    """Create the positions_reconstructed SQLite view derived from history_deals.
+
+    The view aggregates trade deals (``type IN (0, 1)``) by ``position_id`` and
+    excludes positions that have no closing deal (``entry IN (1, 3)``), so
+    still-open positions and reversal-only fragments are filtered out.
+
+    Open/close prices are volume-weighted averages over the corresponding
+    entry deals. Reversal deals (``DEAL_ENTRY_INOUT = 2``) are reported via
+    ``volume_reversal`` and ``reversal_count``; they do not contribute to the
+    open or close volume/price weights because a single reversal deal mixes a
+    close of the existing direction with the open of the new direction.
+
+    Args:
+        conn: Open SQLite connection.
+        deals_columns: Column names present in the history_deals table.
+
+    Returns:
+        True if the view was created, False if required columns are missing.
+    """
+    if not _POSITIONS_VIEW_REQUIRED_COLUMNS.issubset(deals_columns):
+        missing = ", ".join(sorted(_POSITIONS_VIEW_REQUIRED_COLUMNS - deals_columns))
+        logger.warning(
+            "Skipping positions_reconstructed view: history_deals missing columns: %s",
+            missing,
+        )
+        return False
+    conn.execute("DROP VIEW IF EXISTS positions_reconstructed")
+    conn.execute(
+        "CREATE VIEW positions_reconstructed AS"  # noqa: S608
+        " SELECT"
+        " position_id,"
+        " symbol,"
+        " MIN(CASE WHEN entry = 0 THEN time END) AS open_time,"
+        " MAX(CASE WHEN entry IN (1, 2, 3) THEN time END) AS close_time,"
+        " MIN(CASE WHEN entry = 0 THEN type END) AS direction,"
+        " SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END) AS volume_open,"
+        " SUM(CASE WHEN entry IN (1, 3) THEN volume ELSE 0 END) AS volume_close,"
+        " SUM(CASE WHEN entry = 2 THEN volume ELSE 0 END) AS volume_reversal,"
+        " CASE"
+        " WHEN SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END) > 0"
+        " THEN SUM(CASE WHEN entry = 0 THEN price * volume ELSE 0 END)"
+        " / SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END)"
+        " END AS open_price,"
+        " CASE"
+        " WHEN SUM(CASE WHEN entry IN (1, 3) THEN volume ELSE 0 END) > 0"
+        " THEN SUM(CASE WHEN entry IN (1, 3) THEN price * volume ELSE 0 END)"
+        " / SUM(CASE WHEN entry IN (1, 3) THEN volume ELSE 0 END)"
+        " END AS close_price,"
+        " SUM(profit) AS total_profit,"
+        " SUM(CASE WHEN entry = 2 THEN 1 ELSE 0 END) AS reversal_count,"
+        " COUNT(*) AS deals_count"
+        " FROM history_deals"
+        f" WHERE type IN {_TRADE_DEAL_TYPES_SQL} AND position_id != 0"
+        " GROUP BY position_id, symbol"
+        " HAVING SUM(CASE WHEN entry IN (1, 3) THEN 1 ELSE 0 END) > 0",
+    )
+    return True
+
+
+def _write_frame_to_sqlite(
+    conn: sqlite3.Connection,
+    frame: pd.DataFrame,
+    table_name: str,
+    if_exists: IfExists,
+) -> bool:
+    """Write a non-empty-schema frame to SQLite.
+
+    Args:
+        conn: Open SQLite connection.
+        frame: DataFrame to write.
+        table_name: Target SQLite table name.
+        if_exists: Table conflict behavior.
+
+    Returns:
+        True if a table was written, False if the frame had no columns.
+    """
+    if len(frame.columns) == 0:
+        logger.warning("Skipping %s: dataset returned no columns", table_name)
+        return False
+    frame.to_sql(  # type: ignore[reportUnknownMemberType]
+        table_name,
+        conn,
+        if_exists=if_exists.value,
+        index=False,
+        chunksize=50_000,
+        method="multi",
+    )
+    return True
+
+
+def _create_collect_history_indexes(
+    conn: sqlite3.Connection,
+    written_columns: dict[Dataset, set[str]],
+) -> None:
+    """Create useful indexes for collected history tables when present."""
+    if {"symbol", "time"}.issubset(written_columns.get(Dataset.rates, set())):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rates_symbol_time ON rates(symbol, time)",
+        )
+    if {"symbol", "time"}.issubset(written_columns.get(Dataset.ticks, set())):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ticks_symbol_time ON ticks(symbol, time)",
+        )
+    if {"position_id", "symbol"}.issubset(
+        written_columns.get(Dataset.history_deals, set())
+    ):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_deals_position_symbol"
+            " ON history_deals(position_id, symbol)",
+        )
+
+
+def _record_written_columns(
+    written_columns: dict[Dataset, set[str]],
+    dataset: Dataset,
+    frame: pd.DataFrame,
+) -> None:
+    """Remember columns for datasets written during streaming collection."""
+    columns = set(frame.columns)
+    if dataset in written_columns:
+        written_columns[dataset].update(columns)
+    else:
+        written_columns[dataset] = columns
+
+
+def _write_streamed_frame(
+    conn: sqlite3.Connection,
+    frame: pd.DataFrame,
+    dataset: Dataset,
+    table_exists: bool,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Write one streamed dataset frame and track table state.
+
+    Args:
+        conn: Open SQLite connection.
+        frame: DataFrame to write.
+        dataset: Dataset being written.
+        table_exists: Whether this dataset table has already been written.
+        if_exists: Initial table conflict behavior.
+        written_columns: Mutable map of columns written by dataset.
+
+    Returns:
+        True if the dataset table exists after this write attempt.
+    """
+    write_mode = IfExists.APPEND if table_exists else if_exists
+    if _write_frame_to_sqlite(
+        conn,
+        frame,
+        _DATASET_TABLE_NAMES[dataset],
+        write_mode,
+    ):
+        _record_written_columns(written_columns, dataset, frame)
+        return True
+    return table_exists
+
+
+def _write_rates_dataset(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: list[str],
+    timeframe: int,
+    date_from: datetime,
+    date_to: datetime,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Stream rates frames into SQLite.
+
+    Args:
+        conn: Open SQLite connection.
+        client: Connected MT5 data client.
+        symbols: Symbols to collect.
+        timeframe: Rates timeframe integer.
+        date_from: Start date.
+        date_to: End date.
+        if_exists: Initial table conflict behavior.
+        written_columns: Mutable map of columns written by dataset.
+
+    Returns:
+        True if the rates table was written.
+    """
+    table_exists = False
+    for sym in symbols:
+        frame = client.copy_rates_range_as_df(
+            symbol=sym,
+            timeframe=timeframe,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        frame.insert(0, "symbol", sym)
+        frame.insert(1, "timeframe", timeframe)
+        table_exists = _write_streamed_frame(
+            conn,
+            frame,
+            Dataset.rates,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
+
+
+def _write_ticks_dataset(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: list[str],
+    flags: int,
+    date_from: datetime,
+    date_to: datetime,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Stream ticks frames into SQLite.
+
+    Args:
+        conn: Open SQLite connection.
+        client: Connected MT5 data client.
+        symbols: Symbols to collect.
+        flags: Tick copy flags integer.
+        date_from: Start date.
+        date_to: End date.
+        if_exists: Initial table conflict behavior.
+        written_columns: Mutable map of columns written by dataset.
+
+    Returns:
+        True if the ticks table was written.
+    """
+    table_exists = False
+    for sym in symbols:
+        frame = client.copy_ticks_range_as_df(
+            symbol=sym,
+            date_from=date_from,
+            date_to=date_to,
+            flags=flags,
+        )
+        frame.insert(0, "symbol", sym)
+        table_exists = _write_streamed_frame(
+            conn,
+            frame,
+            Dataset.ticks,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
+
+
+def _write_history_dataset(
+    conn: sqlite3.Connection,
+    fetch: Callable[..., pd.DataFrame],
+    dataset: Dataset,
+    symbols: list[str],
+    date_from: datetime,
+    date_to: datetime,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Stream a history dataset into SQLite with exact symbol filtering.
+
+    Args:
+        conn: Open SQLite connection.
+        fetch: Bound history_orders_get_as_df / history_deals_get_as_df method.
+        dataset: History dataset being written.
+        symbols: Symbols to collect.
+        date_from: Start date.
+        date_to: End date.
+        if_exists: Initial table conflict behavior.
+        written_columns: Mutable map of columns written by dataset.
+
+    Returns:
+        True if the history table was written.
+    """
+    table_exists = False
+    for sym in symbols:
+        frame = fetch(date_from=date_from, date_to=date_to, symbol=sym)
+        if "symbol" in frame.columns:
+            frame = frame[frame["symbol"] == sym]
+        table_exists = _write_streamed_frame(
+            conn,
+            frame,
+            dataset,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
+
+
+def _write_collected_datasets(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: list[str],
+    datasets: set[Dataset],
+    timeframe: int,
+    flags: int,
+    date_from: datetime,
+    date_to: datetime,
+    if_exists: IfExists,
+) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
+    """Collect selected datasets and stream each symbol frame into SQLite.
+
+    Args:
+        conn: Open SQLite connection.
+        client: Connected MT5 data client.
+        symbols: Symbols to collect.
+        datasets: Selected datasets to write.
+        timeframe: Rates timeframe integer.
+        flags: Tick copy flags integer.
+        date_from: Start date.
+        date_to: End date.
+        if_exists: Initial table conflict behavior.
+
+    Returns:
+        Written datasets and their columns.
+    """
+    written_columns: dict[Dataset, set[str]] = {}
+    written_tables: set[Dataset] = set()
+    if Dataset.rates in datasets and _write_rates_dataset(
+        conn,
+        client,
+        symbols,
+        timeframe,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.rates)
+    if Dataset.ticks in datasets and _write_ticks_dataset(
+        conn,
+        client,
+        symbols,
+        flags,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.ticks)
+    if Dataset.history_orders in datasets and _write_history_dataset(
+        conn,
+        client.history_orders_get_as_df,
+        Dataset.history_orders,
+        symbols,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.history_orders)
+    if Dataset.history_deals in datasets and _write_history_dataset(
+        conn,
+        client.history_deals_get_as_df,
+        Dataset.history_deals,
+        symbols,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.history_deals)
+    return written_tables, written_columns
+
+
+@app.command()
+def collect_history(
+    ctx: typer.Context,
+    symbol: Annotated[
+        list[str],
+        typer.Option(
+            "--symbol",
+            "-s",
+            help="Symbol to collect (repeat for multiple symbols).",
+        ),
+    ],
+    date_from: Annotated[
+        datetime,
+        typer.Option(click_type=DATETIME_TYPE, help="Start date."),
+    ],
+    date_to: Annotated[
+        datetime,
+        typer.Option(click_type=DATETIME_TYPE, help="End date."),
+    ],
+    dataset: Annotated[
+        list[Dataset] | None,
+        typer.Option(
+            "--dataset",
+            help=(
+                "Dataset to include (repeat for multiple)."
+                " Defaults to all: rates, ticks, history-orders, history-deals."
+            ),
+        ),
+    ] = None,
+    timeframe: Annotated[
+        int,
+        typer.Option(
+            click_type=TIMEFRAME_TYPE,
+            help="Rates timeframe (e.g., M1, H1, D1).",
+        ),
+    ] = 1,
+    flags: Annotated[
+        int,
+        typer.Option(
+            click_type=TICK_FLAGS_TYPE,
+            help="Tick copy flags (ALL, INFO, TRADE, or integer).",
+        ),
+    ] = 1,
+    if_exists: Annotated[
+        IfExists,
+        typer.Option(
+            "--if-exists",
+            help="Behavior when a target table already exists.",
+        ),
+    ] = IfExists.FAIL,
+    with_views: Annotated[
+        bool,
+        typer.Option(
+            "--with-views",
+            help=(
+                "Add cash_events and positions_reconstructed SQLite views"
+                " derived from history_deals."
+            ),
+        ),
+    ] = False,
+) -> None:
+    """Collect historical datasets into a single SQLite database.
+
+    Tables written depend on ``--dataset``: ``rates``, ``ticks``,
+    ``history_orders``, ``history_deals``. History datasets are fetched per
+    symbol and concatenated. Rates rows carry the requested ``timeframe`` so
+    appended runs at different timeframes remain distinguishable.
+
+    With ``--with-views`` (requires the ``history-deals`` dataset), optional
+    views ``cash_events`` and ``positions_reconstructed`` are derived from
+    ``history_deals`` when the required columns are present.
+
+    Raises:
+        typer.BadParameter: If the output format is not SQLite3.
+    """
+    export_ctx = _get_export_context(ctx)
+    if export_ctx.output_format != "sqlite3":
+        msg = (
+            "collect-history requires SQLite3 output."
+            " Use a .db/.sqlite/.sqlite3 extension or --format sqlite3."
+        )
+        raise typer.BadParameter(msg)
+    datasets = set(dataset) if dataset else set(Dataset)
+    client = Mt5DataClient(config=export_ctx.config)
+    client.initialize_and_login_mt5()
+    try:
+        with sqlite3.connect(export_ctx.output) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            written_tables, written_columns = _write_collected_datasets(
+                conn,
+                client,
+                symbol,
+                datasets,
+                timeframe,
+                flags,
+                date_from,
+                date_to,
+                if_exists,
+            )
+            _create_collect_history_indexes(conn, written_columns)
+            if with_views and Dataset.history_deals in written_tables:
+                _create_cash_events_view(conn, written_columns[Dataset.history_deals])
+                _create_positions_reconstructed_view(
+                    conn,
+                    written_columns[Dataset.history_deals],
+                )
+            elif with_views:
+                logger.warning(
+                    "--with-views ignored: history_deals table was not written"
+                )
+        logger.info(
+            "Collected %s for %d symbol(s) into %s",
+            ", ".join(sorted(ds.value for ds in datasets)),
+            len(symbol),
+            export_ctx.output,
+        )
+    finally:
+        client.shutdown()
 
 
 def main() -> None:

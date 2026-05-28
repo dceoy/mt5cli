@@ -85,6 +85,35 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
 
+### Bulk Collection
+
+| Command           | Description                                                                                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `collect-history` | Collect rates, ticks, history-orders, and history-deals for one or more symbols into a single SQLite database (optional cash-event/position views) |
+
+```bash
+mt5cli -o history.db collect-history \
+  --symbol EURUSD --symbol GBPUSD \
+  --date-from 2024-01-01 --date-to 2024-02-01 \
+  --dataset rates --dataset history-deals \
+  --timeframe M1 --flags ALL --if-exists append --with-views
+```
+
+`collect-history` options:
+
+| Option         | Default    | Description                                                                                   |
+| -------------- | ---------- | --------------------------------------------------------------------------------------------- |
+| `--symbol/-s`  | _required_ | Symbol to collect (repeat for multiple).                                                      |
+| `--date-from`  | _required_ | Start date in ISO 8601.                                                                       |
+| `--date-to`    | _required_ | End date in ISO 8601.                                                                         |
+| `--dataset`    | all four   | Repeatable: `rates`, `ticks`, `history-orders`, `history-deals`.                              |
+| `--timeframe`  | `M1`       | Rates timeframe; recorded in a `timeframe` column on the `rates` table.                       |
+| `--flags`      | `ALL`      | Tick copy flags forwarded to `copy_ticks_range`.                                              |
+| `--if-exists`  | `fail`     | `append`, `replace`, or `fail` when a target table already exists.                            |
+| `--with-views` | off        | Add `cash_events` and `positions_reconstructed` views (requires the `history-deals` dataset). |
+
+History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `cash_events` view is derived from symbol-filtered `history_deals`, so account-level cash events with empty or non-matching symbols may be excluded. The `positions_reconstructed` view excludes positions with no closing deal, uses volume-weighted open/close prices, and reports reversal deals (`DEAL_ENTRY_INOUT`) via `volume_reversal` / `reversal_count`.
+
 ## Global Options
 
 | Option         | Description                                             |
