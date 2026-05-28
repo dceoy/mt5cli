@@ -296,6 +296,80 @@
 </tbody>
 </table>
 <p>Use <code>order-check</code> to validate a request payload before running <code>order-send --yes</code>.</p>
+<h3 id="bulk-collection">Bulk Collection<a class="headerlink" href="#bulk-collection" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>collect-history</code></td>
+<td>Collect rates, ticks, history-orders, and history-deals for one or more symbols into a single SQLite database (optional cash-event/position views)</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>mt5cli<span class="w"> </span>-o<span class="w"> </span>history.db<span class="w"> </span>collect-history<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--symbol<span class="w"> </span>EURUSD<span class="w"> </span>--symbol<span class="w"> </span>GBPUSD<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--date-from<span class="w"> </span><span class="m">2024</span>-01-01<span class="w"> </span>--date-to<span class="w"> </span><span class="m">2024</span>-02-01<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--dataset<span class="w"> </span>rates<span class="w"> </span>--dataset<span class="w"> </span>history-deals<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--timeframe<span class="w"> </span>M1<span class="w"> </span>--flags<span class="w"> </span>ALL<span class="w"> </span>--if-exists<span class="w"> </span>append<span class="w"> </span>--with-views
+</code></pre></div>
+<p><code>collect-history</code> options:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--symbol/-s</code></td>
+<td><em>required</em></td>
+<td>Symbol to collect (repeat for multiple).</td>
+</tr>
+<tr>
+<td><code>--date-from</code></td>
+<td><em>required</em></td>
+<td>Start date in ISO 8601.</td>
+</tr>
+<tr>
+<td><code>--date-to</code></td>
+<td><em>required</em></td>
+<td>End date in ISO 8601.</td>
+</tr>
+<tr>
+<td><code>--dataset</code></td>
+<td>all four</td>
+<td>Repeatable: <code>rates</code>, <code>ticks</code>, <code>history-orders</code>, <code>history-deals</code>.</td>
+</tr>
+<tr>
+<td><code>--timeframe</code></td>
+<td><code>M1</code></td>
+<td>Rates timeframe; recorded in a <code>timeframe</code> column on the <code>rates</code> table.</td>
+</tr>
+<tr>
+<td><code>--flags</code></td>
+<td><code>ALL</code></td>
+<td>Tick copy flags forwarded to <code>copy_ticks_range</code>.</td>
+</tr>
+<tr>
+<td><code>--if-exists</code></td>
+<td><code>fail</code></td>
+<td><code>append</code>, <code>replace</code>, or <code>fail</code> when a target table already exists.</td>
+</tr>
+<tr>
+<td><code>--with-views</code></td>
+<td>off</td>
+<td>Add <code>cash_events</code> and <code>positions_reconstructed</code> views (requires the <code>history-deals</code> dataset).</td>
+</tr>
+</tbody>
+</table>
+<p>History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The <code>cash_events</code> view is derived from symbol-filtered <code>history_deals</code>, so account-level cash events with empty or non-matching symbols may be excluded. The <code>positions_reconstructed</code> view excludes positions with no closing deal, uses volume-weighted open/close prices, and reports reversal deals (<code>DEAL_ENTRY_INOUT</code>) via <code>volume_reversal</code> / <code>reversal_count</code>.</p>
 <h2 id="global-options">Global Options<a class="headerlink" href="#global-options" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -445,5 +519,5 @@
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2026-05-24 17:12:47.181730+00:00
+Build Date UTC : 2026-05-28 16:23:34.703618+00:00
 -->
