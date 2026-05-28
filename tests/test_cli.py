@@ -1013,6 +1013,232 @@ class TestCallback:
 # ---------------------------------------------------------------------------
 
 
+class TestCollectHistory:
+    """Tests for the collect-history command."""
+
+    @pytest.fixture
+    def history_client(self, mocker: MockerFixture) -> MagicMock:
+        """Create a mocked Mt5DataClient with history-style DataFrames."""
+        client = MagicMock()
+
+        def _rates(**_: object) -> pd.DataFrame:
+            return pd.DataFrame({"time": [1], "open": [1.0]})
+
+        def _ticks(**_: object) -> pd.DataFrame:
+            return pd.DataFrame({"time": [1], "bid": [1.0]})
+
+        client.copy_rates_range_as_df.side_effect = _rates
+        client.copy_ticks_range_as_df.side_effect = _ticks
+        client.history_orders_get_as_df.return_value = pd.DataFrame(
+            {"ticket": [10], "symbol": ["EURUSD"]},
+        )
+        client.history_deals_get_as_df.return_value = pd.DataFrame({
+            "ticket": [1, 2, 3, 4],
+            "position_id": [100, 100, 0, 200],
+            "symbol": ["EURUSD", "EURUSD", "", "GBPUSD"],
+            "time": [1, 2, 3, 4],
+            "type": [0, 1, 2, 0],
+            "entry": [0, 1, 0, 0],
+            "volume": [1.0, 1.0, 0.0, 2.0],
+            "price": [1.1, 1.2, 0.0, 1.3],
+            "profit": [0.0, 10.0, 5.0, 0.0],
+        })
+        mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
+        return client
+
+    def test_collect_history_writes_all_tables(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,
+    ) -> None:
+        """Test that collect-history writes rates, ticks, and history tables."""
+        output = tmp_path / "history.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--symbol",
+                "EURUSD",
+                "--symbol",
+                "GBPUSD",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert history_client.copy_rates_range_as_df.call_count == 2
+        assert history_client.copy_ticks_range_as_df.call_count == 2
+        history_client.copy_ticks_range_as_df.assert_any_call(
+            symbol="EURUSD",
+            date_from=datetime(2024, 1, 1, tzinfo=UTC),
+            date_to=datetime(2024, 2, 1, tzinfo=UTC),
+            flags=1,
+        )
+        with sqlite3.connect(output) as conn:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'",
+                ).fetchall()
+            }
+        assert {"rates", "ticks", "history_orders", "history_deals"} <= tables
+
+    def test_collect_history_ticks_default_flags_all(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,
+    ) -> None:
+        """Test that --flags defaults to ALL for ticks."""
+        output = tmp_path / "history.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--symbol",
+                "EURUSD",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        history_client.copy_ticks_range_as_df.assert_called_once_with(
+            symbol="EURUSD",
+            date_from=datetime(2024, 1, 1, tzinfo=UTC),
+            date_to=datetime(2024, 2, 1, tzinfo=UTC),
+            flags=1,
+        )
+
+    def test_collect_history_with_views(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,  # noqa: ARG002
+    ) -> None:
+        """Test that --with-views creates cash_events and positions views."""
+        output = tmp_path / "history.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--symbol",
+                "EURUSD",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+                "--with-views",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        with sqlite3.connect(output) as conn:
+            views = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'",
+                ).fetchall()
+            }
+            cash = conn.execute("SELECT type FROM cash_events").fetchall()
+            positions = conn.execute(
+                "SELECT position_id FROM positions_reconstructed",
+            ).fetchall()
+        assert {"cash_events", "positions_reconstructed"} <= views
+        assert all(row[0] not in {0, 1} for row in cash)
+        assert {row[0] for row in positions} == {100, 200}
+
+    def test_collect_history_requires_sqlite_format(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,  # noqa: ARG002
+    ) -> None:
+        """Test that non-SQLite output is rejected."""
+        output = tmp_path / "history.csv"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--symbol",
+                "EURUSD",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "requires SQLite3" in normalize_cli_output(result.output)
+
+    def test_collect_history_requires_symbol(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,  # noqa: ARG002
+    ) -> None:
+        """Test that at least one --symbol is required."""
+        output = tmp_path / "history.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_collect_history_views_skipped_when_columns_missing(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that views are not created when required columns are missing."""
+        client = MagicMock()
+        client.copy_rates_range_as_df.return_value = pd.DataFrame({"x": [1]})
+        client.copy_ticks_range_as_df.return_value = pd.DataFrame({"x": [1]})
+        client.history_orders_get_as_df.return_value = pd.DataFrame({"x": [1]})
+        client.history_deals_get_as_df.return_value = pd.DataFrame({"x": [1]})
+        mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
+        output = tmp_path / "history.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--symbol",
+                "EURUSD",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+                "--with-views",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        with sqlite3.connect(output) as conn:
+            views = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'",
+                ).fetchall()
+            }
+        assert "cash_events" not in views
+        assert "positions_reconstructed" not in views
+
+
 class TestMain:
     """Tests for the main entry point."""
 

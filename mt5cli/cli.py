@@ -12,13 +12,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, TypeGuard, cast
 
 import click
+import pandas as pd
 import typer
 from pdmt5 import Mt5Config, Mt5DataClient
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +54,18 @@ TICK_FLAG_MAP: dict[str, int] = {
     "INFO": 2,
     "TRADE": 4,
 }
+
+_TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)
+_POSITIONS_VIEW_REQUIRED_COLUMNS: frozenset[str] = frozenset({
+    "position_id",
+    "symbol",
+    "time",
+    "type",
+    "entry",
+    "volume",
+    "price",
+    "profit",
+})
 
 _FORMAT_EXTENSIONS: dict[str, str] = {
     ".csv": "csv",
@@ -892,6 +903,185 @@ def order_send(
         ctx,
         lambda c: c.order_send_as_df(request=request),
     )
+
+
+def _create_cash_events_view(
+    conn: sqlite3.Connection,
+    deals_columns: set[str],
+) -> bool:
+    """Create the cash_events SQLite view derived from history_deals.
+
+    Args:
+        conn: Open SQLite connection.
+        deals_columns: Column names present in the history_deals table.
+
+    Returns:
+        True if the view was created, False if required columns are missing.
+    """
+    if "type" not in deals_columns:
+        return False
+    conn.execute("DROP VIEW IF EXISTS cash_events")
+    conn.execute(
+        "CREATE VIEW cash_events AS"
+        " SELECT * FROM history_deals WHERE type NOT IN (0, 1)",
+    )
+    return True
+
+
+def _create_positions_reconstructed_view(
+    conn: sqlite3.Connection,
+    deals_columns: set[str],
+) -> bool:
+    """Create the positions_reconstructed SQLite view derived from history_deals.
+
+    Args:
+        conn: Open SQLite connection.
+        deals_columns: Column names present in the history_deals table.
+
+    Returns:
+        True if the view was created, False if required columns are missing.
+    """
+    if not _POSITIONS_VIEW_REQUIRED_COLUMNS.issubset(deals_columns):
+        return False
+    conn.execute("DROP VIEW IF EXISTS positions_reconstructed")
+    conn.execute(
+        "CREATE VIEW positions_reconstructed AS"
+        " SELECT"
+        " position_id,"
+        " symbol,"
+        " MIN(CASE WHEN entry = 0 THEN time END) AS open_time,"
+        " MAX(CASE WHEN entry IN (1, 3) THEN time END) AS close_time,"
+        " MIN(CASE WHEN entry = 0 THEN type END) AS direction,"
+        " SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END) AS volume_open,"
+        " SUM(CASE WHEN entry IN (1, 3) THEN volume ELSE 0 END) AS volume_close,"
+        " AVG(CASE WHEN entry = 0 THEN price END) AS open_price,"
+        " AVG(CASE WHEN entry IN (1, 3) THEN price END) AS close_price,"
+        " SUM(profit) AS total_profit,"
+        " COUNT(*) AS deals_count"
+        " FROM history_deals"
+        " WHERE type IN (0, 1) AND position_id != 0"
+        " GROUP BY position_id, symbol",
+    )
+    return True
+
+
+@app.command()
+def collect_history(
+    ctx: typer.Context,
+    symbol: Annotated[
+        list[str],
+        typer.Option(
+            "--symbol",
+            "-s",
+            help="Symbol to collect (repeat for multiple symbols).",
+        ),
+    ],
+    date_from: Annotated[
+        datetime,
+        typer.Option(click_type=DATETIME_TYPE, help="Start date."),
+    ],
+    date_to: Annotated[
+        datetime,
+        typer.Option(click_type=DATETIME_TYPE, help="End date."),
+    ],
+    timeframe: Annotated[
+        int,
+        typer.Option(
+            click_type=TIMEFRAME_TYPE,
+            help="Rates timeframe (e.g., M1, H1, D1).",
+        ),
+    ] = 1,
+    flags: Annotated[
+        int,
+        typer.Option(
+            click_type=TICK_FLAGS_TYPE,
+            help="Tick copy flags (ALL, INFO, TRADE, or integer).",
+        ),
+    ] = 1,
+    with_views: Annotated[
+        bool,
+        typer.Option(
+            "--with-views",
+            help=(
+                "Add cash_events and positions_reconstructed SQLite views"
+                " derived from history_deals."
+            ),
+        ),
+    ] = False,
+) -> None:
+    """Collect historical rates, ticks, orders, and deals into a SQLite database.
+
+    Tables written: ``rates``, ``ticks``, ``history_orders``, ``history_deals``.
+    With ``--with-views``, optional views ``cash_events`` and
+    ``positions_reconstructed`` are derived from ``history_deals`` when the
+    required columns are present.
+
+    Raises:
+        typer.BadParameter: If the output format is not SQLite3.
+    """
+    export_ctx = _get_export_context(ctx)
+    if export_ctx.output_format != "sqlite3":
+        msg = (
+            "collect-history requires SQLite3 output."
+            " Use a .db/.sqlite/.sqlite3 extension or --format sqlite3."
+        )
+        raise typer.BadParameter(msg)
+    client = Mt5DataClient(config=export_ctx.config)
+    client.initialize_and_login_mt5()
+    try:
+        rates_frames: list[pd.DataFrame] = []
+        ticks_frames: list[pd.DataFrame] = []
+        for sym in symbol:
+            rates_df = client.copy_rates_range_as_df(
+                symbol=sym,
+                timeframe=timeframe,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            rates_df.insert(0, "symbol", sym)
+            rates_frames.append(rates_df)
+            ticks_df = client.copy_ticks_range_as_df(
+                symbol=sym,
+                date_from=date_from,
+                date_to=date_to,
+                flags=flags,
+            )
+            ticks_df.insert(0, "symbol", sym)
+            ticks_frames.append(ticks_df)
+        rates_combined = pd.concat(rates_frames, ignore_index=True)
+        ticks_combined = pd.concat(ticks_frames, ignore_index=True)
+        history_orders_df = client.history_orders_get_as_df(
+            date_from=date_from,
+            date_to=date_to,
+        )
+        history_deals_df = client.history_deals_get_as_df(
+            date_from=date_from,
+            date_to=date_to,
+        )
+        with sqlite3.connect(export_ctx.output) as conn:
+            for name, frame in (
+                ("rates", rates_combined),
+                ("ticks", ticks_combined),
+                ("history_orders", history_orders_df),
+                ("history_deals", history_deals_df),
+            ):
+                frame.to_sql(  # type: ignore[reportUnknownMemberType]
+                    name,
+                    conn,
+                    if_exists="replace",
+                    index=False,
+                )
+            if with_views:
+                deals_columns = set(history_deals_df.columns)
+                _create_cash_events_view(conn, deals_columns)
+                _create_positions_reconstructed_view(conn, deals_columns)
+        logger.info(
+            "Collected history for %d symbol(s) into %s",
+            len(symbol),
+            export_ctx.output,
+        )
+    finally:
+        client.shutdown()
 
 
 def main() -> None:

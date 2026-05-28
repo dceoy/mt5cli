@@ -85,6 +85,19 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
 
+### Bulk Collection
+
+| Command           | Description                                                                                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `collect-history` | Collect rates, ticks, history-orders, and history-deals for one or more symbols into a single SQLite database (optional cash-event/position views) |
+
+```bash
+mt5cli -o history.db collect-history \
+  --symbol EURUSD --symbol GBPUSD \
+  --date-from 2024-01-01 --date-to 2024-02-01 \
+  --timeframe M1 --flags ALL --with-views
+```
+
 ## Global Options
 
 | Option         | Description                                             |
