@@ -77,7 +77,7 @@ Use `order-check` to validate a request payload before running `order-send --yes
 
 ### `collect-history`
 
-Collect several historical datasets per symbol into one SQLite database in a single MT5 session. Pick datasets with repeatable `--dataset` (default: all four), choose conflict behavior with `--if-exists append|replace|fail`, and optionally derive `cash_events` / `positions_reconstructed` views from `history_deals` via `--with-views`.
+Collect several historical datasets per symbol into one SQLite database in a single MT5 session. Pick datasets with repeatable `--dataset` (default: all four), choose conflict behavior with `--if-exists append|replace|fail` (default: `fail`), and optionally derive `cash_events` / `positions_reconstructed` views from `history_deals` via `--with-views`.
 
 ```bash
 mt5cli -o history.db collect-history \

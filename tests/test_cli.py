@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from datetime import UTC, datetime
@@ -24,6 +25,9 @@ from mt5cli.cli import (
     TICK_FLAGS_TYPE,
     TIMEFRAME_MAP,
     TIMEFRAME_TYPE,
+    _collect_history_per_symbol,  # type: ignore[reportPrivateUsage]
+    _collect_rates,  # type: ignore[reportPrivateUsage]
+    _collect_ticks,  # type: ignore[reportPrivateUsage]
     _execute_export,  # type: ignore[reportPrivateUsage]
     _ExportContext,  # type: ignore[reportPrivateUsage]
     app,
@@ -1014,8 +1018,8 @@ class TestCallback:
 
 
 _DEALS_FIXTURE: dict[str, list[object]] = {
-    "ticket": [1, 2, 3, 4, 5, 6, 7, 8, 9],
-    "position_id": [100, 100, 100, 0, 200, 200, 300, 400, 400],
+    "ticket": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+    "position_id": [100, 100, 100, 0, 200, 200, 300, 400, 400, 500, 500, 600, 600, 600],
     "symbol": [
         "EURUSD",
         "EURUSD",
@@ -1026,15 +1030,35 @@ _DEALS_FIXTURE: dict[str, list[object]] = {
         "GBPUSD",
         "GBPUSD",
         "GBPUSD",
+        "EURUSD",
+        "EURUSD",
+        "GBPUSD",
+        "GBPUSD",
+        "GBPUSD",
     ],
-    "time": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "time": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
     # type: 0=BUY, 1=SELL, 2=BALANCE
-    "type": [0, 0, 1, 2, 0, 1, 0, 0, 2],
+    "type": [0, 0, 1, 2, 0, 1, 0, 0, 2, 0, 1, 0, 1, 1],
     # entry: 0=IN, 1=OUT, 2=INOUT (reversal), 3=OUT_BY
-    "entry": [0, 0, 1, 0, 0, 1, 0, 0, 2],
-    "volume": [1.0, 3.0, 4.0, 0.0, 2.0, 2.0, 5.0, 1.0, 1.0],
-    "price": [1.10, 1.20, 1.50, 0.0, 2.00, 2.20, 1.30, 1.30, 1.40],
-    "profit": [0.0, 0.0, 10.0, 5.0, 0.0, 8.0, 0.0, 0.0, -1.0],
+    "entry": [0, 0, 1, 0, 0, 1, 0, 0, 2, 0, 3, 0, 2, 1],
+    "volume": [1.0, 3.0, 4.0, 0.0, 2.0, 2.0, 5.0, 1.0, 1.0, 2.0, 2.0, 3.0, 1.0, 3.0],
+    "price": [
+        1.10,
+        1.20,
+        1.50,
+        0.0,
+        2.00,
+        2.20,
+        1.30,
+        1.30,
+        1.40,
+        1.00,
+        1.05,
+        1.10,
+        9.99,
+        1.40,
+    ],
+    "profit": [0.0, 0.0, 10.0, 5.0, 0.0, 8.0, 0.0, 0.0, -1.0, 0.0, 3.0, 0.0, -2.0, 7.0],
 }
 
 
@@ -1373,7 +1397,7 @@ class TestCollectHistory:
         # Position 100 (BUY 1@1.10 + BUY 3@1.20 then SELL 4@1.50) is closed.
         # Position 200 (BUY 2@2.00 then SELL 2@2.20) is closed.
         # Position 300 (open-only) and 400 (reversal-only) are excluded.
-        assert set(positions) == {100, 200}
+        assert set(positions) == {100, 200, 500, 600}
         pos_100 = positions[100]
         tol = 1e-9
         assert abs(pos_100[1] - 4.0) < tol  # volume_open
@@ -1384,6 +1408,62 @@ class TestCollectHistory:
         # Volume-weighted close: (4*1.50) / 4 = 1.50
         assert abs(pos_100[5] - 1.50) < tol
         assert pos_100[6] == 0  # reversal_count
+        pos_500 = positions[500]
+        assert abs(pos_500[2] - 2.0) < tol  # OUT_BY contributes to close volume
+        assert abs(pos_500[5] - 1.05) < tol
+        pos_600 = positions[600]
+        assert abs(pos_600[1] - 3.0) < tol
+        assert abs(pos_600[2] - 3.0) < tol
+        assert abs(pos_600[3] - 1.0) < tol
+        assert abs(pos_600[4] - 1.10) < tol
+        assert abs(pos_600[5] - 1.40) < tol
+        assert pos_600[6] == 1
+
+    def test_collect_history_filters_history_symbols_exactly(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that history wildcard results are filtered to exact symbols."""
+        client = MagicMock()
+        client.history_orders_get_as_df.return_value = pd.DataFrame({
+            "ticket": [1, 2],
+            "symbol": ["EURUSD", "EURUSDm"],
+        })
+        client.history_deals_get_as_df.return_value = pd.DataFrame({
+            "ticket": [3, 4],
+            "symbol": ["EURUSD", "EURUSDm"],
+        })
+        mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
+        output = tmp_path / "history.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--symbol",
+                "EURUSD",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+                "--dataset",
+                "history-orders",
+                "--dataset",
+                "history-deals",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        with sqlite3.connect(output) as conn:
+            order_symbols = conn.execute(
+                "SELECT DISTINCT symbol FROM history_orders",
+            ).fetchall()
+            deal_symbols = conn.execute(
+                "SELECT DISTINCT symbol FROM history_deals",
+            ).fetchall()
+        assert order_symbols == [("EURUSD",)]
+        assert deal_symbols == [("EURUSD",)]
 
     def test_collect_history_requires_sqlite_format(
         self,
@@ -1434,6 +1514,7 @@ class TestCollectHistory:
         self,
         tmp_path: Path,
         mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that views are not created when required columns are missing."""
         client = MagicMock()
@@ -1441,6 +1522,46 @@ class TestCollectHistory:
         client.copy_ticks_range_as_df.return_value = pd.DataFrame({"x": [1]})
         client.history_orders_get_as_df.return_value = pd.DataFrame({"x": [1]})
         client.history_deals_get_as_df.return_value = pd.DataFrame({"x": [1]})
+        mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
+        output = tmp_path / "history.db"
+        with caplog.at_level(logging.WARNING, logger="mt5cli.cli"):
+            result = runner.invoke(
+                app,
+                [
+                    "-o",
+                    str(output),
+                    "collect-history",
+                    "--symbol",
+                    "EURUSD",
+                    "--date-from",
+                    "2024-01-01",
+                    "--date-to",
+                    "2024-02-01",
+                    "--with-views",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        with sqlite3.connect(output) as conn:
+            views = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'",
+                ).fetchall()
+            }
+        assert "cash_events" not in views
+        assert "positions_reconstructed" not in views
+        assert "Skipping cash_events view" in caplog.text
+        assert "Skipping positions_reconstructed view" in caplog.text
+
+    def test_collect_history_skips_empty_history_without_columns(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that empty no-column history results do not fail collection."""
+        client = MagicMock()
+        client.copy_rates_range_as_df.return_value = pd.DataFrame({"time": [1]})
+        client.history_deals_get_as_df.return_value = pd.DataFrame()
         mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
         output = tmp_path / "history.db"
         result = runner.invoke(
@@ -1455,19 +1576,71 @@ class TestCollectHistory:
                 "2024-01-01",
                 "--date-to",
                 "2024-02-01",
-                "--with-views",
+                "--dataset",
+                "rates",
+                "--dataset",
+                "history-deals",
             ],
         )
         assert result.exit_code == 0, result.output
         with sqlite3.connect(output) as conn:
-            views = {
+            tables = {
                 row[0]
                 for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='view'",
+                    "SELECT name FROM sqlite_master WHERE type='table'",
                 ).fetchall()
             }
-        assert "cash_events" not in views
-        assert "positions_reconstructed" not in views
+        assert "rates" in tables
+        assert "history_deals" not in tables
+
+    def test_collect_history_warns_when_views_requested_without_deals(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,  # noqa: ARG002
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test that --with-views warns when history-deals is not selected."""
+        output = tmp_path / "history.db"
+        with caplog.at_level(logging.WARNING, logger="mt5cli.cli"):
+            result = runner.invoke(
+                app,
+                [
+                    "-o",
+                    str(output),
+                    "collect-history",
+                    "--symbol",
+                    "EURUSD",
+                    "--date-from",
+                    "2024-01-01",
+                    "--date-to",
+                    "2024-02-01",
+                    "--dataset",
+                    "rates",
+                    "--with-views",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert "--with-views ignored" in caplog.text
+
+    def test_collect_helpers_handle_no_symbols(self) -> None:
+        """Test collection helpers return empty frames for no symbols."""
+        client = MagicMock()
+        date_from = datetime(2024, 1, 1, tzinfo=UTC)
+        date_to = datetime(2024, 2, 1, tzinfo=UTC)
+        rates = _collect_rates(client, [], 1, date_from, date_to)
+        ticks = _collect_ticks(client, [], 1, date_from, date_to)
+        history = _collect_history_per_symbol(
+            client.history_deals_get_as_df,
+            [],
+            date_from,
+            date_to,
+        )
+        assert rates.empty
+        assert ticks.empty
+        assert history.empty
+        client.copy_rates_range_as_df.assert_not_called()
+        client.copy_ticks_range_as_df.assert_not_called()
+        client.history_deals_get_as_df.assert_not_called()
 
 
 class TestMain:

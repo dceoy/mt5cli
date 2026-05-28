@@ -109,7 +109,7 @@ mt5cli -o history.db collect-history \
 | `--dataset`    | all four   | Repeatable: `rates`, `ticks`, `history-orders`, `history-deals`.                              |
 | `--timeframe`  | `M1`       | Rates timeframe; recorded in a `timeframe` column on the `rates` table.                       |
 | `--flags`      | `ALL`      | Tick copy flags forwarded to `copy_ticks_range`.                                              |
-| `--if-exists`  | `replace`  | `append`, `replace`, or `fail` when a target table already exists.                            |
+| `--if-exists`  | `fail`     | `append`, `replace`, or `fail` when a target table already exists.                            |
 | `--with-views` | off        | Add `cash_events` and `positions_reconstructed` views (requires the `history-deals` dataset). |
 
 History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `positions_reconstructed` view excludes positions with no closing deal, uses volume-weighted open/close prices, and reports reversal deals (`DEAL_ENTRY_INOUT`) via `volume_reversal` / `reversal_count`.

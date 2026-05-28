@@ -56,6 +56,7 @@ TICK_FLAG_MAP: dict[str, int] = {
 }
 
 _TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)
+_TRADE_DEAL_TYPES_SQL = f"({', '.join(str(value) for value in _TRADE_DEAL_TYPES)})"
 _POSITIONS_VIEW_REQUIRED_COLUMNS: frozenset[str] = frozenset({
     "position_id",
     "symbol",
@@ -944,11 +945,12 @@ def _create_cash_events_view(
         True if the view was created, False if required columns are missing.
     """
     if "type" not in deals_columns:
+        logger.warning("Skipping cash_events view: history_deals.type is missing")
         return False
     conn.execute("DROP VIEW IF EXISTS cash_events")
     conn.execute(
-        "CREATE VIEW cash_events AS"
-        " SELECT * FROM history_deals WHERE type NOT IN (0, 1)",
+        "CREATE VIEW cash_events AS"  # noqa: S608
+        f" SELECT * FROM history_deals WHERE type NOT IN {_TRADE_DEAL_TYPES_SQL}",
     )
     return True
 
@@ -977,10 +979,15 @@ def _create_positions_reconstructed_view(
         True if the view was created, False if required columns are missing.
     """
     if not _POSITIONS_VIEW_REQUIRED_COLUMNS.issubset(deals_columns):
+        missing = ", ".join(sorted(_POSITIONS_VIEW_REQUIRED_COLUMNS - deals_columns))
+        logger.warning(
+            "Skipping positions_reconstructed view: history_deals missing columns: %s",
+            missing,
+        )
         return False
     conn.execute("DROP VIEW IF EXISTS positions_reconstructed")
     conn.execute(
-        "CREATE VIEW positions_reconstructed AS"
+        "CREATE VIEW positions_reconstructed AS"  # noqa: S608
         " SELECT"
         " position_id,"
         " symbol,"
@@ -1004,11 +1011,68 @@ def _create_positions_reconstructed_view(
         " SUM(CASE WHEN entry = 2 THEN 1 ELSE 0 END) AS reversal_count,"
         " COUNT(*) AS deals_count"
         " FROM history_deals"
-        " WHERE type IN (0, 1) AND position_id != 0"
+        f" WHERE type IN {_TRADE_DEAL_TYPES_SQL} AND position_id != 0"
         " GROUP BY position_id, symbol"
         " HAVING SUM(CASE WHEN entry IN (1, 3) THEN 1 ELSE 0 END) > 0",
     )
     return True
+
+
+def _write_frame_to_sqlite(
+    conn: sqlite3.Connection,
+    frame: pd.DataFrame,
+    table_name: str,
+    if_exists: IfExists,
+) -> bool:
+    """Write a non-empty-schema frame to SQLite.
+
+    Args:
+        conn: Open SQLite connection.
+        frame: DataFrame to write.
+        table_name: Target SQLite table name.
+        if_exists: Table conflict behavior.
+
+    Returns:
+        True if a table was written, False if the frame had no columns.
+    """
+    if len(frame.columns) == 0:
+        logger.warning("Skipping %s: dataset returned no columns", table_name)
+        return False
+    frame.to_sql(  # type: ignore[reportUnknownMemberType]
+        table_name,
+        conn,
+        if_exists=if_exists.value,
+        index=False,
+        chunksize=50_000,
+        method="multi",
+    )
+    return True
+
+
+def _create_collect_history_indexes(
+    conn: sqlite3.Connection,
+    written_frames: dict[Dataset, pd.DataFrame],
+) -> None:
+    """Create useful indexes for collected history tables when present."""
+    if {"symbol", "time"}.issubset(
+        written_frames.get(Dataset.rates, pd.DataFrame()).columns
+    ):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rates_symbol_time ON rates(symbol, time)",
+        )
+    if {"symbol", "time"}.issubset(
+        written_frames.get(Dataset.ticks, pd.DataFrame()).columns
+    ):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ticks_symbol_time ON ticks(symbol, time)",
+        )
+    if {"position_id", "symbol"}.issubset(
+        written_frames.get(Dataset.history_deals, pd.DataFrame()).columns,
+    ):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_deals_position_symbol"
+            " ON history_deals(position_id, symbol)",
+        )
 
 
 def _collect_rates(
@@ -1041,6 +1105,8 @@ def _collect_rates(
         df.insert(0, "symbol", sym)
         df.insert(1, "timeframe", timeframe)
         frames.append(df)
+    if not frames:
+        return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
 
 
@@ -1073,6 +1139,8 @@ def _collect_ticks(
         )
         df.insert(0, "symbol", sym)
         frames.append(df)
+    if not frames:
+        return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
 
 
@@ -1093,9 +1161,14 @@ def _collect_history_per_symbol(
     Returns:
         Concatenated history DataFrame.
     """
-    frames: list[pd.DataFrame] = [
-        fetch(date_from=date_from, date_to=date_to, symbol=sym) for sym in symbols
-    ]
+    frames: list[pd.DataFrame] = []
+    for sym in symbols:
+        df = fetch(date_from=date_from, date_to=date_to, symbol=sym)
+        if "symbol" in df.columns:
+            df = df[df["symbol"] == sym]
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
 
 
@@ -1148,7 +1221,7 @@ def collect_history(
             "--if-exists",
             help="Behavior when a target table already exists.",
         ),
-    ] = IfExists.REPLACE,
+    ] = IfExists.FAIL,
     with_views: Annotated[
         bool,
         typer.Option(
@@ -1217,17 +1290,28 @@ def collect_history(
                 date_to,
             )
         with sqlite3.connect(export_ctx.output) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            written_tables: set[Dataset] = set()
+            written_frames: dict[Dataset, pd.DataFrame] = {}
             for ds, frame in frames.items():
-                frame.to_sql(  # type: ignore[reportUnknownMemberType]
-                    _DATASET_TABLE_NAMES[ds],
+                if _write_frame_to_sqlite(
                     conn,
-                    if_exists=if_exists.value,
-                    index=False,
-                )
-            if with_views and Dataset.history_deals in frames:
+                    frame,
+                    _DATASET_TABLE_NAMES[ds],
+                    if_exists,
+                ):
+                    written_tables.add(ds)
+                    written_frames[ds] = frame
+            _create_collect_history_indexes(conn, written_frames)
+            if with_views and Dataset.history_deals in written_tables:
                 deals_columns = set(frames[Dataset.history_deals].columns)
                 _create_cash_events_view(conn, deals_columns)
                 _create_positions_reconstructed_view(conn, deals_columns)
+            elif with_views:
+                logger.warning(
+                    "--with-views ignored: history-deals dataset not selected"
+                )
         logger.info(
             "Collected %s for %d symbol(s) into %s",
             ", ".join(sorted(ds.value for ds in datasets)),
