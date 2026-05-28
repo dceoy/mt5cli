@@ -12,12 +12,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, TypeGuard, cast
 
 import click
-import pandas as pd
 import typer
 from pdmt5 import Mt5Config, Mt5DataClient
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -1051,23 +1052,19 @@ def _write_frame_to_sqlite(
 
 def _create_collect_history_indexes(
     conn: sqlite3.Connection,
-    written_frames: dict[Dataset, pd.DataFrame],
+    written_columns: dict[Dataset, set[str]],
 ) -> None:
     """Create useful indexes for collected history tables when present."""
-    if {"symbol", "time"}.issubset(
-        written_frames.get(Dataset.rates, pd.DataFrame()).columns
-    ):
+    if {"symbol", "time"}.issubset(written_columns.get(Dataset.rates, set())):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rates_symbol_time ON rates(symbol, time)",
         )
-    if {"symbol", "time"}.issubset(
-        written_frames.get(Dataset.ticks, pd.DataFrame()).columns
-    ):
+    if {"symbol", "time"}.issubset(written_columns.get(Dataset.ticks, set())):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_ticks_symbol_time ON ticks(symbol, time)",
         )
     if {"position_id", "symbol"}.issubset(
-        written_frames.get(Dataset.history_deals, pd.DataFrame()).columns,
+        written_columns.get(Dataset.history_deals, set())
     ):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_history_deals_position_symbol"
@@ -1075,101 +1072,258 @@ def _create_collect_history_indexes(
         )
 
 
-def _collect_rates(
+def _record_written_columns(
+    written_columns: dict[Dataset, set[str]],
+    dataset: Dataset,
+    frame: pd.DataFrame,
+) -> None:
+    """Remember columns for datasets written during streaming collection."""
+    columns = set(frame.columns)
+    if dataset in written_columns:
+        written_columns[dataset].update(columns)
+    else:
+        written_columns[dataset] = columns
+
+
+def _write_streamed_frame(
+    conn: sqlite3.Connection,
+    frame: pd.DataFrame,
+    dataset: Dataset,
+    table_exists: bool,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Write one streamed dataset frame and track table state.
+
+    Args:
+        conn: Open SQLite connection.
+        frame: DataFrame to write.
+        dataset: Dataset being written.
+        table_exists: Whether this dataset table has already been written.
+        if_exists: Initial table conflict behavior.
+        written_columns: Mutable map of columns written by dataset.
+
+    Returns:
+        True if the dataset table exists after this write attempt.
+    """
+    write_mode = IfExists.APPEND if table_exists else if_exists
+    if _write_frame_to_sqlite(
+        conn,
+        frame,
+        _DATASET_TABLE_NAMES[dataset],
+        write_mode,
+    ):
+        _record_written_columns(written_columns, dataset, frame)
+        return True
+    return table_exists
+
+
+def _write_rates_dataset(
+    conn: sqlite3.Connection,
     client: Mt5DataClient,
     symbols: list[str],
     timeframe: int,
     date_from: datetime,
     date_to: datetime,
-) -> pd.DataFrame:
-    """Fetch rates per symbol and concatenate with symbol/timeframe columns.
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Stream rates frames into SQLite.
 
     Args:
+        conn: Open SQLite connection.
         client: Connected MT5 data client.
         symbols: Symbols to collect.
         timeframe: Rates timeframe integer.
         date_from: Start date.
         date_to: End date.
+        if_exists: Initial table conflict behavior.
+        written_columns: Mutable map of columns written by dataset.
 
     Returns:
-        Concatenated rates DataFrame.
+        True if the rates table was written.
     """
-    frames: list[pd.DataFrame] = []
+    table_exists = False
     for sym in symbols:
-        df = client.copy_rates_range_as_df(
+        frame = client.copy_rates_range_as_df(
             symbol=sym,
             timeframe=timeframe,
             date_from=date_from,
             date_to=date_to,
         )
-        df.insert(0, "symbol", sym)
-        df.insert(1, "timeframe", timeframe)
-        frames.append(df)
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
+        frame.insert(0, "symbol", sym)
+        frame.insert(1, "timeframe", timeframe)
+        table_exists = _write_streamed_frame(
+            conn,
+            frame,
+            Dataset.rates,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
 
 
-def _collect_ticks(
+def _write_ticks_dataset(
+    conn: sqlite3.Connection,
     client: Mt5DataClient,
     symbols: list[str],
     flags: int,
     date_from: datetime,
     date_to: datetime,
-) -> pd.DataFrame:
-    """Fetch ticks per symbol and concatenate with a symbol column.
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Stream ticks frames into SQLite.
 
     Args:
+        conn: Open SQLite connection.
         client: Connected MT5 data client.
         symbols: Symbols to collect.
         flags: Tick copy flags integer.
         date_from: Start date.
         date_to: End date.
+        if_exists: Initial table conflict behavior.
+        written_columns: Mutable map of columns written by dataset.
 
     Returns:
-        Concatenated ticks DataFrame.
+        True if the ticks table was written.
     """
-    frames: list[pd.DataFrame] = []
+    table_exists = False
     for sym in symbols:
-        df = client.copy_ticks_range_as_df(
+        frame = client.copy_ticks_range_as_df(
             symbol=sym,
             date_from=date_from,
             date_to=date_to,
             flags=flags,
         )
-        df.insert(0, "symbol", sym)
-        frames.append(df)
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
+        frame.insert(0, "symbol", sym)
+        table_exists = _write_streamed_frame(
+            conn,
+            frame,
+            Dataset.ticks,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
 
 
-def _collect_history_per_symbol(
+def _write_history_dataset(
+    conn: sqlite3.Connection,
     fetch: Callable[..., pd.DataFrame],
+    dataset: Dataset,
     symbols: list[str],
     date_from: datetime,
     date_to: datetime,
-) -> pd.DataFrame:
-    """Fetch a history dataset per symbol and concatenate the results.
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Stream a history dataset into SQLite with exact symbol filtering.
 
     Args:
+        conn: Open SQLite connection.
         fetch: Bound history_orders_get_as_df / history_deals_get_as_df method.
+        dataset: History dataset being written.
         symbols: Symbols to collect.
         date_from: Start date.
         date_to: End date.
+        if_exists: Initial table conflict behavior.
+        written_columns: Mutable map of columns written by dataset.
 
     Returns:
-        Concatenated history DataFrame.
+        True if the history table was written.
     """
-    frames: list[pd.DataFrame] = []
+    table_exists = False
     for sym in symbols:
-        df = fetch(date_from=date_from, date_to=date_to, symbol=sym)
-        if "symbol" in df.columns:
-            df = df[df["symbol"] == sym]
-        frames.append(df)
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
+        frame = fetch(date_from=date_from, date_to=date_to, symbol=sym)
+        if "symbol" in frame.columns:
+            frame = frame[frame["symbol"] == sym]
+        table_exists = _write_streamed_frame(
+            conn,
+            frame,
+            dataset,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
+
+
+def _write_collected_datasets(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: list[str],
+    datasets: set[Dataset],
+    timeframe: int,
+    flags: int,
+    date_from: datetime,
+    date_to: datetime,
+    if_exists: IfExists,
+) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
+    """Collect selected datasets and stream each symbol frame into SQLite.
+
+    Args:
+        conn: Open SQLite connection.
+        client: Connected MT5 data client.
+        symbols: Symbols to collect.
+        datasets: Selected datasets to write.
+        timeframe: Rates timeframe integer.
+        flags: Tick copy flags integer.
+        date_from: Start date.
+        date_to: End date.
+        if_exists: Initial table conflict behavior.
+
+    Returns:
+        Written datasets and their columns.
+    """
+    written_columns: dict[Dataset, set[str]] = {}
+    written_tables: set[Dataset] = set()
+    if Dataset.rates in datasets and _write_rates_dataset(
+        conn,
+        client,
+        symbols,
+        timeframe,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.rates)
+    if Dataset.ticks in datasets and _write_ticks_dataset(
+        conn,
+        client,
+        symbols,
+        flags,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.ticks)
+    if Dataset.history_orders in datasets and _write_history_dataset(
+        conn,
+        client.history_orders_get_as_df,
+        Dataset.history_orders,
+        symbols,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.history_orders)
+    if Dataset.history_deals in datasets and _write_history_dataset(
+        conn,
+        client.history_deals_get_as_df,
+        Dataset.history_deals,
+        symbols,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.history_deals)
+    return written_tables, written_columns
 
 
 @app.command()
@@ -1258,56 +1412,27 @@ def collect_history(
     client = Mt5DataClient(config=export_ctx.config)
     client.initialize_and_login_mt5()
     try:
-        frames: dict[Dataset, pd.DataFrame] = {}
-        if Dataset.rates in datasets:
-            frames[Dataset.rates] = _collect_rates(
-                client,
-                symbol,
-                timeframe,
-                date_from,
-                date_to,
-            )
-        if Dataset.ticks in datasets:
-            frames[Dataset.ticks] = _collect_ticks(
-                client,
-                symbol,
-                flags,
-                date_from,
-                date_to,
-            )
-        if Dataset.history_orders in datasets:
-            frames[Dataset.history_orders] = _collect_history_per_symbol(
-                client.history_orders_get_as_df,
-                symbol,
-                date_from,
-                date_to,
-            )
-        if Dataset.history_deals in datasets:
-            frames[Dataset.history_deals] = _collect_history_per_symbol(
-                client.history_deals_get_as_df,
-                symbol,
-                date_from,
-                date_to,
-            )
         with sqlite3.connect(export_ctx.output) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
-            written_tables: set[Dataset] = set()
-            written_frames: dict[Dataset, pd.DataFrame] = {}
-            for ds, frame in frames.items():
-                if _write_frame_to_sqlite(
-                    conn,
-                    frame,
-                    _DATASET_TABLE_NAMES[ds],
-                    if_exists,
-                ):
-                    written_tables.add(ds)
-                    written_frames[ds] = frame
-            _create_collect_history_indexes(conn, written_frames)
+            written_tables, written_columns = _write_collected_datasets(
+                conn,
+                client,
+                symbol,
+                datasets,
+                timeframe,
+                flags,
+                date_from,
+                date_to,
+                if_exists,
+            )
+            _create_collect_history_indexes(conn, written_columns)
             if with_views and Dataset.history_deals in written_tables:
-                deals_columns = set(frames[Dataset.history_deals].columns)
-                _create_cash_events_view(conn, deals_columns)
-                _create_positions_reconstructed_view(conn, deals_columns)
+                _create_cash_events_view(conn, written_columns[Dataset.history_deals])
+                _create_positions_reconstructed_view(
+                    conn,
+                    written_columns[Dataset.history_deals],
+                )
             elif with_views:
                 logger.warning(
                     "--with-views ignored: history-deals dataset not selected"

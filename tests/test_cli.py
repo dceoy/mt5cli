@@ -25,9 +25,6 @@ from mt5cli.cli import (
     TICK_FLAGS_TYPE,
     TIMEFRAME_MAP,
     TIMEFRAME_TYPE,
-    _collect_history_per_symbol,  # type: ignore[reportPrivateUsage]
-    _collect_rates,  # type: ignore[reportPrivateUsage]
-    _collect_ticks,  # type: ignore[reportPrivateUsage]
     _execute_export,  # type: ignore[reportPrivateUsage]
     _ExportContext,  # type: ignore[reportPrivateUsage]
     app,
@@ -1621,26 +1618,6 @@ class TestCollectHistory:
             )
         assert result.exit_code == 0, result.output
         assert "--with-views ignored" in caplog.text
-
-    def test_collect_helpers_handle_no_symbols(self) -> None:
-        """Test collection helpers return empty frames for no symbols."""
-        client = MagicMock()
-        date_from = datetime(2024, 1, 1, tzinfo=UTC)
-        date_to = datetime(2024, 2, 1, tzinfo=UTC)
-        rates = _collect_rates(client, [], 1, date_from, date_to)
-        ticks = _collect_ticks(client, [], 1, date_from, date_to)
-        history = _collect_history_per_symbol(
-            client.history_deals_get_as_df,
-            [],
-            date_from,
-            date_to,
-        )
-        assert rates.empty
-        assert ticks.empty
-        assert history.empty
-        client.copy_rates_range_as_df.assert_not_called()
-        client.copy_ticks_range_as_df.assert_not_called()
-        client.history_deals_get_as_df.assert_not_called()
 
 
 class TestMain:
