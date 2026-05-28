@@ -50,29 +50,44 @@ python -m mt5cli -o account.csv account-info
 
 ## Commands
 
-| Command            | Description                                                 |
-| ------------------ | ----------------------------------------------------------- |
-| `rates-from`       | Export rates from a start date                              |
-| `rates-from-pos`   | Export rates from a start position                          |
-| `rates-range`      | Export rates for a date range                               |
-| `ticks-from`       | Export ticks from a start date                              |
-| `ticks-range`      | Export ticks for a date range                               |
-| `account-info`     | Export account information                                  |
-| `terminal-info`    | Export terminal information                                 |
-| `version`          | Export MetaTrader 5 version information                     |
-| `last-error`       | Export the last error information                           |
-| `symbols`          | Export symbol list                                          |
-| `symbol-info`      | Export symbol details                                       |
-| `symbol-info-tick` | Export the last tick for a symbol                           |
-| `market-book`      | Export market depth (order book)                            |
-| `orders`           | Export active orders                                        |
-| `positions`        | Export open positions                                       |
-| `history-orders`   | Export historical orders                                    |
-| `history-deals`    | Export historical deals                                     |
-| `order-check`      | Check funds sufficiency for a trade request                 |
-| `order-send`       | Send a trade request to the trade server (`--yes` required) |
+| Command            | Description                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `rates-from`       | Export rates from a start date                                                                               |
+| `rates-from-pos`   | Export rates from a start position                                                                           |
+| `rates-range`      | Export rates for a date range                                                                                |
+| `ticks-from`       | Export ticks from a start date                                                                               |
+| `ticks-range`      | Export ticks for a date range                                                                                |
+| `account-info`     | Export account information                                                                                   |
+| `terminal-info`    | Export terminal information                                                                                  |
+| `version`          | Export MetaTrader 5 version information                                                                      |
+| `last-error`       | Export the last error information                                                                            |
+| `symbols`          | Export symbol list                                                                                           |
+| `symbol-info`      | Export symbol details                                                                                        |
+| `symbol-info-tick` | Export the last tick for a symbol                                                                            |
+| `market-book`      | Export market depth (order book)                                                                             |
+| `orders`           | Export active orders                                                                                         |
+| `positions`        | Export open positions                                                                                        |
+| `history-orders`   | Export historical orders                                                                                     |
+| `history-deals`    | Export historical deals                                                                                      |
+| `order-check`      | Check funds sufficiency for a trade request                                                                  |
+| `order-send`       | Send a trade request to the trade server (`--yes` required)                                                  |
+| `collect-history`  | Bundle rates, ticks, history-orders, and history-deals for one or more symbols into a single SQLite database |
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
+
+### `collect-history`
+
+Collect several historical datasets per symbol into one SQLite database in a single MT5 session. Pick datasets with repeatable `--dataset` (default: all four), choose conflict behavior with `--if-exists append|replace|fail`, and optionally derive `cash_events` / `positions_reconstructed` views from `history_deals` via `--with-views`.
+
+```bash
+mt5cli -o history.db collect-history \
+  --symbol EURUSD --symbol GBPUSD \
+  --date-from 2024-01-01 --date-to 2024-02-01 \
+  --dataset rates --dataset history-deals \
+  --timeframe M1 --flags ALL --if-exists append --with-views
+```
+
+History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `rates` table records the requested `timeframe` so appended runs at different timeframes remain distinguishable. The `positions_reconstructed` view aggregates trade deals by `position_id`, excludes positions without closing deals, and uses volume-weighted open/close prices; reversal deals (`DEAL_ENTRY_INOUT`) are reported via `volume_reversal` / `reversal_count` columns and do not contribute to the weighted prices.
 
 ## Requirements
 

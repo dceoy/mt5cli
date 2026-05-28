@@ -100,6 +100,31 @@ class LogLevel(StrEnum):
     ERROR = "ERROR"
 
 
+class Dataset(StrEnum):
+    """Datasets supported by the ``collect-history`` command."""
+
+    rates = "rates"
+    ticks = "ticks"
+    history_orders = "history-orders"
+    history_deals = "history-deals"
+
+
+class IfExists(StrEnum):
+    """SQLite table conflict behavior for the ``collect-history`` command."""
+
+    APPEND = "append"
+    REPLACE = "replace"
+    FAIL = "fail"
+
+
+_DATASET_TABLE_NAMES: dict[Dataset, str] = {
+    Dataset.rates: "rates",
+    Dataset.ticks: "ticks",
+    Dataset.history_orders: "history_orders",
+    Dataset.history_deals: "history_deals",
+}
+
+
 # ---------------------------------------------------------------------------
 # Click parameter types
 # ---------------------------------------------------------------------------
@@ -934,6 +959,16 @@ def _create_positions_reconstructed_view(
 ) -> bool:
     """Create the positions_reconstructed SQLite view derived from history_deals.
 
+    The view aggregates trade deals (``type IN (0, 1)``) by ``position_id`` and
+    excludes positions that have no closing deal (``entry IN (1, 3)``), so
+    still-open positions and reversal-only fragments are filtered out.
+
+    Open/close prices are volume-weighted averages over the corresponding
+    entry deals. Reversal deals (``DEAL_ENTRY_INOUT = 2``) are reported via
+    ``volume_reversal`` and ``reversal_count``; they do not contribute to the
+    open or close volume/price weights because a single reversal deal mixes a
+    close of the existing direction with the open of the new direction.
+
     Args:
         conn: Open SQLite connection.
         deals_columns: Column names present in the history_deals table.
@@ -950,19 +985,118 @@ def _create_positions_reconstructed_view(
         " position_id,"
         " symbol,"
         " MIN(CASE WHEN entry = 0 THEN time END) AS open_time,"
-        " MAX(CASE WHEN entry IN (1, 3) THEN time END) AS close_time,"
+        " MAX(CASE WHEN entry IN (1, 2, 3) THEN time END) AS close_time,"
         " MIN(CASE WHEN entry = 0 THEN type END) AS direction,"
         " SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END) AS volume_open,"
         " SUM(CASE WHEN entry IN (1, 3) THEN volume ELSE 0 END) AS volume_close,"
-        " AVG(CASE WHEN entry = 0 THEN price END) AS open_price,"
-        " AVG(CASE WHEN entry IN (1, 3) THEN price END) AS close_price,"
+        " SUM(CASE WHEN entry = 2 THEN volume ELSE 0 END) AS volume_reversal,"
+        " CASE"
+        " WHEN SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END) > 0"
+        " THEN SUM(CASE WHEN entry = 0 THEN price * volume ELSE 0 END)"
+        " / SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END)"
+        " END AS open_price,"
+        " CASE"
+        " WHEN SUM(CASE WHEN entry IN (1, 3) THEN volume ELSE 0 END) > 0"
+        " THEN SUM(CASE WHEN entry IN (1, 3) THEN price * volume ELSE 0 END)"
+        " / SUM(CASE WHEN entry IN (1, 3) THEN volume ELSE 0 END)"
+        " END AS close_price,"
         " SUM(profit) AS total_profit,"
+        " SUM(CASE WHEN entry = 2 THEN 1 ELSE 0 END) AS reversal_count,"
         " COUNT(*) AS deals_count"
         " FROM history_deals"
         " WHERE type IN (0, 1) AND position_id != 0"
-        " GROUP BY position_id, symbol",
+        " GROUP BY position_id, symbol"
+        " HAVING SUM(CASE WHEN entry IN (1, 3) THEN 1 ELSE 0 END) > 0",
     )
     return True
+
+
+def _collect_rates(
+    client: Mt5DataClient,
+    symbols: list[str],
+    timeframe: int,
+    date_from: datetime,
+    date_to: datetime,
+) -> pd.DataFrame:
+    """Fetch rates per symbol and concatenate with symbol/timeframe columns.
+
+    Args:
+        client: Connected MT5 data client.
+        symbols: Symbols to collect.
+        timeframe: Rates timeframe integer.
+        date_from: Start date.
+        date_to: End date.
+
+    Returns:
+        Concatenated rates DataFrame.
+    """
+    frames: list[pd.DataFrame] = []
+    for sym in symbols:
+        df = client.copy_rates_range_as_df(
+            symbol=sym,
+            timeframe=timeframe,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        df.insert(0, "symbol", sym)
+        df.insert(1, "timeframe", timeframe)
+        frames.append(df)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _collect_ticks(
+    client: Mt5DataClient,
+    symbols: list[str],
+    flags: int,
+    date_from: datetime,
+    date_to: datetime,
+) -> pd.DataFrame:
+    """Fetch ticks per symbol and concatenate with a symbol column.
+
+    Args:
+        client: Connected MT5 data client.
+        symbols: Symbols to collect.
+        flags: Tick copy flags integer.
+        date_from: Start date.
+        date_to: End date.
+
+    Returns:
+        Concatenated ticks DataFrame.
+    """
+    frames: list[pd.DataFrame] = []
+    for sym in symbols:
+        df = client.copy_ticks_range_as_df(
+            symbol=sym,
+            date_from=date_from,
+            date_to=date_to,
+            flags=flags,
+        )
+        df.insert(0, "symbol", sym)
+        frames.append(df)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _collect_history_per_symbol(
+    fetch: Callable[..., pd.DataFrame],
+    symbols: list[str],
+    date_from: datetime,
+    date_to: datetime,
+) -> pd.DataFrame:
+    """Fetch a history dataset per symbol and concatenate the results.
+
+    Args:
+        fetch: Bound history_orders_get_as_df / history_deals_get_as_df method.
+        symbols: Symbols to collect.
+        date_from: Start date.
+        date_to: End date.
+
+    Returns:
+        Concatenated history DataFrame.
+    """
+    frames: list[pd.DataFrame] = [
+        fetch(date_from=date_from, date_to=date_to, symbol=sym) for sym in symbols
+    ]
+    return pd.concat(frames, ignore_index=True)
 
 
 @app.command()
@@ -984,6 +1118,16 @@ def collect_history(
         datetime,
         typer.Option(click_type=DATETIME_TYPE, help="End date."),
     ],
+    dataset: Annotated[
+        list[Dataset] | None,
+        typer.Option(
+            "--dataset",
+            help=(
+                "Dataset to include (repeat for multiple)."
+                " Defaults to all: rates, ticks, history-orders, history-deals."
+            ),
+        ),
+    ] = None,
     timeframe: Annotated[
         int,
         typer.Option(
@@ -998,6 +1142,13 @@ def collect_history(
             help="Tick copy flags (ALL, INFO, TRADE, or integer).",
         ),
     ] = 1,
+    if_exists: Annotated[
+        IfExists,
+        typer.Option(
+            "--if-exists",
+            help="Behavior when a target table already exists.",
+        ),
+    ] = IfExists.REPLACE,
     with_views: Annotated[
         bool,
         typer.Option(
@@ -1009,12 +1160,16 @@ def collect_history(
         ),
     ] = False,
 ) -> None:
-    """Collect historical rates, ticks, orders, and deals into a SQLite database.
+    """Collect historical datasets into a single SQLite database.
 
-    Tables written: ``rates``, ``ticks``, ``history_orders``, ``history_deals``.
-    With ``--with-views``, optional views ``cash_events`` and
-    ``positions_reconstructed`` are derived from ``history_deals`` when the
-    required columns are present.
+    Tables written depend on ``--dataset``: ``rates``, ``ticks``,
+    ``history_orders``, ``history_deals``. History datasets are fetched per
+    symbol and concatenated. Rates rows carry the requested ``timeframe`` so
+    appended runs at different timeframes remain distinguishable.
+
+    With ``--with-views`` (requires the ``history-deals`` dataset), optional
+    views ``cash_events`` and ``positions_reconstructed`` are derived from
+    ``history_deals`` when the required columns are present.
 
     Raises:
         typer.BadParameter: If the output format is not SQLite3.
@@ -1026,57 +1181,56 @@ def collect_history(
             " Use a .db/.sqlite/.sqlite3 extension or --format sqlite3."
         )
         raise typer.BadParameter(msg)
+    datasets = set(dataset) if dataset else set(Dataset)
     client = Mt5DataClient(config=export_ctx.config)
     client.initialize_and_login_mt5()
     try:
-        rates_frames: list[pd.DataFrame] = []
-        ticks_frames: list[pd.DataFrame] = []
-        for sym in symbol:
-            rates_df = client.copy_rates_range_as_df(
-                symbol=sym,
-                timeframe=timeframe,
-                date_from=date_from,
-                date_to=date_to,
+        frames: dict[Dataset, pd.DataFrame] = {}
+        if Dataset.rates in datasets:
+            frames[Dataset.rates] = _collect_rates(
+                client,
+                symbol,
+                timeframe,
+                date_from,
+                date_to,
             )
-            rates_df.insert(0, "symbol", sym)
-            rates_frames.append(rates_df)
-            ticks_df = client.copy_ticks_range_as_df(
-                symbol=sym,
-                date_from=date_from,
-                date_to=date_to,
-                flags=flags,
+        if Dataset.ticks in datasets:
+            frames[Dataset.ticks] = _collect_ticks(
+                client,
+                symbol,
+                flags,
+                date_from,
+                date_to,
             )
-            ticks_df.insert(0, "symbol", sym)
-            ticks_frames.append(ticks_df)
-        rates_combined = pd.concat(rates_frames, ignore_index=True)
-        ticks_combined = pd.concat(ticks_frames, ignore_index=True)
-        history_orders_df = client.history_orders_get_as_df(
-            date_from=date_from,
-            date_to=date_to,
-        )
-        history_deals_df = client.history_deals_get_as_df(
-            date_from=date_from,
-            date_to=date_to,
-        )
+        if Dataset.history_orders in datasets:
+            frames[Dataset.history_orders] = _collect_history_per_symbol(
+                client.history_orders_get_as_df,
+                symbol,
+                date_from,
+                date_to,
+            )
+        if Dataset.history_deals in datasets:
+            frames[Dataset.history_deals] = _collect_history_per_symbol(
+                client.history_deals_get_as_df,
+                symbol,
+                date_from,
+                date_to,
+            )
         with sqlite3.connect(export_ctx.output) as conn:
-            for name, frame in (
-                ("rates", rates_combined),
-                ("ticks", ticks_combined),
-                ("history_orders", history_orders_df),
-                ("history_deals", history_deals_df),
-            ):
+            for ds, frame in frames.items():
                 frame.to_sql(  # type: ignore[reportUnknownMemberType]
-                    name,
+                    _DATASET_TABLE_NAMES[ds],
                     conn,
-                    if_exists="replace",
+                    if_exists=if_exists.value,
                     index=False,
                 )
-            if with_views:
-                deals_columns = set(history_deals_df.columns)
+            if with_views and Dataset.history_deals in frames:
+                deals_columns = set(frames[Dataset.history_deals].columns)
                 _create_cash_events_view(conn, deals_columns)
                 _create_positions_reconstructed_view(conn, deals_columns)
         logger.info(
-            "Collected history for %d symbol(s) into %s",
+            "Collected %s for %d symbol(s) into %s",
+            ", ".join(sorted(ds.value for ds in datasets)),
             len(symbol),
             export_ctx.output,
         )
