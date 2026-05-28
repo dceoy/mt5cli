@@ -112,7 +112,7 @@ mt5cli -o history.db collect-history \
 | `--if-exists`  | `fail`     | `append`, `replace`, or `fail` when a target table already exists.                            |
 | `--with-views` | off        | Add `cash_events` and `positions_reconstructed` views (requires the `history-deals` dataset). |
 
-History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `positions_reconstructed` view excludes positions with no closing deal, uses volume-weighted open/close prices, and reports reversal deals (`DEAL_ENTRY_INOUT`) via `volume_reversal` / `reversal_count`.
+History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `cash_events` view is derived from symbol-filtered `history_deals`, so account-level cash events with empty or non-matching symbols may be excluded. The `positions_reconstructed` view excludes positions with no closing deal, uses volume-weighted open/close prices, and reports reversal deals (`DEAL_ENTRY_INOUT`) via `volume_reversal` / `reversal_count`.
 
 ## Global Options
 

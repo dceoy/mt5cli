@@ -1596,7 +1596,7 @@ class TestCollectHistory:
         history_client: MagicMock,  # noqa: ARG002
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test that --with-views warns when history-deals is not selected."""
+        """Test that --with-views warns when history_deals is not written."""
         output = tmp_path / "history.db"
         with caplog.at_level(logging.WARNING, logger="mt5cli.cli"):
             result = runner.invoke(
@@ -1617,7 +1617,9 @@ class TestCollectHistory:
                 ],
             )
         assert result.exit_code == 0, result.output
-        assert "--with-views ignored" in caplog.text
+        assert (
+            "--with-views ignored: history_deals table was not written" in caplog.text
+        )
 
 
 class TestMain:

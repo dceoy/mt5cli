@@ -1435,7 +1435,7 @@ def collect_history(
                 )
             elif with_views:
                 logger.warning(
-                    "--with-views ignored: history-deals dataset not selected"
+                    "--with-views ignored: history_deals table was not written"
                 )
         logger.info(
             "Collected %s for %d symbol(s) into %s",
