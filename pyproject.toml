@@ -48,10 +48,6 @@ dev = [
   "pymdown-extensions >= 10.21.2",
 ]
 
-[tool.uv.build-backend]
-source-include = ["mt5cli/**", "LICENSE"]
-source-exclude = ["tests/**"]
-
 [tool.ruff]
 line-length = 88
 exclude = ["build", ".venv"]
