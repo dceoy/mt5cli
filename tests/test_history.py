@@ -1,4 +1,4 @@
-"""Tests for mt5cli.sqlite_history module."""
+"""Tests for mt5cli.history module."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from mt5cli.sqlite_history import (
+from mt5cli.history import (
     DEFAULT_HISTORY_TIMEFRAMES,
     append_dataframe,
     augment_written_columns_from_sqlite,
@@ -1024,7 +1024,7 @@ class TestIncrementalIntegration:
             sqlite3.connect(tmp_path / "no-keys.db") as conn,
             caplog.at_level(
                 logging.WARNING,
-                logger="mt5cli.sqlite_history",
+                logger="mt5cli.history",
             ),
         ):
             deduplicate_history_tables(conn, {Dataset.ticks: {"time"}}, {Dataset.ticks})
@@ -1059,7 +1059,7 @@ class TestIncrementalIntegration:
         client = MagicMock()
         client.copy_rates_range_as_df.return_value = pd.DataFrame()
         with (
-            caplog.at_level(logging.WARNING, logger="mt5cli.sqlite_history"),
+            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
             sqlite3.connect(tmp_path / "views-warning.db") as conn,
         ):
             write_incremental_datasets(

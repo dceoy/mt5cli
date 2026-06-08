@@ -152,7 +152,7 @@ mt5cli -o history.db collect-history \
 
 History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `cash_events` view is derived from symbol-filtered `history_deals`, so account-level cash events with empty or non-matching symbols may be excluded. The `positions_reconstructed` view excludes positions with no closing deal, uses volume-weighted open/close prices, and reports reversal deals (`DEAL_ENTRY_INOUT`) via `volume_reversal` / `reversal_count`.
 
-See the [SQLite History schema diagram](api/sqlite_history.md#entity-relationship-diagram) for a sample ER layout of the resulting database.
+See the [History schema diagram](api/history.md#entity-relationship-diagram) for a sample ER layout of the resulting database.
 
 ## Global Options
 

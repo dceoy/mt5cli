@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from mt5cli import sdk
+from mt5cli.history import DEFAULT_HISTORY_TIMEFRAMES
 from mt5cli.sdk import (
     Mt5CliClient,
     account_info,
@@ -40,7 +41,6 @@ from mt5cli.sdk import (
     update_history_with_config,
     version,
 )
-from mt5cli.sqlite_history import DEFAULT_HISTORY_TIMEFRAMES
 from mt5cli.utils import Dataset
 
 _DEALS_FIXTURE: dict[str, list[object]] = {

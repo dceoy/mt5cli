@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Self, TypeVar
 
 from pdmt5 import Mt5Config, Mt5DataClient
 
-from .sqlite_history import (
+from .history import (
     create_cash_events_view,
     create_history_indexes,
     create_positions_reconstructed_view,
