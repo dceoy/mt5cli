@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -315,6 +315,64 @@ class TestCommands:
             date_to=datetime(2024, 2, 1, tzinfo=UTC),
             flags=2,
         )
+
+    def test_ticks_recent(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test ticks-recent command."""
+        output = tmp_path / "out.csv"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "ticks-recent",
+                "--symbol",
+                "EURUSD",
+                "--seconds",
+                "120",
+                "--date-to",
+                "2024-01-02",
+                "--count",
+                "500",
+                "--flags",
+                "ALL",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        mock_client.copy_ticks_range_as_df.assert_called_once_with(
+            symbol="EURUSD",
+            date_from=datetime(2024, 1, 2, tzinfo=UTC) - timedelta(seconds=120),
+            date_to=datetime(2024, 1, 2, tzinfo=UTC),
+            flags=1,
+        )
+
+    def test_minimum_margins(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test minimum-margins command."""
+        sym = MagicMock(volume_min=0.01)
+        account = MagicMock(currency="USD")
+        tick = MagicMock(ask=1.1010, bid=1.1000)
+        mock_client.symbol_info.return_value = sym
+        mock_client.account_info.return_value = account
+        mock_client.symbol_info_tick.return_value = tick
+        mock_client.order_calc_margin.side_effect = [12.5, 12.4]
+        mock_client.mt5.ORDER_TYPE_BUY = 0
+        mock_client.mt5.ORDER_TYPE_SELL = 1
+        output = tmp_path / "out.csv"
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "minimum-margins", "--symbol", "EURUSD"],
+        )
+        assert result.exit_code == 0, result.output
+        mock_client.symbol_info.assert_called_once_with("EURUSD")
+        mock_client.order_calc_margin.assert_any_call(0, "EURUSD", 0.01, 1.1010)
+        mock_client.order_calc_margin.assert_any_call(1, "EURUSD", 0.01, 1.1000)
 
     def test_orders(
         self,

@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-import importlib
 import json
+import sqlite3
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 import click
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import pandas as pd
 
 # ---------------------------------------------------------------------------
@@ -260,6 +262,48 @@ def detect_format(
     raise ValueError(msg)
 
 
+def export_dataframe_to_sqlite(
+    df: pd.DataFrame,
+    output_path: Path,
+    table_name: str = "data",
+    *,
+    if_exists: IfExists = IfExists.REPLACE,
+    index: bool = False,
+    index_label: str | None = None,
+    deduplicate_on: Sequence[str] | None = None,
+) -> None:
+    """Write a DataFrame to SQLite with configurable append and deduplication.
+
+    Args:
+        df: DataFrame to export.
+        output_path: SQLite database path.
+        table_name: Target table name.
+        if_exists: Conflict behavior when the table already exists.
+        index: Whether to write the DataFrame index as a column.
+        index_label: Column name for the index when ``index=True``.
+        deduplicate_on: Optional key columns to deduplicate after writing,
+            keeping the latest ``ROWID`` per key group.
+    """
+    with sqlite3.connect(output_path) as conn:
+        df.to_sql(  # type: ignore[reportUnknownMemberType]
+            table_name,
+            conn,
+            if_exists=if_exists.value,
+            index=index,
+            index_label=index_label,
+        )
+        if deduplicate_on:
+            from .history import drop_duplicates_in_table  # noqa: PLC0415
+
+            drop_duplicates_in_table(
+                conn.cursor(),
+                table_name,
+                list(deduplicate_on),
+                keep="last",
+            )
+            conn.commit()
+
+
 def export_dataframe(
     df: pd.DataFrame,
     output_path: Path,
@@ -289,14 +333,13 @@ def export_dataframe(
     elif output_format == "parquet":
         df.to_parquet(output_path, index=False)
     elif output_format == "sqlite3":
-        sqlite3 = cast("Any", importlib.import_module("sqlite3"))
-        with sqlite3.connect(output_path) as conn:
-            df.to_sql(  # type: ignore[reportUnknownMemberType]
-                table_name,
-                conn,
-                if_exists="replace",
-                index=False,
-            )
+        export_dataframe_to_sqlite(
+            df,
+            output_path,
+            table_name,
+            if_exists=IfExists.REPLACE,
+            index=False,
+        )
     else:
         msg = f"Unsupported output format: {output_format}"
         raise ValueError(msg)

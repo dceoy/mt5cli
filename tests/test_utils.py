@@ -21,8 +21,10 @@ from mt5cli.utils import (
     TIMEFRAME_MAP,
     TIMEFRAME_TYPE,
     Dataset,
+    IfExists,
     detect_format,
     export_dataframe,
+    export_dataframe_to_sqlite,
     parse_datetime,
     parse_request,
     parse_tick_flags,
@@ -128,6 +130,91 @@ class TestExportDataframe:
         """Test that unsupported format raises ValueError."""
         with pytest.raises(ValueError, match="Unsupported output format"):
             export_dataframe(sample_df, tmp_path / "out.txt", "xml")
+
+
+class TestExportDataframeToSqlite:
+    """Tests for export_dataframe_to_sqlite."""
+
+    def test_append_preserves_existing_rows(self, tmp_path: Path) -> None:
+        """Test append mode keeps prior rows in the SQLite table."""
+        output = tmp_path / "append.db"
+        first = pd.DataFrame({"id": [1], "value": ["a"]})
+        second = pd.DataFrame({"id": [2], "value": ["b"]})
+        export_dataframe_to_sqlite(first, output, "items", if_exists=IfExists.REPLACE)
+        export_dataframe_to_sqlite(second, output, "items", if_exists=IfExists.APPEND)
+        with sqlite3.connect(output) as conn:
+            result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
+                "SELECT id, value FROM items ORDER BY id",
+                conn,
+            )
+        pd.testing.assert_frame_equal(
+            result,
+            pd.DataFrame({"id": [1, 2], "value": ["a", "b"]}),
+        )
+
+    def test_deduplicate_keeps_latest_row(self, tmp_path: Path) -> None:
+        """Test deduplication keeps the latest ROWID for key columns."""
+        output = tmp_path / "dedup.db"
+        first = pd.DataFrame({
+            "symbol": ["EURUSD", "EURUSD"],
+            "time": ["2024-01-01", "2024-01-01"],
+            "bid": [1.0, 1.1],
+        })
+        second = pd.DataFrame({
+            "symbol": ["EURUSD"],
+            "time": ["2024-01-01"],
+            "bid": [1.2],
+        })
+        export_dataframe_to_sqlite(
+            first,
+            output,
+            "ticks",
+            if_exists=IfExists.REPLACE,
+            deduplicate_on=("symbol", "time"),
+        )
+        export_dataframe_to_sqlite(
+            second,
+            output,
+            "ticks",
+            if_exists=IfExists.APPEND,
+            deduplicate_on=("symbol", "time"),
+        )
+        with sqlite3.connect(output) as conn:
+            result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
+                "SELECT symbol, time, bid FROM ticks",
+                conn,
+            )
+        pd.testing.assert_frame_equal(
+            result.reset_index(drop=True),
+            pd.DataFrame({
+                "symbol": ["EURUSD"],
+                "time": ["2024-01-01"],
+                "bid": [1.2],
+            }),
+        )
+
+    def test_writes_index_with_label(self, tmp_path: Path) -> None:
+        """Test optional index export with a custom label."""
+        output = tmp_path / "index.db"
+        frame = pd.DataFrame(
+            {"value": [1.0]}, index=pd.Index(["EURUSD"], name="symbol")
+        )
+        export_dataframe_to_sqlite(
+            frame,
+            output,
+            "margins",
+            index=True,
+            index_label="symbol",
+        )
+        with sqlite3.connect(output) as conn:
+            result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
+                "SELECT symbol, value FROM margins",
+                conn,
+            )
+        pd.testing.assert_frame_equal(
+            result,
+            pd.DataFrame({"symbol": ["EURUSD"], "value": [1.0]}),
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,7 @@ python -m mt5cli -o account.csv account-info
 | `rates-range`      | Export rates for a date range                                                                                |
 | `ticks-from`       | Export ticks from a start date                                                                               |
 | `ticks-range`      | Export ticks for a date range                                                                                |
+| `ticks-recent`     | Export ticks from a recent trailing window                                                                   |
 | `account-info`     | Export account information                                                                                   |
 | `terminal-info`    | Export terminal information                                                                                  |
 | `version`          | Export MetaTrader 5 version information                                                                      |
@@ -64,6 +65,7 @@ python -m mt5cli -o account.csv account-info
 | `symbols`          | Export symbol list                                                                                           |
 | `symbol-info`      | Export symbol details                                                                                        |
 | `symbol-info-tick` | Export the last tick for a symbol                                                                            |
+| `minimum-margins`  | Export minimum-volume buy and sell margin requirements                                                       |
 | `market-book`      | Export market depth (order book)                                                                             |
 | `orders`           | Export active orders                                                                                         |
 | `positions`        | Export open positions                                                                                        |
@@ -127,6 +129,9 @@ update_history_with_config(
 - **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`.
 - **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
 - **Rate compatibility views**: mt5cli manages all `rate_*` views. Naming is `rate_<symbol>__<timeframe>` when a symbol has one timeframe, otherwise `rate_<symbol>__<granularity>_<timeframe>` (for example `rate_EURUSD__M1_1`). Stale `rate_*` views are dropped and recreated when rates change for offline tools such as mteor optimize.
+- **Rate view resolution**: use `mt5cli.history.resolve_rate_view_name()` / `resolve_rate_view_names()` to map symbols and granularities to existing SQLite compatibility views without creating databases.
+- **SQLite export helpers**: use `export_dataframe_to_sqlite()` for append mode, optional index export, and post-write deduplication by key columns.
+- **Recent ticks and margins**: `recent_ticks()` and `minimum_margins()` SDK helpers (and matching CLI commands) cover common downstream read-only queries.
 
 ## Requirements
 
