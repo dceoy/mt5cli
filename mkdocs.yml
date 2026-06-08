@@ -24,6 +24,7 @@ theme:
   features:
     - content.code.annotate
     - content.code.copy
+    - content.code.mermaid
     - navigation.indexes
     - navigation.sections
     - navigation.tabs
