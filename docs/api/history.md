@@ -1,4 +1,4 @@
-# History Module
+# History Collection (SQLite)
 
 ::: mt5cli.history
 

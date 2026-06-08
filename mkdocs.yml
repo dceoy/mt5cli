@@ -58,7 +58,7 @@ nav:
       - Overview: api/index.md
       - CLI: api/cli.md
       - SDK: api/sdk.md
-      - History: api/history.md
+      - History Collection (SQLite): api/history.md
       - Utils: api/utils.md
 
 markdown_extensions:
