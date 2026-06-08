@@ -42,12 +42,6 @@ _POSITIONS_VIEW_REQUIRED_COLUMNS: frozenset[str] = frozenset({
     "price",
     "profit",
 })
-_DATASET_TABLE_NAMES: dict[Dataset, str] = {
-    Dataset.rates: "rates",
-    Dataset.ticks: "ticks",
-    Dataset.history_orders: "history_orders",
-    Dataset.history_deals: "history_deals",
-}
 
 logger = logging.getLogger(__name__)
 
@@ -730,7 +724,7 @@ def _write_streamed_frame(
     if _write_frame_to_sqlite(
         conn,
         frame,
-        _DATASET_TABLE_NAMES[dataset],
+        dataset.table_name,
         write_mode,
     ):
         _record_written_columns(written_columns, dataset, frame)

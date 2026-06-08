@@ -18,8 +18,9 @@ Utility module providing constants, enums, Click parameter types, and helper fun
 
 The package follows a simple architecture built on top of pdmt5:
 
-1. **CLI Layer** (`cli.py`): Typer application with subcommands for each data type, custom Click parameter types for datetime/timeframe/tick flags parsing, and format detection/export utilities.
-2. **Data Layer** (via `pdmt5`): Uses `Mt5DataClient` and `Mt5Config` from the pdmt5 package for all MetaTrader 5 data access.
+1. **CLI Layer** (`cli.py`): Typer application with subcommands for each data type and the MetaTrader 5 export workflow.
+2. **Utils Layer** (`utils.py`): Constants, enums, custom Click parameter types, parsing helpers, and format detection/export utilities.
+3. **Data Layer** (via `pdmt5`): Uses `Mt5DataClient` and `Mt5Config` from the pdmt5 package for all MetaTrader 5 data access.
 
 ## Usage Guidelines
 

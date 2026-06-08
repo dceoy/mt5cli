@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import importlib
 import json
-import sqlite3
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard, cast
 
 import click
 
@@ -88,6 +88,11 @@ class Dataset(StrEnum):
     ticks = "ticks"
     history_orders = "history-orders"
     history_deals = "history-deals"
+
+    @property
+    def table_name(self) -> str:
+        """Return the SQLite table name for this dataset."""
+        return self.value.replace("-", "_")
 
 
 class IfExists(StrEnum):
@@ -284,6 +289,7 @@ def export_dataframe(
     elif output_format == "parquet":
         df.to_parquet(output_path, index=False)
     elif output_format == "sqlite3":
+        sqlite3 = cast("Any", importlib.import_module("sqlite3"))
         with sqlite3.connect(output_path) as conn:
             df.to_sql(  # type: ignore[reportUnknownMemberType]
                 table_name,

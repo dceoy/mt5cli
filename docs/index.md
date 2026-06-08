@@ -138,7 +138,8 @@ History orders and deals are fetched per symbol and concatenated, so the symbol 
 
 Browse the API documentation for detailed module information:
 
-- [CLI Module](api/cli.md) - CLI application with export commands and utility functions
+- [CLI Module](api/cli.md) - CLI application with export commands
+- [Utils Module](api/utils.md) - Constants, parameter types, parsers, and export utilities
 
 ## Development
 
