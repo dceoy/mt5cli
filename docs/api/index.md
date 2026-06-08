@@ -65,12 +65,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mt5cli import (
+    Dataset,
+    IfExists,
     Mt5CliClient,
     collect_history,
     copy_rates_range,
     detect_format,
     export_dataframe,
+    export_dataframe_to_sqlite,
+    minimum_margins,
+    recent_ticks,
 )
+from mt5cli.history import resolve_rate_view_name
 
 # Fetch rates programmatically
 rates = copy_rates_range(
@@ -85,6 +91,20 @@ fmt = detect_format(Path("output.parquet"))  # Returns "parquet"
 
 # Export a DataFrame
 export_dataframe(rates, Path("output.csv"), "csv")
+
+# Append to SQLite with deduplication
+export_dataframe_to_sqlite(
+    rates,
+    Path("history.db"),
+    "rates",
+    if_exists=IfExists.APPEND,
+    deduplicate_on=("symbol", "timeframe", "time"),
+)
+
+# Resolve rate compatibility views and fetch recent ticks
+view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1")
+ticks = recent_ticks("EURUSD", seconds=300)
+margins = minimum_margins("EURUSD")
 
 # Collect history into SQLite
 collect_history(

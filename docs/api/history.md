@@ -129,3 +129,38 @@ when required columns are missing.
 The `update_history` SDK path uses the same base tables and optional
 `cash_events` / `positions_reconstructed` views. It additionally maintains
 `rate_<symbol>__<timeframe>` compatibility views when `create_rate_views=True`.
+
+### Rate view resolution
+
+Downstream tools can resolve mt5cli-managed compatibility view names from an
+existing SQLite history database without creating files or guessing legacy
+naming schemes:
+
+```python
+from pathlib import Path
+
+from mt5cli.history import resolve_rate_view_name, resolve_rate_view_names
+
+# Single symbol and granularity
+view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1")
+
+# Batch resolution in row-major order
+views = resolve_rate_view_names(
+    Path("history.db"),
+    ["EURUSD", "GBPUSD"],
+    ["M1", "H1"],
+)
+```
+
+Resolution rules:
+
+- Returns `rate_<symbol>__<timeframe>` when a symbol stores one timeframe.
+- Returns `rate_<symbol>__<granularity>_<timeframe>` when multiple timeframes
+  are stored for the same symbol.
+- When multiple naming candidates apply, prefers an existing managed
+  `rate_*__*` view from the candidate list.
+- Falls back to single-timeframe naming when the database path is missing or
+  `rates` metadata is unavailable.
+- Pass `require_existing=True` to raise `ValueError` instead of returning a
+  best-guess name when the database or view is missing.
+- Accepts either a SQLite path or an open `sqlite3.Connection`.

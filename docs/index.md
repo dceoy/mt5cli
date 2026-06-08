@@ -22,13 +22,22 @@ pip install mt5cli
 
 ## Programmatic usage / SDK usage
 
-mt5cli can be used as a small Python SDK for read-only MetaTrader 5 data collection. SDK functions return pandas DataFrames without writing files. Use `export_dataframe` when you need to persist results.
+mt5cli can be used as a small Python SDK for read-only MetaTrader 5 data collection. SDK functions return pandas DataFrames without writing files. Use `export_dataframe` or `export_dataframe_to_sqlite` when you need to persist results.
 
 ```python
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mt5cli import Mt5CliClient, collect_history, copy_rates_range, export_dataframe
+from mt5cli import (
+    Mt5CliClient,
+    collect_history,
+    copy_rates_range,
+    export_dataframe,
+    export_dataframe_to_sqlite,
+    minimum_margins,
+    recent_ticks,
+)
+from mt5cli.history import resolve_rate_view_name
 
 # One-off fetch with module-level helpers
 rates = copy_rates_range(
@@ -38,6 +47,13 @@ rates = copy_rates_range(
     date_to="2024-02-01",
 )
 export_dataframe(rates, Path("rates.csv"), "csv")
+
+# Resolve SQLite rate compatibility views for downstream tools
+view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1")
+
+# Recent tick window and minimum margin summary
+ticks = recent_ticks("EURUSD", seconds=300)
+margins = minimum_margins("EURUSD")
 
 # Reuse one MT5 connection for multiple calls
 with Mt5CliClient(login=12345, password="secret", server="Broker-Demo") as client:
@@ -92,10 +108,11 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 
 ### Ticks
 
-| Command       | Description                    |
-| ------------- | ------------------------------ |
-| `ticks-from`  | Export ticks from a start date |
-| `ticks-range` | Export ticks for a date range  |
+| Command        | Description                         |
+| -------------- | ----------------------------------- |
+| `ticks-from`   | Export ticks from a start date      |
+| `ticks-range`  | Export ticks for a date range       |
+| `ticks-recent` | Export ticks from a trailing window |
 
 ### Information
 
@@ -108,6 +125,7 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 | `symbols`          | Export symbol list                      |
 | `symbol-info`      | Export symbol details                   |
 | `symbol-info-tick` | Export the last tick for a symbol       |
+| `minimum-margins`  | Export minimum-volume margin summary    |
 | `market-book`      | Export market depth (order book)        |
 
 ### Trading

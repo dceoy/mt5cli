@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
@@ -120,6 +121,230 @@ def build_rate_view_name(
     if granularity_count == 1:
         return f"rate_{symbol}__{timeframe}"
     return f"rate_{symbol}__{granularity}_{timeframe}"
+
+
+SqliteConnOrPath = sqlite3.Connection | Path | str
+
+
+def _open_history_connection(
+    conn_or_path: SqliteConnOrPath,
+) -> tuple[sqlite3.Connection | None, bool]:
+    """Open a read-only SQLite connection when given a path.
+
+    Returns:
+        A connection and whether the caller should close it. When the path does
+        not exist, returns ``(None, False)`` without creating a database file.
+    """
+    if isinstance(conn_or_path, sqlite3.Connection):
+        return conn_or_path, False
+    path = Path(conn_or_path)
+    if not path.exists():
+        return None, False
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    return conn, True
+
+
+def _load_rates_timeframe_counts(conn: sqlite3.Connection) -> dict[str, int] | None:
+    """Return distinct timeframe counts per symbol from the normalized rates table."""
+    columns = get_table_columns(conn, Dataset.rates.table_name)
+    if not {"symbol", "timeframe"}.issubset(columns):
+        return None
+    rows = conn.execute(
+        "SELECT symbol, COUNT(DISTINCT timeframe) FROM rates GROUP BY symbol",
+    ).fetchall()
+    return {str(symbol): int(count) for symbol, count in rows}
+
+
+def _load_existing_rate_views(conn: sqlite3.Connection) -> set[str]:
+    """Return mt5cli-managed ``rate_*__*`` compatibility view names."""
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'view' AND name GLOB 'rate_*__*'",
+    ).fetchall()
+    return {str(row[0]) for row in rows}
+
+
+def _rate_view_name_candidates(
+    *,
+    symbol: str,
+    granularity: str,
+    granularity_count: int,
+    timeframe: int,
+) -> list[str]:
+    """Return candidate view names in preference order."""
+    single = build_rate_view_name(
+        symbol=symbol,
+        granularity=granularity,
+        granularity_count=1,
+        timeframe=timeframe,
+    )
+    if granularity_count <= 1:
+        return [single]
+    multi = build_rate_view_name(
+        symbol=symbol,
+        granularity=granularity,
+        granularity_count=granularity_count,
+        timeframe=timeframe,
+    )
+    return [multi, single]
+
+
+def _resolve_rate_view_name_from_context(
+    *,
+    symbol: str,
+    timeframe: int,
+    granularity_name: str,
+    timeframe_counts: dict[str, int] | None,
+    existing_views: set[str],
+    require_existing: bool = False,
+) -> str:
+    """Resolve one rate view name using preloaded SQLite metadata.
+
+    Returns:
+        Preferred mt5cli-managed rate compatibility view name.
+
+    Raises:
+        ValueError: If ``require_existing`` is True and no managed view exists.
+    """
+    if timeframe_counts is None or symbol not in timeframe_counts:
+        candidates = [
+            build_rate_view_name(
+                symbol=symbol,
+                granularity=granularity_name,
+                granularity_count=1,
+                timeframe=timeframe,
+            ),
+            build_rate_view_name(
+                symbol=symbol,
+                granularity=granularity_name,
+                granularity_count=2,
+                timeframe=timeframe,
+            ),
+        ]
+    else:
+        candidates = _rate_view_name_candidates(
+            symbol=symbol,
+            granularity=granularity_name,
+            granularity_count=timeframe_counts[symbol],
+            timeframe=timeframe,
+        )
+    for candidate in candidates:
+        if candidate in existing_views:
+            return candidate
+    if require_existing:
+        msg = (
+            f"No rate compatibility view exists for symbol {symbol!r} "
+            f"and granularity {granularity_name!r}; "
+            f"candidates: {', '.join(candidates)}."
+        )
+        raise ValueError(msg)
+    return candidates[0]
+
+
+def resolve_rate_view_name(
+    conn_or_path: SqliteConnOrPath,
+    symbol: str,
+    granularity: str,
+    *,
+    require_existing: bool = False,
+) -> str:
+    """Resolve the mt5cli-managed rate compatibility view name.
+
+    Args:
+        conn_or_path: SQLite database path or open connection.
+        symbol: Symbol stored in the normalized ``rates`` table.
+        granularity: Timeframe name (for example ``M1``) or integer string.
+        require_existing: When True, require the database and a managed view to exist.
+
+    Returns:
+        View name such as ``rate_EURUSD__1`` or ``rate_EURUSD__M1_1``.
+
+    Raises:
+        ValueError: If ``require_existing`` is True and the database or view is missing.
+    """
+    timeframe = parse_timeframe(granularity)
+    granularity_name = resolve_granularity_name(timeframe)
+    conn, should_close = _open_history_connection(conn_or_path)
+    try:
+        if conn is None:
+            if require_existing:
+                path = (
+                    conn_or_path
+                    if isinstance(conn_or_path, (Path, str))
+                    else "database"
+                )
+                msg = f"SQLite database not found: {path}"
+                raise ValueError(msg)
+            return build_rate_view_name(
+                symbol=symbol,
+                granularity=granularity_name,
+                granularity_count=1,
+                timeframe=timeframe,
+            )
+        return _resolve_rate_view_name_from_context(
+            symbol=symbol,
+            timeframe=timeframe,
+            granularity_name=granularity_name,
+            timeframe_counts=_load_rates_timeframe_counts(conn),
+            existing_views=_load_existing_rate_views(conn),
+            require_existing=require_existing,
+        )
+    finally:
+        if should_close and conn is not None:
+            conn.close()
+
+
+def resolve_rate_view_names(
+    conn_or_path: SqliteConnOrPath,
+    symbols: Sequence[str],
+    granularities: Sequence[str],
+    *,
+    require_existing: bool = False,
+) -> list[str]:
+    """Resolve rate compatibility view names for symbol and granularity pairs.
+
+    Args:
+        conn_or_path: SQLite database path or open connection.
+        symbols: Symbols stored in the normalized ``rates`` table.
+        granularities: Timeframe names (for example ``M1``) or integer strings.
+        require_existing: When True, require the database and managed views to exist.
+
+    Returns:
+        View names in row-major order: every ``granularity`` for the first
+        symbol, then every granularity for the next symbol, and so on.
+    """
+    conn, should_close = _open_history_connection(conn_or_path)
+    try:
+        if conn is None:
+            return [
+                resolve_rate_view_name(
+                    conn_or_path,
+                    symbol,
+                    granularity,
+                    require_existing=require_existing,
+                )
+                for symbol in symbols
+                for granularity in granularities
+            ]
+        timeframe_counts = _load_rates_timeframe_counts(conn)
+        existing_views = _load_existing_rate_views(conn)
+        resolved: list[str] = []
+        for symbol in symbols:
+            for granularity in granularities:
+                timeframe = parse_timeframe(granularity)
+                resolved.append(
+                    _resolve_rate_view_name_from_context(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        granularity_name=resolve_granularity_name(timeframe),
+                        timeframe_counts=timeframe_counts,
+                        existing_views=existing_views,
+                        require_existing=require_existing,
+                    ),
+                )
+        return resolved
+    finally:
+        if should_close and conn is not None:
+            conn.close()
 
 
 def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:

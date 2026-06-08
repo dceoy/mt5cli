@@ -301,6 +301,44 @@ def ticks_range(
 
 
 @app.command()
+def ticks_recent(
+    ctx: typer.Context,
+    symbol: Annotated[str, typer.Option(help="Symbol name.")],
+    seconds: Annotated[
+        float,
+        typer.Option(help="Lookback window in seconds."),
+    ],
+    date_to: Annotated[
+        datetime | None,
+        typer.Option(click_type=DATETIME_TYPE, help="Window end date."),
+    ] = None,
+    count: Annotated[
+        int,
+        typer.Option(help="Maximum number of ticks to return."),
+    ] = 10000,
+    flags: Annotated[
+        int,
+        typer.Option(
+            click_type=TICK_FLAGS_TYPE,
+            help="Tick flags (ALL, INFO, TRADE, or integer).",
+        ),
+    ] = 1,
+) -> None:
+    """Export ticks from a recent time window."""
+    client = _sdk_client(ctx)
+    _execute_export(
+        ctx,
+        lambda: client.recent_ticks(
+            symbol,
+            seconds,
+            date_to=date_to,
+            count=count,
+            flags=flags,
+        ),
+    )
+
+
+@app.command()
 def account_info(ctx: typer.Context) -> None:
     """Export account information."""
     _execute_export(ctx, _sdk_client(ctx).account_info)
@@ -333,6 +371,16 @@ def symbol_info(
     """Export symbol details."""
     client = _sdk_client(ctx)
     _execute_export(ctx, lambda: client.symbol_info(symbol))
+
+
+@app.command()
+def minimum_margins(
+    ctx: typer.Context,
+    symbol: Annotated[str, typer.Option(help="Symbol name.")],
+) -> None:
+    """Export minimum-volume buy and sell margin requirements."""
+    client = _sdk_client(ctx)
+    _execute_export(ctx, lambda: client.minimum_margins(symbol))
 
 
 @app.command()

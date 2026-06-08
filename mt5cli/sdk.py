@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, TypeVar
 
+import pandas as pd
 from pdmt5 import Mt5Config, Mt5DataClient
 
 from .history import (
@@ -33,8 +34,6 @@ from .utils import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
-    import pandas as pd
-
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
@@ -53,8 +52,10 @@ __all__ = [
     "history_orders",
     "last_error",
     "market_book",
+    "minimum_margins",
     "orders",
     "positions",
+    "recent_ticks",
     "symbol_info",
     "symbol_info_tick",
     "symbols",
@@ -87,6 +88,89 @@ def _coerce_datetime(value: datetime | str | None) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
     return parse_datetime(value)
+
+
+def _coerce_tick_time(value: object) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return parse_datetime(value)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=UTC)
+    msg = f"Unsupported tick time value: {value!r}"
+    raise TypeError(msg)
+
+
+def _filter_ticks_to_end(frame: pd.DataFrame, end: datetime) -> pd.DataFrame:
+    if frame.empty or "time" not in frame.columns:
+        return frame
+    times = pd.to_datetime(frame["time"], utc=True)
+    return frame.loc[times <= end].reset_index(drop=True)
+
+
+def _fetch_recent_ticks(
+    client: Mt5DataClient,
+    symbol: str,
+    seconds: float,
+    date_to: datetime | None,
+    count: int,
+    flags: int,
+) -> pd.DataFrame:
+    if date_to is not None:
+        end = date_to
+    else:
+        tick = client.symbol_info_tick(symbol)
+        end = _coerce_tick_time(tick.time)
+    start = end - timedelta(seconds=seconds)
+    if count > 0:
+        from_frame = _filter_ticks_to_end(
+            client.copy_ticks_from_as_df(
+                symbol=symbol,
+                date_from=start,
+                count=count,
+                flags=flags,
+            ),
+            end,
+        )
+        if len(from_frame) < count:
+            return from_frame
+    frame = client.copy_ticks_range_as_df(
+        symbol=symbol,
+        date_from=start,
+        date_to=end,
+        flags=flags,
+    )
+    if count > 0 and len(frame) > count:
+        return frame.tail(count).reset_index(drop=True)
+    return frame
+
+
+def _fetch_minimum_margins(client: Mt5DataClient, symbol: str) -> pd.DataFrame:
+    sym = client.symbol_info(symbol)
+    account = client.account_info()
+    tick = client.symbol_info_tick(symbol)
+    volume_min = sym.volume_min
+    buy_margin = client.order_calc_margin(
+        client.mt5.ORDER_TYPE_BUY,
+        symbol,
+        volume_min,
+        tick.ask,
+    )
+    sell_margin = client.order_calc_margin(
+        client.mt5.ORDER_TYPE_SELL,
+        symbol,
+        volume_min,
+        tick.bid,
+    )
+    return pd.DataFrame([
+        {
+            "symbol": symbol,
+            "account_currency": account.currency,
+            "volume_min": volume_min,
+            "buy_margin": buy_margin,
+            "sell_margin": sell_margin,
+        }
+    ])
 
 
 def build_config(
@@ -417,6 +501,57 @@ class Mt5CliClient:
     def market_book(self, symbol: str) -> pd.DataFrame:
         """Return market depth for a symbol."""
         return self._fetch(lambda c: c.market_book_get_as_df(symbol=symbol))
+
+    def recent_ticks(
+        self,
+        symbol: str,
+        seconds: float,
+        *,
+        date_to: datetime | str | None = None,
+        count: int = 10000,
+        flags: int | str = "ALL",
+    ) -> pd.DataFrame:
+        """Return ticks from a recent time window.
+
+        Args:
+            symbol: Symbol name.
+            seconds: Lookback window in seconds ending at ``date_to``.
+            date_to: Window end time. When ``None``, uses the latest
+                ``symbol_info_tick().time`` rather than wall-clock now.
+            count: Maximum ticks to return. Values ``<= 0`` return the full
+                window without trimming. Positive values keep the most recent
+                ticks; when the window is sparse, ``copy_ticks_from`` avoids
+                fetching the entire range.
+            flags: Tick flags as ``ALL``, ``INFO``, ``TRADE``, or an integer.
+
+        Returns:
+            Tick DataFrame with MT5 tick columns such as ``time``, ``bid``,
+            ``ask``, ``last``, and ``volume``.
+        """
+        tick_flags = _coerce_tick_flags(flags)
+        end = _coerce_datetime(date_to)
+        return self._fetch(
+            lambda c: _fetch_recent_ticks(
+                c,
+                symbol,
+                seconds,
+                end,
+                count,
+                tick_flags,
+            ),
+        )
+
+    def minimum_margins(self, symbol: str) -> pd.DataFrame:
+        """Return minimum-volume buy and sell margin requirements.
+
+        Args:
+            symbol: Symbol name.
+
+        Returns:
+            One-row DataFrame with columns ``symbol``, ``account_currency``,
+            ``volume_min``, ``buy_margin``, and ``sell_margin``.
+        """
+        return self._fetch(lambda c: _fetch_minimum_margins(c, symbol))
 
 
 def _resolve_incremental_settings(
@@ -915,3 +1050,37 @@ def market_book(
 ) -> pd.DataFrame:
     """Return market depth for a symbol."""
     return _make_client(config=config).market_book(symbol)
+
+
+def recent_ticks(
+    symbol: str,
+    seconds: float,
+    *,
+    date_to: datetime | str | None = None,
+    count: int = 10000,
+    flags: int | str = "ALL",
+    config: Mt5Config | None = None,
+) -> pd.DataFrame:
+    """Return ticks from a recent time window ending at ``date_to`` or now.
+
+    See ``Mt5CliClient.recent_ticks`` for parameter and return details.
+    """
+    return _make_client(config=config).recent_ticks(
+        symbol,
+        seconds,
+        date_to=date_to,
+        count=count,
+        flags=flags,
+    )
+
+
+def minimum_margins(
+    symbol: str,
+    *,
+    config: Mt5Config | None = None,
+) -> pd.DataFrame:
+    """Return minimum-volume buy and sell margin requirements.
+
+    See ``Mt5CliClient.minimum_margins`` for return details.
+    """
+    return _make_client(config=config).minimum_margins(symbol)

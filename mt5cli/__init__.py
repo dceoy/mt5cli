@@ -16,8 +16,10 @@ from .sdk import (
     history_orders,
     last_error,
     market_book,
+    minimum_margins,
     orders,
     positions,
+    recent_ticks,
     symbol_info,
     symbol_info_tick,
     symbols,
@@ -28,7 +30,13 @@ from .sdk import (
 from .sdk import (
     version as mt5_version,
 )
-from .utils import Dataset, IfExists, detect_format, export_dataframe
+from .utils import (
+    Dataset,
+    IfExists,
+    detect_format,
+    export_dataframe,
+    export_dataframe_to_sqlite,
+)
 
 __version__ = version(__package__) if __package__ else None
 
@@ -46,13 +54,16 @@ __all__ = [
     "copy_ticks_range",
     "detect_format",
     "export_dataframe",
+    "export_dataframe_to_sqlite",
     "history_deals",
     "history_orders",
     "last_error",
     "market_book",
+    "minimum_margins",
     "mt5_version",
     "orders",
     "positions",
+    "recent_ticks",
     "symbol_info",
     "symbol_info_tick",
     "symbols",

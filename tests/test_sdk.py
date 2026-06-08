@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -31,8 +31,10 @@ from mt5cli.sdk import (
     history_orders,
     last_error,
     market_book,
+    minimum_margins,
     orders,
     positions,
+    recent_ticks,
     symbol_info,
     symbol_info_tick,
     symbols,
@@ -808,3 +810,173 @@ class TestUpdateHistory:
         )
         after = datetime.now(UTC)
         assert before <= captured["end"] <= after
+
+
+class TestRecentTicks:
+    """Tests for recent_ticks helper."""
+
+    def test_recent_ticks_uses_explicit_date_to_window(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test recent_ticks fetches the requested trailing window."""
+        client = MagicMock()
+        end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        client.copy_ticks_from_as_df.return_value = pd.DataFrame({
+            "time": [end],
+            "bid": [1.0],
+        })
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+        result = recent_ticks(
+            "EURUSD",
+            60,
+            date_to=end,
+            count=100,
+            flags="INFO",
+            config=build_config(login=123),
+        )
+        assert isinstance(result, pd.DataFrame)
+        client.copy_ticks_from_as_df.assert_called_once_with(
+            symbol="EURUSD",
+            date_from=end - timedelta(seconds=60),
+            count=100,
+            flags=2,
+        )
+        client.copy_ticks_range_as_df.assert_not_called()
+
+    def test_recent_ticks_uses_latest_tick_when_date_to_omitted(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test recent_ticks anchors the window on the latest tick time."""
+        client = MagicMock()
+        tick = MagicMock()
+        tick.time = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        client.symbol_info_tick.return_value = tick
+        client.copy_ticks_from_as_df.return_value = pd.DataFrame({
+            "time": [1, 2],
+            "bid": [1.0, 1.1],
+        })
+        client.copy_ticks_range_as_df.return_value = pd.DataFrame({
+            "time": [1, 2, 3],
+            "bid": [1.0, 1.1, 1.2],
+        })
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+        result = Mt5CliClient().recent_ticks("EURUSD", 30, count=2, flags="ALL")
+        assert len(result) == 2
+        client.symbol_info_tick.assert_called_once_with("EURUSD")
+        client.copy_ticks_from_as_df.assert_called_once()
+        _, kwargs = client.copy_ticks_range_as_df.call_args
+        assert kwargs["symbol"] == "EURUSD"
+        assert kwargs["date_to"] == tick.time
+        assert kwargs["date_from"] == tick.time - timedelta(seconds=30)
+        assert kwargs["flags"] == 1
+
+    def test_recent_ticks_rejects_unsupported_tick_time(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test recent_ticks raises when the latest tick time is unsupported."""
+        client = MagicMock()
+        tick = MagicMock()
+        tick.time = object()
+        client.symbol_info_tick.return_value = tick
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+        with pytest.raises(TypeError, match="Unsupported tick time value"):
+            Mt5CliClient().recent_ticks("EURUSD", 30)
+
+    @pytest.mark.parametrize(
+        "tick_time",
+        [
+            "2024-01-02T12:00:00+00:00",
+            1704196800,
+        ],
+    )
+    def test_recent_ticks_coerces_string_and_unix_tick_times(
+        self,
+        mocker: MockerFixture,
+        tick_time: str | int,
+    ) -> None:
+        """Test recent_ticks accepts string and unix tick timestamps."""
+        client = MagicMock()
+        tick = MagicMock()
+        tick.time = tick_time
+        client.symbol_info_tick.return_value = tick
+        expected_end = (
+            datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+            if isinstance(tick_time, str)
+            else datetime.fromtimestamp(tick_time, tz=UTC)
+        )
+        client.copy_ticks_from_as_df.return_value = pd.DataFrame({
+            "time": [expected_end],
+        })
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+        Mt5CliClient().recent_ticks("EURUSD", 30)
+        _, kwargs = client.copy_ticks_from_as_df.call_args
+        assert kwargs["date_from"] == expected_end - timedelta(seconds=30)
+
+    def test_recent_ticks_returns_full_frame_when_count_not_positive(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test non-positive count returns the full range without trimming."""
+        client = MagicMock()
+        end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        client.copy_ticks_range_as_df.return_value = pd.DataFrame({
+            "time": [1, 2, 3],
+            "bid": [1.0, 1.1, 1.2],
+        })
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+        result = recent_ticks(
+            "EURUSD",
+            60,
+            date_to=end,
+            count=0,
+            config=build_config(login=123),
+        )
+        assert len(result) == 3
+        client.copy_ticks_from_as_df.assert_not_called()
+        client.copy_ticks_range_as_df.assert_called_once_with(
+            symbol="EURUSD",
+            date_from=end - timedelta(seconds=60),
+            date_to=end,
+            flags=1,
+        )
+
+
+class TestMinimumMargins:
+    """Tests for minimum_margins helper."""
+
+    def test_minimum_margins_shape(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test minimum_margins returns the expected summary columns."""
+        client = MagicMock()
+        sym = MagicMock(volume_min=0.01)
+        account = MagicMock(currency="USD")
+        tick = MagicMock(ask=1.1010, bid=1.1000)
+        client.symbol_info.return_value = sym
+        client.account_info.return_value = account
+        client.symbol_info_tick.return_value = tick
+        client.order_calc_margin.side_effect = [12.5, 12.4]
+        client.mt5.ORDER_TYPE_BUY = 0
+        client.mt5.ORDER_TYPE_SELL = 1
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+
+        result = minimum_margins("EURUSD", config=build_config(login=123))
+
+        pd.testing.assert_frame_equal(
+            result,
+            pd.DataFrame([
+                {
+                    "symbol": "EURUSD",
+                    "account_currency": "USD",
+                    "volume_min": 0.01,
+                    "buy_margin": 12.5,
+                    "sell_margin": 12.4,
+                }
+            ]),
+        )
+        client.order_calc_margin.assert_any_call(0, "EURUSD", 0.01, 1.1010)
+        client.order_calc_margin.assert_any_call(1, "EURUSD", 0.01, 1.1000)
