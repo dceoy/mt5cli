@@ -36,6 +36,7 @@ from mt5cli.sqlite_history import (
     resolve_history_tick_flags,
     resolve_history_timeframes,
     write_collected_datasets,
+    write_history_dataset,
     write_incremental_datasets,
     write_rates_dataset,
     write_streamed_frame,
@@ -205,6 +206,39 @@ class TestRateCompatibilityViews:
             assert conn.execute('SELECT close FROM "rate_EURUSD_M1"').fetchone() == (
                 1.0,
             )
+
+    def test_drops_stale_single_timeframe_view(self, tmp_path: Path) -> None:
+        """Test stale rate_<symbol> views are removed when timeframes change."""
+        db_path = tmp_path / "stale-rate-view.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            create_rate_compatibility_views(conn)
+            assert conn.execute(
+                "SELECT 1 FROM sqlite_master"
+                " WHERE type='view' AND name = 'rate_EURUSD'",
+            ).fetchone() == (1,)
+
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", TIMEFRAME_MAP["H1"], "2024-01-01T01:00:00+00:00", 1.1),
+            )
+            create_rate_compatibility_views(conn)
+            views = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'"
+                    " AND name LIKE 'rate_EURUSD%'",
+                ).fetchall()
+            }
+        assert views == {"rate_EURUSD_M1", "rate_EURUSD_H1"}
+        assert "rate_EURUSD" not in views
 
     @pytest.mark.parametrize(
         "symbol",
@@ -574,6 +608,8 @@ class TestIncrementalIntegration:
                 include_account_events=True,
             )
         assert written_tables == set()
+
+    def test_resolve_history_tick_flags_invalid(self) -> None:
         """Test invalid tick flags raise ValueError."""
         with pytest.raises(ValueError, match="Invalid tick flags"):
             resolve_history_tick_flags("BAD")
@@ -584,8 +620,151 @@ class TestIncrementalIntegration:
             resolve_history_timeframes(["BAD"])
 
 
+class TestIncrementalHistoryDeals:
+    """Tests for incremental history_deals account-event handling."""
+
+    def test_fetches_per_symbol_when_account_events_disabled(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test history_deals are fetched per symbol without account events."""
+        client = MagicMock()
+        client.history_deals_get_as_df.return_value = pd.DataFrame({
+            "ticket": [1],
+            "symbol": ["EURUSD"],
+            "time": [1],
+            "type": [0],
+            "entry": [0],
+        })
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "per-symbol-deals.db") as conn:
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD", "GBPUSD"],
+                {Dataset.history_deals},
+                [],
+                0,
+                start,
+                end,
+                deduplicate=False,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=False,
+            )
+        assert client.history_deals_get_as_df.call_count == 2
+
+    def test_skips_history_deals_when_fetch_returns_empty(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test incremental history_deals skips tracking when writes are empty."""
+        client = MagicMock()
+        client.history_deals_get_as_df.return_value = pd.DataFrame()
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "empty-per-symbol-deals.db") as conn:
+            written_tables, _ = write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD", "GBPUSD"],
+                {Dataset.history_deals},
+                [],
+                0,
+                start,
+                end,
+                deduplicate=False,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=False,
+            )
+        assert written_tables == set()
+
+    def test_write_history_dataset_fetches_account_events_once(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test write_history_dataset account-event path fetches once."""
+        client = MagicMock()
+        client.history_deals_get_as_df.return_value = pd.DataFrame({
+            "ticket": [1, 2],
+            "symbol": ["EURUSD", ""],
+            "time": [1, 2],
+            "type": [0, 2],
+            "entry": [0, 0],
+        })
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        written_columns: dict[Dataset, set[str]] = {}
+        with sqlite3.connect(tmp_path / "history-dataset-account.db") as conn:
+            assert write_history_dataset(
+                conn,
+                client.history_deals_get_as_df,
+                Dataset.history_deals,
+                ["EURUSD"],
+                start,
+                end,
+                IfExists.APPEND,
+                written_columns,
+                include_account_events=True,
+            )
+            rows = conn.execute(
+                "SELECT ticket, symbol, type FROM history_deals ORDER BY ticket",
+            ).fetchall()
+        client.history_deals_get_as_df.assert_called_once()
+        assert rows == [(1, "EURUSD", 0), (2, "", 2)]
+
+    def test_fetches_account_events_once_for_multiple_symbols(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test account events are fetched once and not duplicated."""
+        client = MagicMock()
+        client.history_deals_get_as_df.return_value = pd.DataFrame({
+            "ticket": [1, 2, 3, 4],
+            "symbol": ["EURUSD", "GBPUSD", "OTHER", ""],
+            "time": [1, 2, 3, 4],
+            "type": [0, 0, 0, 2],
+            "entry": [0, 0, 0, 0],
+        })
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "account-events.db") as conn:
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD", "GBPUSD"],
+                {Dataset.history_deals},
+                [],
+                0,
+                start,
+                end,
+                deduplicate=False,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=True,
+            )
+            rows = conn.execute(
+                "SELECT ticket, symbol, type FROM history_deals ORDER BY ticket",
+            ).fetchall()
+            row_count = conn.execute("SELECT COUNT(*) FROM history_deals").fetchone()
+        client.history_deals_get_as_df.assert_called_once()
+        assert rows == [(1, "EURUSD", 0), (2, "GBPUSD", 0), (4, "", 2)]
+        assert row_count == (3,)
+
+
 class TestWriteHelpers:
     """Tests for SQLite write helper branches."""
+
+    def test_append_dataframe_handles_wide_frames(self, tmp_path: Path) -> None:
+        """Test wide DataFrames append without exceeding SQLite variable limits."""
+        db_path = tmp_path / "wide-frame.db"
+        columns = {f"col_{index}": [float(index)] for index in range(80)}
+        frame = pd.DataFrame(columns)
+        with sqlite3.connect(db_path) as conn:
+            assert append_dataframe(conn, frame, "wide_rates", IfExists.APPEND)
+            assert get_table_columns(conn, "wide_rates") == set(columns)
 
     def test_write_streamed_frame_and_column_tracking(self, tmp_path: Path) -> None:
         """Test append helpers track columns and skip empty frames."""

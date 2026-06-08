@@ -201,7 +201,6 @@ def append_dataframe(
         if_exists=if_exists.value,
         index=False,
         chunksize=50_000,
-        method="multi",
     )
     return True
 
@@ -423,11 +422,22 @@ def create_positions_reconstructed_view(
     return True
 
 
+def drop_rate_compatibility_views(conn: sqlite3.Connection) -> None:
+    """Drop all mt5cli-managed rate compatibility views."""
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'rate_%'",
+    ).fetchall()
+    for (view_name,) in rows:
+        quoted_view_name = quote_sqlite_identifier(str(view_name))
+        conn.execute(f"DROP VIEW IF EXISTS {quoted_view_name}")
+
+
 def create_rate_compatibility_views(conn: sqlite3.Connection) -> None:
     """Create rate compatibility views from the normalized rates table."""
     columns = get_table_columns(conn, Dataset.rates.table_name)
     if not {"symbol", "timeframe", "time"}.issubset(columns):
         return
+    drop_rate_compatibility_views(conn)
     select_columns = sorted(columns - {"symbol", "timeframe"})
     quoted_columns = ", ".join(f'"{column}"' for column in select_columns)
     rows = conn.execute(
@@ -446,7 +456,6 @@ def create_rate_compatibility_views(conn: sqlite3.Connection) -> None:
             )
             quoted_view_name = quote_sqlite_identifier(view_name)
             escaped_symbol = symbol.replace("'", "''")
-            conn.execute(f"DROP VIEW IF EXISTS {quoted_view_name}")
             conn.execute(
                 f"CREATE VIEW {quoted_view_name} AS"  # noqa: S608
                 f" SELECT {quoted_columns} FROM rates"
@@ -683,6 +692,36 @@ def _write_incremental_history_deals(
     *,
     include_account_events: bool,
 ) -> None:
+    if include_account_events:
+        start_dates = [
+            get_incremental_start_datetime(
+                conn,
+                Dataset.history_deals,
+                symbol=symbol,
+                timeframe=None,
+                fallback_start=fallback_start,
+            )
+            for symbol in symbols
+        ]
+        start_date = min(start_dates)
+        frame = filter_trade_history_frame(
+            client.history_deals_get_as_df(
+                date_from=start_date,
+                date_to=end_date,
+            ),
+            symbols,
+            include_account_events=True,
+        )
+        if write_streamed_frame(
+            conn,
+            frame,
+            Dataset.history_deals,
+            table_exists=False,
+            if_exists=IfExists.APPEND,
+            written_columns=written_columns,
+        ):
+            written_tables.add(Dataset.history_deals)
+        return
     for symbol in symbols:
         start_date = get_incremental_start_datetime(
             conn,
@@ -700,7 +739,7 @@ def _write_incremental_history_deals(
             end_date,
             IfExists.APPEND,
             written_columns,
-            include_account_events=include_account_events,
+            include_account_events=False,
         ):
             written_tables.add(Dataset.history_deals)
 

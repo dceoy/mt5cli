@@ -121,7 +121,7 @@ update_history_with_config(
 - **`collect-history`**: explicit date-range export into SQLite.
 - **`update_history`**: incremental append based on existing SQLite `MAX(time)` per dataset, symbol, and timeframe.
 - **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
-- **Rate compatibility views**: `rate_<symbol>` when a symbol has one timeframe, otherwise `rate_<symbol>_<granularity>` (for example `rate_EURUSD_M1`), recreated on each update for offline tools such as mteor optimize.
+- **Rate compatibility views**: mt5cli manages all `rate_*` views. Naming is `rate_<symbol>` when a symbol has one timeframe, otherwise `rate_<symbol>_<granularity>` (for example `rate_EURUSD_M1`). Stale `rate_*` views are dropped and recreated on each update for offline tools such as mteor optimize.
 
 ## Requirements
 
