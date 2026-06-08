@@ -38,6 +38,8 @@ from mt5cli.history import (
     resolve_history_datasets,
     resolve_history_tick_flags,
     resolve_history_timeframes,
+    resolve_rate_view_name,
+    resolve_rate_view_names,
     write_collected_datasets,
     write_history_dataset,
     write_incremental_datasets,
@@ -45,6 +47,181 @@ from mt5cli.history import (
     write_streamed_frame,
 )
 from mt5cli.utils import TIMEFRAME_MAP, Dataset, IfExists
+
+
+class TestResolveRateViewName:
+    """Tests for resolve_rate_view_name and resolve_rate_view_names."""
+
+    def test_missing_database_path_does_not_create_file(self, tmp_path: Path) -> None:
+        """Test resolving against a missing path does not create a database."""
+        db_path = tmp_path / "missing.db"
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
+        assert not db_path.exists()
+
+    def test_no_rates_table_falls_back_to_single_timeframe_name(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test databases without a rates table use single-timeframe naming."""
+        db_path = tmp_path / "no-rates.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
+
+    def test_single_timeframe_for_one_symbol(self, tmp_path: Path) -> None:
+        """Test one stored timeframe resolves to the short view name."""
+        db_path = tmp_path / "single-timeframe.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            create_rate_compatibility_views(conn)
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
+
+    def test_multiple_timeframes_for_one_symbol(self, tmp_path: Path) -> None:
+        """Test multiple stored timeframes resolve to disambiguated view names."""
+        db_path = tmp_path / "multi-timeframe.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", TIMEFRAME_MAP["H1"], "2024-01-01T01:00:00+00:00", 1.1),
+                ],
+            )
+            create_rate_compatibility_views(conn)
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__M1_1"
+        assert (
+            resolve_rate_view_name(db_path, "EURUSD", "H1") == "rate_EURUSD__H1_16385"
+        )
+
+    def test_prefers_multi_name_when_both_candidate_views_exist(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test multi-timeframe metadata wins over stale single-timeframe views."""
+        db_path = tmp_path / "stale-and-current-views.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", TIMEFRAME_MAP["H1"], "2024-01-01T01:00:00+00:00", 1.1),
+                ],
+            )
+            conn.execute(
+                'CREATE VIEW "rate_EURUSD__1" AS'
+                " SELECT time, close FROM rates"
+                " WHERE symbol = 'EURUSD' AND timeframe = 1",
+            )
+            conn.execute(
+                'CREATE VIEW "rate_EURUSD__M1_1" AS'
+                " SELECT time, close FROM rates"
+                " WHERE symbol = 'EURUSD' AND timeframe = 1",
+            )
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__M1_1"
+
+    def test_prefers_existing_view_when_metadata_unavailable(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test an existing managed view is preferred without rates metadata."""
+        db_path = tmp_path / "view-only.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
+            conn.execute('CREATE VIEW "rate_EURUSD__M1_1" AS SELECT 1 AS close')
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__M1_1"
+
+    def test_invalid_granularity_propagates_value_error(self, tmp_path: Path) -> None:
+        """Test invalid granularities raise ValueError from parse_timeframe."""
+        with pytest.raises(ValueError, match="Invalid timeframe"):
+            resolve_rate_view_name(tmp_path / "unused.db", "EURUSD", "BAD")
+        with pytest.raises(ValueError, match="Invalid timeframe"):
+            resolve_rate_view_names(tmp_path / "unused.db", ["EURUSD"], ["BAD"])
+
+    def test_resolve_rate_view_names_for_multiple_pairs(self, tmp_path: Path) -> None:
+        """Test batch resolution returns row-major symbol/granularity pairs."""
+        db_path = tmp_path / "batch-resolve.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", TIMEFRAME_MAP["H1"], "2024-01-01T01:00:00+00:00", 1.1),
+                    ("GBPUSD", 1, "2024-01-01T00:00:00+00:00", 1.2),
+                ],
+            )
+            create_rate_compatibility_views(conn)
+        assert resolve_rate_view_names(
+            db_path,
+            ["EURUSD", "GBPUSD"],
+            ["M1", "H1"],
+        ) == [
+            "rate_EURUSD__M1_1",
+            "rate_EURUSD__H1_16385",
+            "rate_GBPUSD__1",
+            "rate_GBPUSD__16385",
+        ]
+
+    @pytest.mark.parametrize(
+        "symbol",
+        ["EUR/USD", "US500.cash", "#US500"],
+    )
+    def test_supports_broker_specific_symbols(
+        self,
+        tmp_path: Path,
+        symbol: str,
+    ) -> None:
+        """Test broker-specific symbols resolve to safely created view names."""
+        db_path = tmp_path / "broker-symbol-resolve.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                (symbol, 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            create_rate_compatibility_views(conn)
+        assert resolve_rate_view_name(db_path, symbol, "M1") == build_rate_view_name(
+            symbol=symbol,
+            granularity="M1",
+            granularity_count=1,
+            timeframe=1,
+        )
+
+    def test_accepts_open_sqlite_connection(self, tmp_path: Path) -> None:
+        """Test resolver accepts an already-open SQLite connection."""
+        db_path = tmp_path / "open-connection.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            create_rate_compatibility_views(conn)
+            assert resolve_rate_view_name(conn, "EURUSD", "M1") == "rate_EURUSD__1"
 
 
 class TestQuoteSqliteIdentifier:
