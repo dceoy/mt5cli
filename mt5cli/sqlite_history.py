@@ -188,7 +188,11 @@ def load_incremental_start_datetimes(
     timeframes: Sequence[int] | None = None,
     fallback_start: datetime,
 ) -> dict[tuple[str, int | None], datetime]:
-    """Return next update start datetimes keyed by symbol and optional timeframe."""
+    """Return next update start datetimes keyed by symbol and optional timeframe.
+
+    Raises:
+        ValueError: If the rates table lacks a ``timeframe`` column.
+    """
     table = dataset.table_name
     columns = get_table_columns(conn, table)
     if "time" not in columns:
@@ -205,11 +209,11 @@ def load_incremental_start_datetimes(
         and timeframes is not None
         and "timeframe" not in columns
     ):
-        return {
-            (symbol, timeframe): fallback_start
-            for symbol in symbols
-            for timeframe in timeframes
-        }
+        msg = (
+            "The rates table must include symbol, timeframe, and time columns"
+            " for incremental updates."
+        )
+        raise ValueError(msg)
 
     parsed_by_key: dict[tuple[str, int | None], datetime] = {}
     if (
@@ -500,14 +504,15 @@ def filter_incremental_history_deals_frame(
         return frame.copy()
     parsed_times = _frame_parsed_times(frame)
     time_valid = parsed_times.notna()
-    account_keep = _history_deals_account_event_mask(frame) & (
-        parsed_times >= account_event_start
-    )
+    account_event_mask = _history_deals_account_event_mask(frame)
+    account_keep = account_event_mask & (parsed_times >= account_event_start)
     trade_keep = pd.Series(data=False, index=frame.index)
     if "symbol" in frame.columns:
         for symbol in symbols:
-            trade_keep |= (frame["symbol"] == symbol) & (
-                parsed_times >= start_by_symbol[symbol]
+            trade_keep |= (
+                (frame["symbol"] == symbol)
+                & (parsed_times >= start_by_symbol[symbol])
+                & ~account_event_mask
             )
     keep = (account_keep | trade_keep) & time_valid
     return frame.loc[keep].copy()

@@ -171,11 +171,11 @@ class TestIncrementalStart:
         assert starts["EURUSD", 1] == datetime(2024, 1, 2, tzinfo=UTC)
         assert starts["GBPUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
 
-    def test_load_incremental_start_datetimes_falls_back_without_timeframe_column(
+    def test_load_incremental_start_datetimes_requires_timeframe_column(
         self,
         tmp_path: Path,
     ) -> None:
-        """Test older rates tables without timeframe resume by symbol only."""
+        """Test rates tables without timeframe fail fast during incremental resume."""
         fallback = datetime(2024, 1, 1, tzinfo=UTC)
         with sqlite3.connect(tmp_path / "legacy-rates.db") as conn:
             conn.execute("CREATE TABLE rates(symbol TEXT, time TEXT, open REAL)")
@@ -183,14 +183,14 @@ class TestIncrementalStart:
                 "INSERT INTO rates(symbol, time, open) VALUES (?, ?, ?)",
                 ("EURUSD", "2024-01-02T00:00:00+00:00", 1.0),
             )
-            starts = load_incremental_start_datetimes(
-                conn,
-                Dataset.rates,
-                symbols=["EURUSD"],
-                timeframes=[1],
-                fallback_start=fallback,
-            )
-        assert starts["EURUSD", 1] == fallback
+            with pytest.raises(ValueError, match="timeframe"):
+                load_incremental_start_datetimes(
+                    conn,
+                    Dataset.rates,
+                    symbols=["EURUSD"],
+                    timeframes=[1],
+                    fallback_start=fallback,
+                )
 
     def test_load_incremental_start_skips_unparseable_max_time(
         self,
@@ -672,6 +672,24 @@ class TestIncrementalHistoryDealsHelpers:
             datetime(2024, 1, 2, tzinfo=UTC),
         )
         assert filtered["ticket"].tolist() == [2, 3, 5]
+
+    def test_filter_incremental_excludes_symbolized_account_events_from_trade_cursor(
+        self,
+    ) -> None:
+        """Test account events are not kept by per-symbol trade cursors."""
+        frame = pd.DataFrame({
+            "ticket": [1],
+            "symbol": ["EURUSD"],
+            "time": ["2024-01-05T00:00:00+00:00"],
+            "type": [2],
+        })
+        filtered = filter_incremental_history_deals_frame(
+            frame,
+            ["EURUSD"],
+            {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
+            datetime(2024, 1, 10, tzinfo=UTC),
+        )
+        assert filtered.empty
 
     def test_filter_incremental_rejects_rows_without_parseable_time(self) -> None:
         """Test incremental filtering drops rows when time cannot be parsed."""
