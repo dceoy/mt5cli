@@ -164,3 +164,22 @@ Resolution rules:
 - Pass `require_existing=True` to raise `ValueError` instead of returning a
   best-guess name when the database or view is missing.
 - Accepts either a SQLite path or an open `sqlite3.Connection`.
+
+### Rate data loading
+
+Use `load_rate_data()` to load a table or view from a SQLite path, or
+`load_rate_data_from_connection()` when you already have a connection:
+
+```python
+from pathlib import Path
+
+from mt5cli import load_rate_data
+from mt5cli.history import resolve_rate_view_name
+
+view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1", require_existing=True)
+rates = load_rate_data(Path("history.db"), view, count=1000)
+```
+
+The loader accepts close-based OHLC rate data or tick-like bid/ask data. It
+validates that `time` exists, parses timestamps with pandas, and returns a
+DataFrame indexed by ascending `DatetimeIndex` named `time`.

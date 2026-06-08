@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Self, TypeVar, cast
 
 import pandas as pd
 from pdmt5 import Mt5Config, Mt5DataClient
@@ -43,6 +43,7 @@ __all__ = [
     "account_info",
     "build_config",
     "collect_history",
+    "collect_latest_rates",
     "copy_rates_from",
     "copy_rates_from_pos",
     "copy_rates_range",
@@ -51,10 +52,13 @@ __all__ = [
     "history_deals",
     "history_orders",
     "last_error",
+    "latest_rates",
     "market_book",
     "minimum_margins",
+    "mt5_summary",
     "orders",
     "positions",
+    "recent_history_deals",
     "recent_ticks",
     "symbol_info",
     "symbol_info_tick",
@@ -88,6 +92,17 @@ def _coerce_datetime(value: datetime | str | None) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
     return parse_datetime(value)
+
+
+def _require_positive(value: float, name: str) -> None:
+    if value <= 0:
+        msg = f"{name} must be positive."
+        raise ValueError(msg)
+
+
+def _call_client_method(client: Mt5DataClient, name: str) -> object:
+    method = cast("Any", getattr(client, name, None))
+    return method() if callable(method) else None
 
 
 def _coerce_tick_time(value: object) -> datetime:
@@ -242,6 +257,7 @@ class Mt5CliClient:
         server: str | None = None,
         timeout: int | None = None,
         config: Mt5Config | None = None,
+        client: Mt5DataClient | None = None,
     ) -> None:
         """Initialize the SDK client.
 
@@ -252,6 +268,8 @@ class Mt5CliClient:
             server: Trading server name.
             timeout: Connection timeout in milliseconds.
             config: Optional pre-built ``Mt5Config`` (overrides other args).
+            client: Optional already-connected ``Mt5DataClient``. Injected
+                clients are reused as-is and are not initialized or shut down.
         """
         self._config = config or build_config(
             path=path,
@@ -260,7 +278,20 @@ class Mt5CliClient:
             server=server,
             timeout=timeout,
         )
-        self._client: Mt5DataClient | None = None
+        self._client = client
+        self._owns_client = client is None
+
+    @classmethod
+    def from_connected_client(cls, client: Mt5DataClient) -> Self:
+        """Bind to an already-connected ``Mt5DataClient`` without owning it.
+
+        The returned ``Mt5CliClient`` never initializes or shuts down the
+        injected client, including when used as a context manager.
+
+        Returns:
+            Client wrapper bound to the injected connection.
+        """
+        return cls(client=client)
 
     @property
     def config(self) -> Mt5Config:
@@ -273,6 +304,8 @@ class Mt5CliClient:
         Returns:
             This client instance.
         """
+        if self._client is not None:
+            return self
         client = Mt5DataClient(config=self._config)
         try:
             client.initialize_and_login_mt5()
@@ -280,6 +313,7 @@ class Mt5CliClient:
             client.shutdown()
             raise
         self._client = client
+        self._owns_client = True
         return self
 
     def __exit__(
@@ -289,14 +323,17 @@ class Mt5CliClient:
         tb: object,
     ) -> None:
         """Shut down the persistent MT5 connection."""
-        if self._client is not None:
+        if self._client is not None and self._owns_client:
             self._client.shutdown()
             self._client = None
 
-    def _fetch(self, fetch_fn: Callable[[Mt5DataClient], pd.DataFrame]) -> pd.DataFrame:
+    def _fetch_value(self, fetch_fn: Callable[[Mt5DataClient], T]) -> T:
         if self._client is not None:
             return fetch_fn(self._client)
         return _run_with_client(self._config, fetch_fn)
+
+    def _fetch(self, fetch_fn: Callable[[Mt5DataClient], pd.DataFrame]) -> pd.DataFrame:
+        return self._fetch_value(fetch_fn)
 
     def copy_rates_from(
         self,
@@ -334,6 +371,52 @@ class Mt5CliClient:
                 count=count,
             ),
         )
+
+    def latest_rates(
+        self,
+        symbol: str,
+        timeframe: int | str,
+        count: int,
+        start_pos: int = 0,
+    ) -> pd.DataFrame:
+        """Return the latest rates from a bar position."""
+        _require_positive(count, "count")
+        return self.copy_rates_from_pos(symbol, timeframe, start_pos, count)
+
+    def collect_latest_rates(
+        self,
+        symbols: Sequence[str],
+        timeframes: Sequence[int | str],
+        *,
+        count: int,
+        start_pos: int = 0,
+    ) -> dict[tuple[str, int], pd.DataFrame]:
+        """Return latest rates for each symbol/timeframe pair.
+
+        Returns:
+            Mapping keyed by ``(symbol, timeframe_int)``.
+
+        Raises:
+            ValueError: If ``count`` is not positive or inputs are empty.
+        """
+        _require_positive(count, "count")
+        if not symbols:
+            msg = "At least one symbol is required."
+            raise ValueError(msg)
+        if not timeframes:
+            msg = "At least one timeframe is required."
+            raise ValueError(msg)
+        resolved_timeframes = [_coerce_timeframe(timeframe) for timeframe in timeframes]
+        return {
+            (symbol, timeframe): self.copy_rates_from_pos(
+                symbol,
+                timeframe,
+                start_pos,
+                count,
+            )
+            for symbol in symbols
+            for timeframe in resolved_timeframes
+        }
 
     def copy_rates_range(
         self,
@@ -486,6 +569,24 @@ class Mt5CliClient:
             ),
         )
 
+    def recent_history_deals(
+        self,
+        hours: float,
+        date_to: datetime | str | None = None,
+        group: str | None = None,
+        symbol: str | None = None,
+    ) -> pd.DataFrame:
+        """Return historical deals from a recent trailing window."""
+        _require_positive(hours, "hours")
+        end = _require_datetime(date_to) if date_to is not None else datetime.now(UTC)
+        start = end - timedelta(hours=hours)
+        return self.history_deals(
+            date_from=start,
+            date_to=end,
+            group=group,
+            symbol=symbol,
+        )
+
     def version(self) -> pd.DataFrame:
         """Return MetaTrader5 version information."""
         return self._fetch(lambda c: c.version_as_df())
@@ -552,6 +653,19 @@ class Mt5CliClient:
             ``volume_min``, ``buy_margin``, and ``sell_margin``.
         """
         return self._fetch(lambda c: _fetch_minimum_margins(c, symbol))
+
+    def mt5_summary(self) -> dict[str, object]:
+        """Return a compact terminal/account status summary."""
+
+        def _summary(client: Mt5DataClient) -> dict[str, object]:
+            return {
+                "version": _call_client_method(client, "version"),
+                "terminal_info": _call_client_method(client, "terminal_info"),
+                "account_info": _call_client_method(client, "account_info"),
+                "symbols_total": _call_client_method(client, "symbols_total"),
+            }
+
+        return self._fetch_value(_summary)
 
 
 def _resolve_incremental_settings(
@@ -873,6 +987,40 @@ def copy_rates_from_pos(
     )
 
 
+def latest_rates(
+    symbol: str,
+    timeframe: int | str,
+    count: int,
+    start_pos: int = 0,
+    *,
+    config: Mt5Config | None = None,
+) -> pd.DataFrame:
+    """Return the latest rates from a bar position."""
+    return _make_client(config=config).latest_rates(
+        symbol,
+        timeframe,
+        count,
+        start_pos=start_pos,
+    )
+
+
+def collect_latest_rates(
+    symbols: Sequence[str],
+    timeframes: Sequence[int | str],
+    *,
+    count: int,
+    start_pos: int = 0,
+    config: Mt5Config | None = None,
+) -> dict[tuple[str, int], pd.DataFrame]:
+    """Return latest rates for each symbol/timeframe pair."""
+    return _make_client(config=config).collect_latest_rates(
+        symbols,
+        timeframes,
+        count=count,
+        start_pos=start_pos,
+    )
+
+
 def copy_rates_range(
     symbol: str,
     timeframe: int | str,
@@ -1024,6 +1172,23 @@ def history_deals(
     )
 
 
+def recent_history_deals(
+    hours: float,
+    date_to: datetime | str | None = None,
+    group: str | None = None,
+    symbol: str | None = None,
+    *,
+    config: Mt5Config | None = None,
+) -> pd.DataFrame:
+    """Return historical deals from a recent trailing window."""
+    return _make_client(config=config).recent_history_deals(
+        hours,
+        date_to=date_to,
+        group=group,
+        symbol=symbol,
+    )
+
+
 def version(*, config: Mt5Config | None = None) -> pd.DataFrame:
     """Return MetaTrader5 version information."""
     return _make_client(config=config).version()
@@ -1084,3 +1249,8 @@ def minimum_margins(
     See ``Mt5CliClient.minimum_margins`` for return details.
     """
     return _make_client(config=config).minimum_margins(symbol)
+
+
+def mt5_summary(*, config: Mt5Config | None = None) -> dict[str, object]:
+    """Return a compact terminal/account status summary."""
+    return _make_client(config=config).mt5_summary()

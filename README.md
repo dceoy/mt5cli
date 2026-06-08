@@ -13,6 +13,7 @@ Built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data han
 - **Comprehensive data access**: Rates, ticks, account info, symbols, orders, positions, and trading history
 - **Flexible timeframes**: Named timeframes (M1, H1, D1, etc.) and numeric values
 - **Connection management**: Optional credentials, server, and timeout configuration
+- **SQLite rate loading**: Load mt5cli-managed rate tables/views for offline workflows
 
 ## Installation
 
@@ -50,30 +51,33 @@ python -m mt5cli -o account.csv account-info
 
 ## Commands
 
-| Command            | Description                                                                                                  |
-| ------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `rates-from`       | Export rates from a start date                                                                               |
-| `rates-from-pos`   | Export rates from a start position                                                                           |
-| `rates-range`      | Export rates for a date range                                                                                |
-| `ticks-from`       | Export ticks from a start date                                                                               |
-| `ticks-range`      | Export ticks for a date range                                                                                |
-| `ticks-recent`     | Export ticks from a recent trailing window                                                                   |
-| `account-info`     | Export account information                                                                                   |
-| `terminal-info`    | Export terminal information                                                                                  |
-| `version`          | Export MetaTrader 5 version information                                                                      |
-| `last-error`       | Export the last error information                                                                            |
-| `symbols`          | Export symbol list                                                                                           |
-| `symbol-info`      | Export symbol details                                                                                        |
-| `symbol-info-tick` | Export the last tick for a symbol                                                                            |
-| `minimum-margins`  | Export minimum-volume buy and sell margin requirements                                                       |
-| `market-book`      | Export market depth (order book)                                                                             |
-| `orders`           | Export active orders                                                                                         |
-| `positions`        | Export open positions                                                                                        |
-| `history-orders`   | Export historical orders                                                                                     |
-| `history-deals`    | Export historical deals                                                                                      |
-| `order-check`      | Check funds sufficiency for a trade request                                                                  |
-| `order-send`       | Send a trade request to the trade server (`--yes` required)                                                  |
-| `collect-history`  | Bundle rates, ticks, history-orders, and history-deals for one or more symbols into a single SQLite database |
+| Command                | Description                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `rates-from`           | Export rates from a start date                                                                               |
+| `rates-from-pos`       | Export rates from a start position                                                                           |
+| `latest-rates`         | Export latest rates from a start position                                                                    |
+| `rates-range`          | Export rates for a date range                                                                                |
+| `ticks-from`           | Export ticks from a start date                                                                               |
+| `ticks-range`          | Export ticks for a date range                                                                                |
+| `ticks-recent`         | Export ticks from a recent trailing window                                                                   |
+| `account-info`         | Export account information                                                                                   |
+| `terminal-info`        | Export terminal information                                                                                  |
+| `version`              | Export MetaTrader 5 version information                                                                      |
+| `last-error`           | Export the last error information                                                                            |
+| `symbols`              | Export symbol list                                                                                           |
+| `symbol-info`          | Export symbol details                                                                                        |
+| `symbol-info-tick`     | Export the last tick for a symbol                                                                            |
+| `minimum-margins`      | Export minimum-volume buy and sell margin requirements                                                       |
+| `market-book`          | Export market depth (order book)                                                                             |
+| `orders`               | Export active orders                                                                                         |
+| `positions`            | Export open positions                                                                                        |
+| `history-orders`       | Export historical orders                                                                                     |
+| `history-deals`        | Export historical deals                                                                                      |
+| `recent-history-deals` | Export historical deals from a recent trailing window                                                        |
+| `mt5-summary`          | Export terminal/account status summary                                                                       |
+| `order-check`          | Check funds sufficiency for a trade request                                                                  |
+| `order-send`           | Send a trade request to the trade server (`--yes` required)                                                  |
+| `collect-history`      | Bundle rates, ticks, history-orders, and history-deals for one or more symbols into a single SQLite database |
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
 
@@ -130,6 +134,7 @@ update_history_with_config(
 - **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
 - **Rate compatibility views**: mt5cli manages all `rate_*` views. Naming is `rate_<symbol>__<timeframe>` when a symbol has one timeframe, otherwise `rate_<symbol>__<granularity>_<timeframe>` (for example `rate_EURUSD__M1_1`). Stale `rate_*` views are dropped and recreated when rates change for offline tools such as mteor optimize.
 - **Rate view resolution**: use `mt5cli.history.resolve_rate_view_name()` / `resolve_rate_view_names()` to map symbols and granularities to existing SQLite compatibility views without creating databases.
+- **Rate view loading**: use `load_rate_data()` / `load_rate_data_from_connection()` to load a SQLite rate table or view into a `DatetimeIndex` DataFrame.
 - **SQLite export helpers**: use `export_dataframe_to_sqlite()` for append mode, optional index export, and post-write deduplication by key columns.
 - **Recent ticks and margins**: `recent_ticks()` and `minimum_margins()` SDK helpers (and matching CLI commands) cover common downstream read-only queries.
 

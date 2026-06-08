@@ -13,6 +13,7 @@ mt5cli is a CLI application that exports MetaTrader 5 trading data to multiple f
 - **Comprehensive data access**: Rates, ticks, account info, symbols, orders, positions, and trading history
 - **Flexible timeframes**: Named timeframes (M1, H1, D1, etc.) and numeric values
 - **Connection management**: Optional credentials, server, and timeout configuration
+- **SQLite rate loading**: Load mt5cli-managed rate tables/views for offline workflows
 
 ## Installation
 
@@ -34,6 +35,7 @@ from mt5cli import (
     copy_rates_range,
     export_dataframe,
     export_dataframe_to_sqlite,
+    load_rate_data,
     minimum_margins,
     recent_ticks,
 )
@@ -50,6 +52,7 @@ export_dataframe(rates, Path("rates.csv"), "csv")
 
 # Resolve SQLite rate compatibility views for downstream tools
 view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1")
+offline_rates = load_rate_data(Path("history.db"), view, count=1000)
 
 # Recent tick window and minimum margin summary
 ticks = recent_ticks("EURUSD", seconds=300)
@@ -59,6 +62,8 @@ margins = minimum_margins("EURUSD")
 with Mt5CliClient(login=12345, password="secret", server="Broker-Demo") as client:
     account = client.account_info()
     positions = client.positions()
+    latest = client.latest_rates("EURUSD", "M1", count=100)
+    summary = client.mt5_summary()
 
 # Bulk SQLite collection (same behavior as the collect-history CLI command)
 collect_history(
@@ -104,6 +109,7 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 | ---------------- | ---------------------------------- |
 | `rates-from`     | Export rates from a start date     |
 | `rates-from-pos` | Export rates from a start position |
+| `latest-rates`   | Export latest rates                |
 | `rates-range`    | Export rates for a date range      |
 
 ### Ticks
@@ -130,14 +136,16 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 
 ### Trading
 
-| Command          | Description                                                 |
-| ---------------- | ----------------------------------------------------------- |
-| `orders`         | Export active orders                                        |
-| `positions`      | Export open positions                                       |
-| `history-orders` | Export historical orders                                    |
-| `history-deals`  | Export historical deals                                     |
-| `order-check`    | Check funds sufficiency for a trade request                 |
-| `order-send`     | Send a trade request to the trade server (`--yes` required) |
+| Command                | Description                                                 |
+| ---------------------- | ----------------------------------------------------------- |
+| `orders`               | Export active orders                                        |
+| `positions`            | Export open positions                                       |
+| `history-orders`       | Export historical orders                                    |
+| `history-deals`        | Export historical deals                                     |
+| `recent-history-deals` | Export historical deals from a trailing window              |
+| `mt5-summary`          | Export terminal/account status summary                      |
+| `order-check`          | Check funds sufficiency for a trade request                 |
+| `order-send`           | Send a trade request to the trade server (`--yes` required) |
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
 

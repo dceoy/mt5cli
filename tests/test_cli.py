@@ -93,6 +93,10 @@ def mock_client(mocker: MockerFixture) -> MagicMock:
     client.market_book_get_as_df.return_value = sample_df
     client.order_check_as_df.return_value = sample_df
     client.order_send_as_df.return_value = sample_df
+    client.version.return_value = (5, 0, 1)
+    client.terminal_info.return_value = {"connected": True}
+    client.account_info.return_value = {"login": 123}
+    client.symbols_total.return_value = 42
     mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
     return client
 
@@ -220,6 +224,37 @@ class TestCommands:
             symbol="GBPUSD",
             timeframe=16385,
             start_pos=0,
+            count=50,
+        )
+
+    def test_latest_rates(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test latest-rates command."""
+        output = tmp_path / "out.csv"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "latest-rates",
+                "--symbol",
+                "GBPUSD",
+                "--timeframe",
+                "H1",
+                "--count",
+                "50",
+                "--start-pos",
+                "2",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        mock_client.copy_rates_from_pos_as_df.assert_called_once_with(
+            symbol="GBPUSD",
+            timeframe=16385,
+            start_pos=2,
             count=50,
         )
 
@@ -450,6 +485,51 @@ class TestCommands:
         )
         assert result.exit_code == 0, result.output
         mock_client.history_deals_get_as_df.assert_called_once()
+
+    def test_recent_history_deals(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test recent-history-deals command."""
+        output = tmp_path / "out.csv"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "recent-history-deals",
+                "--hours",
+                "6",
+                "--date-to",
+                "2024-01-02",
+                "--symbol",
+                "EURUSD",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        mock_client.history_deals_get_as_df.assert_called_once_with(
+            date_from=datetime(2024, 1, 1, 18, tzinfo=UTC),
+            date_to=datetime(2024, 1, 2, tzinfo=UTC),
+            group=None,
+            symbol="EURUSD",
+            ticket=None,
+            position=None,
+        )
+
+    def test_mt5_summary(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test mt5-summary command."""
+        output = tmp_path / "out.csv"
+        result = runner.invoke(app, ["-o", str(output), "mt5-summary"])
+        assert result.exit_code == 0, result.output
+        mock_client.version.assert_called_once()
+        mock_client.terminal_info.assert_called_once()
+        mock_client.account_info.assert_called_once()
+        mock_client.symbols_total.assert_called_once()
 
     def test_version(
         self,

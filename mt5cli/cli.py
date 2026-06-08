@@ -8,6 +8,7 @@ from datetime import datetime  # noqa: TC003
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
+import pandas as pd
 import typer
 from pdmt5 import Mt5Config
 
@@ -27,8 +28,6 @@ from .utils import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +218,31 @@ def rates_from_pos(
     _execute_export(
         ctx,
         lambda: client.copy_rates_from_pos(symbol, timeframe, start_pos, count),
+    )
+
+
+@app.command()
+def latest_rates(
+    ctx: typer.Context,
+    symbol: Annotated[str, typer.Option(help="Symbol name.")],
+    timeframe: Annotated[
+        int,
+        typer.Option(
+            click_type=TIMEFRAME_TYPE,
+            help="Timeframe.",
+        ),
+    ],
+    count: Annotated[int, typer.Option(help="Number of records.")],
+    start_pos: Annotated[
+        int,
+        typer.Option(help="Start position (0 = current bar)."),
+    ] = 0,
+) -> None:
+    """Export latest rates from a start position."""
+    client = _sdk_client(ctx)
+    _execute_export(
+        ctx,
+        lambda: client.latest_rates(symbol, timeframe, count, start_pos=start_pos),
     )
 
 
@@ -473,6 +497,37 @@ def history_deals(
             position=position,
         ),
     )
+
+
+@app.command()
+def recent_history_deals(
+    ctx: typer.Context,
+    hours: Annotated[float, typer.Option(help="Lookback window in hours.")],
+    date_to: Annotated[
+        datetime | None,
+        typer.Option(click_type=DATETIME_TYPE, help="Window end date."),
+    ] = None,
+    group: Annotated[str | None, typer.Option(help="Group filter.")] = None,
+    symbol: Annotated[str | None, typer.Option(help="Symbol filter.")] = None,
+) -> None:
+    """Export historical deals from a recent trailing window."""
+    client = _sdk_client(ctx)
+    _execute_export(
+        ctx,
+        lambda: client.recent_history_deals(
+            hours,
+            date_to=date_to,
+            group=group,
+            symbol=symbol,
+        ),
+    )
+
+
+@app.command()
+def mt5_summary(ctx: typer.Context) -> None:
+    """Export a compact terminal/account status summary."""
+    client = _sdk_client(ctx)
+    _execute_export(ctx, lambda: pd.DataFrame([client.mt5_summary()]))
 
 
 @app.command()

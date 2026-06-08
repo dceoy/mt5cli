@@ -31,6 +31,8 @@ from mt5cli.history import (
     get_incremental_start_datetime,
     get_table_columns,
     load_incremental_start_datetimes,
+    load_rate_data,
+    load_rate_data_from_connection,
     parse_sqlite_timestamp,
     quote_sqlite_identifier,
     record_written_columns,
@@ -336,6 +338,134 @@ class TestQuoteSqliteIdentifier:
         quoted = quote_sqlite_identifier(f"rate_{symbol}")
         assert quoted.startswith('"')
         assert quoted.endswith('"')
+
+
+class TestLoadRateData:
+    """Tests for SQLite rate-like table and view loading."""
+
+    def test_loads_close_rates_from_path_with_count(self, tmp_path: Path) -> None:
+        """Test loading the latest close-based rates in ascending time order."""
+        db_path = tmp_path / "rates.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE rates(time TEXT, close REAL)")
+            conn.executemany(
+                "INSERT INTO rates(time, close) VALUES (?, ?)",
+                [
+                    ("2024-01-01T00:00:00+00:00", 1.0),
+                    ("2024-01-01T00:02:00+00:00", 1.2),
+                    ("2024-01-01T00:01:00+00:00", 1.1),
+                ],
+            )
+        frame = load_rate_data(db_path, "rates", count=2)
+        assert list(frame["close"]) == [1.1, 1.2]
+        assert isinstance(frame.index, pd.DatetimeIndex)
+        assert frame.index.name == "time"
+        assert frame.index.is_monotonic_increasing
+
+    def test_loads_ask_bid_tick_like_rates_from_connection(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test loading tick-like tables with bid and ask columns."""
+        db_path = tmp_path / "ticks.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE ticks(time TEXT, bid REAL, ask REAL)")
+            conn.execute(
+                "INSERT INTO ticks(time, bid, ask) VALUES (?, ?, ?)",
+                ("2024-01-01T00:00:00+00:00", 1.0, 1.1),
+            )
+            frame = load_rate_data_from_connection(conn, "ticks")
+            path_frame = load_rate_data(conn, "ticks")
+        assert frame.iloc[0].to_dict() == {"bid": 1.0, "ask": 1.1}
+        assert path_frame.iloc[0].to_dict() == {"bid": 1.0, "ask": 1.1}
+
+    def test_loads_from_view(self, tmp_path: Path) -> None:
+        """Test loading from a SQLite view."""
+        db_path = tmp_path / "view.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE rates(time TEXT, close REAL)")
+            conn.execute(
+                "INSERT INTO rates(time, close) VALUES (?, ?)",
+                ("2024-01-01T00:00:00+00:00", 1.0),
+            )
+            conn.execute("CREATE VIEW rate_view AS SELECT time, close FROM rates")
+            frame = load_rate_data_from_connection(conn, "rate_view")
+        assert list(frame["close"]) == [1.0]
+
+    def test_loads_quoted_identifier(self, tmp_path: Path) -> None:
+        """Test table names are quoted safely."""
+        db_path = tmp_path / "quoted.db"
+        table = 'rate "quoted"'
+        quoted = quote_sqlite_identifier(table)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(f"CREATE TABLE {quoted}(time TEXT, close REAL)")
+            conn.execute(
+                f"INSERT INTO {quoted}(time, close) VALUES (?, ?)",  # noqa: S608
+                ("2024-01-01T00:00:00+00:00", 1.0),
+            )
+            frame = load_rate_data_from_connection(conn, table)
+        assert list(frame["close"]) == [1.0]
+
+    def test_rejects_missing_database_and_non_file(self, tmp_path: Path) -> None:
+        """Test path validation for SQLite database inputs."""
+        with pytest.raises(ValueError, match="SQLite database not found"):
+            load_rate_data(tmp_path / "missing.db", "rates")
+        with pytest.raises(ValueError, match="not a file"):
+            load_rate_data(tmp_path, "rates")
+
+    @pytest.mark.parametrize(
+        ("table", "count", "match"),
+        [
+            ("", None, "must not be empty"),
+            ("rates", 0, "count must be positive"),
+            ("rates", -1, "count must be positive"),
+        ],
+    )
+    def test_rejects_invalid_inputs(
+        self,
+        tmp_path: Path,
+        table: str,
+        count: int | None,
+        match: str,
+    ) -> None:
+        """Test request validation."""
+        db_path = tmp_path / "invalid-inputs.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE rates(time TEXT, close REAL)")
+            with pytest.raises(ValueError, match=match):
+                load_rate_data_from_connection(conn, table, count=count)
+
+    @pytest.mark.parametrize(
+        ("ddl", "match"),
+        [
+            ("CREATE TABLE rates(time TEXT, close REAL)", "contains no rows"),
+            ("CREATE TABLE rates(close REAL)", "time column"),
+            ("CREATE TABLE rates(time TEXT, open REAL)", "close, or both ask and bid"),
+        ],
+    )
+    def test_rejects_invalid_tables(
+        self,
+        tmp_path: Path,
+        ddl: str,
+        match: str,
+    ) -> None:
+        """Test missing table, empty table, and invalid schemas."""
+        db_path = tmp_path / "invalid-tables.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(ddl)
+            with pytest.raises(ValueError, match=match):
+                load_rate_data_from_connection(conn, "rates")
+            with pytest.raises(ValueError, match="not found"):
+                load_rate_data_from_connection(conn, "missing")
+
+    def test_rejects_invalid_timestamp(self, tmp_path: Path) -> None:
+        """Test unparsable timestamps fail clearly."""
+        db_path = tmp_path / "invalid-time.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE rates(time TEXT, close REAL)")
+            conn.execute("INSERT INTO rates(time, close) VALUES (?, ?)", ("bad", 1.0))
+            with pytest.raises(ValueError, match="unparsable time"):
+                load_rate_data_from_connection(conn, "rates")
 
 
 class TestResolveHistorySettings:
