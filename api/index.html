@@ -49,6 +49,14 @@
 <li>
     <a href="cli/" class="dropdown-item">CLI</a>
 </li>
+                                    
+<li>
+    <a href="sdk/" class="dropdown-item">SDK</a>
+</li>
+                                    
+<li>
+    <a href="utils/" class="dropdown-item">Utils</a>
+</li>
                                 </ul>
                             </li>
                         </ul>
@@ -130,10 +138,16 @@
 <p>The mt5cli package consists of the following modules:</p>
 <h3 id="cli"><a href="cli/">CLI</a><a class="headerlink" href="#cli" title="Permanent link">&para;</a></h3>
 <p>Command-line interface module providing typer-based commands for exporting MetaTrader 5 data to CSV, JSON, Parquet, and SQLite3 formats.</p>
+<h3 id="utils"><a href="utils/">Utils</a><a class="headerlink" href="#utils" title="Permanent link">&para;</a></h3>
+<p>Utility module providing constants, enums, Click parameter types, and helper functions for parsing and exporting data.</p>
+<h3 id="sdk"><a href="sdk/">SDK</a><a class="headerlink" href="#sdk" title="Permanent link">&para;</a></h3>
+<p>Programmatic SDK for read-only MetaTrader 5 data collection. Returns pandas DataFrames and provides <code>collect_history</code> for SQLite bulk collection.</p>
 <h2 id="architecture-overview">Architecture Overview<a class="headerlink" href="#architecture-overview" title="Permanent link">&para;</a></h2>
 <p>The package follows a simple architecture built on top of pdmt5:</p>
 <ol>
-<li><strong>CLI Layer</strong> (<code>cli.py</code>): Typer application with subcommands for each data type, custom Click parameter types for datetime/timeframe/tick flags parsing, and format detection/export utilities.</li>
+<li><strong>CLI Layer</strong> (<code>cli.py</code>): Typer application with subcommands that delegate to the SDK and export results.</li>
+<li><strong>SDK Layer</strong> (<code>sdk.py</code>): Read-only data access functions, <code>Mt5CliClient</code>, and <code>collect_history</code> orchestration.</li>
+<li><strong>Utils Layer</strong> (<code>utils.py</code>): Constants, enums, custom Click parameter types, parsing helpers, and format detection/export utilities.</li>
 <li><strong>Data Layer</strong> (via <code>pdmt5</code>): Uses <code>Mt5DataClient</code> and <code>Mt5Config</code> from the pdmt5 package for all MetaTrader 5 data access.</li>
 </ol>
 <h2 id="usage-guidelines">Usage Guidelines<a class="headerlink" href="#usage-guidelines" title="Permanent link">&para;</a></h2>
@@ -160,15 +174,38 @@
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>mt5cli<span class="w"> </span>-o<span class="w"> </span>data.db<span class="w"> </span>--table<span class="w"> </span>symbols<span class="w"> </span>symbols<span class="w"> </span>--group<span class="w"> </span><span class="s2">&quot;*USD*&quot;</span>
 </code></pre></div>
 <h2 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli</span><span class="w"> </span><span class="kn">import</span> <span class="n">detect_format</span><span class="p">,</span> <span class="n">export_dataframe</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">UTC</span><span class="p">,</span> <span class="n">datetime</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Detect output format from file extension</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">fmt</span> <span class="o">=</span> <span class="n">detect_format</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;output.parquet&quot;</span><span class="p">))</span>  <span class="c1"># Returns &quot;parquet&quot;</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Export a DataFrame</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s2">&quot;symbol&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">],</span> <span class="s2">&quot;bid&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">1.1234</span><span class="p">]})</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">export_dataframe</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;output.csv&quot;</span><span class="p">),</span> <span class="s2">&quot;csv&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">Mt5CliClient</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">collect_history</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">copy_rates_range</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">detect_format</span><span class="p">,</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">export_dataframe</span><span class="p">,</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">)</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="c1"># Fetch rates programmatically</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="n">rates</span> <span class="o">=</span> <span class="n">copy_rates_range</span><span class="p">(</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    <span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>    <span class="n">timeframe</span><span class="o">=</span><span class="s2">&quot;H1&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    <span class="n">date_from</span><span class="o">=</span><span class="s2">&quot;2024-01-01&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>    <span class="n">date_to</span><span class="o">=</span><span class="s2">&quot;2024-02-01&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="p">)</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="c1"># Detect output format from file extension</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="n">fmt</span> <span class="o">=</span> <span class="n">detect_format</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;output.parquet&quot;</span><span class="p">))</span>  <span class="c1"># Returns &quot;parquet&quot;</span>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="c1"># Export a DataFrame</span>
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="n">export_dataframe</span><span class="p">(</span><span class="n">rates</span><span class="p">,</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;output.csv&quot;</span><span class="p">),</span> <span class="s2">&quot;csv&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="c1"># Collect history into SQLite</span>
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="n">collect_history</span><span class="p">(</span>
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>    <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;history.db&quot;</span><span class="p">),</span>
+<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>    <span class="n">symbols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">],</span>
+<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>    <span class="n">date_from</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">),</span>
+<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>    <span class="n">date_to</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">),</span>
+<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a><span class="p">)</span>
 </code></pre></div>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <p>See individual module pages for detailed usage examples and code samples.</p></div>
