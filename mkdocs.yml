@@ -56,6 +56,8 @@ nav:
   - API Reference:
       - Overview: api/index.md
       - CLI: api/cli.md
+      - SDK: api/sdk.md
+      - Utils: api/utils.md
 
 markdown_extensions:
   - admonition

@@ -20,6 +20,44 @@ mt5cli is a CLI application that exports MetaTrader 5 trading data to multiple f
 pip install mt5cli
 ```
 
+## Programmatic usage / SDK usage
+
+mt5cli can be used as a small Python SDK for read-only MetaTrader 5 data collection. SDK functions return pandas DataFrames without writing files. Use `export_dataframe` when you need to persist results.
+
+```python
+from datetime import UTC, datetime
+from pathlib import Path
+
+from mt5cli import Mt5CliClient, collect_history, copy_rates_range, export_dataframe
+
+# One-off fetch with module-level helpers
+rates = copy_rates_range(
+    "EURUSD",
+    timeframe="H1",
+    date_from="2024-01-01",
+    date_to="2024-02-01",
+)
+export_dataframe(rates, Path("rates.csv"), "csv")
+
+# Reuse one MT5 connection for multiple calls
+with Mt5CliClient(login=12345, password="secret", server="Broker-Demo") as client:
+    account = client.account_info()
+    positions = client.positions()
+
+# Bulk SQLite collection (same behavior as the collect-history CLI command)
+collect_history(
+    Path("history.db"),
+    symbols=["EURUSD", "GBPUSD"],
+    date_from=datetime(2024, 1, 1, tzinfo=UTC),
+    date_to=datetime(2024, 2, 1, tzinfo=UTC),
+    timeframe="M1",
+    flags="ALL",
+    with_views=True,
+)
+```
+
+Timeframes, tick flags, and ISO 8601 date strings are accepted wherever noted in the SDK API.
+
 ## Quick Start
 
 ```bash
@@ -138,7 +176,9 @@ History orders and deals are fetched per symbol and concatenated, so the symbol 
 
 Browse the API documentation for detailed module information:
 
-- [CLI Module](api/cli.md) - CLI application with export commands and utility functions
+- [CLI Module](api/cli.md) - CLI application with export commands
+- [SDK Module](api/sdk.md) - Programmatic read-only data collection API
+- [Utils Module](api/utils.md) - Constants, parameter types, parsers, and export utilities
 
 ## Development
 

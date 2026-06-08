@@ -29,9 +29,11 @@ uv sync
 - `mt5cli/`: Main package directory
   - `__init__.py`: Package initialization and exports (`detect_format`, `export_dataframe`)
   - `cli.py`: CLI application with typer-based commands for data export
+  - `utils.py`: Constants, enums, parameter types, parsers, and export utilities
   - `__main__.py`: Entry point for `python -m mt5cli`
 - `tests/`: Comprehensive test suite (pytest-based)
-  - `test_cli.py`: Tests for CLI commands, parameter types, and export functions
+  - `test_cli.py`: Tests for CLI commands and collect-history behavior
+  - `test_utils.py`: Tests for utility constants, parameter types, parsers, and export functions
 - `docs/`: MkDocs documentation with API reference
   - `docs/index.md`: Main documentation
   - `docs/api/`: Auto-generated API documentation for all modules
