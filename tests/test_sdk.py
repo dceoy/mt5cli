@@ -718,13 +718,67 @@ class TestUpdateHistory:
             output=tmp_path / "config-wrapper.db",
             symbols=["EURUSD"],
             datasets={Dataset.history_deals},
+            timeframes=["M1"],
+            flags="ALL",
             lookback_hours=1,
             date_to=datetime(2024, 1, 1, tzinfo=UTC),
+            deduplicate=False,
+            create_rate_views=False,
+            with_views=True,
+            include_account_events=False,
         )
         mock_client.initialize_and_login_mt5.assert_called_once()
         mock_client.shutdown.assert_called_once()
         updater.assert_called_once()
-        assert updater.call_args.kwargs["client"] is mock_client
+        assert updater.call_args.kwargs == {
+            "client": mock_client,
+            "output": tmp_path / "config-wrapper.db",
+            "symbols": ["EURUSD"],
+            "datasets": {Dataset.history_deals},
+            "timeframes": ["M1"],
+            "flags": "ALL",
+            "lookback_hours": 1,
+            "date_to": datetime(2024, 1, 1, tzinfo=UTC),
+            "deduplicate": False,
+            "create_rate_views": False,
+            "with_views": True,
+            "include_account_events": False,
+        }
+
+    def test_update_history_with_config_validates_before_connecting(
+        self,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test invalid inputs fail before MT5 is initialized."""
+        mock_client = MagicMock()
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
+        with pytest.raises(ValueError, match="lookback_hours must be positive"):
+            update_history_with_config(
+                output=tmp_path / "invalid-config.db",
+                symbols=["EURUSD"],
+                lookback_hours=0,
+            )
+        mock_client.initialize_and_login_mt5.assert_not_called()
+        mock_client.shutdown.assert_not_called()
+
+    def test_update_history_with_config_noops_for_empty_datasets(
+        self,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test empty dataset selection skips MT5 initialization."""
+        mock_client = MagicMock()
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
+        updater = mocker.patch("mt5cli.sdk.update_history")
+        update_history_with_config(
+            output=tmp_path / "empty-config.db",
+            symbols=["EURUSD"],
+            datasets=set(),
+        )
+        mock_client.initialize_and_login_mt5.assert_not_called()
+        mock_client.shutdown.assert_not_called()
+        updater.assert_not_called()
 
     def test_update_history_defaults_date_to_now(
         self,

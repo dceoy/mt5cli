@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, TypeVar
@@ -448,6 +449,67 @@ def _resolve_incremental_settings(
     return resolved_timeframes, resolved_tick_flags
 
 
+@dataclass(frozen=True)
+class _UpdateHistoryRequest:
+    selected: set[Dataset]
+    end: datetime
+    fallback_start: datetime
+    resolved_timeframes: list[int]
+    resolved_tick_flags: int
+    output_path: Path
+
+
+def _resolve_update_history_request(
+    *,
+    output: Path | str,
+    symbols: Sequence[str],
+    datasets: set[Dataset] | None,
+    timeframes: Sequence[int | str] | None,
+    flags: int | str,
+    lookback_hours: float,
+    date_to: datetime | str | None,
+) -> _UpdateHistoryRequest | None:
+    """Validate and resolve incremental history update inputs.
+
+    Returns:
+        Resolved request parameters, or None when no datasets are selected.
+
+    Raises:
+        ValueError: If symbols are empty, lookback_hours is not positive, or
+            timeframe/flag values are invalid.
+    """
+    if lookback_hours <= 0:
+        msg = "lookback_hours must be positive."
+        raise ValueError(msg)
+    selected = resolve_history_datasets(datasets)
+    if not selected:
+        logger.info("Skipping SQLite history update: no datasets selected.")
+        return None
+    if not symbols:
+        msg = "At least one symbol is required."
+        raise ValueError(msg)
+
+    if date_to is not None:
+        resolved_end = _coerce_datetime(date_to)
+    else:
+        resolved_end = datetime.now(UTC)
+    end = resolved_end if resolved_end is not None else datetime.now(UTC)
+    fallback_start = end - timedelta(hours=lookback_hours)
+    resolved_timeframes, resolved_tick_flags = _resolve_incremental_settings(
+        selected,
+        timeframes,
+        flags,
+    )
+    return _UpdateHistoryRequest(
+        selected=selected,
+        end=end,
+        fallback_start=fallback_start,
+        resolved_timeframes=resolved_timeframes,
+        resolved_tick_flags=resolved_tick_flags,
+        output_path=Path(output),
+    )
+
+
 def update_history(  # noqa: PLR0913
     *,
     client: Mt5DataClient,
@@ -468,7 +530,9 @@ def update_history(  # noqa: PLR0913
     Uses an already-connected ``Mt5DataClient`` and does not create or close
     the MT5 connection. For first-time tables, data is fetched from
     ``date_to - lookback_hours``. Subsequent runs resume from existing
-    ``MAX(time)`` values scoped by dataset, symbol, and timeframe.
+    ``MAX(time)`` per symbol (and timeframe for rates); when
+    ``include_account_events=True``, account-level deals use a separate cursor
+    over ``type NOT IN (0, 1)`` / empty-symbol rows.
 
     Args:
         client: Connected MT5 data client.
@@ -481,62 +545,45 @@ def update_history(  # noqa: PLR0913
         lookback_hours: First-run lookback when a table has no prior rows.
         date_to: Optional update end datetime. Defaults to now (UTC).
         deduplicate: Remove duplicate rows after append, keeping latest ROWID.
-        create_rate_views: Create ``rate_<symbol>[_<granularity>]`` views.
+        create_rate_views: Create ``rate_<symbol>__<timeframe>`` views.
         with_views: Create ``cash_events`` and ``positions_reconstructed`` views.
         include_account_events: Include account-level cash events in
             ``history_deals`` when True.
-
-    Raises:
-        ValueError: If symbols are empty, lookback_hours is not positive, or
-            timeframe/flag values are invalid.
     """
-    if lookback_hours <= 0:
-        msg = "lookback_hours must be positive."
-        raise ValueError(msg)
-    selected = resolve_history_datasets(datasets)
-    if not selected:
-        logger.info("Skipping SQLite history update: no datasets selected.")
-        return
-    if not symbols:
-        msg = "At least one symbol is required."
-        raise ValueError(msg)
-
-    if date_to is not None:
-        resolved_end = _coerce_datetime(date_to)
-    else:
-        resolved_end = datetime.now(UTC)
-    end = resolved_end if resolved_end is not None else datetime.now(UTC)
-    fallback_start = end - timedelta(hours=lookback_hours)
-    resolved_timeframes, resolved_tick_flags = _resolve_incremental_settings(
-        selected,
-        timeframes,
-        flags,
+    request = _resolve_update_history_request(
+        output=output,
+        symbols=symbols,
+        datasets=datasets,
+        timeframes=timeframes,
+        flags=flags,
+        lookback_hours=lookback_hours,
+        date_to=date_to,
     )
-    output_path = Path(output)
+    if request is None:
+        return
     logger.info(
         "Updating history in SQLite: symbols=%s, datasets=%s, path=%s",
         list(symbols),
-        sorted(dataset.value for dataset in selected),
-        output_path,
+        sorted(dataset.value for dataset in request.selected),
+        request.output_path,
     )
-    with closing(sqlite3.connect(output_path)) as conn:
+    with sqlite3.connect(request.output_path) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         write_incremental_datasets(
             conn,
             client,
             symbols,
-            selected,
-            resolved_timeframes,
-            resolved_tick_flags,
-            fallback_start,
-            end,
+            request.selected,
+            request.resolved_timeframes,
+            request.resolved_tick_flags,
+            request.fallback_start,
+            request.end,
             deduplicate=deduplicate,
             create_rate_views=create_rate_views,
             with_views=with_views,
             include_account_events=include_account_events,
         )
-        conn.commit()
 
 
 def update_history_with_config(  # noqa: PLR0913
@@ -558,6 +605,17 @@ def update_history_with_config(  # noqa: PLR0913
 
     Convenience wrapper around :func:`update_history` for standalone use.
     """
+    request = _resolve_update_history_request(
+        output=output,
+        symbols=symbols,
+        datasets=datasets,
+        timeframes=timeframes,
+        flags=flags,
+        lookback_hours=lookback_hours,
+        date_to=date_to,
+    )
+    if request is None:
+        return
     mt5_config = config or build_config()
     with _connected_client(mt5_config) as client:
         update_history(

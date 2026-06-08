@@ -30,6 +30,7 @@ from mt5cli.sqlite_history import (
     get_history_deals_account_event_start_datetime,
     get_incremental_start_datetime,
     get_table_columns,
+    load_incremental_start_datetimes,
     parse_sqlite_timestamp,
     quote_sqlite_identifier,
     record_written_columns,
@@ -143,6 +144,120 @@ class TestIncrementalStart:
                 fallback_start=fallback,
             ) == datetime(2024, 1, 3, tzinfo=UTC)
 
+    def test_load_incremental_start_datetimes_batches_rates(
+        self, tmp_path: Path
+    ) -> None:
+        """Test grouped rates resume query returns all symbol/timeframe pairs."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "batch-rates.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 1.0),
+                    ("GBPUSD", 1, "2024-01-03T00:00:00+00:00", 1.1),
+                ],
+            )
+            starts = load_incremental_start_datetimes(
+                conn,
+                Dataset.rates,
+                symbols=["EURUSD", "GBPUSD"],
+                timeframes=[1],
+                fallback_start=fallback,
+            )
+        assert starts["EURUSD", 1] == datetime(2024, 1, 2, tzinfo=UTC)
+        assert starts["GBPUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
+
+    def test_load_incremental_start_datetimes_falls_back_without_timeframe_column(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test older rates tables without timeframe resume by symbol only."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "legacy-rates.db") as conn:
+            conn.execute("CREATE TABLE rates(symbol TEXT, time TEXT, open REAL)")
+            conn.execute(
+                "INSERT INTO rates(symbol, time, open) VALUES (?, ?, ?)",
+                ("EURUSD", "2024-01-02T00:00:00+00:00", 1.0),
+            )
+            starts = load_incremental_start_datetimes(
+                conn,
+                Dataset.rates,
+                symbols=["EURUSD"],
+                timeframes=[1],
+                fallback_start=fallback,
+            )
+        assert starts["EURUSD", 1] == fallback
+
+    def test_load_incremental_start_skips_unparseable_max_time(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test grouped resume ignores rows whose MAX(time) cannot be parsed."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "bad-max-time.db") as conn:
+            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
+            conn.execute(
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                ("EURUSD", "not-a-datetime"),
+            )
+            starts = load_incremental_start_datetimes(
+                conn,
+                Dataset.ticks,
+                symbols=["EURUSD"],
+                fallback_start=fallback,
+            )
+        assert starts["EURUSD", None] == fallback
+
+    def test_load_incremental_start_uses_table_max_without_symbol_column(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test grouped resume uses table-wide MAX(time) without symbol column."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "batch-no-symbol.db") as conn:
+            conn.execute("CREATE TABLE ticks(time TEXT)")
+            conn.execute(
+                "INSERT INTO ticks(time) VALUES (?)",
+                ("2024-01-02T00:00:00+00:00",),
+            )
+            starts = load_incremental_start_datetimes(
+                conn,
+                Dataset.ticks,
+                symbols=["EURUSD", "GBPUSD"],
+                fallback_start=fallback,
+            )
+        expected = datetime(2024, 1, 2, tzinfo=UTC)
+        assert starts["EURUSD", None] == expected
+        assert starts["GBPUSD", None] == expected
+
+    def test_load_incremental_start_skips_unparseable_rates_max_time(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test grouped rates resume ignores unparseable MAX(time) values."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "bad-rates-max-time.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "not-a-datetime", 1.0),
+            )
+            starts = load_incremental_start_datetimes(
+                conn,
+                Dataset.rates,
+                symbols=["EURUSD"],
+                timeframes=[1],
+                fallback_start=fallback,
+            )
+        assert starts["EURUSD", 1] == fallback
+
 
 class TestDeduplication:
     """Tests for SQLite deduplication helpers."""
@@ -165,6 +280,7 @@ class TestDeduplication:
             deduplicate_history_tables(
                 conn,
                 {Dataset.rates: {"symbol", "timeframe", "time", "open"}},
+                {Dataset.rates},
             )
             assert conn.execute("SELECT COUNT(*) FROM rates").fetchone() == (1,)
             assert conn.execute("SELECT open FROM rates").fetchone() == (9.9,)
@@ -176,6 +292,112 @@ class TestDeduplication:
             drop_duplicates_in_table(cursor, "bad table", ["id"])
         with pytest.raises(ValueError, match="Invalid column names"):
             drop_duplicates_in_table(cursor, "rates", ["bad column"])
+
+    @pytest.mark.parametrize(
+        ("dataset", "table_sql", "insert_sql", "rows", "columns"),
+        [
+            (
+                Dataset.ticks,
+                (
+                    "CREATE TABLE ticks("
+                    " symbol TEXT, time_msc INTEGER, time TEXT, bid REAL)"
+                ),
+                "INSERT INTO ticks(symbol, time_msc, time, bid) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 9.9),
+                ],
+                {"symbol", "time_msc", "time", "bid"},
+            ),
+            (
+                Dataset.history_orders,
+                (
+                    "CREATE TABLE history_orders("
+                    " ticket INTEGER, symbol TEXT, time TEXT, type INTEGER)"
+                ),
+                (
+                    "INSERT INTO history_orders(ticket, symbol, time, type)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
+                [
+                    (1, "EURUSD", "2024-01-01T00:00:00+00:00", 0),
+                    (1, "EURUSD", "2024-01-01T00:00:00+00:00", 1),
+                ],
+                {"ticket", "symbol", "time", "type"},
+            ),
+            (
+                Dataset.history_deals,
+                (
+                    "CREATE TABLE history_deals("
+                    " ticket INTEGER, symbol TEXT, time TEXT, type INTEGER,"
+                    " entry INTEGER)"
+                ),
+                (
+                    "INSERT INTO history_deals(ticket, symbol, time, type, entry)"
+                    " VALUES (?, ?, ?, ?, ?)"
+                ),
+                [
+                    (1, "EURUSD", "2024-01-01T00:00:00+00:00", 0, 0),
+                    (1, "EURUSD", "2024-01-01T00:00:00+00:00", 0, 1),
+                ],
+                {"ticket", "symbol", "time", "type", "entry"},
+            ),
+        ],
+    )
+    def test_deduplicates_non_rate_datasets_by_stable_keys(
+        self,
+        tmp_path: Path,
+        dataset: Dataset,
+        table_sql: str,
+        insert_sql: str,
+        rows: list[tuple[object, ...]],
+        columns: set[str],
+    ) -> None:
+        """Test deduplication keys for ticks, orders, and deals."""
+        with sqlite3.connect(tmp_path / f"{dataset.value}-dedup.db") as conn:
+            conn.execute(table_sql)
+            conn.executemany(insert_sql, rows)
+            deduplicate_history_tables(conn, {dataset: columns}, {dataset})
+            assert conn.execute(
+                f"SELECT COUNT(*) FROM {dataset.table_name}",  # noqa: S608
+            ).fetchone() == (1,)
+
+    def test_scoped_dedup_preserves_older_rows(self, tmp_path: Path) -> None:
+        """Test scoped deduplication only rewrites the appended boundary."""
+        boundary = datetime(2024, 1, 2, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "scoped-dedup.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 2.0),
+                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 9.9),
+                ],
+            )
+            deduplicate_history_tables(
+                conn,
+                {Dataset.rates: {"symbol", "timeframe", "time", "open"}},
+                {Dataset.rates},
+                {
+                    Dataset.rates: [
+                        (
+                            "symbol = ? AND timeframe = ? AND time >= ?",
+                            ("EURUSD", 1, boundary),
+                        ),
+                    ],
+                },
+            )
+            rows = conn.execute(
+                "SELECT time, open FROM rates ORDER BY time, open",
+            ).fetchall()
+        assert rows == [
+            ("2024-01-01T00:00:00+00:00", 1.0),
+            ("2024-01-02T00:00:00+00:00", 9.9),
+        ]
 
 
 class TestRateCompatibilityViews:
@@ -204,8 +426,8 @@ class TestRateCompatibilityViews:
                     " AND name LIKE 'rate_EURUSD%'",
                 ).fetchall()
             }
-            assert views == {"rate_EURUSD_M1", "rate_EURUSD_H1"}
-            assert conn.execute('SELECT close FROM "rate_EURUSD_M1"').fetchone() == (
+            assert views == {"rate_EURUSD__M1_1", "rate_EURUSD__H1_16385"}
+            assert conn.execute('SELECT close FROM "rate_EURUSD__M1_1"').fetchone() == (
                 1.0,
             )
 
@@ -224,7 +446,7 @@ class TestRateCompatibilityViews:
             create_rate_compatibility_views(conn)
             assert conn.execute(
                 "SELECT 1 FROM sqlite_master"
-                " WHERE type='view' AND name = 'rate_EURUSD'",
+                " WHERE type='view' AND name = 'rate_EURUSD__1'",
             ).fetchone() == (1,)
 
             conn.execute(
@@ -239,8 +461,8 @@ class TestRateCompatibilityViews:
                     " AND name LIKE 'rate_EURUSD%'",
                 ).fetchall()
             }
-        assert views == {"rate_EURUSD_M1", "rate_EURUSD_H1"}
-        assert "rate_EURUSD" not in views
+        assert views == {"rate_EURUSD__M1_1", "rate_EURUSD__H1_16385"}
+        assert "rate_EURUSD__1" not in views
 
     def test_does_not_drop_views_outside_rate_prefix(self, tmp_path: Path) -> None:
         """Test only literal rate_* views are dropped during recreation."""
@@ -264,8 +486,8 @@ class TestRateCompatibilityViews:
                 ).fetchall()
             }
             assert "rateX_custom" in views
-            assert "rate_EURUSD" in views
-            assert conn.execute("SELECT close FROM rate_EURUSD").fetchone() == (1.0,)
+            assert "rate_EURUSD__1" in views
+            assert conn.execute("SELECT close FROM rate_EURUSD__1").fetchone() == (1.0,)
 
     @pytest.mark.parametrize(
         "symbol",
@@ -282,6 +504,7 @@ class TestRateCompatibilityViews:
             symbol=symbol,
             granularity="M1",
             granularity_count=1,
+            timeframe=1,
         )
         with sqlite3.connect(db_path) as conn:
             conn.execute(
@@ -575,8 +798,40 @@ class TestIncrementalIntegration:
                 ).fetchall()
             }
         assert {"rates", "history_orders", "history_deals"} <= tables
-        assert "rate_EURUSD" in views
+        assert "rate_EURUSD__1" in views
         assert "cash_events" in views
+
+    def test_rate_view_names_do_not_collide_for_symbol_suffix(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test symbols resembling generated view suffixes stay distinct."""
+        db_path = tmp_path / "rate-view-collision.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 16385, "2024-01-01T01:00:00+00:00", 1.1),
+                    ("EURUSD_M1", 1, "2024-01-01T02:00:00+00:00", 1.2),
+                ],
+            )
+            create_rate_compatibility_views(conn)
+            views = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'",
+                ).fetchall()
+            }
+        assert views == {
+            "rate_EURUSD__M1_1",
+            "rate_EURUSD__H1_16385",
+            "rate_EURUSD_M1__1",
+        }
 
     def test_write_collected_datasets_and_edge_branches(
         self,
@@ -629,6 +884,7 @@ class TestIncrementalIntegration:
             deduplicate_history_tables(
                 conn,
                 {Dataset.ticks: {"time"}},
+                {Dataset.ticks},
             )
         filtered = filter_trade_history_frame(
             pd.DataFrame({"ticket": [1]}),
@@ -683,7 +939,7 @@ class TestIncrementalIntegration:
                 logger="mt5cli.sqlite_history",
             ),
         ):
-            deduplicate_history_tables(conn, {Dataset.ticks: {"time"}})
+            deduplicate_history_tables(conn, {Dataset.ticks: {"time"}}, {Dataset.ticks})
         assert "Skipping ticks deduplication" in caplog.text
 
     def test_write_rates_skips_empty_schema(
@@ -722,7 +978,7 @@ class TestIncrementalIntegration:
                 conn,
                 client,
                 ["EURUSD"],
-                {Dataset.rates},
+                {Dataset.rates, Dataset.history_deals},
                 [1],
                 0,
                 datetime(2024, 1, 1, tzinfo=UTC),
@@ -938,6 +1194,114 @@ class TestIncrementalHistoryDeals:
         client.history_deals_get_as_df.assert_called_once()
         assert rows == [(1, "EURUSD", 0), (2, "GBPUSD", 0), (4, "", 2)]
         assert row_count == (3,)
+
+    def test_records_account_event_dedup_scope_without_type_column(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test account-event dedup scope falls back to empty symbols."""
+        client = MagicMock()
+        client.history_deals_get_as_df.return_value = pd.DataFrame({
+            "ticket": [1],
+            "symbol": [""],
+            "time": ["2024-01-02T00:00:00+00:00"],
+        })
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 3, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "legacy-deals.db") as conn:
+            conn.execute(
+                "CREATE TABLE history_deals( ticket INTEGER, symbol TEXT, time TEXT)",
+            )
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD"],
+                {Dataset.history_deals},
+                [],
+                0,
+                start,
+                end,
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=True,
+            )
+            assert conn.execute("SELECT COUNT(*) FROM history_deals").fetchone() == (1,)
+
+    def test_skips_symbol_dedup_scope_when_symbol_column_missing(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test account-event writes skip per-symbol dedup without symbol column."""
+        client = MagicMock()
+        client.history_deals_get_as_df.return_value = pd.DataFrame({
+            "ticket": [1],
+            "time": ["2024-01-02T00:00:00+00:00"],
+            "type": [2],
+        })
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 3, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "no-symbol-deals.db") as conn:
+            conn.execute(
+                "CREATE TABLE history_deals(ticket INTEGER, time TEXT, type INTEGER)",
+            )
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD"],
+                {Dataset.history_deals},
+                [],
+                0,
+                start,
+                end,
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=True,
+            )
+            assert conn.execute("SELECT COUNT(*) FROM history_deals").fetchone() == (1,)
+
+    def test_creates_views_when_history_deals_written_with_with_views(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test derived views are rebuilt when history_deals is written."""
+        client = MagicMock()
+        client.history_deals_get_as_df.return_value = pd.DataFrame({
+            "ticket": [1, 2],
+            "position_id": [100, 100],
+            "symbol": ["EURUSD", "EURUSD"],
+            "time": ["2024-01-01T00:00:00+00:00", "2024-01-02T00:00:00+00:00"],
+            "type": [0, 1],
+            "entry": [0, 1],
+            "volume": [1.0, 1.0],
+            "price": [1.1, 1.2],
+            "profit": [0.0, 5.0],
+        })
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 3, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "deals-with-views.db") as conn:
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD"],
+                {Dataset.history_deals},
+                [],
+                0,
+                start,
+                end,
+                deduplicate=False,
+                create_rate_views=False,
+                with_views=True,
+                include_account_events=False,
+            )
+            views = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'",
+                ).fetchall()
+            }
+        assert {"cash_events", "positions_reconstructed"} <= views
 
     def test_applies_per_symbol_start_when_account_events_enabled(
         self,

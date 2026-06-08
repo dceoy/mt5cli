@@ -94,21 +94,26 @@ History orders and deals are fetched per symbol and concatenated, so the symbol 
 For automated pipelines, use the importable incremental API instead of re-fetching fixed date ranges:
 
 ```python
-from pdmt5 import Mt5Config
+from pdmt5 import Mt5Config, Mt5DataClient
 from mt5cli import Dataset, update_history, update_history_with_config
 
 # Reuse an already-connected pdmt5 client (does not open/close MT5)
-update_history(
-    client=connected_client,
-    output="history.db",
-    symbols=["EURUSD", "GBPUSD"],
-    datasets={Dataset.rates, Dataset.history_deals},
-    timeframes=["M1", "H1"],  # default: all fixed MT5 timeframes
-    lookback_hours=24,
-    create_rate_views=True,
-    with_views=True,
-    include_account_events=True,
-)
+client = Mt5DataClient(config=Mt5Config(login=12345))
+client.initialize_and_login_mt5()
+try:
+    update_history(
+        client=client,
+        output="history.db",
+        symbols=["EURUSD", "GBPUSD"],
+        datasets={Dataset.rates, Dataset.history_deals},
+        timeframes=["M1", "H1"],  # default: all fixed MT5 timeframes
+        lookback_hours=24,
+        create_rate_views=True,
+        with_views=True,
+        include_account_events=True,
+    )
+finally:
+    client.shutdown()
 
 # Standalone wrapper that opens and closes MT5 for you
 update_history_with_config(
@@ -119,9 +124,9 @@ update_history_with_config(
 ```
 
 - **`collect-history`**: explicit date-range export into SQLite.
-- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per dataset, symbol, and timeframe.
+- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`.
 - **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
-- **Rate compatibility views**: mt5cli manages all `rate_*` views. Naming is `rate_<symbol>` when a symbol has one timeframe, otherwise `rate_<symbol>_<granularity>` (for example `rate_EURUSD_M1`). Stale `rate_*` views are dropped and recreated on each update for offline tools such as mteor optimize.
+- **Rate compatibility views**: mt5cli manages all `rate_*` views. Naming is `rate_<symbol>__<timeframe>` when a symbol has one timeframe, otherwise `rate_<symbol>__<granularity>_<timeframe>` (for example `rate_EURUSD__M1_1`). Stale `rate_*` views are dropped and recreated when rates change for offline tools such as mteor optimize.
 
 ## Requirements
 

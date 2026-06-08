@@ -109,11 +109,17 @@ def build_rate_view_name(
     symbol: str,
     granularity: str,
     granularity_count: int,
+    timeframe: int,
 ) -> str:
-    """Return the offline optimize view name for a symbol and granularity."""
+    """Return a collision-free offline optimize view name.
+
+    View names always include the timeframe integer after a ``__`` separator so
+    a symbol such as ``EURUSD_M1`` cannot collide with ``EURUSD`` at timeframe
+    ``M1``.
+    """
     if granularity_count == 1:
-        return f"rate_{symbol}"
-    return f"rate_{symbol}_{granularity}"
+        return f"rate_{symbol}__{timeframe}"
+    return f"rate_{symbol}__{granularity}_{timeframe}"
 
 
 def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -174,6 +180,90 @@ def get_history_deals_account_event_start_datetime(
     return parsed if parsed is not None else fallback_start
 
 
+def load_incremental_start_datetimes(
+    conn: sqlite3.Connection,
+    dataset: Dataset,
+    *,
+    symbols: Sequence[str],
+    timeframes: Sequence[int] | None = None,
+    fallback_start: datetime,
+) -> dict[tuple[str, int | None], datetime]:
+    """Return next update start datetimes keyed by symbol and optional timeframe."""
+    table = dataset.table_name
+    columns = get_table_columns(conn, table)
+    if "time" not in columns:
+        if dataset is Dataset.rates and timeframes is not None:
+            return {
+                (symbol, timeframe): fallback_start
+                for symbol in symbols
+                for timeframe in timeframes
+            }
+        return {(symbol, None): fallback_start for symbol in symbols}
+
+    if (
+        dataset is Dataset.rates
+        and timeframes is not None
+        and "timeframe" not in columns
+    ):
+        return {
+            (symbol, timeframe): fallback_start
+            for symbol in symbols
+            for timeframe in timeframes
+        }
+
+    parsed_by_key: dict[tuple[str, int | None], datetime] = {}
+    if (
+        dataset is Dataset.rates
+        and timeframes is not None
+        and {"symbol", "timeframe"}.issubset(columns)
+    ):
+        symbol_placeholders = ", ".join("?" for _ in symbols)
+        timeframe_placeholders = ", ".join("?" for _ in timeframes)
+        grouped_rates_query = (
+            "SELECT symbol, timeframe, MAX(time) FROM "  # noqa: S608
+            f"{table} WHERE symbol IN ({symbol_placeholders})"
+            f" AND timeframe IN ({timeframe_placeholders})"
+            " GROUP BY symbol, timeframe"
+        )
+        rows = conn.execute(
+            grouped_rates_query,
+            [*symbols, *timeframes],
+        ).fetchall()
+        for row_symbol, row_timeframe, max_time in rows:
+            parsed = parse_sqlite_timestamp(max_time)
+            if parsed is not None:
+                parsed_by_key[str(row_symbol), int(row_timeframe)] = parsed
+        return {
+            (symbol, timeframe): parsed_by_key.get(
+                (symbol, timeframe),
+                fallback_start,
+            )
+            for symbol in symbols
+            for timeframe in timeframes
+        }
+
+    if "symbol" in columns:
+        symbol_placeholders = ", ".join("?" for _ in symbols)
+        rows = conn.execute(
+            f"SELECT symbol, MAX(time) FROM {table}"  # noqa: S608
+            f" WHERE symbol IN ({symbol_placeholders}) GROUP BY symbol",
+            list(symbols),
+        ).fetchall()
+        for row_symbol, max_time in rows:
+            parsed = parse_sqlite_timestamp(max_time)
+            if parsed is not None:
+                parsed_by_key[str(row_symbol), None] = parsed
+        return {
+            (symbol, None): parsed_by_key.get((symbol, None), fallback_start)
+            for symbol in symbols
+        }
+
+    row = conn.execute(f"SELECT MAX(time) FROM {table}").fetchone()  # noqa: S608
+    parsed = parse_sqlite_timestamp(row[0] if row else None)
+    shared_start = parsed if parsed is not None else fallback_start
+    return {(symbol, None): shared_start for symbol in symbols}
+
+
 def get_incremental_start_datetime(
     conn: sqlite3.Connection,
     dataset: Dataset,
@@ -183,25 +273,15 @@ def get_incremental_start_datetime(
     fallback_start: datetime,
 ) -> datetime:
     """Return the next update start datetime from existing MAX(time)."""
-    table = dataset.table_name
-    columns = get_table_columns(conn, table)
-    if "time" not in columns:
-        return fallback_start
-    conditions: list[str] = []
-    params: list[str | int] = []
-    if "symbol" in columns:
-        conditions.append("symbol = ?")
-        params.append(symbol)
-    if dataset is Dataset.rates and timeframe is not None and "timeframe" in columns:
-        conditions.append("timeframe = ?")
-        params.append(timeframe)
-    where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-    row = conn.execute(
-        f"SELECT MAX(time) FROM {table}{where_clause}",  # noqa: S608
-        params,
-    ).fetchone()
-    parsed = parse_sqlite_timestamp(row[0] if row else None)
-    return parsed if parsed is not None else fallback_start
+    timeframes = [timeframe] if timeframe is not None else None
+    starts = load_incremental_start_datetimes(
+        conn,
+        dataset,
+        symbols=[symbol],
+        timeframes=timeframes,
+        fallback_start=fallback_start,
+    )
+    return starts[symbol, timeframe]
 
 
 def append_dataframe(
@@ -283,6 +363,8 @@ def drop_duplicates_in_table(
     ids: list[str],
     *,
     keep: Literal["first", "last"] = "last",
+    scope_where: str | None = None,
+    scope_params: tuple[object, ...] = (),
 ) -> None:
     """Remove duplicate rows, keeping the first or last ROWID per key group.
 
@@ -297,19 +379,42 @@ def drop_duplicates_in_table(
         raise ValueError(msg)
     ids_csv = ", ".join(f'"{column}"' for column in ids)
     rowid_selector = "MIN" if keep == "first" else "MAX"
+    if scope_where:
+        delete_sql = (
+            f"DELETE FROM {table} WHERE {scope_where} AND ROWID NOT IN"  # noqa: S608
+            f" (SELECT {rowid_selector}(ROWID) FROM {table} WHERE {scope_where}"
+            f" GROUP BY {ids_csv})"
+        )
+        cursor.execute(delete_sql, scope_params + scope_params)
+        return
     cursor.execute(
         f"DELETE FROM {table} WHERE ROWID NOT IN"  # noqa: S608
         f" (SELECT {rowid_selector}(ROWID) FROM {table} GROUP BY {ids_csv})",
     )
 
 
+DedupScope = tuple[str, tuple[object, ...]]
+
+
+def _record_dedup_scope(
+    dedup_scopes: dict[Dataset, list[DedupScope]],
+    dataset: Dataset,
+    scope_where: str,
+    scope_params: tuple[object, ...],
+) -> None:
+    dedup_scopes.setdefault(dataset, []).append((scope_where, scope_params))
+
+
 def deduplicate_history_tables(
     conn: sqlite3.Connection,
     written_columns: dict[Dataset, set[str]],
+    written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]] | None = None,
 ) -> None:
     """Deduplicate appended history tables by stable identifiers."""
     cursor = conn.cursor()
-    for dataset, columns in written_columns.items():
+    for dataset in written_tables:
+        columns = written_columns.get(dataset, set())
         table = dataset.table_name
         keys = next(
             (
@@ -324,6 +429,18 @@ def deduplicate_history_tables(
                 "Skipping %s deduplication: no supported key columns",
                 table,
             )
+            continue
+        scopes = dedup_scopes.get(dataset, []) if dedup_scopes else []
+        if scopes:
+            for scope_where, scope_params in scopes:
+                drop_duplicates_in_table(
+                    cursor,
+                    table,
+                    list(keys),
+                    keep="last",
+                    scope_where=scope_where,
+                    scope_params=scope_params,
+                )
             continue
         drop_duplicates_in_table(cursor, table, list(keys), keep="last")
 
@@ -516,6 +633,7 @@ def create_rate_compatibility_views(conn: sqlite3.Connection) -> None:
                 symbol=symbol,
                 granularity=granularity,
                 granularity_count=len(timeframes),
+                timeframe=timeframe,
             )
             quoted_view_name = quote_sqlite_identifier(view_name)
             escaped_symbol = symbol.replace("'", "''")
@@ -659,16 +777,18 @@ def _write_incremental_rates(
     end_date: datetime,
     written_columns: dict[Dataset, set[str]],
     written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
 ) -> None:
+    start_by_key = load_incremental_start_datetimes(
+        conn,
+        Dataset.rates,
+        symbols=symbols,
+        timeframes=resolved_timeframes,
+        fallback_start=fallback_start,
+    )
     for symbol in symbols:
         for timeframe in resolved_timeframes:
-            start_date = get_incremental_start_datetime(
-                conn,
-                Dataset.rates,
-                symbol=symbol,
-                timeframe=timeframe,
-                fallback_start=fallback_start,
-            )
+            start_date = start_by_key[symbol, timeframe]
             if write_rates_dataset(
                 conn,
                 client,
@@ -680,6 +800,12 @@ def _write_incremental_rates(
                 written_columns,
             ):
                 written_tables.add(Dataset.rates)
+                _record_dedup_scope(
+                    dedup_scopes,
+                    Dataset.rates,
+                    "symbol = ? AND timeframe = ? AND time >= ?",
+                    (symbol, timeframe, start_date),
+                )
 
 
 def _write_incremental_ticks(
@@ -691,15 +817,16 @@ def _write_incremental_ticks(
     end_date: datetime,
     written_columns: dict[Dataset, set[str]],
     written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
 ) -> None:
+    start_by_symbol = load_incremental_start_datetimes(
+        conn,
+        Dataset.ticks,
+        symbols=symbols,
+        fallback_start=fallback_start,
+    )
     for symbol in symbols:
-        start_date = get_incremental_start_datetime(
-            conn,
-            Dataset.ticks,
-            symbol=symbol,
-            timeframe=None,
-            fallback_start=fallback_start,
-        )
+        start_date = start_by_symbol[symbol, None]
         if write_ticks_dataset(
             conn,
             client,
@@ -711,6 +838,12 @@ def _write_incremental_ticks(
             written_columns,
         ):
             written_tables.add(Dataset.ticks)
+            _record_dedup_scope(
+                dedup_scopes,
+                Dataset.ticks,
+                "symbol = ? AND time >= ?",
+                (symbol, start_date),
+            )
 
 
 def _write_incremental_history_orders(
@@ -721,15 +854,16 @@ def _write_incremental_history_orders(
     end_date: datetime,
     written_columns: dict[Dataset, set[str]],
     written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
 ) -> None:
+    start_by_symbol = load_incremental_start_datetimes(
+        conn,
+        Dataset.history_orders,
+        symbols=symbols,
+        fallback_start=fallback_start,
+    )
     for symbol in symbols:
-        start_date = get_incremental_start_datetime(
-            conn,
-            Dataset.history_orders,
-            symbol=symbol,
-            timeframe=None,
-            fallback_start=fallback_start,
-        )
+        start_date = start_by_symbol[symbol, None]
         if write_history_dataset(
             conn,
             client.history_orders_get_as_df,
@@ -742,6 +876,12 @@ def _write_incremental_history_orders(
             include_account_events=False,
         ):
             written_tables.add(Dataset.history_orders)
+            _record_dedup_scope(
+                dedup_scopes,
+                Dataset.history_orders,
+                "symbol = ? AND time >= ?",
+                (symbol, start_date),
+            )
 
 
 def _write_incremental_history_deals(
@@ -752,20 +892,17 @@ def _write_incremental_history_deals(
     end_date: datetime,
     written_columns: dict[Dataset, set[str]],
     written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
     *,
     include_account_events: bool,
 ) -> None:
     if include_account_events:
-        start_by_symbol = {
-            symbol: get_incremental_start_datetime(
-                conn,
-                Dataset.history_deals,
-                symbol=symbol,
-                timeframe=None,
-                fallback_start=fallback_start,
-            )
-            for symbol in symbols
-        }
+        start_by_symbol = load_incremental_start_datetimes(
+            conn,
+            Dataset.history_deals,
+            symbols=symbols,
+            fallback_start=fallback_start,
+        )
         account_event_start = get_history_deals_account_event_start_datetime(
             conn,
             fallback_start=fallback_start,
@@ -777,7 +914,7 @@ def _write_incremental_history_deals(
                 date_to=end_date,
             ),
             symbols,
-            start_by_symbol,
+            {symbol: start_by_symbol[symbol, None] for symbol in symbols},
             account_event_start,
         )
         if write_streamed_frame(
@@ -789,15 +926,38 @@ def _write_incremental_history_deals(
             written_columns=written_columns,
         ):
             written_tables.add(Dataset.history_deals)
+            columns = get_table_columns(conn, Dataset.history_deals.table_name)
+            if "symbol" in columns:
+                for symbol in symbols:
+                    _record_dedup_scope(
+                        dedup_scopes,
+                        Dataset.history_deals,
+                        "symbol = ? AND time >= ?",
+                        (symbol, start_by_symbol[symbol, None]),
+                    )
+            if "type" in columns:
+                _record_dedup_scope(
+                    dedup_scopes,
+                    Dataset.history_deals,
+                    f"type NOT IN {_TRADE_DEAL_TYPES_SQL} AND time >= ?",
+                    (account_event_start,),
+                )
+            if "type" not in columns and "symbol" in columns:
+                _record_dedup_scope(
+                    dedup_scopes,
+                    Dataset.history_deals,
+                    "(symbol IS NULL OR symbol = '') AND time >= ?",
+                    (account_event_start,),
+                )
         return
+    start_by_symbol = load_incremental_start_datetimes(
+        conn,
+        Dataset.history_deals,
+        symbols=symbols,
+        fallback_start=fallback_start,
+    )
     for symbol in symbols:
-        start_date = get_incremental_start_datetime(
-            conn,
-            Dataset.history_deals,
-            symbol=symbol,
-            timeframe=None,
-            fallback_start=fallback_start,
-        )
+        start_date = start_by_symbol[symbol, None]
         if write_history_dataset(
             conn,
             client.history_deals_get_as_df,
@@ -810,6 +970,12 @@ def _write_incremental_history_deals(
             include_account_events=False,
         ):
             written_tables.add(Dataset.history_deals)
+            _record_dedup_scope(
+                dedup_scopes,
+                Dataset.history_deals,
+                "symbol = ? AND time >= ?",
+                (symbol, start_date),
+            )
 
 
 def _finalize_incremental_writes(
@@ -817,25 +983,35 @@ def _finalize_incremental_writes(
     selected_datasets: set[Dataset],
     written_columns: dict[Dataset, set[str]],
     written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
     *,
     deduplicate: bool,
     create_rate_views: bool,
     with_views: bool,
 ) -> None:
     augment_written_columns_from_sqlite(conn, selected_datasets, written_columns)
-    if deduplicate:
-        deduplicate_history_tables(conn, written_columns)
     create_history_indexes(conn, written_columns)
-    if create_rate_views and Dataset.rates in selected_datasets:
-        create_rate_compatibility_views(conn)
-    if with_views and Dataset.history_deals in written_columns:
-        deal_columns = written_columns[Dataset.history_deals]
-        create_cash_events_view(conn, deal_columns)
-        create_positions_reconstructed_view(conn, deal_columns)
-    elif with_views and Dataset.history_deals not in written_tables:
-        logger.warning(
-            "with_views ignored: history_deals table was not available",
+    if deduplicate:
+        deduplicate_history_tables(
+            conn,
+            written_columns,
+            written_tables,
+            dedup_scopes,
         )
+    if create_rate_views and Dataset.rates in written_tables:
+        create_rate_compatibility_views(conn)
+    if with_views and Dataset.history_deals in selected_datasets:
+        if Dataset.history_deals in written_columns:
+            deal_columns = written_columns[Dataset.history_deals]
+            create_cash_events_view(conn, deal_columns)
+            create_positions_reconstructed_view(conn, deal_columns)
+        if (
+            Dataset.history_deals not in written_columns
+            and Dataset.history_deals not in written_tables
+        ):
+            logger.warning(
+                "with_views ignored: history_deals table was not available",
+            )
 
 
 def write_incremental_datasets(  # noqa: PLR0913
@@ -860,6 +1036,7 @@ def write_incremental_datasets(  # noqa: PLR0913
     """
     written_columns: dict[Dataset, set[str]] = {}
     written_tables: set[Dataset] = set()
+    dedup_scopes: dict[Dataset, list[DedupScope]] = {}
     if Dataset.rates in selected_datasets:
         _write_incremental_rates(
             conn,
@@ -870,6 +1047,7 @@ def write_incremental_datasets(  # noqa: PLR0913
             end_date,
             written_columns,
             written_tables,
+            dedup_scopes,
         )
     if Dataset.ticks in selected_datasets:
         _write_incremental_ticks(
@@ -881,6 +1059,7 @@ def write_incremental_datasets(  # noqa: PLR0913
             end_date,
             written_columns,
             written_tables,
+            dedup_scopes,
         )
     if Dataset.history_orders in selected_datasets:
         _write_incremental_history_orders(
@@ -891,6 +1070,7 @@ def write_incremental_datasets(  # noqa: PLR0913
             end_date,
             written_columns,
             written_tables,
+            dedup_scopes,
         )
     if Dataset.history_deals in selected_datasets:
         _write_incremental_history_deals(
@@ -901,6 +1081,7 @@ def write_incremental_datasets(  # noqa: PLR0913
             end_date,
             written_columns,
             written_tables,
+            dedup_scopes,
             include_account_events=include_account_events,
         )
     _finalize_incremental_writes(
@@ -908,6 +1089,7 @@ def write_incremental_datasets(  # noqa: PLR0913
         selected_datasets,
         written_columns,
         written_tables,
+        dedup_scopes,
         deduplicate=deduplicate,
         create_rate_views=create_rate_views,
         with_views=with_views,
