@@ -6,9 +6,9 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         
         <meta name="author" content="dceoy">
-        <link rel="canonical" href="https://github.com/dceoy/mt5cli/api/sqlite_history/">
+        <link rel="canonical" href="https://github.com/dceoy/mt5cli/api/history/">
         <link rel="shortcut icon" href="../../img/favicon.ico">
-        <title>SQLite History - mt5cli API Documentation</title>
+        <title>History Collection (SQLite) - mt5cli API Documentation</title>
         <link href="../../css/bootstrap.min.css" rel="stylesheet">
         <link href="../../css/fontawesome.min.css" rel="stylesheet">
         <link href="../../css/brands.min.css" rel="stylesheet">
@@ -55,7 +55,7 @@
 </li>
                                     
 <li>
-    <a href="./" class="dropdown-item active" aria-current="page">SQLite History</a>
+    <a href="./" class="dropdown-item active" aria-current="page">History Collection (SQLite)</a>
 </li>
                                     
 <li>
@@ -82,7 +82,7 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="https://github.com/dceoy/mt5cli/edit/master/docs/api/sqlite_history.md" class="nav-link">Edit on dceoy/mt5cli
+                                <a href="https://github.com/dceoy/mt5cli/edit/master/docs/api/history.md" class="nav-link">Edit on dceoy/mt5cli
                                     </a>
                             </li>
                     </ul>
@@ -103,9 +103,9 @@
     <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
         <ul class="nav flex-column">
             
-            <li class="nav-item" data-bs-level="1"><a href="#sqlite-history-module" class="nav-link">SQLite History Module</a>
+            <li class="nav-item" data-bs-level="1"><a href="#history-collection-sqlite" class="nav-link">History Collection (SQLite)</a>
               <ul class="nav flex-column">
-            <li class="nav-item" data-bs-level="2"><a href="#mt5cli.sqlite_history" class="nav-link">sqlite_history</a>
+            <li class="nav-item" data-bs-level="2"><a href="#mt5cli.history" class="nav-link">history</a>
               <ul class="nav flex-column">
               </ul>
             </li>
@@ -120,22 +120,22 @@
 </div></div>
                     <div class="col-md-9" role="main">
 
-<h1 id="sqlite-history-module">SQLite History Module<a class="headerlink" href="#sqlite-history-module" title="Permanent link">&para;</a></h1>
+<h1 id="history-collection-sqlite">History Collection (SQLite)<a class="headerlink" href="#history-collection-sqlite" title="Permanent link">&para;</a></h1>
 
 
 <div class="doc doc-object doc-module">
 
 
 
-<h2 id="mt5cli.sqlite_history" class="doc doc-heading">
-            <span class="doc doc-object-name doc-module-name">mt5cli.sqlite_history</span>
+<h2 id="mt5cli.history" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">mt5cli.history</span>
 
 
-<a href="#mt5cli.sqlite_history" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#mt5cli.history" class="headerlink" title="Permanent link">&para;</a></h2>
 
     <div class="doc doc-contents first">
 
-        <p>SQLite helpers for incremental MT5 history collection.</p>
+        <p>SQLite storage helpers for the <code>collect-history</code> incremental data pipeline.</p>
 
 
 
@@ -158,7 +158,7 @@
 
 
 
-<h3 id="mt5cli.sqlite_history.DEFAULT_HISTORY_TIMEFRAMES" class="doc doc-heading">
+<h3 id="mt5cli.history.DEFAULT_HISTORY_TIMEFRAMES" class="doc doc-heading">
             <span class="doc doc-object-name doc-attribute-name">DEFAULT_HISTORY_TIMEFRAMES</span>
 
 
@@ -166,7 +166,7 @@
       <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
   </span>
 
-<a href="#mt5cli.sqlite_history.DEFAULT_HISTORY_TIMEFRAMES" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.DEFAULT_HISTORY_TIMEFRAMES" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">DEFAULT_HISTORY_TIMEFRAMES</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n"><a class="autorefs autorefs-internal" title="TIMEFRAME_MAP
 
@@ -187,7 +187,7 @@
 
 
 
-<h3 id="mt5cli.sqlite_history.DedupScope" class="doc doc-heading">
+<h3 id="mt5cli.history.DedupScope" class="doc doc-heading">
             <span class="doc doc-object-name doc-attribute-name">DedupScope</span>
 
 
@@ -195,7 +195,7 @@
       <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
   </span>
 
-<a href="#mt5cli.sqlite_history.DedupScope" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.DedupScope" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">DedupScope</span> <span class="o">=</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="object">object</span></span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span>
 </code></pre></div>
 
@@ -209,7 +209,7 @@
 
 
 
-<h3 id="mt5cli.sqlite_history.logger" class="doc doc-heading">
+<h3 id="mt5cli.history.logger" class="doc doc-heading">
             <span class="doc doc-object-name doc-attribute-name">logger</span>
 
 
@@ -217,7 +217,7 @@
       <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
   </span>
 
-<a href="#mt5cli.sqlite_history.logger" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.logger" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">logger</span> <span class="o">=</span> <span class="n"><span title="logging.getLogger">getLogger</span></span><span class="p">(</span><span class="n"><span title="__name__">__name__</span></span><span class="p">)</span>
 </code></pre></div>
 
@@ -233,11 +233,11 @@
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.append_dataframe" class="doc doc-heading">
+<h3 id="mt5cli.history.append_dataframe" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">append_dataframe</span>
 
 
-<a href="#mt5cli.sqlite_history.append_dataframe" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.append_dataframe" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">append_dataframe</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">frame</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">,</span>
@@ -275,7 +275,7 @@
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-298">298</a></span>
 <span class="normal"><a href="#__codelineno-0-299">299</a></span>
 <span class="normal"><a href="#__codelineno-0-300">300</a></span>
@@ -328,11 +328,11 @@
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.augment_written_columns_from_sqlite" class="doc doc-heading">
+<h3 id="mt5cli.history.augment_written_columns_from_sqlite" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">augment_written_columns_from_sqlite</span>
 
 
-<a href="#mt5cli.sqlite_history.augment_written_columns_from_sqlite" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.augment_written_columns_from_sqlite" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">augment_written_columns_from_sqlite</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">datasets</span><span class="p">:</span> <span class="n"><span title="set">set</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="Dataset (mt5cli.utils.Dataset)" href="../utils/#mt5cli.utils.Dataset">Dataset</a></span><span class="p">],</span>
@@ -346,7 +346,7 @@
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-335">335</a></span>
 <span class="normal"><a href="#__codelineno-0-336">336</a></span>
 <span class="normal"><a href="#__codelineno-0-337">337</a></span>
@@ -383,11 +383,11 @@
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.build_rate_view_name" class="doc doc-heading">
+<h3 id="mt5cli.history.build_rate_view_name" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">build_rate_view_name</span>
 
 
-<a href="#mt5cli.sqlite_history.build_rate_view_name" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.build_rate_view_name" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">build_rate_view_name</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">symbol</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
@@ -406,7 +406,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-107">107</a></span>
 <span class="normal"><a href="#__codelineno-0-108">108</a></span>
 <span class="normal"><a href="#__codelineno-0-109">109</a></span>
@@ -447,11 +447,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.create_cash_events_view" class="doc doc-heading">
+<h3 id="mt5cli.history.create_cash_events_view" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">create_cash_events_view</span>
 
 
-<a href="#mt5cli.sqlite_history.create_cash_events_view" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.create_cash_events_view" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">create_cash_events_view</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span> <span class="n">deals_columns</span><span class="p">:</span> <span class="n"><span title="set">set</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
@@ -486,7 +486,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-548">548</a></span>
 <span class="normal"><a href="#__codelineno-0-549">549</a></span>
 <span class="normal"><a href="#__codelineno-0-550">550</a></span>
@@ -531,11 +531,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.create_history_indexes" class="doc doc-heading">
+<h3 id="mt5cli.history.create_history_indexes" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">create_history_indexes</span>
 
 
-<a href="#mt5cli.sqlite_history.create_history_indexes" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.create_history_indexes" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">create_history_indexes</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">written_columns</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="Dataset (mt5cli.utils.Dataset)" href="../utils/#mt5cli.utils.Dataset">Dataset</a></span><span class="p">,</span> <span class="n"><span title="set">set</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]],</span>
@@ -548,7 +548,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-459">459</a></span>
 <span class="normal"><a href="#__codelineno-0-460">460</a></span>
 <span class="normal"><a href="#__codelineno-0-461">461</a></span>
@@ -603,11 +603,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.create_positions_reconstructed_view" class="doc doc-heading">
+<h3 id="mt5cli.history.create_positions_reconstructed_view" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">create_positions_reconstructed_view</span>
 
 
-<a href="#mt5cli.sqlite_history.create_positions_reconstructed_view" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.create_positions_reconstructed_view" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">create_positions_reconstructed_view</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span> <span class="n">deals_columns</span><span class="p">:</span> <span class="n"><span title="set">set</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
@@ -642,7 +642,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-568">568</a></span>
 <span class="normal"><a href="#__codelineno-0-569">569</a></span>
 <span class="normal"><a href="#__codelineno-0-570">570</a></span>
@@ -745,11 +745,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.create_rate_compatibility_views" class="doc doc-heading">
+<h3 id="mt5cli.history.create_rate_compatibility_views" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">create_rate_compatibility_views</span>
 
 
-<a href="#mt5cli.sqlite_history.create_rate_compatibility_views" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.create_rate_compatibility_views" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">create_rate_compatibility_views</span><span class="p">(</span><span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
@@ -759,7 +759,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-627">627</a></span>
 <span class="normal"><a href="#__codelineno-0-628">628</a></span>
 <span class="normal"><a href="#__codelineno-0-629">629</a></span>
@@ -830,11 +830,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.deduplicate_history_tables" class="doc doc-heading">
+<h3 id="mt5cli.history.deduplicate_history_tables" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">deduplicate_history_tables</span>
 
 
-<a href="#mt5cli.sqlite_history.deduplicate_history_tables" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.deduplicate_history_tables" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">deduplicate_history_tables</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">written_columns</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="Dataset (mt5cli.utils.Dataset)" href="../utils/#mt5cli.utils.Dataset">Dataset</a></span><span class="p">,</span> <span class="n"><span title="set">set</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]],</span>
@@ -844,7 +844,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
   
       module-attribute
-   (mt5cli.sqlite_history.DedupScope)" href="#mt5cli.sqlite_history.DedupScope">DedupScope</a></span><span class="p">]]</span>
+   (mt5cli.history.DedupScope)" href="#mt5cli.history.DedupScope">DedupScope</a></span><span class="p">]]</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
@@ -855,7 +855,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-419">419</a></span>
 <span class="normal"><a href="#__codelineno-0-420">420</a></span>
 <span class="normal"><a href="#__codelineno-0-421">421</a></span>
@@ -940,11 +940,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.drop_duplicates_in_table" class="doc doc-heading">
+<h3 id="mt5cli.history.drop_duplicates_in_table" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">drop_duplicates_in_table</span>
 
 
-<a href="#mt5cli.sqlite_history.drop_duplicates_in_table" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.drop_duplicates_in_table" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">drop_duplicates_in_table</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">cursor</span><span class="p">:</span> <span class="n"><span title="sqlite3.Cursor">Cursor</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">table</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
@@ -985,7 +985,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-371">371</a></span>
 <span class="normal"><a href="#__codelineno-0-372">372</a></span>
 <span class="normal"><a href="#__codelineno-0-373">373</a></span>
@@ -1062,11 +1062,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.drop_rate_compatibility_views" class="doc doc-heading">
+<h3 id="mt5cli.history.drop_rate_compatibility_views" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">drop_rate_compatibility_views</span>
 
 
-<a href="#mt5cli.sqlite_history.drop_rate_compatibility_views" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.drop_rate_compatibility_views" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">drop_rate_compatibility_views</span><span class="p">(</span><span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
@@ -1076,7 +1076,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-617">617</a></span>
 <span class="normal"><a href="#__codelineno-0-618">618</a></span>
 <span class="normal"><a href="#__codelineno-0-619">619</a></span>
@@ -1101,11 +1101,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.filter_incremental_history_deals_frame" class="doc doc-heading">
+<h3 id="mt5cli.history.filter_incremental_history_deals_frame" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">filter_incremental_history_deals_frame</span>
 
 
-<a href="#mt5cli.sqlite_history.filter_incremental_history_deals_frame" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.filter_incremental_history_deals_frame" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">filter_incremental_history_deals_frame</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">frame</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">symbols</span><span class="p">:</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">],</span>
@@ -1153,7 +1153,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-498">498</a></span>
 <span class="normal"><a href="#__codelineno-0-499">499</a></span>
 <span class="normal"><a href="#__codelineno-0-500">500</a></span>
@@ -1218,11 +1218,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.filter_trade_history_frame" class="doc doc-heading">
+<h3 id="mt5cli.history.filter_trade_history_frame" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">filter_trade_history_frame</span>
 
 
-<a href="#mt5cli.sqlite_history.filter_trade_history_frame" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.filter_trade_history_frame" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">filter_trade_history_frame</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">frame</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">symbols</span><span class="p">:</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">],</span>
@@ -1260,7 +1260,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-528">528</a></span>
 <span class="normal"><a href="#__codelineno-0-529">529</a></span>
 <span class="normal"><a href="#__codelineno-0-530">530</a></span>
@@ -1305,11 +1305,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.get_history_deals_account_event_start_datetime" class="doc doc-heading">
+<h3 id="mt5cli.history.get_history_deals_account_event_start_datetime" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">get_history_deals_account_event_start_datetime</span>
 
 
-<a href="#mt5cli.sqlite_history.get_history_deals_account_event_start_datetime" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.get_history_deals_account_event_start_datetime" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_history_deals_account_event_start_datetime</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">fallback_start</span><span class="p">:</span> <span class="n"><span title="datetime.datetime">datetime</span></span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="datetime.datetime">datetime</span></span>
@@ -1321,7 +1321,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-160">160</a></span>
 <span class="normal"><a href="#__codelineno-0-161">161</a></span>
 <span class="normal"><a href="#__codelineno-0-162">162</a></span>
@@ -1372,11 +1372,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.get_incremental_start_datetime" class="doc doc-heading">
+<h3 id="mt5cli.history.get_incremental_start_datetime" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">get_incremental_start_datetime</span>
 
 
-<a href="#mt5cli.sqlite_history.get_incremental_start_datetime" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.get_incremental_start_datetime" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_incremental_start_datetime</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">dataset</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="Dataset (mt5cli.utils.Dataset)" href="../utils/#mt5cli.utils.Dataset">Dataset</a></span><span class="p">,</span>
@@ -1393,7 +1393,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-278">278</a></span>
 <span class="normal"><a href="#__codelineno-0-279">279</a></span>
 <span class="normal"><a href="#__codelineno-0-280">280</a></span>
@@ -1438,11 +1438,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.get_table_columns" class="doc doc-heading">
+<h3 id="mt5cli.history.get_table_columns" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">get_table_columns</span>
 
 
-<a href="#mt5cli.sqlite_history.get_table_columns" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.get_table_columns" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_table_columns</span><span class="p">(</span><span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span> <span class="n">table</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="set">set</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span>
 </code></pre></div>
 
@@ -1452,7 +1452,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-125">125</a></span>
 <span class="normal"><a href="#__codelineno-0-126">126</a></span>
 <span class="normal"><a href="#__codelineno-0-127">127</a></span>
@@ -1469,11 +1469,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.load_incremental_start_datetimes" class="doc doc-heading">
+<h3 id="mt5cli.history.load_incremental_start_datetimes" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">load_incremental_start_datetimes</span>
 
 
-<a href="#mt5cli.sqlite_history.load_incremental_start_datetimes" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.load_incremental_start_datetimes" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">load_incremental_start_datetimes</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">dataset</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="Dataset (mt5cli.utils.Dataset)" href="../utils/#mt5cli.utils.Dataset">Dataset</a></span><span class="p">,</span>
@@ -1490,7 +1490,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-202">202</a></span>
 <span class="normal"><a href="#__codelineno-0-203">203</a></span>
 <span class="normal"><a href="#__codelineno-0-204">204</a></span>
@@ -1647,11 +1647,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.parse_sqlite_timestamp" class="doc doc-heading">
+<h3 id="mt5cli.history.parse_sqlite_timestamp" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">parse_sqlite_timestamp</span>
 
 
-<a href="#mt5cli.sqlite_history.parse_sqlite_timestamp" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.parse_sqlite_timestamp" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">parse_sqlite_timestamp</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n"><span title="object">object</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="datetime.datetime">datetime</span></span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
@@ -1684,7 +1684,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-142">142</a></span>
 <span class="normal"><a href="#__codelineno-0-143">143</a></span>
 <span class="normal"><a href="#__codelineno-0-144">144</a></span>
@@ -1725,11 +1725,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.quote_sqlite_identifier" class="doc doc-heading">
+<h3 id="mt5cli.history.quote_sqlite_identifier" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">quote_sqlite_identifier</span>
 
 
-<a href="#mt5cli.sqlite_history.quote_sqlite_identifier" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.quote_sqlite_identifier" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">quote_sqlite_identifier</span><span class="p">(</span><span class="n">identifier</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="str">str</span></span>
 </code></pre></div>
 
@@ -1739,7 +1739,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-52">52</a></span>
 <span class="normal"><a href="#__codelineno-0-53">53</a></span>
 <span class="normal"><a href="#__codelineno-0-54">54</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="k">def</span><span class="w"> </span><span class="nf">quote_sqlite_identifier</span><span class="p">(</span><span class="n">identifier</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
@@ -1754,11 +1754,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.record_written_columns" class="doc doc-heading">
+<h3 id="mt5cli.history.record_written_columns" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">record_written_columns</span>
 
 
-<a href="#mt5cli.sqlite_history.record_written_columns" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.record_written_columns" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">record_written_columns</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">written_columns</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="Dataset (mt5cli.utils.Dataset)" href="../utils/#mt5cli.utils.Dataset">Dataset</a></span><span class="p">,</span> <span class="n"><span title="set">set</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]],</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">dataset</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="Dataset (mt5cli.utils.Dataset)" href="../utils/#mt5cli.utils.Dataset">Dataset</a></span><span class="p">,</span>
@@ -1772,7 +1772,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-322">322</a></span>
 <span class="normal"><a href="#__codelineno-0-323">323</a></span>
 <span class="normal"><a href="#__codelineno-0-324">324</a></span>
@@ -1803,11 +1803,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.resolve_granularity_name" class="doc doc-heading">
+<h3 id="mt5cli.history.resolve_granularity_name" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">resolve_granularity_name</span>
 
 
-<a href="#mt5cli.sqlite_history.resolve_granularity_name" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.resolve_granularity_name" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">resolve_granularity_name</span><span class="p">(</span><span class="n">timeframe</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="str">str</span></span>
 </code></pre></div>
 
@@ -1817,7 +1817,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-99"> 99</a></span>
 <span class="normal"><a href="#__codelineno-0-100">100</a></span>
 <span class="normal"><a href="#__codelineno-0-101">101</a></span>
@@ -1838,11 +1838,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.resolve_history_datasets" class="doc doc-heading">
+<h3 id="mt5cli.history.resolve_history_datasets" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">resolve_history_datasets</span>
 
 
-<a href="#mt5cli.sqlite_history.resolve_history_datasets" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.resolve_history_datasets" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">resolve_history_datasets</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">datasets</span><span class="p">:</span> <span class="n"><span title="set">set</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="Dataset (mt5cli.utils.Dataset)" href="../utils/#mt5cli.utils.Dataset">Dataset</a></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="set">set</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="Dataset (mt5cli.utils.Dataset)" href="../utils/#mt5cli.utils.Dataset">Dataset</a></span><span class="p">]</span>
@@ -1887,7 +1887,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-57">57</a></span>
 <span class="normal"><a href="#__codelineno-0-58">58</a></span>
 <span class="normal"><a href="#__codelineno-0-59">59</a></span>
@@ -1916,11 +1916,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.resolve_history_tick_flags" class="doc doc-heading">
+<h3 id="mt5cli.history.resolve_history_tick_flags" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">resolve_history_tick_flags</span>
 
 
-<a href="#mt5cli.sqlite_history.resolve_history_tick_flags" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.resolve_history_tick_flags" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">resolve_history_tick_flags</span><span class="p">(</span><span class="n">flags</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span>
 </code></pre></div>
 
@@ -1953,7 +1953,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-88">88</a></span>
 <span class="normal"><a href="#__codelineno-0-89">89</a></span>
 <span class="normal"><a href="#__codelineno-0-90">90</a></span>
@@ -1980,11 +1980,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.resolve_history_timeframes" class="doc doc-heading">
+<h3 id="mt5cli.history.resolve_history_timeframes" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">resolve_history_timeframes</span>
 
 
-<a href="#mt5cli.sqlite_history.resolve_history_timeframes" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.resolve_history_timeframes" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">resolve_history_timeframes</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">timeframes</span><span class="p">:</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">]</span>
@@ -2019,7 +2019,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-69">69</a></span>
 <span class="normal"><a href="#__codelineno-0-70">70</a></span>
 <span class="normal"><a href="#__codelineno-0-71">71</a></span>
@@ -2062,11 +2062,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.write_collected_datasets" class="doc doc-heading">
+<h3 id="mt5cli.history.write_collected_datasets" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">write_collected_datasets</span>
 
 
-<a href="#mt5cli.sqlite_history.write_collected_datasets" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.write_collected_datasets" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">write_collected_datasets</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">client</span><span class="p">:</span> <span class="n"><span title="pdmt5.Mt5DataClient">Mt5DataClient</span></span><span class="p">,</span>
@@ -2109,7 +2109,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1112">1112</a></span>
 <span class="normal"><a href="#__codelineno-0-1113">1113</a></span>
 <span class="normal"><a href="#__codelineno-0-1114">1114</a></span>
@@ -2248,11 +2248,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.write_history_dataset" class="doc doc-heading">
+<h3 id="mt5cli.history.write_history_dataset" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">write_history_dataset</span>
 
 
-<a href="#mt5cli.sqlite_history.write_history_dataset" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.write_history_dataset" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">write_history_dataset</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">fetch</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">],</span>
@@ -2296,7 +2296,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-733">733</a></span>
 <span class="normal"><a href="#__codelineno-0-734">734</a></span>
 <span class="normal"><a href="#__codelineno-0-735">735</a></span>
@@ -2401,11 +2401,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.write_incremental_datasets" class="doc doc-heading">
+<h3 id="mt5cli.history.write_incremental_datasets" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">write_incremental_datasets</span>
 
 
-<a href="#mt5cli.sqlite_history.write_incremental_datasets" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.write_incremental_datasets" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">write_incremental_datasets</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">client</span><span class="p">:</span> <span class="n"><span title="pdmt5.Mt5DataClient">Mt5DataClient</span></span><span class="p">,</span>
@@ -2452,7 +2452,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1029">1029</a></span>
 <span class="normal"><a href="#__codelineno-0-1030">1030</a></span>
 <span class="normal"><a href="#__codelineno-0-1031">1031</a></span>
@@ -2623,11 +2623,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.write_rates_dataset" class="doc doc-heading">
+<h3 id="mt5cli.history.write_rates_dataset" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">write_rates_dataset</span>
 
 
-<a href="#mt5cli.sqlite_history.write_rates_dataset" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.write_rates_dataset" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">write_rates_dataset</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">client</span><span class="p">:</span> <span class="n"><span title="pdmt5.Mt5DataClient">Mt5DataClient</span></span><span class="p">,</span>
@@ -2669,7 +2669,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-660">660</a></span>
 <span class="normal"><a href="#__codelineno-0-661">661</a></span>
 <span class="normal"><a href="#__codelineno-0-662">662</a></span>
@@ -2748,11 +2748,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.write_streamed_frame" class="doc doc-heading">
+<h3 id="mt5cli.history.write_streamed_frame" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">write_streamed_frame</span>
 
 
-<a href="#mt5cli.sqlite_history.write_streamed_frame" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.write_streamed_frame" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">write_streamed_frame</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">frame</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">,</span>
@@ -2792,7 +2792,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-351">351</a></span>
 <span class="normal"><a href="#__codelineno-0-352">352</a></span>
 <span class="normal"><a href="#__codelineno-0-353">353</a></span>
@@ -2837,11 +2837,11 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 <div class="doc doc-object doc-function">
 
 
-<h3 id="mt5cli.sqlite_history.write_ticks_dataset" class="doc doc-heading">
+<h3 id="mt5cli.history.write_ticks_dataset" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">write_ticks_dataset</span>
 
 
-<a href="#mt5cli.sqlite_history.write_ticks_dataset" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#mt5cli.history.write_ticks_dataset" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">write_ticks_dataset</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">client</span><span class="p">:</span> <span class="n"><span title="pdmt5.Mt5DataClient">Mt5DataClient</span></span><span class="p">,</span>
@@ -2883,7 +2883,7 @@ a symbol such as <code>EURUSD_M1</code> cannot collide with <code>EURUSD</code> 
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>mt5cli/sqlite_history.py</code></summary>
+              <summary>Source code in <code>mt5cli/history.py</code></summary>
               <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-697">697</a></span>
 <span class="normal"><a href="#__codelineno-0-698">698</a></span>
 <span class="normal"><a href="#__codelineno-0-699">699</a></span>

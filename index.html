@@ -55,7 +55,7 @@
 </li>
                                     
 <li>
-    <a href="api/sqlite_history/" class="dropdown-item">SQLite History</a>
+    <a href="api/history/" class="dropdown-item">History Collection (SQLite)</a>
 </li>
                                     
 <li>
@@ -419,7 +419,7 @@
 </tbody>
 </table>
 <p>History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The <code>cash_events</code> view is derived from symbol-filtered <code>history_deals</code>, so account-level cash events with empty or non-matching symbols may be excluded. The <code>positions_reconstructed</code> view excludes positions with no closing deal, uses volume-weighted open/close prices, and reports reversal deals (<code>DEAL_ENTRY_INOUT</code>) via <code>volume_reversal</code> / <code>reversal_count</code>.</p>
-<p>See the <a href="api/sqlite_history/#entity-relationship-diagram">SQLite History schema diagram</a> for a sample ER layout of the resulting database.</p>
+<p>See the <a href="api/history/#entity-relationship-diagram">History schema diagram</a> for a sample ER layout of the resulting database.</p>
 <h2 id="global-options">Global Options<a class="headerlink" href="#global-options" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -571,5 +571,5 @@
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2026-06-08 16:28:45.286768+00:00
+Build Date UTC : 2026-06-08 17:40:51.749542+00:00
 -->

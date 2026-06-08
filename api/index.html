@@ -55,7 +55,7 @@
 </li>
                                     
 <li>
-    <a href="sqlite_history/" class="dropdown-item">SQLite History</a>
+    <a href="history/" class="dropdown-item">History Collection (SQLite)</a>
 </li>
                                     
 <li>
@@ -146,6 +146,8 @@
 <p>Utility module providing constants, enums, Click parameter types, and helper functions for parsing and exporting data.</p>
 <h3 id="sdk"><a href="sdk/">SDK</a><a class="headerlink" href="#sdk" title="Permanent link">&para;</a></h3>
 <p>Programmatic SDK for read-only MetaTrader 5 data collection. Returns pandas DataFrames and provides <code>collect_history</code> for SQLite bulk collection.</p>
+<h3 id="history-collection-sqlite"><a href="history/">History Collection (SQLite)</a><a class="headerlink" href="#history-collection-sqlite" title="Permanent link">&para;</a></h3>
+<p>SQLite storage helpers for the <code>collect-history</code> command schema, incremental updates, deduplication, indexes, and optional views.</p>
 <h2 id="architecture-overview">Architecture Overview<a class="headerlink" href="#architecture-overview" title="Permanent link">&para;</a></h2>
 <p>The package follows a simple architecture built on top of pdmt5:</p>
 <ol>
