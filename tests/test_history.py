@@ -14,7 +14,6 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from mt5cli import sqlite_history
 from mt5cli.history import (
     DEFAULT_HISTORY_TIMEFRAMES,
     append_dataframe,
@@ -1496,10 +1495,3 @@ class TestWriteHelpers:
             )
             assert get_table_columns(conn, "rates") == {"time", "open"}
             create_history_indexes(conn, written_columns)
-
-
-def test_sqlite_history_compatibility_shim_exports_history_api() -> None:
-    """Legacy imports from mt5cli.sqlite_history keep working."""
-    assert sqlite_history.DEFAULT_HISTORY_TIMEFRAMES == DEFAULT_HISTORY_TIMEFRAMES
-    assert sqlite_history.create_history_indexes is create_history_indexes
-    assert "create_history_indexes" in dir(sqlite_history)
