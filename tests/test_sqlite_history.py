@@ -183,7 +183,7 @@ class TestIncrementalStart:
                 "INSERT INTO rates(symbol, time, open) VALUES (?, ?, ?)",
                 ("EURUSD", "2024-01-02T00:00:00+00:00", 1.0),
             )
-            with pytest.raises(ValueError, match="timeframe"):
+            with pytest.raises(ValueError, match="missing: timeframe") as exc_info:
                 load_incremental_start_datetimes(
                     conn,
                     Dataset.rates,
@@ -191,6 +191,68 @@ class TestIncrementalStart:
                     timeframes=[1],
                     fallback_start=fallback,
                 )
+            assert "timeframe" in str(exc_info.value)
+
+    def test_load_incremental_start_datetimes_requires_symbol_column(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test rates tables without symbol fail fast during incremental resume."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "rates-no-symbol.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates(timeframe INTEGER, time TEXT, open REAL)",
+            )
+            with pytest.raises(ValueError, match="missing: symbol") as exc_info:
+                load_incremental_start_datetimes(
+                    conn,
+                    Dataset.rates,
+                    symbols=["EURUSD"],
+                    timeframes=[1],
+                    fallback_start=fallback,
+                )
+            assert "symbol" in str(exc_info.value)
+
+    def test_load_incremental_start_datetimes_requires_time_column(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test rates tables without time fail fast during incremental resume."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "rates-no-time.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, open REAL)",
+            )
+            with pytest.raises(ValueError, match="missing: time") as exc_info:
+                load_incremental_start_datetimes(
+                    conn,
+                    Dataset.rates,
+                    symbols=["EURUSD"],
+                    timeframes=[1],
+                    fallback_start=fallback,
+                )
+            assert "time" in str(exc_info.value)
+
+    def test_load_incremental_start_datetimes_rejects_unrelated_rates_columns(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test rates tables with only unrelated columns fail fast."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "rates-open-only.db") as conn:
+            conn.execute("CREATE TABLE rates(open REAL)")
+            with pytest.raises(ValueError, match="missing:") as exc_info:
+                load_incremental_start_datetimes(
+                    conn,
+                    Dataset.rates,
+                    symbols=["EURUSD"],
+                    timeframes=[1],
+                    fallback_start=fallback,
+                )
+            message = str(exc_info.value)
+            assert "symbol" in message
+            assert "timeframe" in message
+            assert "time" in message
 
     def test_load_incremental_start_skips_unparseable_max_time(
         self,
@@ -676,18 +738,26 @@ class TestIncrementalHistoryDealsHelpers:
     def test_filter_incremental_excludes_symbolized_account_events_from_trade_cursor(
         self,
     ) -> None:
-        """Test account events are not kept by per-symbol trade cursors."""
+        """Test symbolized account events follow only account_event_start.
+
+        An account-event row with a matching symbol must not be kept by the
+        EURUSD trade cursor when its time is after the trade start but before
+        account_event_start.
+        """
+        trade_cursor = datetime(2024, 1, 1, tzinfo=UTC)
+        account_event_start = datetime(2024, 1, 10, tzinfo=UTC)
+        row_time = datetime(2024, 1, 5, tzinfo=UTC)
         frame = pd.DataFrame({
             "ticket": [1],
             "symbol": ["EURUSD"],
-            "time": ["2024-01-05T00:00:00+00:00"],
+            "time": [row_time.isoformat()],
             "type": [2],
         })
         filtered = filter_incremental_history_deals_frame(
             frame,
             ["EURUSD"],
-            {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
-            datetime(2024, 1, 10, tzinfo=UTC),
+            {"EURUSD": trade_cursor},
+            account_event_start,
         )
         assert filtered.empty
 

@@ -180,6 +180,25 @@ def get_history_deals_account_event_start_datetime(
     return parsed if parsed is not None else fallback_start
 
 
+_REQUIRED_RATE_COLUMNS = frozenset({"symbol", "timeframe", "time"})
+
+
+def _validate_rates_schema(columns: set[str]) -> None:
+    """Validate an existing rates table has normalized incremental columns.
+
+    Raises:
+        ValueError: If required columns are missing.
+    """
+    missing = _REQUIRED_RATE_COLUMNS - columns
+    if missing:
+        msg = (
+            "The rates table must include symbol, timeframe, and time columns"
+            " for incremental updates; "
+            f"missing: {', '.join(sorted(missing))}."
+        )
+        raise ValueError(msg)
+
+
 def load_incremental_start_datetimes(
     conn: sqlite3.Connection,
     dataset: Dataset,
@@ -188,13 +207,12 @@ def load_incremental_start_datetimes(
     timeframes: Sequence[int] | None = None,
     fallback_start: datetime,
 ) -> dict[tuple[str, int | None], datetime]:
-    """Return next update start datetimes keyed by symbol and optional timeframe.
-
-    Raises:
-        ValueError: If the rates table lacks a ``timeframe`` column.
-    """
+    """Return next update start datetimes keyed by symbol and optional timeframe."""
     table = dataset.table_name
     columns = get_table_columns(conn, table)
+    if dataset is Dataset.rates and columns:
+        _validate_rates_schema(columns)
+
     if "time" not in columns:
         if dataset is Dataset.rates and timeframes is not None:
             return {
@@ -203,17 +221,6 @@ def load_incremental_start_datetimes(
                 for timeframe in timeframes
             }
         return {(symbol, None): fallback_start for symbol in symbols}
-
-    if (
-        dataset is Dataset.rates
-        and timeframes is not None
-        and "timeframe" not in columns
-    ):
-        msg = (
-            "The rates table must include symbol, timeframe, and time columns"
-            " for incremental updates."
-        )
-        raise ValueError(msg)
 
     parsed_by_key: dict[tuple[str, int | None], datetime] = {}
     if (
