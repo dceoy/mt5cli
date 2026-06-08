@@ -821,12 +821,12 @@ class TestRecentTicks:
     ) -> None:
         """Test recent_ticks fetches the requested trailing window."""
         client = MagicMock()
-        client.copy_ticks_range_as_df.return_value = pd.DataFrame({
-            "time": [1],
+        end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        client.copy_ticks_from_as_df.return_value = pd.DataFrame({
+            "time": [end],
             "bid": [1.0],
         })
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
-        end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
         result = recent_ticks(
             "EURUSD",
             60,
@@ -836,12 +836,13 @@ class TestRecentTicks:
             config=build_config(login=123),
         )
         assert isinstance(result, pd.DataFrame)
-        client.copy_ticks_range_as_df.assert_called_once_with(
+        client.copy_ticks_from_as_df.assert_called_once_with(
             symbol="EURUSD",
             date_from=end - timedelta(seconds=60),
-            date_to=end,
+            count=100,
             flags=2,
         )
+        client.copy_ticks_range_as_df.assert_not_called()
 
     def test_recent_ticks_uses_latest_tick_when_date_to_omitted(
         self,
@@ -852,6 +853,10 @@ class TestRecentTicks:
         tick = MagicMock()
         tick.time = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
         client.symbol_info_tick.return_value = tick
+        client.copy_ticks_from_as_df.return_value = pd.DataFrame({
+            "time": [1, 2],
+            "bid": [1.0, 1.1],
+        })
         client.copy_ticks_range_as_df.return_value = pd.DataFrame({
             "time": [1, 2, 3],
             "bid": [1.0, 1.1, 1.2],
@@ -860,6 +865,7 @@ class TestRecentTicks:
         result = Mt5CliClient().recent_ticks("EURUSD", 30, count=2, flags="ALL")
         assert len(result) == 2
         client.symbol_info_tick.assert_called_once_with("EURUSD")
+        client.copy_ticks_from_as_df.assert_called_once()
         _, kwargs = client.copy_ticks_range_as_df.call_args
         assert kwargs["symbol"] == "EURUSD"
         assert kwargs["date_to"] == tick.time
@@ -896,16 +902,46 @@ class TestRecentTicks:
         tick = MagicMock()
         tick.time = tick_time
         client.symbol_info_tick.return_value = tick
-        client.copy_ticks_range_as_df.return_value = pd.DataFrame({"time": [1]})
-        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
         expected_end = (
             datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
             if isinstance(tick_time, str)
             else datetime.fromtimestamp(tick_time, tz=UTC)
         )
+        client.copy_ticks_from_as_df.return_value = pd.DataFrame({
+            "time": [expected_end],
+        })
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
         Mt5CliClient().recent_ticks("EURUSD", 30)
-        _, kwargs = client.copy_ticks_range_as_df.call_args
-        assert kwargs["date_to"] == expected_end
+        _, kwargs = client.copy_ticks_from_as_df.call_args
+        assert kwargs["date_from"] == expected_end - timedelta(seconds=30)
+
+    def test_recent_ticks_returns_full_frame_when_count_not_positive(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test non-positive count returns the full range without trimming."""
+        client = MagicMock()
+        end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        client.copy_ticks_range_as_df.return_value = pd.DataFrame({
+            "time": [1, 2, 3],
+            "bid": [1.0, 1.1, 1.2],
+        })
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+        result = recent_ticks(
+            "EURUSD",
+            60,
+            date_to=end,
+            count=0,
+            config=build_config(login=123),
+        )
+        assert len(result) == 3
+        client.copy_ticks_from_as_df.assert_not_called()
+        client.copy_ticks_range_as_df.assert_called_once_with(
+            symbol="EURUSD",
+            date_from=end - timedelta(seconds=60),
+            date_to=end,
+            flags=1,
+        )
 
 
 class TestMinimumMargins:

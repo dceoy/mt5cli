@@ -7,6 +7,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import quote
 
 import pandas as pd
 
@@ -140,7 +141,8 @@ def _open_history_connection(
     path = Path(conn_or_path)
     if not path.exists():
         return None, False
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    uri_path = quote(path.resolve().as_posix(), safe="/")
+    conn = sqlite3.connect(f"file://{uri_path}?mode=ro", uri=True)
     return conn, True
 
 
@@ -156,9 +158,9 @@ def _load_rates_timeframe_counts(conn: sqlite3.Connection) -> dict[str, int] | N
 
 
 def _load_existing_rate_views(conn: sqlite3.Connection) -> set[str]:
-    """Return mt5cli-managed ``rate_*`` compatibility view names."""
+    """Return mt5cli-managed ``rate_*__*`` compatibility view names."""
     rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'view' AND name GLOB 'rate_*'",
+        "SELECT name FROM sqlite_master WHERE type = 'view' AND name GLOB 'rate_*__*'",
     ).fetchall()
     return {str(row[0]) for row in rows}
 
@@ -195,26 +197,31 @@ def _resolve_rate_view_name_from_context(
     granularity_name: str,
     timeframe_counts: dict[str, int] | None,
     existing_views: set[str],
+    require_existing: bool = False,
 ) -> str:
     """Resolve one rate view name using preloaded SQLite metadata.
 
     Returns:
         Preferred mt5cli-managed rate compatibility view name.
+
+    Raises:
+        ValueError: If ``require_existing`` is True and no managed view exists.
     """
     if timeframe_counts is None or symbol not in timeframe_counts:
-        candidates = _rate_view_name_candidates(
-            symbol=symbol,
-            granularity=granularity_name,
-            granularity_count=1,
-            timeframe=timeframe,
-        )
-        multi = build_rate_view_name(
-            symbol=symbol,
-            granularity=granularity_name,
-            granularity_count=2,
-            timeframe=timeframe,
-        )
-        candidates = [candidates[0], multi]
+        candidates = [
+            build_rate_view_name(
+                symbol=symbol,
+                granularity=granularity_name,
+                granularity_count=1,
+                timeframe=timeframe,
+            ),
+            build_rate_view_name(
+                symbol=symbol,
+                granularity=granularity_name,
+                granularity_count=2,
+                timeframe=timeframe,
+            ),
+        ]
     else:
         candidates = _rate_view_name_candidates(
             symbol=symbol,
@@ -225,6 +232,13 @@ def _resolve_rate_view_name_from_context(
     for candidate in candidates:
         if candidate in existing_views:
             return candidate
+    if require_existing:
+        msg = (
+            f"No rate compatibility view exists for symbol {symbol!r} "
+            f"and granularity {granularity_name!r}; "
+            f"candidates: {', '.join(candidates)}."
+        )
+        raise ValueError(msg)
     return candidates[0]
 
 
@@ -232,6 +246,8 @@ def resolve_rate_view_name(
     conn_or_path: SqliteConnOrPath,
     symbol: str,
     granularity: str,
+    *,
+    require_existing: bool = False,
 ) -> str:
     """Resolve the mt5cli-managed rate compatibility view name.
 
@@ -239,15 +255,27 @@ def resolve_rate_view_name(
         conn_or_path: SQLite database path or open connection.
         symbol: Symbol stored in the normalized ``rates`` table.
         granularity: Timeframe name (for example ``M1``) or integer string.
+        require_existing: When True, require the database and a managed view to exist.
 
     Returns:
         View name such as ``rate_EURUSD__1`` or ``rate_EURUSD__M1_1``.
+
+    Raises:
+        ValueError: If ``require_existing`` is True and the database or view is missing.
     """
     timeframe = parse_timeframe(granularity)
     granularity_name = resolve_granularity_name(timeframe)
     conn, should_close = _open_history_connection(conn_or_path)
     try:
         if conn is None:
+            if require_existing:
+                path = (
+                    conn_or_path
+                    if isinstance(conn_or_path, (Path, str))
+                    else "database"
+                )
+                msg = f"SQLite database not found: {path}"
+                raise ValueError(msg)
             return build_rate_view_name(
                 symbol=symbol,
                 granularity=granularity_name,
@@ -260,6 +288,7 @@ def resolve_rate_view_name(
             granularity_name=granularity_name,
             timeframe_counts=_load_rates_timeframe_counts(conn),
             existing_views=_load_existing_rate_views(conn),
+            require_existing=require_existing,
         )
     finally:
         if should_close and conn is not None:
@@ -270,8 +299,16 @@ def resolve_rate_view_names(
     conn_or_path: SqliteConnOrPath,
     symbols: Sequence[str],
     granularities: Sequence[str],
+    *,
+    require_existing: bool = False,
 ) -> list[str]:
     """Resolve rate compatibility view names for symbol and granularity pairs.
+
+    Args:
+        conn_or_path: SQLite database path or open connection.
+        symbols: Symbols stored in the normalized ``rates`` table.
+        granularities: Timeframe names (for example ``M1``) or integer strings.
+        require_existing: When True, require the database and managed views to exist.
 
     Returns:
         View names in row-major order: every ``granularity`` for the first
@@ -281,7 +318,12 @@ def resolve_rate_view_names(
     try:
         if conn is None:
             return [
-                resolve_rate_view_name(conn_or_path, symbol, granularity)
+                resolve_rate_view_name(
+                    conn_or_path,
+                    symbol,
+                    granularity,
+                    require_existing=require_existing,
+                )
                 for symbol in symbols
                 for granularity in granularities
             ]
@@ -298,6 +340,7 @@ def resolve_rate_view_names(
                         granularity_name=resolve_granularity_name(timeframe),
                         timeframe_counts=timeframe_counts,
                         existing_views=existing_views,
+                        require_existing=require_existing,
                     ),
                 )
         return resolved

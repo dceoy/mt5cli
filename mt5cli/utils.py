@@ -267,7 +267,7 @@ def export_dataframe_to_sqlite(
     output_path: Path,
     table_name: str = "data",
     *,
-    if_exists: IfExists = IfExists.REPLACE,
+    if_exists: IfExists = IfExists.APPEND,
     index: bool = False,
     index_label: str | None = None,
     deduplicate_on: Sequence[str] | None = None,
@@ -282,7 +282,9 @@ def export_dataframe_to_sqlite(
         index: Whether to write the DataFrame index as a column.
         index_label: Column name for the index when ``index=True``.
         deduplicate_on: Optional key columns to deduplicate after writing,
-            keeping the latest ``ROWID`` per key group.
+            keeping the latest ``ROWID`` per key group. Deduplication scans the
+            full table, so repeated appends cost O(table size); index the key
+            columns when appending frequently.
     """
     with sqlite3.connect(output_path) as conn:
         df.to_sql(  # type: ignore[reportUnknownMemberType]

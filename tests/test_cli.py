@@ -342,12 +342,13 @@ class TestCommands:
             ],
         )
         assert result.exit_code == 0, result.output
-        mock_client.copy_ticks_range_as_df.assert_called_once_with(
+        mock_client.copy_ticks_from_as_df.assert_called_once_with(
             symbol="EURUSD",
             date_from=datetime(2024, 1, 2, tzinfo=UTC) - timedelta(seconds=120),
-            date_to=datetime(2024, 1, 2, tzinfo=UTC),
+            count=500,
             flags=1,
         )
+        mock_client.copy_ticks_range_as_df.assert_not_called()
 
     def test_minimum_margins(
         self,

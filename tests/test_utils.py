@@ -193,6 +193,26 @@ class TestExportDataframeToSqlite:
             }),
         )
 
+    def test_default_if_exists_appends_without_dropping_rows(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test the default append mode keeps prior rows."""
+        output = tmp_path / "default-append.db"
+        first = pd.DataFrame({"id": [1], "value": ["a"]})
+        second = pd.DataFrame({"id": [2], "value": ["b"]})
+        export_dataframe_to_sqlite(first, output, "items")
+        export_dataframe_to_sqlite(second, output, "items")
+        with sqlite3.connect(output) as conn:
+            result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
+                "SELECT id, value FROM items ORDER BY id",
+                conn,
+            )
+        pd.testing.assert_frame_equal(
+            result,
+            pd.DataFrame({"id": [1, 2], "value": ["a", "b"]}),
+        )
+
     def test_writes_index_with_label(self, tmp_path: Path) -> None:
         """Test optional index export with a custom label."""
         output = tmp_path / "index.db"
@@ -203,6 +223,7 @@ class TestExportDataframeToSqlite:
             frame,
             output,
             "margins",
+            if_exists=IfExists.REPLACE,
             index=True,
             index_label="symbol",
         )

@@ -145,6 +145,36 @@ class TestResolveRateViewName:
             conn.execute('CREATE VIEW "rate_EURUSD__M1_1" AS SELECT 1 AS close')
         assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__M1_1"
 
+    def test_symbol_absent_from_rates_metadata_uses_candidate_pair(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test symbols missing from rates metadata still resolve known views."""
+        db_path = tmp_path / "other-symbol-only.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("GBPUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            conn.execute(
+                'CREATE VIEW "rate_EURUSD__1" AS'
+                " SELECT time, close FROM rates"
+                " WHERE symbol = 'EURUSD' AND timeframe = 1",
+            )
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
+
+    def test_ignores_non_compatibility_rate_views(self, tmp_path: Path) -> None:
+        """Test unrelated rate_* views without the __ separator are ignored."""
+        db_path = tmp_path / "summary-view.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
+            conn.execute('CREATE VIEW "rate_summary" AS SELECT 1 AS close')
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
+
     def test_invalid_granularity_propagates_value_error(self, tmp_path: Path) -> None:
         """Test invalid granularities raise ValueError from parse_timeframe."""
         with pytest.raises(ValueError, match="Invalid timeframe"):
@@ -222,6 +252,76 @@ class TestResolveRateViewName:
             )
             create_rate_compatibility_views(conn)
             assert resolve_rate_view_name(conn, "EURUSD", "M1") == "rate_EURUSD__1"
+
+    def test_require_existing_raises_when_database_missing(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test strict mode rejects missing database paths."""
+        db_path = tmp_path / "missing.db"
+        with pytest.raises(ValueError, match="SQLite database not found"):
+            resolve_rate_view_name(
+                db_path,
+                "EURUSD",
+                "M1",
+                require_existing=True,
+            )
+        with pytest.raises(ValueError, match="SQLite database not found"):
+            resolve_rate_view_names(
+                db_path,
+                ["EURUSD"],
+                ["M1"],
+                require_existing=True,
+            )
+
+    def test_require_existing_raises_when_view_missing(self, tmp_path: Path) -> None:
+        """Test strict mode rejects databases without matching rate views."""
+        db_path = tmp_path / "no-view.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
+        with pytest.raises(ValueError, match="No rate compatibility view exists"):
+            resolve_rate_view_name(
+                db_path,
+                "EURUSD",
+                "M1",
+                require_existing=True,
+            )
+        with pytest.raises(ValueError, match="No rate compatibility view exists"):
+            resolve_rate_view_names(
+                db_path,
+                ["EURUSD"],
+                ["M1"],
+                require_existing=True,
+            )
+
+    def test_require_existing_returns_existing_view(self, tmp_path: Path) -> None:
+        """Test strict mode returns a view when one exists."""
+        db_path = tmp_path / "existing-view.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            create_rate_compatibility_views(conn)
+        assert (
+            resolve_rate_view_name(
+                db_path,
+                "EURUSD",
+                "M1",
+                require_existing=True,
+            )
+            == "rate_EURUSD__1"
+        )
+        assert resolve_rate_view_names(
+            db_path,
+            ["EURUSD"],
+            ["M1"],
+            require_existing=True,
+        ) == ["rate_EURUSD__1"]
 
 
 class TestQuoteSqliteIdentifier:

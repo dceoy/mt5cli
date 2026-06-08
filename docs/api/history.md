@@ -157,7 +157,10 @@ Resolution rules:
 - Returns `rate_<symbol>__<timeframe>` when a symbol stores one timeframe.
 - Returns `rate_<symbol>__<granularity>_<timeframe>` when multiple timeframes
   are stored for the same symbol.
-- Prefers existing `rate_*` views in the database when present.
+- When multiple naming candidates apply, prefers an existing managed
+  `rate_*__*` view from the candidate list.
 - Falls back to single-timeframe naming when the database path is missing or
   `rates` metadata is unavailable.
+- Pass `require_existing=True` to raise `ValueError` instead of returning a
+  best-guess name when the database or view is missing.
 - Accepts either a SQLite path or an open `sqlite3.Connection`.
