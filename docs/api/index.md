@@ -18,6 +18,10 @@ Utility module providing constants, enums, Click parameter types, and helper fun
 
 Programmatic SDK for read-only MetaTrader 5 data collection. Returns pandas DataFrames and provides `collect_history` for SQLite bulk collection.
 
+### [History Collection (SQLite)](history.md)
+
+SQLite storage helpers for the `collect-history` command schema, incremental updates, deduplication, indexes, and optional views.
+
 ## Architecture Overview
 
 The package follows a simple architecture built on top of pdmt5:

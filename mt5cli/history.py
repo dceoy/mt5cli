@@ -1,4 +1,4 @@
-"""SQLite helpers for incremental MT5 history collection."""
+"""SQLite storage helpers for the ``collect-history`` incremental data pipeline."""
 
 from __future__ import annotations
 

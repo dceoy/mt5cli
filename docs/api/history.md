@@ -1,6 +1,6 @@
-# SQLite History Module
+# History Collection (SQLite)
 
-::: mt5cli.sqlite_history
+::: mt5cli.history
 
 ## `collect-history` schema
 
