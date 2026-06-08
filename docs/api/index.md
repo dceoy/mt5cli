@@ -10,6 +10,10 @@ The mt5cli package consists of the following modules:
 
 Command-line interface module providing typer-based commands for exporting MetaTrader 5 data to CSV, JSON, Parquet, and SQLite3 formats.
 
+### [Utils](utils.md)
+
+Utility module providing constants, enums, Click parameter types, and helper functions for parsing and exporting data.
+
 ## Architecture Overview
 
 The package follows a simple architecture built on top of pdmt5:

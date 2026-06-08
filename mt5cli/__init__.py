@@ -2,7 +2,7 @@
 
 from importlib.metadata import version
 
-from .cli import detect_format, export_dataframe
+from .utils import detect_format, export_dataframe
 
 __version__ = version(__package__) if __package__ else None
 
