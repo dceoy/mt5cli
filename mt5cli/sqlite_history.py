@@ -1,0 +1,1176 @@
+"""SQLite helpers for incremental MT5 history collection."""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Literal
+
+import pandas as pd
+
+from .utils import (
+    TIMEFRAME_MAP,
+    Dataset,
+    IfExists,
+    parse_datetime,
+    parse_tick_flags,
+    parse_timeframe,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    from pdmt5 import Mt5DataClient
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = tuple(TIMEFRAME_MAP)
+
+_HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
+    Dataset.rates: (("symbol", "timeframe", "time"), ("symbol", "time")),
+    Dataset.ticks: (("symbol", "time_msc"), ("symbol", "time")),
+    Dataset.history_orders: (("ticket",), ("symbol", "time", "type")),
+    Dataset.history_deals: (("ticket",), ("symbol", "time", "type", "entry")),
+}
+
+_TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)
+_TRADE_DEAL_TYPES_SQL = f"({', '.join(str(value) for value in _TRADE_DEAL_TYPES)})"
+
+_POSITIONS_VIEW_REQUIRED_COLUMNS: frozenset[str] = frozenset({
+    "position_id",
+    "symbol",
+    "time",
+    "type",
+    "entry",
+    "volume",
+    "price",
+    "profit",
+})
+
+
+def quote_sqlite_identifier(identifier: str) -> str:
+    """Return a safely quoted SQLite identifier using double quotes."""
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def resolve_history_datasets(datasets: set[Dataset] | None) -> set[Dataset]:
+    """Resolve configured history datasets.
+
+    Returns:
+        All supported datasets when ``datasets`` is None, otherwise the
+        configured selection (which may be empty).
+    """
+    if datasets is None:
+        return set(Dataset)
+    return set(datasets)
+
+
+def resolve_history_timeframes(
+    timeframes: Sequence[int | str] | None,
+) -> list[int]:
+    """Resolve rate timeframes, deduplicating aliases for the same integer.
+
+    Returns:
+        Ordered list of unique timeframe integers.
+    """
+    raw = timeframes if timeframes is not None else DEFAULT_HISTORY_TIMEFRAMES
+    seen: set[int] = set()
+    resolved: list[int] = []
+    for value in raw:
+        tf = value if isinstance(value, int) else parse_timeframe(str(value))
+        if tf not in seen:
+            seen.add(tf)
+            resolved.append(tf)
+    return resolved
+
+
+def resolve_history_tick_flags(flags: int | str) -> int:
+    """Resolve tick copy flags from an integer or name.
+
+    Returns:
+        Integer tick flag value.
+    """
+    if isinstance(flags, int):
+        return flags
+    return parse_tick_flags(flags)
+
+
+def resolve_granularity_name(timeframe: int) -> str:
+    """Return a granularity name for a timeframe integer when known."""
+    for name, value in TIMEFRAME_MAP.items():
+        if value == timeframe:
+            return name
+    return str(timeframe)
+
+
+def build_rate_view_name(
+    *,
+    symbol: str,
+    granularity: str,
+    granularity_count: int,
+    timeframe: int,
+) -> str:
+    """Return a collision-free offline optimize view name.
+
+    View names always include the timeframe integer after a ``__`` separator so
+    a symbol such as ``EURUSD_M1`` cannot collide with ``EURUSD`` at timeframe
+    ``M1``.
+    """
+    if granularity_count == 1:
+        return f"rate_{symbol}__{timeframe}"
+    return f"rate_{symbol}__{granularity}_{timeframe}"
+
+
+def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    """Return existing SQLite columns for a table."""
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return {str(row[1]) for row in rows}
+
+
+def _parse_string_sqlite_timestamp(value: str) -> datetime | None:
+    try:
+        return parse_datetime(value)
+    except ValueError:
+        parsed_ts = pd.to_datetime(value, utc=True, errors="coerce")
+        if pd.isna(parsed_ts):
+            logger.warning("Ignoring unparseable history timestamp: %s", value)
+            return None
+        return parsed_ts.to_pydatetime()
+
+
+def parse_sqlite_timestamp(value: object) -> datetime | None:
+    """Parse a SQLite history timestamp value.
+
+    Returns:
+        Parsed timezone-aware datetime, or None when parsing fails.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(float(value), tz=UTC)
+    if isinstance(value, str):
+        return _parse_string_sqlite_timestamp(value)
+    logger.warning("Ignoring unsupported history timestamp type: %s", type(value))
+    return None
+
+
+def get_history_deals_account_event_start_datetime(
+    conn: sqlite3.Connection,
+    *,
+    fallback_start: datetime,
+) -> datetime:
+    """Return the next update start for account-level history_deals rows."""
+    table = Dataset.history_deals.table_name
+    columns = get_table_columns(conn, table)
+    if "time" not in columns:
+        return fallback_start
+    if "type" in columns:
+        where_clause = f"type NOT IN {_TRADE_DEAL_TYPES_SQL}"
+    elif "symbol" in columns:
+        where_clause = "symbol IS NULL OR symbol = ''"
+    else:
+        return fallback_start
+    row = conn.execute(
+        f"SELECT MAX(time) FROM {table} WHERE {where_clause}",  # noqa: S608
+    ).fetchone()
+    parsed = parse_sqlite_timestamp(row[0] if row else None)
+    return parsed if parsed is not None else fallback_start
+
+
+_REQUIRED_RATE_COLUMNS = frozenset({"symbol", "timeframe", "time"})
+
+
+def _validate_rates_schema(columns: set[str]) -> None:
+    """Validate an existing rates table has normalized incremental columns.
+
+    Raises:
+        ValueError: If required columns are missing.
+    """
+    missing = _REQUIRED_RATE_COLUMNS - columns
+    if missing:
+        msg = (
+            "The rates table must include symbol, timeframe, and time columns"
+            " for incremental updates; "
+            f"missing: {', '.join(sorted(missing))}."
+        )
+        raise ValueError(msg)
+
+
+def load_incremental_start_datetimes(
+    conn: sqlite3.Connection,
+    dataset: Dataset,
+    *,
+    symbols: Sequence[str],
+    timeframes: Sequence[int] | None = None,
+    fallback_start: datetime,
+) -> dict[tuple[str, int | None], datetime]:
+    """Return next update start datetimes keyed by symbol and optional timeframe."""
+    table = dataset.table_name
+    columns = get_table_columns(conn, table)
+    if dataset is Dataset.rates and columns:
+        _validate_rates_schema(columns)
+
+    if "time" not in columns:
+        if dataset is Dataset.rates and timeframes is not None:
+            return {
+                (symbol, timeframe): fallback_start
+                for symbol in symbols
+                for timeframe in timeframes
+            }
+        return {(symbol, None): fallback_start for symbol in symbols}
+
+    parsed_by_key: dict[tuple[str, int | None], datetime] = {}
+    if (
+        dataset is Dataset.rates
+        and timeframes is not None
+        and {"symbol", "timeframe"}.issubset(columns)
+    ):
+        symbol_placeholders = ", ".join("?" for _ in symbols)
+        timeframe_placeholders = ", ".join("?" for _ in timeframes)
+        grouped_rates_query = (
+            "SELECT symbol, timeframe, MAX(time) FROM "  # noqa: S608
+            f"{table} WHERE symbol IN ({symbol_placeholders})"
+            f" AND timeframe IN ({timeframe_placeholders})"
+            " GROUP BY symbol, timeframe"
+        )
+        rows = conn.execute(
+            grouped_rates_query,
+            [*symbols, *timeframes],
+        ).fetchall()
+        for row_symbol, row_timeframe, max_time in rows:
+            parsed = parse_sqlite_timestamp(max_time)
+            if parsed is not None:
+                parsed_by_key[str(row_symbol), int(row_timeframe)] = parsed
+        return {
+            (symbol, timeframe): parsed_by_key.get(
+                (symbol, timeframe),
+                fallback_start,
+            )
+            for symbol in symbols
+            for timeframe in timeframes
+        }
+
+    if "symbol" in columns:
+        symbol_placeholders = ", ".join("?" for _ in symbols)
+        rows = conn.execute(
+            f"SELECT symbol, MAX(time) FROM {table}"  # noqa: S608
+            f" WHERE symbol IN ({symbol_placeholders}) GROUP BY symbol",
+            list(symbols),
+        ).fetchall()
+        for row_symbol, max_time in rows:
+            parsed = parse_sqlite_timestamp(max_time)
+            if parsed is not None:
+                parsed_by_key[str(row_symbol), None] = parsed
+        return {
+            (symbol, None): parsed_by_key.get((symbol, None), fallback_start)
+            for symbol in symbols
+        }
+
+    row = conn.execute(f"SELECT MAX(time) FROM {table}").fetchone()  # noqa: S608
+    parsed = parse_sqlite_timestamp(row[0] if row else None)
+    shared_start = parsed if parsed is not None else fallback_start
+    return {(symbol, None): shared_start for symbol in symbols}
+
+
+def get_incremental_start_datetime(
+    conn: sqlite3.Connection,
+    dataset: Dataset,
+    *,
+    symbol: str,
+    timeframe: int | None,
+    fallback_start: datetime,
+) -> datetime:
+    """Return the next update start datetime from existing MAX(time)."""
+    timeframes = [timeframe] if timeframe is not None else None
+    starts = load_incremental_start_datetimes(
+        conn,
+        dataset,
+        symbols=[symbol],
+        timeframes=timeframes,
+        fallback_start=fallback_start,
+    )
+    return starts[symbol, timeframe]
+
+
+def append_dataframe(
+    conn: sqlite3.Connection,
+    frame: pd.DataFrame,
+    table_name: str,
+    if_exists: IfExists,
+) -> bool:
+    """Append a DataFrame to SQLite when it has a schema.
+
+    Returns:
+        True if a table was written, False if the frame had no columns.
+    """
+    if len(frame.columns) == 0:
+        logger.warning("Skipping %s: dataset returned no columns", table_name)
+        return False
+    frame.to_sql(  # type: ignore[reportUnknownMemberType]
+        table_name,
+        conn,
+        if_exists=if_exists.value,
+        index=False,
+        chunksize=50_000,
+    )
+    return True
+
+
+def record_written_columns(
+    written_columns: dict[Dataset, set[str]],
+    dataset: Dataset,
+    frame: pd.DataFrame,
+) -> None:
+    """Remember columns for datasets written during collection."""
+    columns = set(frame.columns)
+    if dataset in written_columns:
+        written_columns[dataset].update(columns)
+    else:
+        written_columns[dataset] = columns
+
+
+def augment_written_columns_from_sqlite(
+    conn: sqlite3.Connection,
+    datasets: set[Dataset],
+    written_columns: dict[Dataset, set[str]],
+) -> None:
+    """Add existing table columns to the written column map."""
+    for dataset in datasets:
+        columns = get_table_columns(conn, dataset.table_name)
+        if not columns:
+            continue
+        if dataset in written_columns:
+            written_columns[dataset].update(columns)
+        else:
+            written_columns[dataset] = columns
+
+
+def write_streamed_frame(
+    conn: sqlite3.Connection,
+    frame: pd.DataFrame,
+    dataset: Dataset,
+    table_exists: bool,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Write one streamed dataset frame and track table state.
+
+    Returns:
+        True if the dataset table exists after this write attempt.
+    """
+    write_mode = IfExists.APPEND if table_exists else if_exists
+    if append_dataframe(conn, frame, dataset.table_name, write_mode):
+        record_written_columns(written_columns, dataset, frame)
+        return True
+    return table_exists
+
+
+def drop_duplicates_in_table(
+    cursor: sqlite3.Cursor,
+    table: str,
+    ids: list[str],
+    *,
+    keep: Literal["first", "last"] = "last",
+    scope_where: str | None = None,
+    scope_params: tuple[object, ...] = (),
+) -> None:
+    """Remove duplicate rows, keeping the first or last ROWID per key group.
+
+    Raises:
+        ValueError: If the table or column names are invalid.
+    """
+    if not table.isidentifier():
+        msg = f"Invalid table name: {table}"
+        raise ValueError(msg)
+    if invalid := {column for column in ids if not column.isidentifier()}:
+        msg = f"Invalid column names: {', '.join(sorted(invalid))}"
+        raise ValueError(msg)
+    ids_csv = ", ".join(f'"{column}"' for column in ids)
+    rowid_selector = "MIN" if keep == "first" else "MAX"
+    if scope_where:
+        delete_sql = (
+            f"DELETE FROM {table} WHERE {scope_where} AND ROWID NOT IN"  # noqa: S608
+            f" (SELECT {rowid_selector}(ROWID) FROM {table} WHERE {scope_where}"
+            f" GROUP BY {ids_csv})"
+        )
+        cursor.execute(delete_sql, scope_params + scope_params)
+        return
+    cursor.execute(
+        f"DELETE FROM {table} WHERE ROWID NOT IN"  # noqa: S608
+        f" (SELECT {rowid_selector}(ROWID) FROM {table} GROUP BY {ids_csv})",
+    )
+
+
+DedupScope = tuple[str, tuple[object, ...]]
+
+
+def _record_dedup_scope(
+    dedup_scopes: dict[Dataset, list[DedupScope]],
+    dataset: Dataset,
+    scope_where: str,
+    scope_params: tuple[object, ...],
+) -> None:
+    dedup_scopes.setdefault(dataset, []).append((scope_where, scope_params))
+
+
+def deduplicate_history_tables(
+    conn: sqlite3.Connection,
+    written_columns: dict[Dataset, set[str]],
+    written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]] | None = None,
+) -> None:
+    """Deduplicate appended history tables by stable identifiers."""
+    cursor = conn.cursor()
+    for dataset in written_tables:
+        columns = written_columns.get(dataset, set())
+        table = dataset.table_name
+        keys = next(
+            (
+                candidate
+                for candidate in _HISTORY_DEDUP_KEYS[dataset]
+                if set(candidate).issubset(columns)
+            ),
+            None,
+        )
+        if keys is None:
+            logger.warning(
+                "Skipping %s deduplication: no supported key columns",
+                table,
+            )
+            continue
+        scopes = dedup_scopes.get(dataset, []) if dedup_scopes else []
+        if scopes:
+            for scope_where, scope_params in scopes:
+                drop_duplicates_in_table(
+                    cursor,
+                    table,
+                    list(keys),
+                    keep="last",
+                    scope_where=scope_where,
+                    scope_params=scope_params,
+                )
+            continue
+        drop_duplicates_in_table(cursor, table, list(keys), keep="last")
+
+
+def create_history_indexes(
+    conn: sqlite3.Connection,
+    written_columns: dict[Dataset, set[str]],
+) -> None:
+    """Create useful indexes for collected history tables when present."""
+    if {"symbol", "timeframe", "time"}.issubset(
+        written_columns.get(Dataset.rates, set()),
+    ):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rates_symbol_timeframe_time"
+            " ON rates(symbol, timeframe, time)",
+        )
+    if {"symbol", "time"}.issubset(written_columns.get(Dataset.ticks, set())):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ticks_symbol_time ON ticks(symbol, time)",
+        )
+    if {"position_id", "symbol"}.issubset(
+        written_columns.get(Dataset.history_deals, set()),
+    ):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_deals_position_symbol"
+            " ON history_deals(position_id, symbol)",
+        )
+
+
+def _history_deals_account_event_mask(frame: pd.DataFrame) -> pd.Series:
+    if "type" in frame.columns:
+        return ~frame["type"].isin(_TRADE_DEAL_TYPES)
+    if "symbol" in frame.columns:
+        return frame["symbol"].isna() | frame["symbol"].eq("")
+    return pd.Series(data=False, index=frame.index)
+
+
+def _frame_parsed_times(frame: pd.DataFrame) -> pd.Series:
+    if "time" not in frame.columns:
+        return pd.Series([pd.NaT] * len(frame), index=frame.index, dtype="object")
+    return frame["time"].map(parse_sqlite_timestamp)
+
+
+def filter_incremental_history_deals_frame(
+    frame: pd.DataFrame,
+    symbols: Sequence[str],
+    start_by_symbol: dict[str, datetime],
+    account_event_start: datetime,
+) -> pd.DataFrame:
+    """Filter incrementally fetched history_deals by symbol and event start times.
+
+    Returns:
+        Rows for selected symbols at or after each symbol start, plus account
+        events at or after ``account_event_start``.
+    """
+    if frame.empty:
+        return frame.copy()
+    parsed_times = _frame_parsed_times(frame)
+    time_valid = parsed_times.notna()
+    account_event_mask = _history_deals_account_event_mask(frame)
+    account_keep = account_event_mask & (parsed_times >= account_event_start)
+    trade_keep = pd.Series(data=False, index=frame.index)
+    if "symbol" in frame.columns:
+        for symbol in symbols:
+            trade_keep |= (
+                (frame["symbol"] == symbol)
+                & (parsed_times >= start_by_symbol[symbol])
+                & ~account_event_mask
+            )
+    keep = (account_keep | trade_keep) & time_valid
+    return frame.loc[keep].copy()
+
+
+def filter_trade_history_frame(
+    frame: pd.DataFrame,
+    symbols: Sequence[str],
+    *,
+    include_account_events: bool,
+) -> pd.DataFrame:
+    """Filter trade history rows to selected symbols and account events.
+
+    Returns:
+        Filtered history rows.
+    """
+    if "symbol" not in frame.columns:
+        return frame
+    symbol_mask = frame["symbol"].isin(symbols)
+    if not include_account_events:
+        return frame.loc[symbol_mask].copy()
+    account_event_mask = _history_deals_account_event_mask(frame)
+    return frame.loc[symbol_mask | account_event_mask].copy()
+
+
+def create_cash_events_view(
+    conn: sqlite3.Connection,
+    deals_columns: set[str],
+) -> bool:
+    """Create the cash_events SQLite view derived from history_deals.
+
+    Returns:
+        True if the view was created, False if required columns are missing.
+    """
+    if "type" not in deals_columns:
+        logger.warning("Skipping cash_events view: history_deals.type is missing")
+        return False
+    conn.execute("DROP VIEW IF EXISTS cash_events")
+    conn.execute(
+        "CREATE VIEW cash_events AS"  # noqa: S608
+        f" SELECT * FROM history_deals WHERE type NOT IN {_TRADE_DEAL_TYPES_SQL}",
+    )
+    return True
+
+
+def create_positions_reconstructed_view(
+    conn: sqlite3.Connection,
+    deals_columns: set[str],
+) -> bool:
+    """Create the positions_reconstructed SQLite view derived from history_deals.
+
+    Returns:
+        True if the view was created, False if required columns are missing.
+    """
+    if not _POSITIONS_VIEW_REQUIRED_COLUMNS.issubset(deals_columns):
+        missing = ", ".join(sorted(_POSITIONS_VIEW_REQUIRED_COLUMNS - deals_columns))
+        logger.warning(
+            "Skipping positions_reconstructed view: history_deals missing columns: %s",
+            missing,
+        )
+        return False
+    conn.execute("DROP VIEW IF EXISTS positions_reconstructed")
+    conn.execute(
+        "CREATE VIEW positions_reconstructed AS"  # noqa: S608
+        " SELECT"
+        " position_id,"
+        " symbol,"
+        " MIN(CASE WHEN entry = 0 THEN time END) AS open_time,"
+        " MAX(CASE WHEN entry IN (1, 2, 3) THEN time END) AS close_time,"
+        " MIN(CASE WHEN entry = 0 THEN type END) AS direction,"
+        " SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END) AS volume_open,"
+        " SUM(CASE WHEN entry IN (1, 2, 3) THEN volume ELSE 0 END) AS volume_close,"
+        " SUM(CASE WHEN entry = 2 THEN volume ELSE 0 END) AS volume_reversal,"
+        " CASE"
+        " WHEN SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END) > 0"
+        " THEN SUM(CASE WHEN entry = 0 THEN price * volume ELSE 0 END)"
+        " / SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END)"
+        " END AS open_price,"
+        " CASE"
+        " WHEN SUM(CASE WHEN entry IN (1, 2, 3) THEN volume ELSE 0 END) > 0"
+        " THEN SUM(CASE WHEN entry IN (1, 2, 3) THEN price * volume ELSE 0 END)"
+        " / SUM(CASE WHEN entry IN (1, 2, 3) THEN volume ELSE 0 END)"
+        " END AS close_price,"
+        " SUM(profit) AS total_profit,"
+        " SUM(CASE WHEN entry = 2 THEN 1 ELSE 0 END) AS reversal_count,"
+        " COUNT(*) AS deals_count"
+        " FROM history_deals"
+        f" WHERE type IN {_TRADE_DEAL_TYPES_SQL} AND position_id != 0"
+        " GROUP BY position_id, symbol"
+        " HAVING SUM(CASE WHEN entry IN (1, 2, 3) THEN 1 ELSE 0 END) > 0",
+    )
+    return True
+
+
+def drop_rate_compatibility_views(conn: sqlite3.Connection) -> None:
+    """Drop all mt5cli-managed ``rate_*`` compatibility views."""
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'view' AND name GLOB 'rate_*'",
+    ).fetchall()
+    for (view_name,) in rows:
+        quoted_view_name = quote_sqlite_identifier(str(view_name))
+        conn.execute(f"DROP VIEW IF EXISTS {quoted_view_name}")
+
+
+def create_rate_compatibility_views(conn: sqlite3.Connection) -> None:
+    """Create rate compatibility views from the normalized rates table."""
+    columns = get_table_columns(conn, Dataset.rates.table_name)
+    if not {"symbol", "timeframe", "time"}.issubset(columns):
+        return
+    drop_rate_compatibility_views(conn)
+    select_columns = sorted(columns - {"symbol", "timeframe"})
+    quoted_columns = ", ".join(f'"{column}"' for column in select_columns)
+    rows = conn.execute(
+        "SELECT DISTINCT symbol, timeframe FROM rates ORDER BY symbol, timeframe",
+    ).fetchall()
+    timeframes_by_symbol: dict[str, list[int]] = {}
+    for symbol, timeframe in rows:
+        timeframes_by_symbol.setdefault(str(symbol), []).append(int(timeframe))
+    for symbol, timeframes in timeframes_by_symbol.items():
+        for timeframe in timeframes:
+            granularity = resolve_granularity_name(timeframe)
+            view_name = build_rate_view_name(
+                symbol=symbol,
+                granularity=granularity,
+                granularity_count=len(timeframes),
+                timeframe=timeframe,
+            )
+            quoted_view_name = quote_sqlite_identifier(view_name)
+            escaped_symbol = symbol.replace("'", "''")
+            conn.execute(
+                f"CREATE VIEW {quoted_view_name} AS"  # noqa: S608
+                f" SELECT {quoted_columns} FROM rates"
+                f" WHERE symbol = '{escaped_symbol}'"
+                f" AND timeframe = {timeframe}",
+            )
+
+
+def write_rates_dataset(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    timeframe: int,
+    date_from: datetime,
+    date_to: datetime,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Stream rates frames into SQLite.
+
+    Returns:
+        True if the rates table was written.
+    """
+    table_exists = False
+    for sym in symbols:
+        frame = client.copy_rates_range_as_df(
+            symbol=sym,
+            timeframe=timeframe,
+            date_from=date_from,
+            date_to=date_to,
+        ).drop(columns=["symbol", "timeframe"], errors="ignore")
+        if len(frame.columns) != 0:
+            frame.insert(0, "symbol", sym)
+            frame.insert(1, "timeframe", timeframe)
+        table_exists = write_streamed_frame(
+            conn,
+            frame,
+            Dataset.rates,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
+
+
+def write_ticks_dataset(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    flags: int,
+    date_from: datetime,
+    date_to: datetime,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Stream ticks frames into SQLite.
+
+    Returns:
+        True if the ticks table was written.
+    """
+    table_exists = False
+    for sym in symbols:
+        frame = client.copy_ticks_range_as_df(
+            symbol=sym,
+            date_from=date_from,
+            date_to=date_to,
+            flags=flags,
+        ).drop(columns=["symbol"], errors="ignore")
+        if len(frame.columns) != 0:
+            frame.insert(0, "symbol", sym)
+        table_exists = write_streamed_frame(
+            conn,
+            frame,
+            Dataset.ticks,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
+
+
+def write_history_dataset(
+    conn: sqlite3.Connection,
+    fetch: Callable[..., pd.DataFrame],
+    dataset: Dataset,
+    symbols: Sequence[str],
+    date_from: datetime,
+    date_to: datetime,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+    *,
+    include_account_events: bool = False,
+) -> bool:
+    """Stream a history dataset into SQLite.
+
+    Returns:
+        True if the target table was written.
+    """
+    table_exists = False
+    if include_account_events:
+        frame = filter_trade_history_frame(
+            fetch(date_from=date_from, date_to=date_to),
+            symbols,
+            include_account_events=True,
+        )
+        return write_streamed_frame(
+            conn,
+            frame,
+            dataset,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    for sym in symbols:
+        frame = fetch(date_from=date_from, date_to=date_to, symbol=sym)
+        frame = filter_trade_history_frame(
+            frame,
+            [sym],
+            include_account_events=False,
+        )
+        table_exists = write_streamed_frame(
+            conn,
+            frame,
+            dataset,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
+
+
+def _write_incremental_rates(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    resolved_timeframes: list[int],
+    fallback_start: datetime,
+    end_date: datetime,
+    written_columns: dict[Dataset, set[str]],
+    written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
+) -> None:
+    start_by_key = load_incremental_start_datetimes(
+        conn,
+        Dataset.rates,
+        symbols=symbols,
+        timeframes=resolved_timeframes,
+        fallback_start=fallback_start,
+    )
+    for symbol in symbols:
+        for timeframe in resolved_timeframes:
+            start_date = start_by_key[symbol, timeframe]
+            if write_rates_dataset(
+                conn,
+                client,
+                [symbol],
+                timeframe,
+                start_date,
+                end_date,
+                IfExists.APPEND,
+                written_columns,
+            ):
+                written_tables.add(Dataset.rates)
+                _record_dedup_scope(
+                    dedup_scopes,
+                    Dataset.rates,
+                    "symbol = ? AND timeframe = ? AND time >= ?",
+                    (symbol, timeframe, start_date),
+                )
+
+
+def _write_incremental_ticks(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    resolved_tick_flags: int,
+    fallback_start: datetime,
+    end_date: datetime,
+    written_columns: dict[Dataset, set[str]],
+    written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
+) -> None:
+    start_by_symbol = load_incremental_start_datetimes(
+        conn,
+        Dataset.ticks,
+        symbols=symbols,
+        fallback_start=fallback_start,
+    )
+    for symbol in symbols:
+        start_date = start_by_symbol[symbol, None]
+        if write_ticks_dataset(
+            conn,
+            client,
+            [symbol],
+            resolved_tick_flags,
+            start_date,
+            end_date,
+            IfExists.APPEND,
+            written_columns,
+        ):
+            written_tables.add(Dataset.ticks)
+            _record_dedup_scope(
+                dedup_scopes,
+                Dataset.ticks,
+                "symbol = ? AND time >= ?",
+                (symbol, start_date),
+            )
+
+
+def _write_incremental_history_orders(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    fallback_start: datetime,
+    end_date: datetime,
+    written_columns: dict[Dataset, set[str]],
+    written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
+) -> None:
+    start_by_symbol = load_incremental_start_datetimes(
+        conn,
+        Dataset.history_orders,
+        symbols=symbols,
+        fallback_start=fallback_start,
+    )
+    for symbol in symbols:
+        start_date = start_by_symbol[symbol, None]
+        if write_history_dataset(
+            conn,
+            client.history_orders_get_as_df,
+            Dataset.history_orders,
+            [symbol],
+            start_date,
+            end_date,
+            IfExists.APPEND,
+            written_columns,
+            include_account_events=False,
+        ):
+            written_tables.add(Dataset.history_orders)
+            _record_dedup_scope(
+                dedup_scopes,
+                Dataset.history_orders,
+                "symbol = ? AND time >= ?",
+                (symbol, start_date),
+            )
+
+
+def _write_incremental_history_deals(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    fallback_start: datetime,
+    end_date: datetime,
+    written_columns: dict[Dataset, set[str]],
+    written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
+    *,
+    include_account_events: bool,
+) -> None:
+    if include_account_events:
+        start_by_symbol = load_incremental_start_datetimes(
+            conn,
+            Dataset.history_deals,
+            symbols=symbols,
+            fallback_start=fallback_start,
+        )
+        account_event_start = get_history_deals_account_event_start_datetime(
+            conn,
+            fallback_start=fallback_start,
+        )
+        fetch_start = min([*start_by_symbol.values(), account_event_start])
+        frame = filter_incremental_history_deals_frame(
+            client.history_deals_get_as_df(
+                date_from=fetch_start,
+                date_to=end_date,
+            ),
+            symbols,
+            {symbol: start_by_symbol[symbol, None] for symbol in symbols},
+            account_event_start,
+        )
+        if write_streamed_frame(
+            conn,
+            frame,
+            Dataset.history_deals,
+            table_exists=False,
+            if_exists=IfExists.APPEND,
+            written_columns=written_columns,
+        ):
+            written_tables.add(Dataset.history_deals)
+            columns = get_table_columns(conn, Dataset.history_deals.table_name)
+            if "symbol" in columns:
+                for symbol in symbols:
+                    _record_dedup_scope(
+                        dedup_scopes,
+                        Dataset.history_deals,
+                        "symbol = ? AND time >= ?",
+                        (symbol, start_by_symbol[symbol, None]),
+                    )
+            if "type" in columns:
+                _record_dedup_scope(
+                    dedup_scopes,
+                    Dataset.history_deals,
+                    f"type NOT IN {_TRADE_DEAL_TYPES_SQL} AND time >= ?",
+                    (account_event_start,),
+                )
+            if "type" not in columns and "symbol" in columns:
+                _record_dedup_scope(
+                    dedup_scopes,
+                    Dataset.history_deals,
+                    "(symbol IS NULL OR symbol = '') AND time >= ?",
+                    (account_event_start,),
+                )
+        return
+    start_by_symbol = load_incremental_start_datetimes(
+        conn,
+        Dataset.history_deals,
+        symbols=symbols,
+        fallback_start=fallback_start,
+    )
+    for symbol in symbols:
+        start_date = start_by_symbol[symbol, None]
+        if write_history_dataset(
+            conn,
+            client.history_deals_get_as_df,
+            Dataset.history_deals,
+            [symbol],
+            start_date,
+            end_date,
+            IfExists.APPEND,
+            written_columns,
+            include_account_events=False,
+        ):
+            written_tables.add(Dataset.history_deals)
+            _record_dedup_scope(
+                dedup_scopes,
+                Dataset.history_deals,
+                "symbol = ? AND time >= ?",
+                (symbol, start_date),
+            )
+
+
+def _finalize_incremental_writes(
+    conn: sqlite3.Connection,
+    selected_datasets: set[Dataset],
+    written_columns: dict[Dataset, set[str]],
+    written_tables: set[Dataset],
+    dedup_scopes: dict[Dataset, list[DedupScope]],
+    *,
+    deduplicate: bool,
+    create_rate_views: bool,
+    with_views: bool,
+) -> None:
+    augment_written_columns_from_sqlite(conn, selected_datasets, written_columns)
+    create_history_indexes(conn, written_columns)
+    if deduplicate:
+        deduplicate_history_tables(
+            conn,
+            written_columns,
+            written_tables,
+            dedup_scopes,
+        )
+    if create_rate_views and Dataset.rates in written_tables:
+        create_rate_compatibility_views(conn)
+    if with_views and Dataset.history_deals in selected_datasets:
+        if Dataset.history_deals in written_columns:
+            deal_columns = written_columns[Dataset.history_deals]
+            create_cash_events_view(conn, deal_columns)
+            create_positions_reconstructed_view(conn, deal_columns)
+        if (
+            Dataset.history_deals not in written_columns
+            and Dataset.history_deals not in written_tables
+        ):
+            logger.warning(
+                "with_views ignored: history_deals table was not available",
+            )
+
+
+def write_incremental_datasets(  # noqa: PLR0913
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    selected_datasets: set[Dataset],
+    resolved_timeframes: list[int],
+    resolved_tick_flags: int,
+    fallback_start: datetime,
+    end_date: datetime,
+    *,
+    deduplicate: bool,
+    create_rate_views: bool,
+    with_views: bool,
+    include_account_events: bool,
+) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
+    """Append selected datasets incrementally and refresh indexes and views.
+
+    Returns:
+        Written datasets and their columns.
+    """
+    written_columns: dict[Dataset, set[str]] = {}
+    written_tables: set[Dataset] = set()
+    dedup_scopes: dict[Dataset, list[DedupScope]] = {}
+    if Dataset.rates in selected_datasets:
+        _write_incremental_rates(
+            conn,
+            client,
+            symbols,
+            resolved_timeframes,
+            fallback_start,
+            end_date,
+            written_columns,
+            written_tables,
+            dedup_scopes,
+        )
+    if Dataset.ticks in selected_datasets:
+        _write_incremental_ticks(
+            conn,
+            client,
+            symbols,
+            resolved_tick_flags,
+            fallback_start,
+            end_date,
+            written_columns,
+            written_tables,
+            dedup_scopes,
+        )
+    if Dataset.history_orders in selected_datasets:
+        _write_incremental_history_orders(
+            conn,
+            client,
+            symbols,
+            fallback_start,
+            end_date,
+            written_columns,
+            written_tables,
+            dedup_scopes,
+        )
+    if Dataset.history_deals in selected_datasets:
+        _write_incremental_history_deals(
+            conn,
+            client,
+            symbols,
+            fallback_start,
+            end_date,
+            written_columns,
+            written_tables,
+            dedup_scopes,
+            include_account_events=include_account_events,
+        )
+    _finalize_incremental_writes(
+        conn,
+        selected_datasets,
+        written_columns,
+        written_tables,
+        dedup_scopes,
+        deduplicate=deduplicate,
+        create_rate_views=create_rate_views,
+        with_views=with_views,
+    )
+    return written_tables, written_columns
+
+
+def write_collected_datasets(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    datasets: set[Dataset],
+    timeframe: int,
+    flags: int,
+    date_from: datetime,
+    date_to: datetime,
+    if_exists: IfExists,
+) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
+    """Collect selected datasets and stream each symbol frame into SQLite.
+
+    Returns:
+        Written datasets and their columns.
+    """
+    written_columns: dict[Dataset, set[str]] = {}
+    written_tables: set[Dataset] = set()
+    if Dataset.rates in datasets and write_rates_dataset(
+        conn,
+        client,
+        symbols,
+        timeframe,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.rates)
+    if Dataset.ticks in datasets and write_ticks_dataset(
+        conn,
+        client,
+        symbols,
+        flags,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.ticks)
+    if Dataset.history_orders in datasets and write_history_dataset(
+        conn,
+        client.history_orders_get_as_df,
+        Dataset.history_orders,
+        symbols,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+        include_account_events=False,
+    ):
+        written_tables.add(Dataset.history_orders)
+    if Dataset.history_deals in datasets and write_history_dataset(
+        conn,
+        client.history_deals_get_as_df,
+        Dataset.history_deals,
+        symbols,
+        date_from,
+        date_to,
+        if_exists,
+        written_columns,
+        include_account_events=False,
+    ):
+        written_tables.add(Dataset.history_deals)
+    return written_tables, written_columns

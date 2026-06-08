@@ -36,8 +36,11 @@ from mt5cli.sdk import (
     symbol_info_tick,
     symbols,
     terminal_info,
+    update_history,
+    update_history_with_config,
     version,
 )
+from mt5cli.sqlite_history import DEFAULT_HISTORY_TIMEFRAMES
 from mt5cli.utils import Dataset
 
 _DEALS_FIXTURE: dict[str, list[object]] = {
@@ -464,3 +467,344 @@ class TestCollectHistory:
             }
         assert "cash_events" not in views
         assert "positions_reconstructed" not in views
+
+
+class TestUpdateHistory:
+    """Tests for update_history SDK functions."""
+
+    @pytest.fixture
+    def connected_client(self) -> MagicMock:
+        """Create a connected mock client without MT5 lifecycle patching."""
+        return MagicMock()
+
+    def test_update_history_appends_incrementally(
+        self,
+        connected_client: MagicMock,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test sequential SQLite history updates use existing max timestamps."""
+        date_to = datetime(2024, 1, 2, tzinfo=UTC)
+        first_expected_start = datetime(2024, 1, 1, tzinfo=UTC)
+        second_expected_start = datetime(2024, 1, 1, 12, tzinfo=UTC)
+        rate_starts: list[datetime] = []
+        deal_starts: list[datetime] = []
+
+        def make_rates(**kwargs: object) -> pd.DataFrame:
+            assert kwargs["symbol"] == "EURUSD"
+            assert kwargs["timeframe"] == 1
+            assert kwargs["date_to"] == date_to
+            rate_starts.append(kwargs["date_from"])  # type: ignore[arg-type]
+            return pd.DataFrame({
+                "time": ["2024-01-01T12:00:00+00:00"],
+                "open": [1.0 + len(rate_starts) / 10],
+            })
+
+        def make_deals(**kwargs: object) -> pd.DataFrame:
+            assert kwargs["date_to"] == date_to
+            deal_starts.append(kwargs["date_from"])  # type: ignore[arg-type]
+            return pd.DataFrame({
+                "ticket": [10],
+                "position_id": [100],
+                "symbol": ["EURUSD"],
+                "time": ["2024-01-01T12:00:00+00:00"],
+                "type": [0],
+                "entry": [0],
+                "volume": [1.0],
+                "price": [1.1],
+                "profit": [0.0],
+            })
+
+        connected_client.copy_rates_range_as_df.side_effect = make_rates
+        connected_client.history_deals_get_as_df.side_effect = make_deals
+        mocker.patch("mt5cli.sdk.Mt5DataClient")
+        output = tmp_path / "incremental-history.db"
+
+        for _ in range(2):
+            update_history(
+                client=connected_client,
+                output=output,
+                symbols=["EURUSD"],
+                datasets={Dataset.rates, Dataset.history_deals},
+                timeframes=["M1"],
+                lookback_hours=24,
+                date_to=date_to,
+                with_views=True,
+            )
+
+        assert rate_starts == [first_expected_start, second_expected_start]
+        assert deal_starts == [first_expected_start, first_expected_start]
+        connected_client.initialize_and_login_mt5.assert_not_called()
+        connected_client.shutdown.assert_not_called()
+        with sqlite3.connect(output) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM rates").fetchone() == (1,)
+            assert conn.execute("SELECT open FROM rates").fetchone() == (1.2,)
+            assert conn.execute(
+                "SELECT COUNT(*) FROM history_deals",
+            ).fetchone() == (1,)
+            assert conn.execute(
+                "SELECT name FROM sqlite_master WHERE name = 'cash_events'",
+            ).fetchone() == ("cash_events",)
+
+    def test_update_history_rejects_invalid_inputs(
+        self,
+        connected_client: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test validation errors for incremental history updates."""
+        output = tmp_path / "invalid-update.db"
+        with pytest.raises(ValueError, match="At least one symbol"):
+            update_history(
+                client=connected_client,
+                output=output,
+                symbols=[],
+            )
+        with pytest.raises(ValueError, match="lookback_hours must be positive"):
+            update_history(
+                client=connected_client,
+                output=output,
+                symbols=["EURUSD"],
+                lookback_hours=0,
+            )
+        with pytest.raises(ValueError, match="Invalid timeframe"):
+            update_history(
+                client=connected_client,
+                output=output,
+                symbols=["EURUSD"],
+                datasets={Dataset.rates},
+                timeframes=["BAD"],
+            )
+        with pytest.raises(ValueError, match="Invalid tick flags"):
+            update_history(
+                client=connected_client,
+                output=output,
+                symbols=["EURUSD"],
+                datasets={Dataset.ticks},
+                flags="BAD",
+            )
+
+    def test_update_history_noops_for_empty_datasets(
+        self,
+        connected_client: MagicMock,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test empty dataset selection skips MT5 and SQLite writes."""
+        writer = mocker.patch("mt5cli.sdk.write_incremental_datasets")
+        connect = mocker.patch("mt5cli.sdk.sqlite3.connect")
+        update_history(
+            client=connected_client,
+            output=tmp_path / "empty-datasets.db",
+            symbols=["EURUSD"],
+            datasets=set(),
+        )
+        writer.assert_not_called()
+        connect.assert_not_called()
+
+    def test_update_history_uses_all_default_timeframes(
+        self,
+        connected_client: MagicMock,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test that timeframes=None writes rates for all default MT5 timeframes."""
+        timeframes_written: list[int] = []
+
+        def capture(
+            *args: object,
+            **_kwargs: object,
+        ) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
+            timeframes_written.extend(args[4])  # type: ignore[arg-type]
+            return set(), {}
+
+        mocker.patch("mt5cli.sdk.write_incremental_datasets", side_effect=capture)
+        update_history(
+            client=connected_client,
+            output=tmp_path / "default-timeframes.db",
+            symbols=["EURUSD"],
+            datasets={Dataset.rates},
+            timeframes=None,
+            lookback_hours=1,
+            date_to=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        assert len(timeframes_written) == len(DEFAULT_HISTORY_TIMEFRAMES)
+
+    def test_update_history_uses_specified_timeframes(
+        self,
+        connected_client: MagicMock,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test explicit timeframes limit rate updates."""
+        timeframes_written: list[int] = []
+
+        def capture(
+            *args: object,
+            **_kwargs: object,
+        ) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
+            timeframes_written.extend(args[4])  # type: ignore[arg-type]
+            return set(), {}
+
+        mocker.patch("mt5cli.sdk.write_incremental_datasets", side_effect=capture)
+        update_history(
+            client=connected_client,
+            output=tmp_path / "specific-timeframes.db",
+            symbols=["EURUSD"],
+            datasets={Dataset.rates},
+            timeframes=["M1", "H1"],
+            lookback_hours=1,
+            date_to=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        assert timeframes_written == [1, 16385]
+
+    def test_update_history_updates_ticks_and_orders(
+        self,
+        connected_client: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test incremental update writes selected ticks and orders datasets."""
+        date_to = datetime(2024, 1, 2, tzinfo=UTC)
+        expected_start = datetime(2024, 1, 1, tzinfo=UTC)
+
+        def make_ticks(**kwargs: object) -> pd.DataFrame:
+            assert kwargs["symbol"] == "EURUSD"
+            assert kwargs["date_from"] == expected_start
+            assert kwargs["date_to"] == date_to
+            assert kwargs["flags"] == 1
+            return pd.DataFrame({
+                "time": ["2024-01-01T12:00:00+00:00"],
+                "time_msc": [1_704_110_400_000],
+                "bid": [1.1],
+            })
+
+        def make_orders(**kwargs: object) -> pd.DataFrame:
+            assert kwargs["symbol"] == "EURUSD"
+            assert kwargs["date_from"] == expected_start
+            assert kwargs["date_to"] == date_to
+            return pd.DataFrame({
+                "ticket": [1],
+                "symbol": ["EURUSD"],
+                "time": ["2024-01-01T12:00:00+00:00"],
+                "type": [0],
+            })
+
+        connected_client.copy_ticks_range_as_df.side_effect = make_ticks
+        connected_client.history_orders_get_as_df.side_effect = make_orders
+        output = tmp_path / "ticks-orders.db"
+        update_history(
+            client=connected_client,
+            output=output,
+            symbols=["EURUSD"],
+            datasets={Dataset.ticks, Dataset.history_orders},
+            lookback_hours=24,
+            date_to=date_to,
+        )
+        with sqlite3.connect(output) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM ticks").fetchone() == (1,)
+            assert conn.execute(
+                "SELECT COUNT(*) FROM history_orders",
+            ).fetchone() == (1,)
+
+    def test_update_history_with_config_opens_and_closes_connection(
+        self,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test update_history_with_config manages MT5 connection lifecycle."""
+        mock_client = MagicMock()
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
+        updater = mocker.patch("mt5cli.sdk.update_history")
+        update_history_with_config(
+            output=tmp_path / "config-wrapper.db",
+            symbols=["EURUSD"],
+            datasets={Dataset.history_deals},
+            timeframes=["M1"],
+            flags="ALL",
+            lookback_hours=1,
+            date_to=datetime(2024, 1, 1, tzinfo=UTC),
+            deduplicate=False,
+            create_rate_views=False,
+            with_views=True,
+            include_account_events=False,
+        )
+        mock_client.initialize_and_login_mt5.assert_called_once()
+        mock_client.shutdown.assert_called_once()
+        updater.assert_called_once()
+        assert updater.call_args.kwargs == {
+            "client": mock_client,
+            "output": tmp_path / "config-wrapper.db",
+            "symbols": ["EURUSD"],
+            "datasets": {Dataset.history_deals},
+            "timeframes": ["M1"],
+            "flags": "ALL",
+            "lookback_hours": 1,
+            "date_to": datetime(2024, 1, 1, tzinfo=UTC),
+            "deduplicate": False,
+            "create_rate_views": False,
+            "with_views": True,
+            "include_account_events": False,
+        }
+
+    def test_update_history_with_config_validates_before_connecting(
+        self,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test invalid inputs fail before MT5 is initialized."""
+        mock_client = MagicMock()
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
+        with pytest.raises(ValueError, match="lookback_hours must be positive"):
+            update_history_with_config(
+                output=tmp_path / "invalid-config.db",
+                symbols=["EURUSD"],
+                lookback_hours=0,
+            )
+        mock_client.initialize_and_login_mt5.assert_not_called()
+        mock_client.shutdown.assert_not_called()
+
+    def test_update_history_with_config_noops_for_empty_datasets(
+        self,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test empty dataset selection skips MT5 initialization."""
+        mock_client = MagicMock()
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
+        updater = mocker.patch("mt5cli.sdk.update_history")
+        update_history_with_config(
+            output=tmp_path / "empty-config.db",
+            symbols=["EURUSD"],
+            datasets=set(),
+        )
+        mock_client.initialize_and_login_mt5.assert_not_called()
+        mock_client.shutdown.assert_not_called()
+        updater.assert_not_called()
+
+    def test_update_history_defaults_date_to_now(
+        self,
+        connected_client: MagicMock,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test update_history uses current UTC time when date_to is omitted."""
+        captured: dict[str, datetime] = {}
+
+        def capture(
+            *args: object,
+            **_kwargs: object,
+        ) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
+            captured["end"] = args[7]  # type: ignore[assignment]
+            return set(), {}
+
+        mocker.patch("mt5cli.sdk.write_incremental_datasets", side_effect=capture)
+        before = datetime.now(UTC)
+        update_history(
+            client=connected_client,
+            output=tmp_path / "now-default.db",
+            symbols=["EURUSD"],
+            datasets={Dataset.rates},
+            timeframes=["M1"],
+            lookback_hours=12,
+        )
+        after = datetime.now(UTC)
+        assert before <= captured["end"] <= after

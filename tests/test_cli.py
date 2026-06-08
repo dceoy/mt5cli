@@ -1089,7 +1089,7 @@ class TestCollectHistory:
         assert all(row[0] not in {0, 1} for row in cash)
         # Position 100 (BUY 1@1.10 + BUY 3@1.20 then SELL 4@1.50) is closed.
         # Position 200 (BUY 2@2.00 then SELL 2@2.20) is closed.
-        # Position 300 (open-only) and 400 (reversal-only) are excluded.
+        # Position 400 (reversal-only with non-trade deal type) stays excluded.
         assert set(positions) == {100, 200, 500, 600}
         pos_100 = positions[100]
         tol = 1e-9
@@ -1106,10 +1106,10 @@ class TestCollectHistory:
         assert abs(pos_500[5] - 1.05) < tol
         pos_600 = positions[600]
         assert abs(pos_600[1] - 3.0) < tol
-        assert abs(pos_600[2] - 3.0) < tol
+        assert abs(pos_600[2] - 4.0) < tol  # reversal + close volumes
         assert abs(pos_600[3] - 1.0) < tol
         assert abs(pos_600[4] - 1.10) < tol
-        assert abs(pos_600[5] - 1.40) < tol
+        assert abs(pos_600[5] - 3.5475) < tol
         assert pos_600[6] == 1
 
     def test_collect_history_filters_history_symbols_exactly(

@@ -24,6 +24,7 @@ theme:
   features:
     - content.code.annotate
     - content.code.copy
+    - content.code.mermaid
     - navigation.indexes
     - navigation.sections
     - navigation.tabs
@@ -57,6 +58,7 @@ nav:
       - Overview: api/index.md
       - CLI: api/cli.md
       - SDK: api/sdk.md
+      - SQLite History: api/sqlite_history.md
       - Utils: api/utils.md
 
 markdown_extensions:

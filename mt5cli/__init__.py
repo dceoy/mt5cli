@@ -22,15 +22,19 @@ from .sdk import (
     symbol_info_tick,
     symbols,
     terminal_info,
+    update_history,
+    update_history_with_config,
 )
 from .sdk import (
     version as mt5_version,
 )
-from .utils import detect_format, export_dataframe
+from .utils import Dataset, IfExists, detect_format, export_dataframe
 
 __version__ = version(__package__) if __package__ else None
 
 __all__ = [
+    "Dataset",
+    "IfExists",
     "Mt5CliClient",
     "account_info",
     "build_config",
@@ -53,4 +57,6 @@ __all__ = [
     "symbol_info_tick",
     "symbols",
     "terminal_info",
+    "update_history",
+    "update_history_with_config",
 ]
