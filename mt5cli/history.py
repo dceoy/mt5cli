@@ -7,7 +7,6 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import quote
 
 import pandas as pd
 
@@ -141,8 +140,7 @@ def _open_history_connection(
     path = Path(conn_or_path)
     if not path.exists():
         return None, False
-    uri_path = quote(path.resolve().as_posix(), safe="/")
-    conn = sqlite3.connect(f"file://{uri_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     return conn, True
 
 
