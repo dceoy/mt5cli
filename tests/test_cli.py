@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 from mt5cli.cli import (
     _execute_export,  # type: ignore[reportPrivateUsage]
     _ExportContext,  # type: ignore[reportPrivateUsage]
+    _sdk_client,  # type: ignore[reportPrivateUsage]
     app,
     main,
 )
@@ -50,7 +51,7 @@ class TestExecuteExport:
         """Test that shutdown is called even when fetch raises."""
         mock_client = MagicMock()
         mock_client.account_info_as_df.side_effect = RuntimeError("boom")
-        mocker.patch("mt5cli.cli.Mt5DataClient", return_value=mock_client)
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
         ctx = MagicMock()
         ctx.obj = _ExportContext(
             output=tmp_path / "out.csv",
@@ -59,7 +60,7 @@ class TestExecuteExport:
             config=MagicMock(),
         )
         with pytest.raises(RuntimeError, match="boom"):
-            _execute_export(ctx, lambda c: c.account_info_as_df())
+            _execute_export(ctx, _sdk_client(ctx).account_info)
         mock_client.shutdown.assert_called_once()
 
 
@@ -92,7 +93,7 @@ def mock_client(mocker: MockerFixture) -> MagicMock:
     client.market_book_get_as_df.return_value = sample_df
     client.order_check_as_df.return_value = sample_df
     client.order_send_as_df.return_value = sample_df
-    mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
+    mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
     return client
 
 
@@ -626,7 +627,7 @@ class TestCallback:
         mock_client = MagicMock()
         mock_client.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
         mocker.patch(
-            "mt5cli.cli.Mt5DataClient",
+            "mt5cli.sdk.Mt5DataClient",
             return_value=mock_client,
         )
         mock_config = mocker.patch("mt5cli.cli.Mt5Config")
@@ -679,7 +680,7 @@ class TestCallback:
             {"s": ["EURUSD"]},
         )
         mocker.patch(
-            "mt5cli.cli.Mt5DataClient",
+            "mt5cli.sdk.Mt5DataClient",
             return_value=mock_client,
         )
         output = tmp_path / "out.db"
@@ -785,7 +786,7 @@ def _build_history_client(mocker: MockerFixture) -> MagicMock:
 
     client.history_orders_get_as_df.side_effect = _orders
     client.history_deals_get_as_df.side_effect = _deals
-    mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
+    mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
     return client
 
 
@@ -1126,7 +1127,7 @@ class TestCollectHistory:
             "ticket": [3, 4],
             "symbol": ["EURUSD", "EURUSDm"],
         })
-        mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
         output = tmp_path / "history.db"
         result = runner.invoke(
             app,
@@ -1214,9 +1215,9 @@ class TestCollectHistory:
         client.copy_ticks_range_as_df.return_value = pd.DataFrame({"x": [1]})
         client.history_orders_get_as_df.return_value = pd.DataFrame({"x": [1]})
         client.history_deals_get_as_df.return_value = pd.DataFrame({"x": [1]})
-        mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
         output = tmp_path / "history.db"
-        with caplog.at_level(logging.WARNING, logger="mt5cli.cli"):
+        with caplog.at_level(logging.WARNING, logger="mt5cli.sdk"):
             result = runner.invoke(
                 app,
                 [
@@ -1254,7 +1255,7 @@ class TestCollectHistory:
         client = MagicMock()
         client.copy_rates_range_as_df.return_value = pd.DataFrame({"time": [1]})
         client.history_deals_get_as_df.return_value = pd.DataFrame()
-        mocker.patch("mt5cli.cli.Mt5DataClient", return_value=client)
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
         output = tmp_path / "history.db"
         result = runner.invoke(
             app,
@@ -1293,7 +1294,7 @@ class TestCollectHistory:
     ) -> None:
         """Test that --with-views warns when history_deals is not written."""
         output = tmp_path / "history.db"
-        with caplog.at_level(logging.WARNING, logger="mt5cli.cli"):
+        with caplog.at_level(logging.WARNING, logger="mt5cli.sdk"):
             result = runner.invoke(
                 app,
                 [
