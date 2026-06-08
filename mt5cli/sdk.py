@@ -28,6 +28,29 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "Mt5CliClient",
+    "account_info",
+    "build_config",
+    "collect_history",
+    "copy_rates_from",
+    "copy_rates_from_pos",
+    "copy_rates_range",
+    "copy_ticks_from",
+    "copy_ticks_range",
+    "history_deals",
+    "history_orders",
+    "last_error",
+    "market_book",
+    "orders",
+    "positions",
+    "symbol_info",
+    "symbol_info_tick",
+    "symbols",
+    "terminal_info",
+    "version",
+]
+
 _TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)
 _TRADE_DEAL_TYPES_SQL = f"({', '.join(str(value) for value in _TRADE_DEAL_TYPES)})"
 _POSITIONS_VIEW_REQUIRED_COLUMNS: frozenset[str] = frozenset({
@@ -89,7 +112,7 @@ def build_config(
 
 
 @contextmanager
-def connected_client(config: Mt5Config) -> Iterator[Mt5DataClient]:
+def _connected_client(config: Mt5Config) -> Iterator[Mt5DataClient]:
     """Initialize MT5, yield a connected client, and always shut down.
 
     Args:
@@ -99,14 +122,14 @@ def connected_client(config: Mt5Config) -> Iterator[Mt5DataClient]:
         Connected ``Mt5DataClient`` instance.
     """
     client = Mt5DataClient(config=config)
-    client.initialize_and_login_mt5()
     try:
+        client.initialize_and_login_mt5()
         yield client
     finally:
         client.shutdown()
 
 
-def run_with_client(
+def _run_with_client(
     config: Mt5Config,
     fetch_fn: Callable[[Mt5DataClient], T],
 ) -> T:
@@ -119,7 +142,7 @@ def run_with_client(
     Returns:
         Value returned by ``fetch_fn``.
     """
-    with connected_client(config) as client:
+    with _connected_client(config) as client:
         return fetch_fn(client)
 
 
@@ -166,8 +189,13 @@ class Mt5CliClient:
         Returns:
             This client instance.
         """
-        self._client = Mt5DataClient(config=self._config)
-        self._client.initialize_and_login_mt5()
+        client = Mt5DataClient(config=self._config)
+        try:
+            client.initialize_and_login_mt5()
+        except Exception:
+            client.shutdown()
+            raise
+        self._client = client
         return self
 
     def __exit__(
@@ -184,7 +212,7 @@ class Mt5CliClient:
     def _fetch(self, fetch_fn: Callable[[Mt5DataClient], pd.DataFrame]) -> pd.DataFrame:
         if self._client is not None:
             return fetch_fn(self._client)
-        return run_with_client(self._config, fetch_fn)
+        return _run_with_client(self._config, fetch_fn)
 
     def copy_rates_from(
         self,
@@ -745,7 +773,7 @@ def collect_history(
     tf = _coerce_timeframe(timeframe)
     tick_flags = _coerce_tick_flags(flags)
     mt5_config = config or build_config()
-    with connected_client(mt5_config) as client, sqlite3.connect(output) as conn:
+    with _connected_client(mt5_config) as client, sqlite3.connect(output) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         written_tables, written_columns = _write_collected_datasets(

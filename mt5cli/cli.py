@@ -471,7 +471,7 @@ def order_check(
     export_ctx = _get_export_context(ctx)
 
     def _fetch() -> pd.DataFrame:
-        return sdk.run_with_client(
+        return sdk._run_with_client(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
             export_ctx.config,
             lambda c: c.order_check_as_df(request=request),
         )
@@ -502,7 +502,7 @@ def order_send(
     export_ctx = _get_export_context(ctx)
 
     def _fetch() -> pd.DataFrame:
-        return sdk.run_with_client(
+        return sdk._run_with_client(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
             export_ctx.config,
             lambda c: c.order_send_as_df(request=request),
         )

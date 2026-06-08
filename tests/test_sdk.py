@@ -15,12 +15,12 @@ from pytest_mock import MockerFixture  # noqa: TC002
 if TYPE_CHECKING:
     from pathlib import Path
 
+from mt5cli import sdk
 from mt5cli.sdk import (
     Mt5CliClient,
     account_info,
     build_config,
     collect_history,
-    connected_client,
     copy_rates_from,
     copy_rates_from_pos,
     copy_rates_range,
@@ -32,7 +32,6 @@ from mt5cli.sdk import (
     market_book,
     orders,
     positions,
-    run_with_client,
     symbol_info,
     symbol_info_tick,
     symbols,
@@ -149,12 +148,29 @@ class TestConnectionLifecycle:
     """Tests for MT5 connection lifecycle helpers."""
 
     def test_connected_client_shuts_down(self, mocker: MockerFixture) -> None:
-        """Test that connected_client always shuts down."""
+        """Test that _connected_client always shuts down."""
         mock_client = MagicMock()
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
         config = MagicMock()
-        with connected_client(config):
+        with sdk._connected_client(config):  # type: ignore[reportPrivateUsage]
             mock_client.initialize_and_login_mt5.assert_called_once()
+        mock_client.shutdown.assert_called_once()
+
+    def test_connected_client_shutdown_on_init_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that shutdown is called when initialize/login fails."""
+        mock_client = MagicMock()
+        mock_client.initialize_and_login_mt5.side_effect = RuntimeError(
+            "login failed",
+        )
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
+        with (
+            pytest.raises(RuntimeError, match="login failed"),
+            sdk._connected_client(MagicMock()),  # type: ignore[reportPrivateUsage]
+        ):
+            pass
         mock_client.shutdown.assert_called_once()
 
     def test_run_with_client_shutdown_on_error(
@@ -166,7 +182,10 @@ class TestConnectionLifecycle:
         mock_client.account_info_as_df.side_effect = RuntimeError("boom")
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
         with pytest.raises(RuntimeError, match="boom"):
-            run_with_client(MagicMock(), lambda c: c.account_info_as_df())
+            sdk._run_with_client(  # type: ignore[reportPrivateUsage]
+                MagicMock(),
+                lambda c: c.account_info_as_df(),
+            )
         mock_client.shutdown.assert_called_once()
 
     def test_client_context_manager_reuses_connection(
@@ -186,6 +205,22 @@ class TestConnectionLifecycle:
         mock_client.shutdown.assert_called_once()
         assert mock_client.account_info_as_df.call_count == 1
         assert mock_client.terminal_info_as_df.call_count == 1
+
+    def test_client_context_manager_shutdown_on_init_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that shutdown is called when context manager login fails."""
+        mock_client = MagicMock()
+        mock_client.initialize_and_login_mt5.side_effect = RuntimeError(
+            "login failed",
+        )
+        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
+        client = Mt5CliClient()
+        with pytest.raises(RuntimeError, match="login failed"), client:
+            pass
+        mock_client.shutdown.assert_called_once()
+        assert client._client is None  # type: ignore[reportPrivateUsage]
 
     def test_exit_without_enter_is_noop(self) -> None:
         """Test that __exit__ without __enter__ does not fail."""
