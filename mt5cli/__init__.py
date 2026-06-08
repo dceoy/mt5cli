@@ -5,6 +5,7 @@ from importlib.metadata import version
 from .sdk import (
     Mt5CliClient,
     account_info,
+    build_config,
     collect_history,
     copy_rates_from,
     copy_rates_from_pos,
@@ -32,6 +33,7 @@ __version__ = version(__package__) if __package__ else None
 __all__ = [
     "Mt5CliClient",
     "account_info",
+    "build_config",
     "collect_history",
     "copy_rates_from",
     "copy_rates_from_pos",
