@@ -25,7 +25,9 @@ from mt5cli.sqlite_history import (
     create_rate_compatibility_views,
     deduplicate_history_tables,
     drop_duplicates_in_table,
+    filter_incremental_history_deals_frame,
     filter_trade_history_frame,
+    get_history_deals_account_event_start_datetime,
     get_incremental_start_datetime,
     get_table_columns,
     parse_sqlite_timestamp,
@@ -240,6 +242,31 @@ class TestRateCompatibilityViews:
         assert views == {"rate_EURUSD_M1", "rate_EURUSD_H1"}
         assert "rate_EURUSD" not in views
 
+    def test_does_not_drop_views_outside_rate_prefix(self, tmp_path: Path) -> None:
+        """Test only literal rate_* views are dropped during recreation."""
+        db_path = tmp_path / "rate-prefix-views.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            conn.execute("CREATE VIEW rate_EURUSD AS SELECT 1 AS close")
+            conn.execute("CREATE VIEW rateX_custom AS SELECT 2 AS close")
+            create_rate_compatibility_views(conn)
+            views = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'",
+                ).fetchall()
+            }
+            assert "rateX_custom" in views
+            assert "rate_EURUSD" in views
+            assert conn.execute("SELECT close FROM rate_EURUSD").fetchone() == (1.0,)
+
     @pytest.mark.parametrize(
         "symbol",
         ["EUR/USD", "US500.cash", "#US500"],
@@ -330,6 +357,160 @@ class TestFilterTradeHistoryFrame:
         )
         assert filtered["symbol"].tolist()[0] == "EURUSD"
         assert pd.isna(filtered["symbol"].tolist()[1])
+
+
+class TestIncrementalHistoryDealsHelpers:
+    """Tests for incremental history_deals helper functions."""
+
+    def test_account_event_start_uses_type_column(self, tmp_path: Path) -> None:
+        """Test account-event start uses non-trade deal types when available."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "account-start-type.db") as conn:
+            conn.execute(
+                "CREATE TABLE history_deals("
+                " ticket INTEGER, symbol TEXT, time TEXT, type INTEGER)",
+            )
+            conn.executemany(
+                "INSERT INTO history_deals(ticket, symbol, time, type)"
+                " VALUES (?, ?, ?, ?)",
+                [
+                    (1, "EURUSD", "2024-01-05T00:00:00+00:00", 0),
+                    (2, "", "2024-01-08T00:00:00+00:00", 2),
+                ],
+            )
+            assert get_history_deals_account_event_start_datetime(
+                conn,
+                fallback_start=fallback,
+            ) == datetime(2024, 1, 8, tzinfo=UTC)
+
+    def test_account_event_start_falls_back_to_empty_symbol(
+        self, tmp_path: Path
+    ) -> None:
+        """Test account-event start uses empty symbols when type is missing."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "account-start-symbol.db") as conn:
+            conn.execute(
+                "CREATE TABLE history_deals(ticket INTEGER, symbol TEXT, time TEXT)",
+            )
+            conn.executemany(
+                "INSERT INTO history_deals(ticket, symbol, time) VALUES (?, ?, ?)",
+                [
+                    (1, "EURUSD", "2024-01-05T00:00:00+00:00"),
+                    (2, "", "2024-01-07T00:00:00+00:00"),
+                ],
+            )
+            assert get_history_deals_account_event_start_datetime(
+                conn,
+                fallback_start=fallback,
+            ) == datetime(2024, 1, 7, tzinfo=UTC)
+
+    def test_account_event_start_without_identifying_columns(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test account-event start falls back when type and symbol are missing."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "account-start-fallback.db") as conn:
+            conn.execute("CREATE TABLE history_deals(ticket INTEGER, time TEXT)")
+            conn.execute(
+                "INSERT INTO history_deals(ticket, time) VALUES (?, ?)",
+                (1, "2024-01-05T00:00:00+00:00"),
+            )
+            assert (
+                get_history_deals_account_event_start_datetime(
+                    conn,
+                    fallback_start=fallback,
+                )
+                == fallback
+            )
+
+    def test_filter_incremental_history_deals_frame(self) -> None:
+        """Test incremental deal filtering applies per-symbol and account starts."""
+        frame = pd.DataFrame({
+            "ticket": [1, 2, 3, 4, 5],
+            "symbol": ["EURUSD", "EURUSD", "GBPUSD", "OTHER", ""],
+            "time": [
+                "2024-01-05T00:00:00+00:00",
+                "2024-01-11T00:00:00+00:00",
+                "2024-01-02T00:00:00+00:00",
+                "2024-01-02T00:00:00+00:00",
+                "2024-01-03T00:00:00+00:00",
+            ],
+            "type": [0, 0, 0, 0, 2],
+        })
+        start_by_symbol = {
+            "EURUSD": datetime(2024, 1, 10, tzinfo=UTC),
+            "GBPUSD": datetime(2024, 1, 1, tzinfo=UTC),
+        }
+        filtered = filter_incremental_history_deals_frame(
+            frame,
+            ["EURUSD", "GBPUSD"],
+            start_by_symbol,
+            datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        assert filtered["ticket"].tolist() == [2, 3, 5]
+
+    def test_filter_incremental_rejects_rows_without_parseable_time(self) -> None:
+        """Test incremental filtering drops rows when time cannot be parsed."""
+        frame = pd.DataFrame({
+            "ticket": [1],
+            "symbol": ["EURUSD"],
+            "time": ["not-a-datetime"],
+            "type": [0],
+        })
+        filtered = filter_incremental_history_deals_frame(
+            frame,
+            ["EURUSD"],
+            {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
+            datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        assert filtered.empty
+
+    def test_filter_incremental_keeps_account_events_without_symbol_column(
+        self,
+    ) -> None:
+        """Test account events are kept when history_deals has no symbol column."""
+        frame = pd.DataFrame({
+            "ticket": [1],
+            "time": ["2024-01-03T00:00:00+00:00"],
+            "type": [2],
+        })
+        filtered = filter_incremental_history_deals_frame(
+            frame,
+            ["EURUSD"],
+            {"EURUSD": datetime(2024, 1, 10, tzinfo=UTC)},
+            datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        assert filtered["ticket"].tolist() == [1]
+
+    def test_filter_incremental_skips_trade_rows_without_symbol_column(self) -> None:
+        """Test trade rows are excluded when symbol column is unavailable."""
+        frame = pd.DataFrame({
+            "ticket": [1],
+            "time": ["2024-01-03T00:00:00+00:00"],
+        })
+        filtered = filter_incremental_history_deals_frame(
+            frame,
+            ["EURUSD"],
+            {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
+            datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        assert filtered.empty
+
+    def test_filter_incremental_rejects_rows_without_time_column(self) -> None:
+        """Test incremental filtering drops rows when time column is missing."""
+        frame = pd.DataFrame({
+            "ticket": [1],
+            "symbol": ["EURUSD"],
+            "type": [0],
+        })
+        filtered = filter_incremental_history_deals_frame(
+            frame,
+            ["EURUSD"],
+            {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
+            datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        assert filtered.empty
 
 
 class TestIncrementalIntegration:
@@ -724,7 +905,12 @@ class TestIncrementalHistoryDeals:
         client.history_deals_get_as_df.return_value = pd.DataFrame({
             "ticket": [1, 2, 3, 4],
             "symbol": ["EURUSD", "GBPUSD", "OTHER", ""],
-            "time": [1, 2, 3, 4],
+            "time": [
+                "2024-01-01T00:00:00+00:00",
+                "2024-01-01T01:00:00+00:00",
+                "2024-01-01T02:00:00+00:00",
+                "2024-01-01T03:00:00+00:00",
+            ],
             "type": [0, 0, 0, 2],
             "entry": [0, 0, 0, 0],
         })
@@ -752,6 +938,65 @@ class TestIncrementalHistoryDeals:
         client.history_deals_get_as_df.assert_called_once()
         assert rows == [(1, "EURUSD", 0), (2, "GBPUSD", 0), (4, "", 2)]
         assert row_count == (3,)
+
+    def test_applies_per_symbol_start_when_account_events_enabled(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test account-event fetch keeps per-symbol incremental boundaries."""
+        client = MagicMock()
+        client.history_deals_get_as_df.return_value = pd.DataFrame({
+            "ticket": [1, 2, 3, 4, 5],
+            "symbol": ["EURUSD", "EURUSD", "GBPUSD", "OTHER", ""],
+            "time": [
+                "2024-01-05T00:00:00+00:00",
+                "2024-01-11T00:00:00+00:00",
+                "2024-01-02T00:00:00+00:00",
+                "2024-01-02T00:00:00+00:00",
+                "2024-01-03T00:00:00+00:00",
+            ],
+            "type": [0, 0, 0, 0, 2],
+            "entry": [0, 0, 0, 0, 0],
+        })
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 15, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "per-symbol-account-events.db") as conn:
+            conn.execute(
+                "CREATE TABLE history_deals("
+                " ticket INTEGER, symbol TEXT, time TEXT, type INTEGER, entry INTEGER)",
+            )
+            conn.executemany(
+                "INSERT INTO history_deals(ticket, symbol, time, type, entry)"
+                " VALUES (?, ?, ?, ?, ?)",
+                [
+                    (100, "EURUSD", "2024-01-10T00:00:00+00:00", 0, 0),
+                    (200, "GBPUSD", "2024-01-01T00:00:00+00:00", 0, 0),
+                    (300, "", "2024-01-02T00:00:00+00:00", 2, 0),
+                ],
+            )
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD", "GBPUSD"],
+                {Dataset.history_deals},
+                [],
+                0,
+                fallback,
+                end,
+                deduplicate=False,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=True,
+            )
+            rows = conn.execute(
+                "SELECT ticket, symbol, type FROM history_deals"
+                " WHERE ticket IN (1, 2, 3, 4, 5) ORDER BY ticket",
+            ).fetchall()
+        client.history_deals_get_as_df.assert_called_once_with(
+            date_from=datetime(2024, 1, 1, tzinfo=UTC),
+            date_to=end,
+        )
+        assert rows == [(2, "EURUSD", 0), (3, "GBPUSD", 0), (5, "", 2)]
 
 
 class TestWriteHelpers:

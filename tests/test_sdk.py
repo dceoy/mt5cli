@@ -533,7 +533,7 @@ class TestUpdateHistory:
             )
 
         assert rate_starts == [first_expected_start, second_expected_start]
-        assert deal_starts == [first_expected_start, second_expected_start]
+        assert deal_starts == [first_expected_start, first_expected_start]
         connected_client.initialize_and_login_mt5.assert_not_called()
         connected_client.shutdown.assert_not_called()
         with sqlite3.connect(output) as conn:

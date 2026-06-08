@@ -151,6 +151,29 @@ def parse_sqlite_timestamp(value: object) -> datetime | None:
     return None
 
 
+def get_history_deals_account_event_start_datetime(
+    conn: sqlite3.Connection,
+    *,
+    fallback_start: datetime,
+) -> datetime:
+    """Return the next update start for account-level history_deals rows."""
+    table = Dataset.history_deals.table_name
+    columns = get_table_columns(conn, table)
+    if "time" not in columns:
+        return fallback_start
+    if "type" in columns:
+        where_clause = f"type NOT IN {_TRADE_DEAL_TYPES_SQL}"
+    elif "symbol" in columns:
+        where_clause = "symbol IS NULL OR symbol = ''"
+    else:
+        return fallback_start
+    row = conn.execute(
+        f"SELECT MAX(time) FROM {table} WHERE {where_clause}",  # noqa: S608
+    ).fetchone()
+    parsed = parse_sqlite_timestamp(row[0] if row else None)
+    return parsed if parsed is not None else fallback_start
+
+
 def get_incremental_start_datetime(
     conn: sqlite3.Connection,
     dataset: Dataset,
@@ -330,6 +353,49 @@ def create_history_indexes(
         )
 
 
+def _history_deals_account_event_mask(frame: pd.DataFrame) -> pd.Series:
+    if "type" in frame.columns:
+        return ~frame["type"].isin(_TRADE_DEAL_TYPES)
+    if "symbol" in frame.columns:
+        return frame["symbol"].isna() | frame["symbol"].eq("")
+    return pd.Series(data=False, index=frame.index)
+
+
+def _frame_parsed_times(frame: pd.DataFrame) -> pd.Series:
+    if "time" not in frame.columns:
+        return pd.Series([pd.NaT] * len(frame), index=frame.index, dtype="object")
+    return frame["time"].map(parse_sqlite_timestamp)
+
+
+def filter_incremental_history_deals_frame(
+    frame: pd.DataFrame,
+    symbols: Sequence[str],
+    start_by_symbol: dict[str, datetime],
+    account_event_start: datetime,
+) -> pd.DataFrame:
+    """Filter incrementally fetched history_deals by symbol and event start times.
+
+    Returns:
+        Rows for selected symbols at or after each symbol start, plus account
+        events at or after ``account_event_start``.
+    """
+    if frame.empty:
+        return frame.copy()
+    parsed_times = _frame_parsed_times(frame)
+    time_valid = parsed_times.notna()
+    account_keep = _history_deals_account_event_mask(frame) & (
+        parsed_times >= account_event_start
+    )
+    trade_keep = pd.Series(data=False, index=frame.index)
+    if "symbol" in frame.columns:
+        for symbol in symbols:
+            trade_keep |= (frame["symbol"] == symbol) & (
+                parsed_times >= start_by_symbol[symbol]
+            )
+    keep = (account_keep | trade_keep) & time_valid
+    return frame.loc[keep].copy()
+
+
 def filter_trade_history_frame(
     frame: pd.DataFrame,
     symbols: Sequence[str],
@@ -346,10 +412,7 @@ def filter_trade_history_frame(
     symbol_mask = frame["symbol"].isin(symbols)
     if not include_account_events:
         return frame.loc[symbol_mask].copy()
-    if "type" in frame.columns:
-        account_event_mask = ~frame["type"].isin(_TRADE_DEAL_TYPES)
-    else:
-        account_event_mask = frame["symbol"].isna() | frame["symbol"].eq("")
+    account_event_mask = _history_deals_account_event_mask(frame)
     return frame.loc[symbol_mask | account_event_mask].copy()
 
 
@@ -423,9 +486,9 @@ def create_positions_reconstructed_view(
 
 
 def drop_rate_compatibility_views(conn: sqlite3.Connection) -> None:
-    """Drop all mt5cli-managed rate compatibility views."""
+    """Drop all mt5cli-managed ``rate_*`` compatibility views."""
     rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'rate_%'",
+        "SELECT name FROM sqlite_master WHERE type = 'view' AND name GLOB 'rate_*'",
     ).fetchall()
     for (view_name,) in rows:
         quoted_view_name = quote_sqlite_identifier(str(view_name))
@@ -693,8 +756,8 @@ def _write_incremental_history_deals(
     include_account_events: bool,
 ) -> None:
     if include_account_events:
-        start_dates = [
-            get_incremental_start_datetime(
+        start_by_symbol = {
+            symbol: get_incremental_start_datetime(
                 conn,
                 Dataset.history_deals,
                 symbol=symbol,
@@ -702,15 +765,20 @@ def _write_incremental_history_deals(
                 fallback_start=fallback_start,
             )
             for symbol in symbols
-        ]
-        start_date = min(start_dates)
-        frame = filter_trade_history_frame(
+        }
+        account_event_start = get_history_deals_account_event_start_datetime(
+            conn,
+            fallback_start=fallback_start,
+        )
+        fetch_start = min([*start_by_symbol.values(), account_event_start])
+        frame = filter_incremental_history_deals_frame(
             client.history_deals_get_as_df(
-                date_from=start_date,
+                date_from=fetch_start,
                 date_to=end_date,
             ),
             symbols,
-            include_account_events=True,
+            start_by_symbol,
+            account_event_start,
         )
         if write_streamed_frame(
             conn,
