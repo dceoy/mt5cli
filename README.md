@@ -87,7 +87,41 @@ mt5cli -o history.db collect-history \
   --timeframe M1 --flags ALL --if-exists append --with-views
 ```
 
-History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `cash_events` view is derived from symbol-filtered `history_deals`, so account-level cash events with empty or non-matching symbols may be excluded. The `rates` table records the requested `timeframe` so appended runs at different timeframes remain distinguishable. The `positions_reconstructed` view aggregates trade deals by `position_id`, excludes positions without closing deals, and uses volume-weighted open/close prices; reversal deals (`DEAL_ENTRY_INOUT`) are reported via `volume_reversal` / `reversal_count` columns and do not contribute to the weighted prices.
+History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `cash_events` view is derived from symbol-filtered `history_deals`, so account-level cash events with empty or non-matching symbols may be excluded. The `rates` table records the requested `timeframe` so appended runs at different timeframes remain distinguishable. The `positions_reconstructed` view aggregates trade deals by `position_id`, excludes positions without closing-side entries, and uses volume-weighted open/close prices; reversal deals (`DEAL_ENTRY_INOUT`) are reported via `volume_reversal` / `reversal_count` columns.
+
+### Incremental history SDK
+
+For automated pipelines, use the importable incremental API instead of re-fetching fixed date ranges:
+
+```python
+from pdmt5 import Mt5Config
+from mt5cli import Dataset, update_history, update_history_with_config
+
+# Reuse an already-connected pdmt5 client (does not open/close MT5)
+update_history(
+    client=connected_client,
+    output="history.db",
+    symbols=["EURUSD", "GBPUSD"],
+    datasets={Dataset.rates, Dataset.history_deals},
+    timeframes=["M1", "H1"],  # default: all fixed MT5 timeframes
+    lookback_hours=24,
+    create_rate_views=True,
+    with_views=True,
+    include_account_events=True,
+)
+
+# Standalone wrapper that opens and closes MT5 for you
+update_history_with_config(
+    output="history.db",
+    symbols=["EURUSD"],
+    config=Mt5Config(login=12345),
+)
+```
+
+- **`collect-history`**: explicit date-range export into SQLite.
+- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per dataset, symbol, and timeframe.
+- **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
+- **Rate compatibility views**: `rate_<symbol>` when a symbol has one timeframe, otherwise `rate_<symbol>_<granularity>` (for example `rate_EURUSD_M1`), recreated on each update for offline tools such as mteor optimize.
 
 ## Requirements
 

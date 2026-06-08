@@ -1,6 +1,6 @@
 [project]
 name = "mt5cli"
-version = "0.4.0"
+version = "0.4.1"
 description = "Command-line tool for MetaTrader 5"
 authors = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
 maintainers = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
@@ -124,6 +124,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"mt5cli/sqlite_history.py" = ["TC003"]
 "tests/**/*.py" = [
   "DOC201",   # Missing return documentation
   "DOC501",   # Raised exception missing from docstring
