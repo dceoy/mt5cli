@@ -15,16 +15,18 @@ from pytest_mock import MockerFixture  # noqa: TC002
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from pdmt5 import Mt5DataClient
+    from pdmt5 import Mt5Config, Mt5DataClient
 
 from mt5cli import sdk
 from mt5cli.history import DEFAULT_HISTORY_TIMEFRAMES
 from mt5cli.sdk import (
+    AccountSpec,
     Mt5CliClient,
     account_info,
     build_config,
     collect_history,
     collect_latest_rates,
+    collect_latest_rates_for_accounts,
     copy_rates_from,
     copy_rates_from_pos,
     copy_rates_range,
@@ -36,6 +38,7 @@ from mt5cli.sdk import (
     latest_rates,
     market_book,
     minimum_margins,
+    mt5_session,
     mt5_summary,
     mt5_summary_as_df,
     orders,
@@ -1248,3 +1251,177 @@ class TestMinimumMargins:
         )
         client.order_calc_margin.assert_any_call(0, "EURUSD", 0.01, 1.1010)
         client.order_calc_margin.assert_any_call(1, "EURUSD", 0.01, 1.1000)
+
+
+class TestMt5Session:
+    """Tests for the mt5_session context manager."""
+
+    def test_yields_connected_client_and_shuts_down(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test mt5_session connects, yields a client wrapper, and shuts down."""
+        mock_client = MagicMock()
+        mt5_data_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+
+        with mt5_session(build_config(path="/opt/mt5/terminal64.exe")) as client:
+            mock_client.initialize_and_login_mt5.assert_called_once()
+            assert isinstance(client, Mt5CliClient)
+
+        config = mt5_data_client.call_args.kwargs["config"]
+        assert config.path == "/opt/mt5/terminal64.exe"
+        mock_client.shutdown.assert_called_once()
+
+    def test_default_config_attaches_to_running_terminal(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test mt5_session builds a default config when none is supplied."""
+        mock_client = MagicMock()
+        mt5_data_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+
+        with mt5_session():
+            pass
+
+        mt5_data_client.assert_called_once()
+        mock_client.shutdown.assert_called_once()
+
+
+class TestAccountSpec:
+    """Tests for account configuration helpers."""
+
+    def test_repr_omits_password(self) -> None:
+        """Test AccountSpec repr does not expose plaintext passwords."""
+        spec = AccountSpec(symbols=["EURUSD"], login=123, password="secret")
+
+        assert "secret" not in repr(spec)
+        assert "password" not in repr(spec)
+
+    @pytest.mark.parametrize(
+        ("login", "expected"),
+        [
+            (None, None),
+            (123, 123),
+            ("", None),
+            ("   ", None),
+            ("456", 456),
+        ],
+    )
+    def test_coerce_login(
+        self,
+        login: int | str | None,
+        expected: int | None,
+    ) -> None:
+        """Test login values are normalized for account configs."""
+        assert sdk._coerce_login(login) == expected  # type: ignore[reportPrivateUsage]
+
+    def test_coerce_login_rejects_non_numeric_string(self) -> None:
+        """Test non-numeric login strings raise ValueError."""
+        with pytest.raises(ValueError, match="invalid literal"):
+            sdk._coerce_login("abc")  # type: ignore[reportPrivateUsage]
+
+
+class TestCollectLatestRatesForAccounts:
+    """Tests for collect_latest_rates_for_accounts."""
+
+    def test_merges_results_across_accounts(
+        self,
+        mock_client: MagicMock,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test rates are collected and merged for each account group."""
+        mt5_data_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+        accounts = [
+            AccountSpec(symbols=["EURUSD"], login="123"),
+            AccountSpec(symbols=["GBPUSD"], login=456),
+        ]
+
+        result = collect_latest_rates_for_accounts(accounts, ["M1"], count=2)
+
+        assert set(result) == {("EURUSD", 1), ("GBPUSD", 1)}
+        assert mt5_data_client.call_count == 2
+        assert mock_client.initialize_and_login_mt5.call_count == 2
+        assert mock_client.shutdown.call_count == 2
+
+    def test_builds_config_from_account_and_base(
+        self,
+        mock_client: MagicMock,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test account fields override base_config, empty login falls back."""
+        configs: list[object] = []
+
+        def _record_config(*, config: object) -> MagicMock:
+            configs.append(config)
+            return mock_client
+
+        mocker.patch("mt5cli.sdk.Mt5DataClient", side_effect=_record_config)
+        base = build_config(login=999, server="Base-Server", timeout=5000)
+        accounts = [
+            AccountSpec(symbols=["EURUSD"], login="", server="Acct-Server"),
+        ]
+
+        collect_latest_rates_for_accounts(accounts, ["M1"], count=1, base_config=base)
+
+        assert len(configs) == 1
+        config = cast("Mt5Config", configs[0])
+        assert config.login == 999
+        assert config.server == "Acct-Server"
+        assert config.timeout == 5000
+
+    @pytest.mark.parametrize(
+        ("accounts", "timeframes", "count", "match"),
+        [
+            ([], ["M1"], 1, "At least one account"),
+            ([AccountSpec(symbols=["EURUSD"])], [], 1, "At least one timeframe"),
+            (
+                [AccountSpec(symbols=[])],
+                ["M1"],
+                1,
+                "Each account requires at least one symbol",
+            ),
+            (
+                [AccountSpec(symbols=["EURUSD"])],
+                ["M1"],
+                0,
+                "count must be positive",
+            ),
+        ],
+    )
+    def test_rejects_invalid_inputs(
+        self,
+        accounts: list[AccountSpec],
+        timeframes: list[str],
+        count: int,
+        match: str,
+    ) -> None:
+        """Test input validation for account-level rate collection."""
+        with pytest.raises(ValueError, match=match):
+            collect_latest_rates_for_accounts(accounts, timeframes, count)
+
+    def test_rejects_empty_symbols_before_connecting(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test all account symbols are validated before any MT5 connection."""
+        mt5_data_client = mocker.patch("mt5cli.sdk.Mt5DataClient")
+        accounts = [
+            AccountSpec(symbols=["EURUSD"], login=123),
+            AccountSpec(symbols=[], login=456),
+        ]
+
+        with pytest.raises(
+            ValueError, match="Each account requires at least one symbol"
+        ):
+            collect_latest_rates_for_accounts(accounts, ["M1"], count=1)
+
+        mt5_data_client.assert_not_called()
