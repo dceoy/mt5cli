@@ -1419,7 +1419,9 @@ class TestCollectLatestRatesForAccounts:
             AccountSpec(symbols=[], login=456),
         ]
 
-        with pytest.raises(ValueError, match="Each account requires at least one symbol"):
+        with pytest.raises(
+            ValueError, match="Each account requires at least one symbol"
+        ):
             collect_latest_rates_for_accounts(accounts, ["M1"], count=1)
 
         mt5_data_client.assert_not_called()

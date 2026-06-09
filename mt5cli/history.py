@@ -599,7 +599,9 @@ def resolve_rate_tables(
         timeframe_counts = (
             _load_rates_timeframe_counts(conn) if conn is not None else None
         )
-        existing_views = _load_existing_rate_views(conn) if conn is not None else set()
+        existing_views = (
+            _load_existing_rate_views(conn) if conn is not None else set[str]()
+        )
         resolved: list[str] = []
         for target in target_list:
             symbol = target.symbol
