@@ -37,6 +37,7 @@ from mt5cli.history import (
     load_incremental_start_datetimes,
     load_rate_data,
     load_rate_data_from_connection,
+    load_rate_series_by_granularity,
     load_rate_series_from_sqlite,
     parse_sqlite_timestamp,
     quote_sqlite_identifier,
@@ -2123,6 +2124,56 @@ class TestRateSourceHelpers:
         result = load_rate_series_from_sqlite(db_path, targets, count=2)
         assert set(result) == {("EURUSD", 1)}
         assert len(result["EURUSD", 1]) == 2
+
+    def test_load_rate_series_by_granularity(self, tmp_path: Path) -> None:
+        """Test loading rate series keyed by symbol and granularity name."""
+        db_path = tmp_path / "granularity.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 16385, "2024-01-01T00:00:00+00:00", 1.1),
+                ],
+            )
+            create_rate_compatibility_views(conn)
+
+        result = load_rate_series_by_granularity(
+            db_path,
+            ["EURUSD"],
+            ["M1", "H1"],
+            count=1,
+        )
+
+        assert set(result) == {("EURUSD", "M1"), ("EURUSD", "H1")}
+
+    def test_load_rate_series_by_granularity_explicit_tables(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test explicit tables with None-symbol targets key by granularity."""
+        db_path = tmp_path / "granularity-explicit.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE custom_view(time TEXT, close REAL)")
+            conn.execute(
+                "INSERT INTO custom_view(time, close) VALUES (?, ?)",
+                ("2024-01-01T00:00:00+00:00", 1.0),
+            )
+
+        result = load_rate_series_by_granularity(
+            db_path,
+            [],
+            ["M1"],
+            count=1,
+            explicit_tables=["custom_view"],
+            allow_missing_symbol=True,
+        )
+
+        assert set(result) == {(None, "M1")}
 
     def test_load_rate_series_reuses_path_connection(
         self,

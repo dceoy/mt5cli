@@ -706,6 +706,55 @@ def load_rate_series_from_sqlite(
             conn.close()
 
 
+def load_rate_series_by_granularity(
+    conn_or_path: SqliteConnOrPath,
+    symbols: Sequence[str],
+    granularities: Sequence[int | str],
+    count: int,
+    *,
+    explicit_tables: Sequence[str] | None = None,
+    allow_missing_symbol: bool = False,
+) -> dict[tuple[str | None, str], pd.DataFrame]:
+    """Load rate series keyed by symbol and string granularity name.
+
+    Builds targets with :func:`build_rate_targets` and loads them with
+    :func:`load_rate_series_from_sqlite`, then rekeys the result by granularity
+    name (for example ``M1``) instead of the integer timeframe to reduce
+    downstream boilerplate.
+
+    Args:
+        conn_or_path: SQLite database path or open connection.
+        symbols: MT5 symbol names. May be empty when ``allow_missing_symbol``.
+        granularities: MT5 timeframes as integers or names (for example ``M1``).
+        count: Number of most recent rows to load per series.
+        explicit_tables: Optional explicit table or view names matching the
+            built targets in row-major order. Required when symbols are omitted.
+        allow_missing_symbol: When True and ``symbols`` is empty, build targets
+            with ``symbol=None`` for each granularity instead of raising.
+
+    Returns:
+        Mapping keyed by ``(symbol | None, granularity_name)`` to each rate
+        DataFrame. Propagates ``ValueError`` (via :func:`build_rate_targets` and
+        :func:`load_rate_series_from_sqlite`) when inputs are empty or invalid,
+        table resolution fails, or duplicate targets are present.
+    """
+    targets = build_rate_targets(
+        symbols,
+        granularities,
+        allow_missing_symbol=allow_missing_symbol,
+    )
+    series = load_rate_series_from_sqlite(
+        conn_or_path,
+        targets,
+        count,
+        explicit_tables=explicit_tables,
+    )
+    return {
+        (symbol, resolve_granularity_name(timeframe)): frame
+        for (symbol, timeframe), frame in series.items()
+    }
+
+
 def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     """Return existing SQLite columns for a table."""
     quoted_table = quote_sqlite_identifier(table)

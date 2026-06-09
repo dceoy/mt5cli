@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, call
 
 import pandas as pd
 import pytest
+from pdmt5 import Mt5RuntimeError, Mt5TradingError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 if TYPE_CHECKING:
@@ -22,11 +23,13 @@ from mt5cli.history import DEFAULT_HISTORY_TIMEFRAMES
 from mt5cli.sdk import (
     AccountSpec,
     Mt5CliClient,
+    ThrottledHistoryUpdater,
     account_info,
     build_config,
     collect_history,
     collect_latest_rates,
     collect_latest_rates_for_accounts,
+    collect_latest_rates_for_accounts_with_retries,
     copy_rates_from,
     copy_rates_from_pos,
     copy_rates_range,
@@ -45,6 +48,9 @@ from mt5cli.sdk import (
     positions,
     recent_history_deals,
     recent_ticks,
+    resolve_account_spec,
+    resolve_account_specs,
+    substitute_env_placeholders,
     symbol_info,
     symbol_info_tick,
     symbols,
@@ -1425,3 +1431,276 @@ class TestCollectLatestRatesForAccounts:
             collect_latest_rates_for_accounts(accounts, ["M1"], count=1)
 
         mt5_data_client.assert_not_called()
+
+
+class TestCollectLatestRatesForAccountsWithRetries:
+    """Tests for collect_latest_rates_for_accounts_with_retries."""
+
+    def test_returns_result_on_first_success(self, mocker: MockerFixture) -> None:
+        """Test no retry happens when the first attempt succeeds."""
+        expected = {("EURUSD", 1): pd.DataFrame()}
+        wrapped = mocker.patch(
+            "mt5cli.sdk.collect_latest_rates_for_accounts",
+            return_value=expected,
+        )
+        sleep = mocker.patch("mt5cli.sdk.time.sleep")
+        accounts = [AccountSpec(symbols=["EURUSD"])]
+
+        result = collect_latest_rates_for_accounts_with_retries(
+            accounts,
+            ["M1"],
+            count=1,
+            retry_count=3,
+        )
+
+        assert result is expected
+        assert wrapped.call_count == 1
+        sleep.assert_not_called()
+
+    def test_retries_then_succeeds(self, mocker: MockerFixture) -> None:
+        """Test transient MT5 errors are retried with exponential backoff."""
+        expected = {("EURUSD", 1): pd.DataFrame()}
+        wrapped = mocker.patch(
+            "mt5cli.sdk.collect_latest_rates_for_accounts",
+            side_effect=[
+                Mt5TradingError("boom"),
+                Mt5RuntimeError("boom"),
+                expected,
+            ],
+        )
+        sleep = mocker.patch("mt5cli.sdk.time.sleep")
+        accounts = [AccountSpec(symbols=["EURUSD"])]
+
+        result = collect_latest_rates_for_accounts_with_retries(
+            accounts,
+            ["M1"],
+            count=1,
+            retry_count=2,
+            backoff_base=2,
+        )
+
+        assert result is expected
+        assert wrapped.call_count == 3
+        assert sleep.call_args_list == [call(1), call(2)]
+
+    def test_reraises_after_exhausting_retries(self, mocker: MockerFixture) -> None:
+        """Test the final error is re-raised once retries are exhausted."""
+        wrapped = mocker.patch(
+            "mt5cli.sdk.collect_latest_rates_for_accounts",
+            side_effect=Mt5RuntimeError("boom"),
+        )
+        sleep = mocker.patch("mt5cli.sdk.time.sleep")
+        accounts = [AccountSpec(symbols=["EURUSD"])]
+
+        with pytest.raises(Mt5RuntimeError, match="boom"):
+            collect_latest_rates_for_accounts_with_retries(
+                accounts,
+                ["M1"],
+                count=1,
+                retry_count=2,
+            )
+
+        assert wrapped.call_count == 3
+        assert sleep.call_count == 2
+
+    def test_does_not_retry_unrelated_errors(self, mocker: MockerFixture) -> None:
+        """Test non-MT5 errors propagate without retrying."""
+        wrapped = mocker.patch(
+            "mt5cli.sdk.collect_latest_rates_for_accounts",
+            side_effect=ValueError("bad input"),
+        )
+        sleep = mocker.patch("mt5cli.sdk.time.sleep")
+
+        with pytest.raises(ValueError, match="bad input"):
+            collect_latest_rates_for_accounts_with_retries(
+                [AccountSpec(symbols=["EURUSD"])],
+                ["M1"],
+                count=1,
+                retry_count=3,
+            )
+
+        assert wrapped.call_count == 1
+        sleep.assert_not_called()
+
+
+class TestSubstituteEnvPlaceholders:
+    """Tests for ${ENV_VAR} substitution."""
+
+    def test_substitutes_known_variables(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test placeholders are replaced with environment values."""
+        monkeypatch.setenv("MT5_LOGIN", "12345")
+        monkeypatch.setenv("MT5_SERVER", "Broker-Demo")
+
+        assert substitute_env_placeholders("${MT5_LOGIN}") == "12345"
+        assert substitute_env_placeholders("srv=${MT5_SERVER}!") == "srv=Broker-Demo!"
+
+    def test_returns_plain_strings_unchanged(self) -> None:
+        """Test strings without placeholders are returned as-is."""
+        assert substitute_env_placeholders("plain") == "plain"
+
+    def test_raises_on_missing_variable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test a missing environment variable raises a clear error."""
+        monkeypatch.delenv("MT5_MISSING", raising=False)
+
+        with pytest.raises(ValueError, match="'MT5_MISSING' is not set"):
+            substitute_env_placeholders("${MT5_MISSING}")
+
+
+class TestResolveAccountSpec:
+    """Tests for resolve_account_spec and resolve_account_specs."""
+
+    def test_substitutes_env_placeholders_in_account(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test account string fields resolve ${ENV_VAR} placeholders."""
+        monkeypatch.setenv("MT5_PASSWORD", "secret")
+        account = AccountSpec(
+            symbols=["EURUSD"],
+            login="${MT5_LOGIN}",
+            password="${MT5_PASSWORD}",
+        )
+        monkeypatch.setenv("MT5_LOGIN", "999")
+
+        resolved = resolve_account_spec(account)
+
+        assert resolved.login == "999"
+        assert resolved.password == "secret"  # noqa: S105
+        assert resolved.symbols == ["EURUSD"]
+
+    def test_explicit_overrides_take_precedence(self) -> None:
+        """Test explicit override values win over account fields."""
+        account = AccountSpec(symbols=["EURUSD"], login=111, server="Acct")
+
+        resolved = resolve_account_spec(
+            account,
+            login=222,
+            server="Override",
+            timeout=5000,
+        )
+
+        assert resolved.login == "222"
+        assert resolved.server == "Override"
+        assert resolved.timeout == 5000
+
+    def test_raises_on_missing_env_variable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test missing environment variables raise ValueError."""
+        monkeypatch.delenv("MT5_NOPE", raising=False)
+        account = AccountSpec(symbols=["EURUSD"], server="${MT5_NOPE}")
+
+        with pytest.raises(ValueError, match="'MT5_NOPE' is not set"):
+            resolve_account_spec(account)
+
+    def test_resolve_account_specs_applies_to_all(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test resolve_account_specs resolves every account in order."""
+        monkeypatch.setenv("MT5_SERVER", "Shared")
+        accounts = [
+            AccountSpec(symbols=["EURUSD"], server="${MT5_SERVER}"),
+            AccountSpec(symbols=["GBPUSD"], server="Fixed"),
+        ]
+
+        resolved = resolve_account_specs(accounts, timeout=1000)
+
+        assert [a.server for a in resolved] == ["Shared", "Fixed"]
+        assert all(a.timeout == 1000 for a in resolved)
+
+
+class TestThrottledHistoryUpdater:
+    """Tests for the throttled incremental history updater."""
+
+    def test_updates_every_call_when_interval_non_positive(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test interval_seconds <= 0 updates on every call."""
+        update = mocker.patch("mt5cli.sdk.update_history")
+        client = MagicMock()
+        updater = ThrottledHistoryUpdater(output="history.db", interval_seconds=0)
+
+        assert updater.update(client, ["EURUSD"]) is True
+        assert updater.update(client, ["EURUSD"]) is True
+        assert update.call_count == 2
+
+    def test_throttles_within_interval(self, mocker: MockerFixture) -> None:
+        """Test updates are skipped until the interval elapses."""
+        update = mocker.patch("mt5cli.sdk.update_history")
+        monotonic = mocker.patch("mt5cli.sdk.time.monotonic")
+        # Calls: set(t=100), check(t=105), check(t=200), set(t=200).
+        monotonic.side_effect = [100.0, 105.0, 200.0, 200.0]
+        client = MagicMock()
+        updater = ThrottledHistoryUpdater(output="history.db", interval_seconds=60)
+
+        assert updater.update(client, ["EURUSD"]) is True  # first update at t=100
+        assert updater.update(client, ["EURUSD"]) is False  # t=105, throttled
+        assert updater.update(client, ["EURUSD"]) is True  # t=200, elapsed
+        assert update.call_count == 2
+
+    def test_update_passes_expected_arguments(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test update_history is called with the configured arguments."""
+        update = mocker.patch("mt5cli.sdk.update_history")
+        client = MagicMock()
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            datasets={Dataset.rates},
+            timeframes=["M1", "H1"],
+            flags="INFO",
+            lookback_hours=12.0,
+            with_views=True,
+            include_account_events=False,
+        )
+
+        updater.update(client, ["EURUSD", "GBPUSD"])
+
+        update.assert_called_once_with(
+            client=client,
+            output="history.db",
+            symbols=["EURUSD", "GBPUSD"],
+            datasets={Dataset.rates},
+            timeframes=["M1", "H1"],
+            flags="INFO",
+            lookback_hours=12.0,
+            with_views=True,
+            include_account_events=False,
+        )
+
+    def test_propagates_errors_by_default(self, mocker: MockerFixture) -> None:
+        """Test MT5/SQLite errors propagate and do not advance the throttle."""
+        mocker.patch(
+            "mt5cli.sdk.update_history",
+            side_effect=Mt5RuntimeError("boom"),
+        )
+        updater = ThrottledHistoryUpdater(output="history.db")
+
+        with pytest.raises(Mt5RuntimeError, match="boom"):
+            updater.update(MagicMock(), ["EURUSD"])
+
+        assert updater.last_update_monotonic is None
+
+    def test_suppresses_errors_when_requested(self, mocker: MockerFixture) -> None:
+        """Test suppress_errors swallows recoverable errors and returns False."""
+        mocker.patch(
+            "mt5cli.sdk.update_history",
+            side_effect=sqlite3.OperationalError("locked"),
+        )
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            suppress_errors=True,
+        )
+
+        assert updater.update(MagicMock(), ["EURUSD"]) is False
+        assert updater.last_update_monotonic is None

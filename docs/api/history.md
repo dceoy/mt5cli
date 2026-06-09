@@ -215,3 +215,15 @@ frame = series["EURUSD", 1]  # keyed by (symbol, integer timeframe)
   requires existing managed `rate_*` compatibility views and raises
   `ValueError` when they are missing. Duplicate `(symbol, timeframe)` targets
   are rejected.
+- `load_rate_series_by_granularity()` is a thin wrapper that builds the targets,
+  loads the series, and rekeys the result by granularity name to avoid
+  converting integer timeframes downstream:
+
+  ```python
+  from mt5cli import load_rate_series_by_granularity
+
+  series = load_rate_series_by_granularity(
+      "history.db", ["EURUSD"], ["M1", "H1"], count=1000
+  )
+  frame = series["EURUSD", "M1"]  # keyed by (symbol | None, granularity_name)
+  ```
