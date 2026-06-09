@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self, TypeVar, cast
+from typing import TYPE_CHECKING, Self, TypeVar, cast
 
 import pandas as pd
 from pdmt5 import Mt5Config, Mt5DataClient
@@ -56,6 +57,7 @@ __all__ = [
     "market_book",
     "minimum_margins",
     "mt5_summary",
+    "mt5_summary_as_df",
     "orders",
     "positions",
     "recent_history_deals",
@@ -116,9 +118,23 @@ def _require_positive(value: float, name: str) -> None:
         raise ValueError(msg)
 
 
-def _call_client_method(client: Mt5DataClient, name: str) -> object:
-    method = cast("Any", getattr(client, name, None))
-    return method() if callable(method) else None
+def _call_required_client_method(client: Mt5DataClient, name: str) -> object:
+    try:
+        method = getattr(client, name)
+    except AttributeError as exc:
+        msg = f"MT5 client is missing required method: {name}"
+        raise AttributeError(msg) from exc
+    if not callable(method):
+        msg = f"MT5 client attribute is not callable: {name}"
+        raise TypeError(msg)
+    return method()
+
+
+def _mt5_summary_export_value(value: object) -> object:
+    plain_value = _plain_mt5_value(value)
+    if isinstance(plain_value, dict | list):
+        return json.dumps(plain_value, sort_keys=True, separators=(",", ":"))
+    return plain_value
 
 
 def _coerce_tick_time(value: object) -> datetime:
@@ -677,19 +693,33 @@ class Mt5CliClient:
 
         def _summary(client: Mt5DataClient) -> dict[str, object]:
             return {
-                "version": _plain_mt5_value(_call_client_method(client, "version")),
+                "version": _plain_mt5_value(
+                    _call_required_client_method(client, "version"),
+                ),
                 "terminal_info": _plain_mt5_value(
-                    _call_client_method(client, "terminal_info"),
+                    _call_required_client_method(client, "terminal_info"),
                 ),
                 "account_info": _plain_mt5_value(
-                    _call_client_method(client, "account_info"),
+                    _call_required_client_method(client, "account_info"),
                 ),
                 "symbols_total": _plain_mt5_value(
-                    _call_client_method(client, "symbols_total"),
+                    _call_required_client_method(client, "symbols_total"),
                 ),
             }
 
         return self._fetch_value(_summary)
+
+    def mt5_summary_as_df(self) -> pd.DataFrame:
+        """Return an export-safe one-row terminal/account summary DataFrame."""
+        summary = self.mt5_summary()
+        return pd.DataFrame(
+            [
+                {
+                    key: _mt5_summary_export_value(value)
+                    for key, value in summary.items()
+                },
+            ],
+        )
 
 
 def _resolve_incremental_settings(
@@ -1278,3 +1308,8 @@ def minimum_margins(
 def mt5_summary(*, config: Mt5Config | None = None) -> dict[str, object]:
     """Return a compact terminal/account status summary."""
     return _make_client(config=config).mt5_summary()
+
+
+def mt5_summary_as_df(*, config: Mt5Config | None = None) -> pd.DataFrame:
+    """Return an export-safe terminal/account status summary DataFrame."""
+    return _make_client(config=config).mt5_summary_as_df()

@@ -8,7 +8,6 @@ from datetime import datetime  # noqa: TC003
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
-import pandas as pd
 import typer
 from pdmt5 import Mt5Config
 
@@ -28,6 +27,8 @@ from .utils import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -527,7 +528,7 @@ def recent_history_deals(
 def mt5_summary(ctx: typer.Context) -> None:
     """Export a compact terminal/account status summary."""
     client = _sdk_client(ctx)
-    _execute_export(ctx, lambda: pd.DataFrame([client.mt5_summary()]))
+    _execute_export(ctx, client.mt5_summary_as_df)
 
 
 @app.command()

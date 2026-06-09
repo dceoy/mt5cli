@@ -64,6 +64,7 @@ with Mt5CliClient(login=12345, password="secret", server="Broker-Demo") as clien
     positions = client.positions()
     latest = client.latest_rates("EURUSD", "M1", count=100)
     summary = client.mt5_summary()
+    summary_table = client.mt5_summary_as_df()
 
 # Bulk SQLite collection (same behavior as the collect-history CLI command)
 collect_history(
@@ -78,6 +79,8 @@ collect_history(
 ```
 
 Timeframes, tick flags, and ISO 8601 date strings are accepted wherever noted in the SDK API.
+
+`Mt5CliClient.mt5_summary()` returns the SDK structured form as plain nested Python values. Use `Mt5CliClient.mt5_summary_as_df()` when you need a one-row DataFrame for export. The `mt5-summary` CLI command uses this tabular form, so nested terminal/account fields are JSON-encoded strings that are safe for CSV, JSON, Parquet, and SQLite output.
 
 ## Quick Start
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, cast
 from unittest.mock import MagicMock, call
 
 import pandas as pd
@@ -14,6 +14,8 @@ from pytest_mock import MockerFixture  # noqa: TC002
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from pdmt5 import Mt5DataClient
 
 from mt5cli import sdk
 from mt5cli.history import DEFAULT_HISTORY_TIMEFRAMES
@@ -35,6 +37,7 @@ from mt5cli.sdk import (
     market_book,
     minimum_margins,
     mt5_summary,
+    mt5_summary_as_df,
     orders,
     positions,
     recent_history_deals,
@@ -58,6 +61,21 @@ class _TerminalInfo(NamedTuple):
 class _AccountInfo(NamedTuple):
     login: int
     limits: dict[str, object]
+
+
+class _MissingSummaryMethodClient:
+    def version(self) -> tuple[int, int, int]:
+        return (5, 0, 1)
+
+    def terminal_info(self) -> dict[str, bool]:
+        return {"connected": True}
+
+    def symbols_total(self) -> int:
+        return 42
+
+
+class _NonCallableSummaryMethodClient:
+    version = (5, 0, 1)
 
 
 _DEALS_FIXTURE: dict[str, list[object]] = {
@@ -513,7 +531,7 @@ class TestMt5CliClient:
         self,
         mock_client: MagicMock,
     ) -> None:
-        """Test mt5_summary returns JSON/DataFrame-friendly plain values."""
+        """Test mt5_summary returns structured plain Python values."""
         mock_client.version.return_value = (5, 0, 1)
         mock_client.terminal_info.return_value = _TerminalInfo(
             connected=True,
@@ -534,6 +552,59 @@ class TestMt5CliClient:
             },
             "symbols_total": 42,
         }
+
+    def test_mt5_summary_as_df_stringifies_nested_values(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test mt5_summary_as_df returns export-safe tabular values."""
+        mock_client.version.return_value = (5, 0, 1)
+        mock_client.terminal_info.return_value = _TerminalInfo(
+            connected=True,
+            path="terminal.exe",
+        )
+        mock_client.account_info.return_value = _AccountInfo(
+            login=123,
+            limits={"modes": ("netting", "hedging"), "servers": ["demo"]},
+        )
+        mock_client.symbols_total.return_value = 42
+
+        result = mt5_summary_as_df()
+
+        assert len(result) == 1
+        assert result.iloc[0].to_dict() == {
+            "version": "[5,0,1]",
+            "terminal_info": '{"connected":true,"path":"terminal.exe"}',
+            "account_info": (
+                '{"limits":{"modes":["netting","hedging"],'
+                '"servers":["demo"]},"login":123}'
+            ),
+            "symbols_total": 42,
+        }
+
+    def test_mt5_summary_missing_method_raises_clear_error(self) -> None:
+        """Test mt5_summary fails clearly when a required method is missing."""
+        client = Mt5CliClient(
+            client=cast("Mt5DataClient", _MissingSummaryMethodClient()),
+        )
+
+        with pytest.raises(
+            AttributeError,
+            match="MT5 client is missing required method: account_info",
+        ):
+            client.mt5_summary()
+
+    def test_mt5_summary_non_callable_method_raises_clear_error(self) -> None:
+        """Test mt5_summary fails clearly when a required method is not callable."""
+        client = Mt5CliClient(
+            client=cast("Mt5DataClient", _NonCallableSummaryMethodClient()),
+        )
+
+        with pytest.raises(
+            TypeError,
+            match="MT5 client attribute is not callable: version",
+        ):
+            client.mt5_summary()
 
 
 class TestCollectHistory:

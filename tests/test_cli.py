@@ -94,8 +94,8 @@ def mock_client(mocker: MockerFixture) -> MagicMock:
     client.order_check_as_df.return_value = sample_df
     client.order_send_as_df.return_value = sample_df
     client.version.return_value = (5, 0, 1)
-    client.terminal_info.return_value = {"connected": True}
-    client.account_info.return_value = {"login": 123}
+    client.terminal_info.return_value = {"connected": True, "paths": ["terminal.exe"]}
+    client.account_info.return_value = {"login": 123, "limits": {"modes": ["demo"]}}
     client.symbols_total.return_value = 42
     mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
     return client
@@ -517,19 +517,52 @@ class TestCommands:
             position=None,
         )
 
-    def test_mt5_summary(
+    @pytest.mark.parametrize(
+        ("filename", "reader"),
+        [
+            ("summary.csv", "csv"),
+            ("summary.json", "json"),
+            ("summary.db", "sqlite3"),
+            ("summary.parquet", "parquet"),
+        ],
+    )
+    def test_mt5_summary_export_formats(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
+        filename: str,
+        reader: str,
     ) -> None:
-        """Test mt5-summary command."""
-        output = tmp_path / "out.csv"
+        """Test mt5-summary writes export-safe files for supported formats."""
+        output = tmp_path / filename
         result = runner.invoke(app, ["-o", str(output), "mt5-summary"])
         assert result.exit_code == 0, result.output
+        assert output.exists()
         mock_client.version.assert_called_once()
         mock_client.terminal_info.assert_called_once()
         mock_client.account_info.assert_called_once()
         mock_client.symbols_total.assert_called_once()
+        if reader == "csv":
+            frame = pd.read_csv(output)
+        elif reader == "json":
+            with output.open() as f:
+                records = json.load(f)
+            frame = pd.DataFrame(records)
+        elif reader == "sqlite3":
+            with sqlite3.connect(output) as conn:
+                frame = pd.read_sql(  # type: ignore[reportUnknownMemberType]
+                    "SELECT * FROM data",
+                    conn,
+                )
+        else:
+            frame = pd.read_parquet(output)
+        assert len(frame) == 1
+        assert frame.iloc[0].to_dict() == {
+            "version": "[5,0,1]",
+            "terminal_info": '{"connected":true,"paths":["terminal.exe"]}',
+            "account_info": '{"limits":{"modes":["demo"]},"login":123}',
+            "symbols_total": 42,
+        }
 
     def test_version(
         self,
