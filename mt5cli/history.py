@@ -555,23 +555,30 @@ def resolve_rate_tables(
     conn_or_path: SqliteConnOrPath | None,
     targets: Sequence[RateTarget],
     explicit_tables: Sequence[str] | None = None,
+    *,
+    require_existing: bool = False,
 ) -> list[str]:
     """Resolve SQLite table or view names for rate targets.
 
     Args:
         conn_or_path: SQLite database path or open connection. May be None when
-            ``explicit_tables`` is provided.
+            ``explicit_tables`` is provided, or when ``require_existing`` is
+            False and deterministic default view names are sufficient.
         targets: Rate targets to resolve.
         explicit_tables: Optional explicit table or view names. When provided,
             they are used as-is and must match the number of targets.
+        require_existing: When True, require the database and managed views to
+            exist for each symbol target. Ignored when ``explicit_tables`` is
+            provided.
 
     Returns:
         Table or view names aligned with ``targets``.
 
     Raises:
         ValueError: If ``targets`` is empty, ``explicit_tables`` length does not
-            match the target count, or a target without a symbol is resolved
-            without an explicit table.
+            match the target count, a target without a symbol is resolved
+            without an explicit table, or ``require_existing`` is True and the
+            database or a managed view is missing.
     """
     target_list = list(targets)
     if not target_list:
@@ -594,12 +601,20 @@ def resolve_rate_tables(
         raise ValueError(msg)
     conn, should_close = _open_history_connection(conn_or_path)
     try:
-        timeframe_counts = (
-            _load_rates_timeframe_counts(conn) if conn is not None else None
-        )
-        existing_views = (
-            _load_existing_rate_views(conn) if conn is not None else set[str]()
-        )
+        if conn is None:
+            if require_existing:
+                path = (
+                    conn_or_path
+                    if isinstance(conn_or_path, (Path, str))
+                    else "database"
+                )
+                msg = f"SQLite database not found: {path}"
+                raise ValueError(msg)
+            timeframe_counts = None
+            existing_views: set[str] = set()
+        else:
+            timeframe_counts = _load_rates_timeframe_counts(conn)
+            existing_views = _load_existing_rate_views(conn)
         resolved: list[str] = []
         for target in target_list:
             symbol = cast("str", target.symbol)
@@ -611,6 +626,7 @@ def resolve_rate_tables(
                     granularity_name=resolve_granularity_name(timeframe),
                     timeframe_counts=timeframe_counts,
                     existing_views=existing_views,
+                    require_existing=require_existing,
                 ),
             )
         return resolved
@@ -629,16 +645,20 @@ def load_rate_series_from_sqlite(
 
     Args:
         conn_or_path: SQLite database path or open connection.
-        targets: Rate targets to load.
+        targets: Rate targets to load. Each ``(symbol, timeframe_int)`` pair
+            must be unique.
         count: Number of most recent rows to load per series.
         explicit_tables: Optional explicit table or view names matching targets.
+            When omitted, managed ``rate_*`` compatibility views must already
+            exist in the database.
 
     Returns:
         Mapping keyed by ``(symbol, timeframe_int)`` to each rate DataFrame.
 
     Raises:
-        ValueError: If ``count`` is not positive, targets are empty, or table
-            resolution fails.
+        ValueError: If ``count`` is not positive, targets are empty, duplicate
+            ``(symbol, timeframe_int)`` pairs are present, or table resolution
+            fails.
     """
     if count <= 0:
         msg = "count must be positive."
@@ -653,6 +673,14 @@ def load_rate_series_from_sqlite(
             "provide explicit_tables."
         )
         raise ValueError(msg)
+    seen_keys: set[tuple[str | None, int]] = set()
+    for target in target_list:
+        key = (target.symbol, target.timeframe_int)
+        if key in seen_keys:
+            symbol_repr = repr(target.symbol)
+            msg = f"Duplicate rate target: ({symbol_repr}, {target.timeframe_int})"
+            raise ValueError(msg)
+        seen_keys.add(key)
     tables = (
         resolve_rate_tables(None, target_list, explicit_tables)
         if explicit_tables is not None
@@ -660,7 +688,11 @@ def load_rate_series_from_sqlite(
     )
     conn, should_close = _open_existing_sqlite_database(conn_or_path)
     try:
-        resolved_tables = tables or resolve_rate_tables(conn, target_list)
+        resolved_tables = tables or resolve_rate_tables(
+            conn,
+            target_list,
+            require_existing=True,
+        )
         return {
             (target.symbol, target.timeframe_int): load_rate_data_from_connection(
                 conn,

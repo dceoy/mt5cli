@@ -2013,6 +2013,62 @@ class TestRateSourceHelpers:
             "rate_EURUSD__16385",
         ]
 
+    def test_resolve_rate_tables_none_path_with_require_existing_raises(self) -> None:
+        """Test strict mode rejects a missing database path."""
+        targets = build_rate_targets(["EURUSD"], ["M1"])
+        with pytest.raises(ValueError, match="SQLite database not found"):
+            resolve_rate_tables(None, targets, require_existing=True)
+
+    def test_resolve_rate_tables_missing_db_with_require_existing_raises(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test strict mode rejects a non-existing database path."""
+        db_path = tmp_path / "missing.db"
+        targets = build_rate_targets(["EURUSD"], ["M1"])
+        with pytest.raises(ValueError, match="SQLite database not found"):
+            resolve_rate_tables(db_path, targets, require_existing=True)
+
+    def test_resolve_rate_tables_missing_view_with_require_existing_raises(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test strict mode rejects databases without managed rate views."""
+        db_path = tmp_path / "no-views.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+        targets = build_rate_targets(["EURUSD"], ["M1"])
+        with pytest.raises(ValueError, match="No rate compatibility view exists"):
+            resolve_rate_tables(db_path, targets, require_existing=True)
+
+    def test_resolve_rate_tables_with_require_existing_resolves_views(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test strict mode resolves existing managed rate views."""
+        db_path = tmp_path / "strict-views.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            create_rate_compatibility_views(conn)
+        targets = build_rate_targets(["EURUSD"], ["M1"])
+        assert resolve_rate_tables(db_path, targets, require_existing=True) == [
+            "rate_EURUSD__1",
+        ]
+
     def test_resolve_rate_tables_batches_sqlite_metadata(
         self,
         tmp_path: Path,
@@ -2130,3 +2186,55 @@ class TestRateSourceHelpers:
         targets = build_rate_targets([], ["M1"], allow_missing_symbol=True)
         with pytest.raises(ValueError, match="without a symbol"):
             load_rate_series_from_sqlite("unused.db", targets, count=1)
+
+    def test_load_rate_series_requires_existing_managed_views(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test loading without explicit tables requires managed rate views."""
+        db_path = tmp_path / "no-managed-views.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+        targets = build_rate_targets(["EURUSD"], ["M1"])
+        with pytest.raises(ValueError, match="No rate compatibility view exists"):
+            load_rate_series_from_sqlite(db_path, targets, count=1)
+
+    def test_load_rate_series_rejects_duplicate_targets(self) -> None:
+        """Test duplicate (symbol, timeframe) targets are rejected."""
+        targets = [
+            RateTarget("EURUSD", 1),
+            RateTarget("EURUSD", "M1"),
+        ]
+        with pytest.raises(ValueError, match=r"Duplicate rate target: \('EURUSD', 1\)"):
+            load_rate_series_from_sqlite("unused.db", targets, count=1)
+
+    def test_load_rate_series_rejects_duplicate_targets_with_explicit_tables(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test duplicate targets are rejected even with explicit tables."""
+        db_path = tmp_path / "duplicate-explicit.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE custom_view(time TEXT, close REAL)")
+            conn.execute(
+                "INSERT INTO custom_view(time, close) VALUES (?, ?)",
+                ("2024-01-01T00:00:00+00:00", 1.0),
+            )
+        targets = [
+            RateTarget("EURUSD", 1),
+            RateTarget("EURUSD", 1),
+        ]
+        with pytest.raises(ValueError, match=r"Duplicate rate target: \('EURUSD', 1\)"):
+            load_rate_series_from_sqlite(
+                db_path,
+                targets,
+                count=1,
+                explicit_tables=["custom_view", "custom_view"],
+            )

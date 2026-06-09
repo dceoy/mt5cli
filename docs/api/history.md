@@ -205,6 +205,13 @@ frame = series["EURUSD", 1]  # keyed by (symbol, integer timeframe)
   values; set `allow_missing_symbol=True` to address series solely by
   `explicit_tables` (targets carry `symbol=None`).
 - `resolve_rate_tables()` maps targets to table or view names and validates that
-  any `explicit_tables` count matches the target count.
+  any `explicit_tables` count matches the target count. Pass
+  `require_existing=True` to raise `ValueError` instead of returning a
+  best-guess name when the database or managed view is missing. When
+  `explicit_tables` is provided, names are returned as-is and
+  `require_existing` is ignored.
 - `load_rate_series_from_sqlite()` returns a mapping keyed by
-  `(symbol, integer timeframe)`.
+  `(symbol, integer timeframe)`. Unless `explicit_tables` is supplied, it
+  requires existing managed `rate_*` compatibility views and raises
+  `ValueError` when they are missing. Duplicate `(symbol, timeframe)` targets
+  are rejected.
