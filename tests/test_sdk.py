@@ -1293,6 +1293,40 @@ class TestMt5Session:
         mock_client.shutdown.assert_called_once()
 
 
+class TestAccountSpec:
+    """Tests for account configuration helpers."""
+
+    def test_repr_omits_password(self) -> None:
+        """Test AccountSpec repr does not expose plaintext passwords."""
+        spec = AccountSpec(symbols=["EURUSD"], login=123, password="secret")
+
+        assert "secret" not in repr(spec)
+        assert "password" not in repr(spec)
+
+    @pytest.mark.parametrize(
+        ("login", "expected"),
+        [
+            (None, None),
+            (123, 123),
+            ("", None),
+            ("   ", None),
+            ("456", 456),
+        ],
+    )
+    def test_coerce_login(
+        self,
+        login: int | str | None,
+        expected: int | None,
+    ) -> None:
+        """Test login values are normalized for account configs."""
+        assert sdk._coerce_login(login) == expected  # type: ignore[reportPrivateUsage]
+
+    def test_coerce_login_rejects_non_numeric_string(self) -> None:
+        """Test non-numeric login strings raise ValueError."""
+        with pytest.raises(ValueError, match="invalid literal"):
+            sdk._coerce_login("abc")  # type: ignore[reportPrivateUsage]
+
+
 class TestCollectLatestRatesForAccounts:
     """Tests for collect_latest_rates_for_accounts."""
 
@@ -1373,3 +1407,19 @@ class TestCollectLatestRatesForAccounts:
         """Test input validation for account-level rate collection."""
         with pytest.raises(ValueError, match=match):
             collect_latest_rates_for_accounts(accounts, timeframes, count)
+
+    def test_rejects_empty_symbols_before_connecting(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test all account symbols are validated before any MT5 connection."""
+        mt5_data_client = mocker.patch("mt5cli.sdk.Mt5DataClient")
+        accounts = [
+            AccountSpec(symbols=["EURUSD"], login=123),
+            AccountSpec(symbols=[], login=456),
+        ]
+
+        with pytest.raises(ValueError, match="Each account requires at least one symbol"):
+            collect_latest_rates_for_accounts(accounts, ["M1"], count=1)
+
+        mt5_data_client.assert_not_called()

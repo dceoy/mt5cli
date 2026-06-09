@@ -197,13 +197,14 @@ from mt5cli import build_rate_targets, load_rate_series_from_sqlite
 
 targets = build_rate_targets(["EURUSD", "GBPUSD"], ["M1", "H1"])
 series = load_rate_series_from_sqlite(Path("history.db"), targets, count=1000)
-frame = series["EURUSD", 1]  # keyed by (symbol, timeframe_int)
+frame = series["EURUSD", 1]  # keyed by (symbol, integer timeframe)
 ```
 
 - `build_rate_targets()` returns `RateTarget(symbol, timeframe)` pairs in
-  row-major order; set `allow_missing_symbol=True` to address series solely by
+  row-major order, normalizing timeframe names such as `"M1"` to their integer
+  values; set `allow_missing_symbol=True` to address series solely by
   `explicit_tables` (targets carry `symbol=None`).
 - `resolve_rate_tables()` maps targets to table or view names and validates that
   any `explicit_tables` count matches the target count.
 - `load_rate_series_from_sqlite()` returns a mapping keyed by
-  `(symbol, timeframe_int)`.
+  `(symbol, integer timeframe)`.

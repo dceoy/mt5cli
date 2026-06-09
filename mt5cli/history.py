@@ -503,6 +503,11 @@ class RateTarget:
     symbol: str | None
     timeframe: int | str
 
+    def __post_init__(self) -> None:
+        """Normalize accepted timeframe aliases to the stored integer value."""
+        if not isinstance(self.timeframe, int):
+            object.__setattr__(self, "timeframe", parse_timeframe(self.timeframe))
+
     @property
     def timeframe_int(self) -> int:
         """Return the timeframe as its integer MT5 value."""
@@ -583,22 +588,41 @@ def resolve_rate_tables(
             )
             raise ValueError(msg)
         return tables
-    resolved: list[str] = []
-    for target in target_list:
-        if target.symbol is None:
-            msg = (
-                "Cannot resolve a rate table for a target without a symbol; "
-                "provide explicit_tables."
-            )
-            raise ValueError(msg)
-        resolved.append(
-            resolve_rate_view_name(
-                conn_or_path,
-                target.symbol,
-                str(target.timeframe),
-            ),
+    if any(target.symbol is None for target in target_list):
+        msg = (
+            "Cannot resolve a rate table for a target without a symbol; "
+            "provide explicit_tables."
         )
-    return resolved
+        raise ValueError(msg)
+    conn, should_close = _open_history_connection(conn_or_path)
+    try:
+        timeframe_counts = (
+            _load_rates_timeframe_counts(conn) if conn is not None else None
+        )
+        existing_views = _load_existing_rate_views(conn) if conn is not None else set()
+        resolved: list[str] = []
+        for target in target_list:
+            symbol = target.symbol
+            if symbol is None:
+                msg = (
+                    "Cannot resolve a rate table for a target without a symbol; "
+                    "provide explicit_tables."
+                )
+                raise ValueError(msg)
+            timeframe = target.timeframe_int
+            resolved.append(
+                _resolve_rate_view_name_from_context(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    granularity_name=resolve_granularity_name(timeframe),
+                    timeframe_counts=timeframe_counts,
+                    existing_views=existing_views,
+                ),
+            )
+        return resolved
+    finally:
+        if should_close and conn is not None:
+            conn.close()
 
 
 def load_rate_series_from_sqlite(
@@ -626,16 +650,30 @@ def load_rate_series_from_sqlite(
         msg = "count must be positive."
         raise ValueError(msg)
     target_list = list(targets)
-    tables = resolve_rate_tables(conn_or_path, target_list, explicit_tables)
+    if not target_list:
+        msg = "At least one rate target is required."
+        raise ValueError(msg)
+    if explicit_tables is None and any(target.symbol is None for target in target_list):
+        msg = (
+            "Cannot resolve a rate table for a target without a symbol; "
+            "provide explicit_tables."
+        )
+        raise ValueError(msg)
+    tables = (
+        resolve_rate_tables(None, target_list, explicit_tables)
+        if explicit_tables is not None
+        else None
+    )
     conn, should_close = _open_existing_sqlite_database(conn_or_path)
     try:
+        resolved_tables = tables or resolve_rate_tables(conn, target_list)
         return {
             (target.symbol, target.timeframe_int): load_rate_data_from_connection(
                 conn,
                 table,
                 count=count,
             )
-            for target, table in zip(target_list, tables, strict=True)
+            for target, table in zip(target_list, resolved_tables, strict=True)
         }
     finally:
         if should_close:

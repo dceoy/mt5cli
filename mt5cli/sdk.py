@@ -6,7 +6,7 @@ import json
 import logging
 import sqlite3
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, TypeVar, cast
@@ -1114,7 +1114,7 @@ class AccountSpec:
 
     symbols: Sequence[str]
     login: int | str | None = None
-    password: str | None = None
+    password: str | None = field(default=None, repr=False)
     server: str | None = None
     path: str | None = None
     timeout: int | None = None
@@ -1193,12 +1193,12 @@ def collect_latest_rates_for_accounts(
     if not timeframes:
         msg = "At least one timeframe is required."
         raise ValueError(msg)
+    if any(not account.symbols for account in account_list):
+        msg = "Each account requires at least one symbol."
+        raise ValueError(msg)
     _require_positive(count, "count")
     result: dict[tuple[str, int], pd.DataFrame] = {}
     for account in account_list:
-        if not account.symbols:
-            msg = "Each account requires at least one symbol."
-            raise ValueError(msg)
         config = _build_account_config(account, base_config)
         with Mt5CliClient(config=config) as client:
             result.update(

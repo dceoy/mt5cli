@@ -10,10 +10,12 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
+from pytest_mock import MockerFixture  # noqa: TC002
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+from mt5cli import history
 from mt5cli.history import (
     DEFAULT_HISTORY_TIMEFRAMES,
     RateTarget,
@@ -1941,25 +1943,27 @@ class TestRateSourceHelpers:
 
     def test_rate_target_timeframe_int(self) -> None:
         """Test RateTarget resolves named and integer timeframes."""
-        assert RateTarget(symbol="EURUSD", timeframe="M1").timeframe_int == 1
+        target = RateTarget(symbol="EURUSD", timeframe="M1")
+        assert target.timeframe == 1
+        assert target.timeframe_int == 1
         assert RateTarget(symbol="EURUSD", timeframe=16385).timeframe_int == 16385
 
     def test_build_rate_targets_row_major(self) -> None:
         """Test targets are built in row-major symbol/timeframe order."""
         targets = build_rate_targets(["EURUSD", "GBPUSD"], ["M1", "H1"])
         assert [(t.symbol, t.timeframe) for t in targets] == [
-            ("EURUSD", "M1"),
-            ("EURUSD", "H1"),
-            ("GBPUSD", "M1"),
-            ("GBPUSD", "H1"),
+            ("EURUSD", 1),
+            ("EURUSD", 16385),
+            ("GBPUSD", 1),
+            ("GBPUSD", 16385),
         ]
 
     def test_build_rate_targets_allows_missing_symbol(self) -> None:
         """Test missing symbols produce None-symbol targets when allowed."""
         targets = build_rate_targets([], ["M1", "H1"], allow_missing_symbol=True)
         assert [(t.symbol, t.timeframe) for t in targets] == [
-            (None, "M1"),
-            (None, "H1"),
+            (None, 1),
+            (None, 16385),
         ]
 
     @pytest.mark.parametrize(
@@ -2009,6 +2013,40 @@ class TestRateSourceHelpers:
             "rate_EURUSD__16385",
         ]
 
+    def test_resolve_rate_tables_batches_sqlite_metadata(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test resolving multiple targets loads SQLite metadata once."""
+        db_path = tmp_path / "batch-rate-tables.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 16385, "2024-01-01T01:00:00+00:00", 1.1),
+                    ("GBPUSD", 1, "2024-01-01T00:00:00+00:00", 1.2),
+                ],
+            )
+            create_rate_compatibility_views(conn)
+        counts_spy = mocker.spy(history, "_load_rates_timeframe_counts")
+        views_spy = mocker.spy(history, "_load_existing_rate_views")
+
+        targets = build_rate_targets(["EURUSD", "GBPUSD"], ["M1", "H1"])
+        assert resolve_rate_tables(db_path, targets) == [
+            "rate_EURUSD__M1_1",
+            "rate_EURUSD__H1_16385",
+            "rate_GBPUSD__1",
+            "rate_GBPUSD__16385",
+        ]
+        assert counts_spy.call_count == 1
+        assert views_spy.call_count == 1
+
     def test_load_rate_series_from_sqlite(self, tmp_path: Path) -> None:
         """Test loading multiple rate series keyed by symbol and timeframe."""
         db_path = tmp_path / "series.db"
@@ -2029,6 +2067,34 @@ class TestRateSourceHelpers:
         result = load_rate_series_from_sqlite(db_path, targets, count=2)
         assert set(result) == {("EURUSD", 1)}
         assert len(result["EURUSD", 1]) == 2
+
+    def test_load_rate_series_reuses_path_connection(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test loading from a path opens SQLite once for resolve and reads."""
+        db_path = tmp_path / "single-open-series.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            create_rate_compatibility_views(conn)
+        connect_spy = mocker.spy(history.sqlite3, "connect")
+
+        result = load_rate_series_from_sqlite(
+            db_path,
+            build_rate_targets(["EURUSD"], ["M1"]),
+            count=1,
+        )
+
+        assert set(result) == {("EURUSD", 1)}
+        assert connect_spy.call_count == 1
 
     def test_load_rate_series_with_explicit_tables(self, tmp_path: Path) -> None:
         """Test explicit tables and None-symbol targets load series."""
