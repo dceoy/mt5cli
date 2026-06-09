@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from typing import TYPE_CHECKING, NamedTuple
+from unittest.mock import MagicMock, call
 
 import pandas as pd
 import pytest
@@ -48,6 +48,17 @@ from mt5cli.sdk import (
     version,
 )
 from mt5cli.utils import Dataset
+
+
+class _TerminalInfo(NamedTuple):
+    connected: bool
+    path: str
+
+
+class _AccountInfo(NamedTuple):
+    login: int
+    limits: dict[str, object]
+
 
 _DEALS_FIXTURE: dict[str, list[object]] = {
     "ticket": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
@@ -413,6 +424,32 @@ class TestMt5CliClient:
         }
         assert mock_client.copy_rates_from_pos_as_df.call_count == 4
 
+    def test_collect_latest_rates_uses_single_transient_connection(
+        self,
+        mock_client: MagicMock,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test module helper opens one connection for all target pairs."""
+        mt5_data_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+
+        collect_latest_rates(["EURUSD", "GBPUSD"], ["M1", "H1"], count=3)
+
+        mt5_data_client.assert_called_once()
+        mock_client.initialize_and_login_mt5.assert_called_once()
+        mock_client.shutdown.assert_called_once()
+        assert mock_client.copy_rates_from_pos_as_df.call_count == 4
+        mock_client.copy_rates_from_pos_as_df.assert_has_calls(
+            [
+                call(symbol="EURUSD", timeframe=1, start_pos=0, count=3),
+                call(symbol="EURUSD", timeframe=16385, start_pos=0, count=3),
+                call(symbol="GBPUSD", timeframe=1, start_pos=0, count=3),
+                call(symbol="GBPUSD", timeframe=16385, start_pos=0, count=3),
+            ],
+        )
+
     @pytest.mark.parametrize(
         ("symbols", "timeframes", "match"),
         [
@@ -466,9 +503,35 @@ class TestMt5CliClient:
         mock_client.account_info.return_value = {"login": 123}
         mock_client.symbols_total.return_value = 42
         assert mt5_summary() == {
-            "version": (5, 0, 1),
+            "version": [5, 0, 1],
             "terminal_info": {"connected": True},
             "account_info": {"login": 123},
+            "symbols_total": 42,
+        }
+
+    def test_mt5_summary_normalizes_namedtuple_values(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test mt5_summary returns JSON/DataFrame-friendly plain values."""
+        mock_client.version.return_value = (5, 0, 1)
+        mock_client.terminal_info.return_value = _TerminalInfo(
+            connected=True,
+            path="terminal.exe",
+        )
+        mock_client.account_info.return_value = _AccountInfo(
+            login=123,
+            limits={"modes": ("netting", "hedging"), "servers": ["demo"]},
+        )
+        mock_client.symbols_total.return_value = 42
+
+        assert mt5_summary() == {
+            "version": [5, 0, 1],
+            "terminal_info": {"connected": True, "path": "terminal.exe"},
+            "account_info": {
+                "login": 123,
+                "limits": {"modes": ["netting", "hedging"], "servers": ["demo"]},
+            },
             "symbols_total": 42,
         }
 

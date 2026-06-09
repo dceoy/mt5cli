@@ -82,6 +82,22 @@ def _coerce_tick_flags(flags: int | str) -> int:
     return parse_tick_flags(flags)
 
 
+def _plain_mt5_value(value: object) -> object:
+    asdict = getattr(value, "_asdict", None)
+    if callable(asdict):
+        return _plain_mt5_value(asdict())
+    if isinstance(value, dict):
+        typed_value = cast("dict[object, object]", value)
+        return {key: _plain_mt5_value(item) for key, item in typed_value.items()}
+    if isinstance(value, tuple):
+        typed_value = cast("tuple[object, ...]", value)
+        return [_plain_mt5_value(item) for item in typed_value]
+    if isinstance(value, list):
+        typed_value = cast("list[object]", value)
+        return [_plain_mt5_value(item) for item in typed_value]
+    return value
+
+
 def _require_datetime(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value
@@ -407,16 +423,18 @@ class Mt5CliClient:
             msg = "At least one timeframe is required."
             raise ValueError(msg)
         resolved_timeframes = [_coerce_timeframe(timeframe) for timeframe in timeframes]
-        return {
-            (symbol, timeframe): self.copy_rates_from_pos(
-                symbol,
-                timeframe,
-                start_pos,
-                count,
-            )
-            for symbol in symbols
-            for timeframe in resolved_timeframes
-        }
+        return self._fetch_value(
+            lambda c: {
+                (symbol, timeframe): c.copy_rates_from_pos_as_df(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    start_pos=start_pos,
+                    count=count,
+                )
+                for symbol in symbols
+                for timeframe in resolved_timeframes
+            },
+        )
 
     def copy_rates_range(
         self,
@@ -659,10 +677,16 @@ class Mt5CliClient:
 
         def _summary(client: Mt5DataClient) -> dict[str, object]:
             return {
-                "version": _call_client_method(client, "version"),
-                "terminal_info": _call_client_method(client, "terminal_info"),
-                "account_info": _call_client_method(client, "account_info"),
-                "symbols_total": _call_client_method(client, "symbols_total"),
+                "version": _plain_mt5_value(_call_client_method(client, "version")),
+                "terminal_info": _plain_mt5_value(
+                    _call_client_method(client, "terminal_info"),
+                ),
+                "account_info": _plain_mt5_value(
+                    _call_client_method(client, "account_info"),
+                ),
+                "symbols_total": _plain_mt5_value(
+                    _call_client_method(client, "symbols_total"),
+                ),
             }
 
         return self._fetch_value(_summary)
