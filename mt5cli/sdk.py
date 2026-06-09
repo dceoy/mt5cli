@@ -42,6 +42,16 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
+_RECOVERABLE_HISTORY_UPDATE_ERRORS: tuple[type[BaseException], ...] = (
+    Mt5TradingError,
+    Mt5RuntimeError,
+    sqlite3.Error,
+    ValueError,
+    OSError,
+    AttributeError,
+    TypeError,
+)
+
 __all__ = [
     "AccountSpec",
     "Mt5CliClient",
@@ -1004,8 +1014,10 @@ class ThrottledHistoryUpdater:
             include_account_events: Include account-level cash events.
             interval_seconds: Minimum seconds between successful updates. Values
                 ``<= 0`` update on every call.
-            suppress_errors: When True, ``Mt5TradingError``, ``Mt5RuntimeError``,
-                and ``sqlite3.Error`` raised during an update are swallowed and
+            suppress_errors: When True, recoverable errors (``Mt5TradingError``,
+                ``Mt5RuntimeError``, ``sqlite3.Error``, ``ValueError``,
+                ``OSError``, and missing-method ``AttributeError`` /
+                ``TypeError``) raised during an update are swallowed and
                 :meth:`update` returns False without advancing the throttle. When
                 False (default), such errors propagate so callers control logging.
         """
@@ -1047,16 +1059,21 @@ class ThrottledHistoryUpdater:
         Returns:
             True if an update ran successfully, False if it was throttled or
             (when ``suppress_errors`` is True) failed with a recoverable error.
-
-        Raises:
-            Mt5TradingError: If the update fails and ``suppress_errors`` is False.
-            Mt5RuntimeError: If the update fails and ``suppress_errors`` is False.
-            sqlite3.Error: If the SQLite write fails and ``suppress_errors`` is
-                False.
+            When ``suppress_errors`` is False, recoverable update failures
+            propagate to the caller.
         """
         if not self.should_update():
             return False
         try:
+            _resolve_update_history_request(
+                output=self.output,
+                symbols=symbols,
+                datasets=self.datasets,
+                timeframes=self.timeframes,
+                flags=self.flags,
+                lookback_hours=self.lookback_hours,
+                date_to=None,
+            )
             update_history(
                 client=client,
                 output=self.output,
@@ -1068,7 +1085,7 @@ class ThrottledHistoryUpdater:
                 with_views=self.with_views,
                 include_account_events=self.include_account_events,
             )
-        except (Mt5TradingError, Mt5RuntimeError, sqlite3.Error):
+        except _RECOVERABLE_HISTORY_UPDATE_ERRORS:
             if self.suppress_errors:
                 logger.warning("Suppressed history update error", exc_info=True)
                 return False

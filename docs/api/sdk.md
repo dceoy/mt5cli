@@ -78,6 +78,14 @@ finally:
     client.shutdown()
 ```
 
-By default `Mt5TradingError`, `Mt5RuntimeError`, and `sqlite3.Error` propagate so
-the caller controls logging; pass `suppress_errors=True` to swallow them and
-return `False` without advancing the throttle.
+By default recoverable errors (`Mt5TradingError`, `Mt5RuntimeError`,
+`sqlite3.Error`, `ValueError`, `OSError`, and missing-method `AttributeError` /
+`TypeError`) propagate so the caller controls logging; pass
+`suppress_errors=True` to swallow them and return `False` without advancing the
+throttle. Input validation runs inside `update()` before any MT5 or SQLite work.
+
+## Trading-capable sessions
+
+For order placement and trading calculations, use the dedicated
+[Trading module](trading.md). The read-only `Mt5CliClient` and `mt5_session()`
+helpers in this module are unchanged.

@@ -1718,6 +1718,10 @@ class TestThrottledHistoryUpdater:
             Mt5RuntimeError("boom"),
             Mt5TradingError("trade failed"),
             sqlite3.OperationalError("locked"),
+            ValueError("invalid symbols"),
+            OSError("disk full"),
+            AttributeError("missing method"),
+            TypeError("not callable"),
         ],
     )
     def test_suppresses_errors_when_requested(
@@ -1736,4 +1740,19 @@ class TestThrottledHistoryUpdater:
         )
 
         assert updater.update(MagicMock(), ["EURUSD"]) is False
+        assert updater.last_update_monotonic is None
+
+    def test_suppresses_validation_errors_before_update(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test validation failures are suppressed without calling update_history."""
+        update = mocker.patch("mt5cli.sdk.update_history")
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            suppress_errors=True,
+        )
+
+        assert updater.update(MagicMock(), []) is False
+        update.assert_not_called()
         assert updater.last_update_monotonic is None
