@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import sqlite3
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -12,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, TypeVar, cast
 
 import pandas as pd
-from pdmt5 import Mt5Config, Mt5DataClient
+from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError, Mt5TradingError
 
 from .history import (
     create_cash_events_view,
@@ -42,11 +45,13 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "AccountSpec",
     "Mt5CliClient",
+    "ThrottledHistoryUpdater",
     "account_info",
     "build_config",
     "collect_history",
     "collect_latest_rates",
     "collect_latest_rates_for_accounts",
+    "collect_latest_rates_for_accounts_with_retries",
     "copy_rates_from",
     "copy_rates_from_pos",
     "copy_rates_range",
@@ -65,6 +70,9 @@ __all__ = [
     "positions",
     "recent_history_deals",
     "recent_ticks",
+    "resolve_account_spec",
+    "resolve_account_specs",
+    "substitute_env_placeholders",
     "symbol_info",
     "symbol_info_tick",
     "symbols",
@@ -960,6 +968,115 @@ def update_history_with_config(  # noqa: PLR0913
         )
 
 
+class ThrottledHistoryUpdater:
+    """Throttled incremental SQLite history updater for long-running apps.
+
+    Wraps :func:`update_history` with a minimum interval between successful
+    updates, so a tight application loop can call :meth:`update` every
+    iteration without re-fetching MT5 history more often than desired. Timing
+    uses a monotonic clock, so it is unaffected by wall-clock changes.
+    """
+
+    def __init__(
+        self,
+        *,
+        output: Path | str,
+        datasets: set[Dataset] | None = None,
+        timeframes: Sequence[int | str] | None = None,
+        flags: int | str = "ALL",
+        lookback_hours: float = 24.0,
+        with_views: bool = False,
+        include_account_events: bool = True,
+        interval_seconds: float = 0.0,
+        suppress_errors: bool = False,
+    ) -> None:
+        """Initialize the throttled updater.
+
+        Args:
+            output: SQLite database path.
+            datasets: Datasets to include (defaults to all).
+            timeframes: Rate timeframes to update (defaults to all fixed MT5
+                timeframes).
+            flags: Tick copy flags as integer or name (e.g. ``ALL``).
+            lookback_hours: First-run lookback when a table has no prior rows.
+            with_views: Create ``cash_events`` and ``positions_reconstructed``
+                views.
+            include_account_events: Include account-level cash events.
+            interval_seconds: Minimum seconds between successful updates. Values
+                ``<= 0`` update on every call.
+            suppress_errors: When True, ``Mt5TradingError``, ``Mt5RuntimeError``,
+                and ``sqlite3.Error`` raised during an update are swallowed and
+                :meth:`update` returns False without advancing the throttle. When
+                False (default), such errors propagate so callers control logging.
+        """
+        self.output = output
+        self.datasets = datasets
+        self.timeframes = timeframes
+        self.flags = flags
+        self.lookback_hours = lookback_hours
+        self.with_views = with_views
+        self.include_account_events = include_account_events
+        self.interval_seconds = interval_seconds
+        self.suppress_errors = suppress_errors
+        self._last_update_monotonic: float | None = None
+
+    @property
+    def last_update_monotonic(self) -> float | None:
+        """Return the monotonic timestamp of the last successful update."""
+        return self._last_update_monotonic
+
+    def should_update(self) -> bool:
+        """Return whether enough time has elapsed to run another update.
+
+        Returns:
+            True when ``interval_seconds <= 0``, when no update has succeeded
+            yet, or when at least ``interval_seconds`` have elapsed since the
+            last successful update.
+        """
+        if self.interval_seconds <= 0 or self._last_update_monotonic is None:
+            return True
+        return (time.monotonic() - self._last_update_monotonic) >= self.interval_seconds
+
+    def update(self, client: Mt5DataClient, symbols: Sequence[str]) -> bool:
+        """Run a throttled incremental history update.
+
+        Args:
+            client: Connected MT5 data client.
+            symbols: Symbols to update.
+
+        Returns:
+            True if an update ran successfully, False if it was throttled or
+            (when ``suppress_errors`` is True) failed with a recoverable error.
+
+        Raises:
+            Mt5TradingError: If the update fails and ``suppress_errors`` is False.
+            Mt5RuntimeError: If the update fails and ``suppress_errors`` is False.
+            sqlite3.Error: If the SQLite write fails and ``suppress_errors`` is
+                False.
+        """
+        if not self.should_update():
+            return False
+        try:
+            update_history(
+                client=client,
+                output=self.output,
+                symbols=symbols,
+                datasets=self.datasets,
+                timeframes=self.timeframes,
+                flags=self.flags,
+                lookback_hours=self.lookback_hours,
+                with_views=self.with_views,
+                include_account_events=self.include_account_events,
+            )
+        except (Mt5TradingError, Mt5RuntimeError, sqlite3.Error):
+            if self.suppress_errors:
+                logger.warning("Suppressed history update error", exc_info=True)
+                return False
+            raise
+        self._last_update_monotonic = time.monotonic()
+        return True
+
+
 def collect_history(
     output: Path,
     symbols: list[str],
@@ -1113,11 +1230,153 @@ class AccountSpec:
     """
 
     symbols: Sequence[str]
-    login: int | str | None = None
+    login: int | str | None = field(default=None, repr=False)
     password: str | None = field(default=None, repr=False)
     server: str | None = None
     path: str | None = None
     timeout: int | None = None
+
+
+_ENV_PLACEHOLDER_PATTERN = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def substitute_env_placeholders(value: str) -> str:
+    """Replace ``${ENV_VAR}`` placeholders in a string with environment values.
+
+    Args:
+        value: String that may contain one or more ``${ENV_VAR}`` placeholders.
+
+    Returns:
+        The string with every placeholder replaced by its environment value.
+
+    Raises:
+        ValueError: If a referenced environment variable is not set.
+    """
+    parts: list[str] = []
+    last_end = 0
+    for match in _ENV_PLACEHOLDER_PATTERN.finditer(value):
+        parts.append(value[last_end : match.start()])
+        name = match.group("name")
+        if name not in os.environ:
+            msg = f"Environment variable {name!r} is not set."
+            raise ValueError(msg)
+        parts.append(os.environ[name])
+        last_end = match.end()
+    parts.append(value[last_end:])
+    return "".join(parts)
+
+
+def _resolve_field(override: str | None, account_value: str | None) -> str | None:
+    """Resolve a string field from an override or account value with env subst.
+
+    Returns:
+        The explicit override when provided, otherwise the account value, with
+        any ``${ENV_VAR}`` placeholders substituted.
+    """
+    value = override if override is not None else account_value
+    if value is None:
+        return None
+    return substitute_env_placeholders(value)
+
+
+def _resolve_login(
+    override: int | str | None,
+    account_login: int | str | None,
+) -> int | str | None:
+    """Resolve a login from an override or account value with env substitution.
+
+    Returns:
+        The explicit override when provided, otherwise the account login.
+        Integer values are preserved; string values have ``${ENV_VAR}``
+        placeholders substituted.
+    """
+    if override is not None:
+        if isinstance(override, int):
+            return override
+        return substitute_env_placeholders(override)
+    if account_login is None or isinstance(account_login, int):
+        return account_login
+    return substitute_env_placeholders(account_login)
+
+
+def resolve_account_spec(
+    account: AccountSpec,
+    *,
+    login: int | str | None = None,
+    password: str | None = None,
+    server: str | None = None,
+    path: str | None = None,
+    timeout: int | None = None,
+) -> AccountSpec:
+    """Resolve an account's credentials from overrides and ``${ENV_VAR}`` values.
+
+    Explicit override arguments take precedence over the corresponding
+    :class:`AccountSpec` fields. The resolved string fields (``login``,
+    ``password``, ``server``, ``path``) have any ``${ENV_VAR}`` placeholders
+    substituted from the environment.
+
+    Args:
+        account: Source account specification.
+        login: Optional explicit login override.
+        password: Optional explicit password override.
+        server: Optional explicit server override.
+        path: Optional explicit terminal path override.
+        timeout: Optional explicit connection timeout override.
+
+    Returns:
+        A new :class:`AccountSpec` with resolved credentials and the original
+        symbols preserved. Raises ``ValueError`` (via
+        :func:`substitute_env_placeholders`) if a referenced environment
+        variable is not set.
+    """
+    return AccountSpec(
+        symbols=account.symbols,
+        login=_resolve_login(login, account.login),
+        password=_resolve_field(password, account.password),
+        server=_resolve_field(server, account.server),
+        path=_resolve_field(path, account.path),
+        timeout=timeout if timeout is not None else account.timeout,
+    )
+
+
+def resolve_account_specs(
+    accounts: Sequence[AccountSpec],
+    *,
+    login: int | str | None = None,
+    password: str | None = None,
+    server: str | None = None,
+    path: str | None = None,
+    timeout: int | None = None,
+) -> list[AccountSpec]:
+    """Resolve credentials for multiple accounts.
+
+    Applies the same overrides and ``${ENV_VAR}`` substitution as
+    :func:`resolve_account_spec` to every account.
+
+    Args:
+        accounts: Source account specifications.
+        login: Optional explicit login override applied to each account.
+        password: Optional explicit password override applied to each account.
+        server: Optional explicit server override applied to each account.
+        path: Optional explicit terminal path override applied to each account.
+        timeout: Optional explicit timeout override applied to each account.
+
+    Returns:
+        Resolved account specifications in the original order. Raises
+        ``ValueError`` (via :func:`substitute_env_placeholders`) if a referenced
+        environment variable is not set.
+    """
+    return [
+        resolve_account_spec(
+            account,
+            login=login,
+            password=password,
+            server=server,
+            path=path,
+            timeout=timeout,
+        )
+        for account in accounts
+    ]
 
 
 def _coerce_login(login: int | str | None) -> int | None:
@@ -1210,6 +1469,68 @@ def collect_latest_rates_for_accounts(
                 ),
             )
     return result
+
+
+def collect_latest_rates_for_accounts_with_retries(
+    accounts: Sequence[AccountSpec],
+    timeframes: Sequence[int | str],
+    count: int,
+    *,
+    start_pos: int = 0,
+    base_config: Mt5Config | None = None,
+    retry_count: int = 0,
+    backoff_base: float = 2.0,
+) -> dict[tuple[str, int], pd.DataFrame]:
+    """Collect latest rates across accounts, retrying transient MT5 failures.
+
+    Wraps :func:`collect_latest_rates_for_accounts` with bounded exponential
+    backoff. Only ``pdmt5.Mt5TradingError`` and ``pdmt5.Mt5RuntimeError`` are
+    retried; other exceptions propagate immediately. The final failure is
+    re-raised once retries are exhausted.
+
+    Args:
+        accounts: Account groups to read. Each must define at least one symbol.
+        timeframes: MT5 timeframes as integers or names (for example ``M1``).
+        count: Number of most recent bars to read per symbol/timeframe.
+        start_pos: Initial bar position offset.
+        base_config: Optional base configuration whose fields fill any value not
+            set on an individual account.
+        retry_count: Maximum number of retries after the first attempt. ``0``
+            disables retries.
+        backoff_base: Base for exponential backoff. The delay before retry
+            attempt ``n`` (1-indexed) is ``backoff_base ** n`` seconds.
+
+    Returns:
+        Mapping keyed by ``(symbol, timeframe_int)``. Propagates ``ValueError``
+        for invalid inputs (see :func:`collect_latest_rates_for_accounts`) and
+        re-raises the last ``pdmt5.Mt5TradingError`` or ``pdmt5.Mt5RuntimeError``
+        once retries are exhausted.
+    """
+    attempts = max(retry_count, 0) + 1
+
+    def _collect() -> dict[tuple[str, int], pd.DataFrame]:
+        return collect_latest_rates_for_accounts(
+            accounts,
+            timeframes,
+            count,
+            start_pos=start_pos,
+            base_config=base_config,
+        )
+
+    for attempt in range(attempts - 1):
+        try:
+            return _collect()
+        except (Mt5TradingError, Mt5RuntimeError) as exc:
+            delay = backoff_base ** (attempt + 1)
+            logger.warning(
+                "Rate collection failed (attempt %d/%d): %s; retrying in %.1fs",
+                attempt + 1,
+                attempts,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    return _collect()
 
 
 def copy_rates_range(
