@@ -619,7 +619,7 @@ class TestIncrementalStart:
     ) -> None:
         """Test rates tables without timeframe fail fast during incremental resume."""
         fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "legacy-rates.db") as conn:
+        with sqlite3.connect(tmp_path / "rates-without-timeframe.db") as conn:
             conn.execute("CREATE TABLE rates(symbol TEXT, time TEXT, open REAL)")
             conn.execute(
                 "INSERT INTO rates(symbol, time, open) VALUES (?, ?, ?)",
@@ -1870,7 +1870,7 @@ class TestIncrementalHistoryDeals:
         })
         start = datetime(2024, 1, 1, tzinfo=UTC)
         end = datetime(2024, 1, 3, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "legacy-deals.db") as conn:
+        with sqlite3.connect(tmp_path / "deals-without-type.db") as conn:
             conn.execute(
                 "CREATE TABLE history_deals( ticket INTEGER, symbol TEXT, time TEXT)",
             )
