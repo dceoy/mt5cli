@@ -1230,7 +1230,7 @@ class AccountSpec:
     """
 
     symbols: Sequence[str]
-    login: int | str | None = None
+    login: int | str | None = field(default=None, repr=False)
     password: str | None = field(default=None, repr=False)
     server: str | None = None
     path: str | None = None
@@ -1252,15 +1252,18 @@ def substitute_env_placeholders(value: str) -> str:
     Raises:
         ValueError: If a referenced environment variable is not set.
     """
+    parts: list[str] = []
+    last_end = 0
     for match in _ENV_PLACEHOLDER_PATTERN.finditer(value):
+        parts.append(value[last_end : match.start()])
         name = match.group("name")
         if name not in os.environ:
             msg = f"Environment variable {name!r} is not set."
             raise ValueError(msg)
-    return _ENV_PLACEHOLDER_PATTERN.sub(
-        lambda match: os.environ[match.group("name")],
-        value,
-    )
+        parts.append(os.environ[name])
+        last_end = match.end()
+    parts.append(value[last_end:])
+    return "".join(parts)
 
 
 def _resolve_field(override: str | None, account_value: str | None) -> str | None:
@@ -1274,6 +1277,26 @@ def _resolve_field(override: str | None, account_value: str | None) -> str | Non
     if value is None:
         return None
     return substitute_env_placeholders(value)
+
+
+def _resolve_login(
+    override: int | str | None,
+    account_login: int | str | None,
+) -> int | str | None:
+    """Resolve a login from an override or account value with env substitution.
+
+    Returns:
+        The explicit override when provided, otherwise the account login.
+        Integer values are preserved; string values have ``${ENV_VAR}``
+        placeholders substituted.
+    """
+    if override is not None:
+        if isinstance(override, int):
+            return override
+        return substitute_env_placeholders(override)
+    if account_login is None or isinstance(account_login, int):
+        return account_login
+    return substitute_env_placeholders(account_login)
 
 
 def resolve_account_spec(
@@ -1306,14 +1329,9 @@ def resolve_account_spec(
         :func:`substitute_env_placeholders`) if a referenced environment
         variable is not set.
     """
-    login_override = str(login) if isinstance(login, int) else login
-    resolved_login = _resolve_field(
-        login_override,
-        str(account.login) if isinstance(account.login, int) else account.login,
-    )
     return AccountSpec(
         symbols=account.symbols,
-        login=resolved_login,
+        login=_resolve_login(login, account.login),
         password=_resolve_field(password, account.password),
         server=_resolve_field(server, account.server),
         path=_resolve_field(path, account.path),
@@ -1480,7 +1498,7 @@ def collect_latest_rates_for_accounts_with_retries(
         retry_count: Maximum number of retries after the first attempt. ``0``
             disables retries.
         backoff_base: Base for exponential backoff. The delay before retry
-            attempt ``n`` (1-indexed) is ``backoff_base ** (n - 1)`` seconds.
+            attempt ``n`` (1-indexed) is ``backoff_base ** n`` seconds.
 
     Returns:
         Mapping keyed by ``(symbol, timeframe_int)``. Propagates ``ValueError``
@@ -1503,7 +1521,7 @@ def collect_latest_rates_for_accounts_with_retries(
         try:
             return _collect()
         except (Mt5TradingError, Mt5RuntimeError) as exc:
-            delay = backoff_base**attempt
+            delay = backoff_base ** (attempt + 1)
             logger.warning(
                 "Rate collection failed (attempt %d/%d): %s; retrying in %.1fs",
                 attempt + 1,

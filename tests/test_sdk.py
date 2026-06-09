@@ -1481,7 +1481,7 @@ class TestCollectLatestRatesForAccountsWithRetries:
 
         assert result is expected
         assert wrapped.call_count == 3
-        assert sleep.call_args_list == [call(1), call(2)]
+        assert sleep.call_args_list == [call(2), call(4)]
 
     def test_reraises_after_exhausting_retries(self, mocker: MockerFixture) -> None:
         """Test the final error is re-raised once retries are exhausted."""
@@ -1585,9 +1585,30 @@ class TestResolveAccountSpec:
             timeout=5000,
         )
 
-        assert resolved.login == "222"
+        assert resolved.login == 222
         assert resolved.server == "Override"
         assert resolved.timeout == 5000
+
+    def test_resolves_string_login_override(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test string login overrides expand ${ENV_VAR} placeholders."""
+        monkeypatch.setenv("MT5_LOGIN", "777")
+        account = AccountSpec(symbols=["EURUSD"], login=111)
+
+        resolved = resolve_account_spec(account, login="${MT5_LOGIN}")
+
+        assert resolved.login == "777"
+
+    def test_preserves_integer_login_without_coercion(self) -> None:
+        """Test integer logins remain integers after resolution."""
+        account = AccountSpec(symbols=["EURUSD"], login=111)
+
+        resolved = resolve_account_spec(account)
+
+        assert resolved.login == 111
+        assert isinstance(resolved.login, int)
 
     def test_raises_on_missing_env_variable(
         self,
@@ -1691,11 +1712,23 @@ class TestThrottledHistoryUpdater:
 
         assert updater.last_update_monotonic is None
 
-    def test_suppresses_errors_when_requested(self, mocker: MockerFixture) -> None:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            Mt5RuntimeError("boom"),
+            Mt5TradingError("trade failed"),
+            sqlite3.OperationalError("locked"),
+        ],
+    )
+    def test_suppresses_errors_when_requested(
+        self,
+        mocker: MockerFixture,
+        error: Exception,
+    ) -> None:
         """Test suppress_errors swallows recoverable errors and returns False."""
         mocker.patch(
             "mt5cli.sdk.update_history",
-            side_effect=sqlite3.OperationalError("locked"),
+            side_effect=error,
         )
         updater = ThrottledHistoryUpdater(
             output="history.db",

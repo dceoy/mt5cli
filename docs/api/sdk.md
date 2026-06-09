@@ -24,7 +24,7 @@ rates = collect_latest_rates_for_accounts_with_retries(
     ["M1", "H1"],
     count=500,
     retry_count=3,
-    backoff_base=2,  # sleeps 1s, 2s, 4s between attempts
+    backoff_base=2,  # sleeps 2s, 4s, 8s between attempts
 )
 ```
 
@@ -40,11 +40,11 @@ import os
 
 from mt5cli import AccountSpec, resolve_account_specs
 
+os.environ["MT5_LOGIN"] = "12345"
 os.environ["MT5_PASSWORD"] = "secret"
 accounts = [
     AccountSpec(symbols=["EURUSD"], login="${MT5_LOGIN}", password="${MT5_PASSWORD}")
 ]
-os.environ["MT5_LOGIN"] = "12345"
 
 resolved = resolve_account_specs(accounts, server="Broker-Demo")
 # resolved[0].login == "12345", resolved[0].server == "Broker-Demo"
@@ -71,9 +71,9 @@ updater = ThrottledHistoryUpdater(
 client = Mt5DataClient(config=Mt5Config(login=12345))
 client.initialize_and_login_mt5()
 try:
-    while running:
+    while True:
         updater.update(client, ["EURUSD", "GBPUSD"])  # no-op until 60s elapse
-        # ... do other work ...
+        # ... do other work; break when shutting down ...
 finally:
     client.shutdown()
 ```
