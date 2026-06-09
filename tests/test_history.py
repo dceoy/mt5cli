@@ -938,6 +938,54 @@ class TestDeduplication:
             ).fetchall()
         assert rows == [(1, "2024-01-01T00:00:01+00:00", 1)]
 
+    def test_partially_unusable_scopes_only_run_usable_scopes(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test mixed scope filtering skips only scopes with missing columns."""
+        boundary = datetime(2024, 1, 2, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "partial-scope-filter.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 2.0),
+                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 9.9),
+                    ("USDJPY", 1, "2024-01-02T00:00:00+00:00", 100.0),
+                    ("USDJPY", 1, "2024-01-02T00:00:00+00:00", 101.0),
+                ],
+            )
+            deduplicate_history_tables(
+                conn,
+                {Dataset.rates: {"symbol", "timeframe", "time", "open"}},
+                {Dataset.rates},
+                {
+                    Dataset.rates: [
+                        DedupScope(
+                            "symbol = ? AND timeframe = ? AND time >= ?",
+                            ("EURUSD", 1, boundary),
+                            frozenset({"symbol", "timeframe", "time"}),
+                        ),
+                        DedupScope(
+                            "symbol = ? AND timeframe = ? AND broker = ?",
+                            ("USDJPY", 1, "demo"),
+                            frozenset({"symbol", "timeframe", "broker"}),
+                        ),
+                    ],
+                },
+            )
+            rows = conn.execute(
+                "SELECT symbol, open FROM rates ORDER BY symbol, open",
+            ).fetchall()
+        assert rows == [
+            ("EURUSD", 9.9),
+            ("USDJPY", 100.0),
+            ("USDJPY", 101.0),
+        ]
+
 
 class TestRateCompatibilityViews:
     """Tests for rate compatibility view creation."""

@@ -991,7 +991,15 @@ def drop_duplicates_in_table(
 
 @dataclass(frozen=True)
 class DedupScope:
-    """Scoped deduplication predicate and the columns it references."""
+    """Scoped deduplication predicate and the columns it references.
+
+    Attributes:
+        where: SQL predicate appended to the duplicate-removal query.
+        params: Parameters bound to the scope predicate.
+        required_columns: Columns that must be present in the written table for
+            the scope to run. An empty set means the scope is always active,
+            which preserves legacy tuple-scope behavior.
+    """
 
     where: str
     params: tuple[object, ...]
@@ -1015,6 +1023,10 @@ def _normalize_dedup_scope(
 ) -> DedupScope:
     """Normalize legacy tuple scopes to the column-aware scope model.
 
+    Legacy tuple scopes do not carry column requirements, so they are converted
+    with an empty ``required_columns`` set and are never filtered out by written
+    table columns.
+
     Returns:
         Column-aware deduplication scope.
     """
@@ -1034,7 +1046,12 @@ def deduplicate_history_tables(
     ]
     | None = None,
 ) -> None:
-    """Deduplicate appended history tables by stable identifiers."""
+    """Deduplicate appended history tables by stable identifiers.
+
+    Scopes whose required columns are not present in the written table are
+    skipped. If all scopes for a dataset are skipped, the table receives one
+    unscoped deduplication pass instead.
+    """
     cursor = conn.cursor()
     for dataset in written_tables:
         columns = written_columns.get(dataset, set())
