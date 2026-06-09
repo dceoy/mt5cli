@@ -511,9 +511,7 @@ class RateTarget:
     @property
     def timeframe_int(self) -> int:
         """Return the timeframe as its integer MT5 value."""
-        if isinstance(self.timeframe, int):
-            return self.timeframe
-        return parse_timeframe(self.timeframe)
+        return cast("int", self.timeframe)
 
 
 def build_rate_targets(
@@ -604,13 +602,7 @@ def resolve_rate_tables(
         )
         resolved: list[str] = []
         for target in target_list:
-            symbol = target.symbol
-            if symbol is None:
-                msg = (
-                    "Cannot resolve a rate table for a target without a symbol; "
-                    "provide explicit_tables."
-                )
-                raise ValueError(msg)
+            symbol = cast("str", target.symbol)
             timeframe = target.timeframe_int
             resolved.append(
                 _resolve_rate_view_name_from_context(

@@ -2119,3 +2119,14 @@ class TestRateSourceHelpers:
         targets = build_rate_targets(["EURUSD"], ["M1"])
         with pytest.raises(ValueError, match="count must be positive"):
             load_rate_series_from_sqlite("unused.db", targets, count=0)
+
+    def test_load_rate_series_rejects_empty_targets(self) -> None:
+        """Test loading requires at least one target before opening SQLite."""
+        with pytest.raises(ValueError, match="At least one rate target"):
+            load_rate_series_from_sqlite("unused.db", [], count=1)
+
+    def test_load_rate_series_requires_symbol_without_explicit_tables(self) -> None:
+        """Test None-symbol targets require explicit tables before opening SQLite."""
+        targets = build_rate_targets([], ["M1"], allow_missing_symbol=True)
+        with pytest.raises(ValueError, match="without a symbol"):
+            load_rate_series_from_sqlite("unused.db", targets, count=1)
