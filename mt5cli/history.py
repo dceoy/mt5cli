@@ -6,7 +6,7 @@ import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import pandas as pd
 
@@ -126,6 +126,14 @@ def build_rate_view_name(
 SqliteConnOrPath = sqlite3.Connection | Path | str
 
 
+def _require_non_empty_identifier(identifier: str, kind: str) -> str:
+    value = identifier.strip()
+    if not value:
+        msg = f"SQLite {kind} name must not be empty."
+        raise ValueError(msg)
+    return value
+
+
 def _open_history_connection(
     conn_or_path: SqliteConnOrPath,
 ) -> tuple[sqlite3.Connection | None, bool]:
@@ -142,6 +150,133 @@ def _open_history_connection(
         return None, False
     conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     return conn, True
+
+
+def _open_existing_sqlite_database(
+    conn_or_path: SqliteConnOrPath,
+) -> tuple[sqlite3.Connection, bool]:
+    """Open a read-only SQLite database or reuse an existing connection.
+
+    Returns:
+        Tuple of connection and whether the caller should close it.
+
+    Raises:
+        ValueError: If the database path does not exist or is not a file.
+    """
+    if isinstance(conn_or_path, sqlite3.Connection):
+        return conn_or_path, False
+    path = Path(conn_or_path)
+    if not path.exists():
+        msg = f"SQLite database not found: {path}"
+        raise ValueError(msg)
+    if not path.is_file():
+        msg = f"SQLite database path is not a file: {path}"
+        raise ValueError(msg)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    return conn, True
+
+
+def _validate_rate_load_request(table: str, count: int | None) -> str:
+    table_name = _require_non_empty_identifier(table, "table or view")
+    if count is not None and count <= 0:
+        msg = "count must be positive when provided."
+        raise ValueError(msg)
+    return table_name
+
+
+def _ensure_rate_columns(columns: set[str], table: str) -> None:
+    if not columns:
+        msg = f"SQLite table or view not found: {table}"
+        raise ValueError(msg)
+    if "time" not in columns:
+        msg = f"SQLite table or view {table!r} must include a time column."
+        raise ValueError(msg)
+    if "close" not in columns and not {"ask", "bid"}.issubset(columns):
+        msg = (
+            f"SQLite table or view {table!r} must include close, "
+            "or both ask and bid columns."
+        )
+        raise ValueError(msg)
+
+
+def _parse_rate_time_index(frame: pd.DataFrame, table: str) -> pd.DataFrame:
+    parsed = frame["time"].map(parse_sqlite_timestamp)
+    if parsed.isna().any():
+        msg = f"SQLite table or view {table!r} contains unparsable time values."
+        raise ValueError(msg)
+    result = frame.drop(columns=["time"])
+    result.index = pd.DatetimeIndex(parsed, name="time")
+    return result.sort_index(kind="stable")
+
+
+def load_rate_data_from_connection(
+    connection: sqlite3.Connection,
+    table: str,
+    count: int | None = None,
+) -> pd.DataFrame:
+    """Load rate-like data from a SQLite table or view.
+
+    Args:
+        connection: Open SQLite connection.
+        table: Source table or view name.
+        count: Optional number of most recent rows to load.
+
+    Returns:
+        DataFrame indexed by ascending ``time``.
+
+    Raises:
+        ValueError: If inputs, schema, timestamps are invalid, or the table
+            or view contains no rows.
+    """
+    table_name = _validate_rate_load_request(table, count)
+    columns = get_table_columns(connection, table_name)
+    _ensure_rate_columns(columns, table_name)
+    quoted_table = quote_sqlite_identifier(table_name)
+    if count is None:
+        frame = cast(
+            "pd.DataFrame",
+            pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
+                f"SELECT * FROM {quoted_table} ORDER BY time ASC",  # noqa: S608
+                connection,
+            ),
+        )
+    else:
+        frame = cast(
+            "pd.DataFrame",
+            pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
+                f"SELECT * FROM {quoted_table} ORDER BY time DESC LIMIT ?",  # noqa: S608
+                connection,
+                params=(count,),
+            ),
+        )
+    if frame.empty:
+        msg = f"SQLite table or view {table_name!r} contains no rows."
+        raise ValueError(msg)
+    return _parse_rate_time_index(frame, table_name)
+
+
+def load_rate_data(
+    conn_or_path: SqliteConnOrPath,
+    table: str,
+    count: int | None = None,
+) -> pd.DataFrame:
+    """Load rate-like data from a SQLite database path or connection.
+
+    Args:
+        conn_or_path: SQLite database path or open connection.
+        table: Source table or view name.
+        count: Optional number of most recent rows to load.
+
+    Returns:
+        DataFrame indexed by ascending ``time``.
+
+    """
+    conn, should_close = _open_existing_sqlite_database(conn_or_path)
+    try:
+        return load_rate_data_from_connection(conn, table, count=count)
+    finally:
+        if should_close:
+            conn.close()
 
 
 def _load_rates_timeframe_counts(conn: sqlite3.Connection) -> dict[str, int] | None:
@@ -349,7 +484,8 @@ def resolve_rate_view_names(
 
 def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     """Return existing SQLite columns for a table."""
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    quoted_table = quote_sqlite_identifier(table)
+    rows = conn.execute(f"PRAGMA table_info({quoted_table})").fetchall()
     return {str(row[1]) for row in rows}
 
 

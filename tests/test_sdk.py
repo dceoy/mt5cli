@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from typing import TYPE_CHECKING, NamedTuple, cast
+from unittest.mock import MagicMock, call
 
 import pandas as pd
 import pytest
@@ -15,6 +15,8 @@ from pytest_mock import MockerFixture  # noqa: TC002
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from pdmt5 import Mt5DataClient
+
 from mt5cli import sdk
 from mt5cli.history import DEFAULT_HISTORY_TIMEFRAMES
 from mt5cli.sdk import (
@@ -22,6 +24,7 @@ from mt5cli.sdk import (
     account_info,
     build_config,
     collect_history,
+    collect_latest_rates,
     copy_rates_from,
     copy_rates_from_pos,
     copy_rates_range,
@@ -30,10 +33,14 @@ from mt5cli.sdk import (
     history_deals,
     history_orders,
     last_error,
+    latest_rates,
     market_book,
     minimum_margins,
+    mt5_summary,
+    mt5_summary_as_df,
     orders,
     positions,
+    recent_history_deals,
     recent_ticks,
     symbol_info,
     symbol_info_tick,
@@ -44,6 +51,32 @@ from mt5cli.sdk import (
     version,
 )
 from mt5cli.utils import Dataset
+
+
+class _TerminalInfo(NamedTuple):
+    connected: bool
+    path: str
+
+
+class _AccountInfo(NamedTuple):
+    login: int
+    limits: dict[str, object]
+
+
+class _MissingSummaryMethodClient:
+    def version(self) -> tuple[int, int, int]:
+        return (5, 0, 1)
+
+    def terminal_info(self) -> dict[str, bool]:
+        return {"connected": True}
+
+    def symbols_total(self) -> int:
+        return 42
+
+
+class _NonCallableSummaryMethodClient:
+    version = (5, 0, 1)
+
 
 _DEALS_FIXTURE: dict[str, list[object]] = {
     "ticket": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
@@ -232,6 +265,32 @@ class TestConnectionLifecycle:
         client = Mt5CliClient()
         client.__exit__(None, None, None)
 
+    def test_injected_client_is_reused_and_not_shutdown(self) -> None:
+        """Test injected connected clients are not initialized or shut down."""
+        connected = MagicMock()
+        connected.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
+        connected.terminal_info_as_df.return_value = pd.DataFrame({"b": [2]})
+        with Mt5CliClient.from_connected_client(connected) as client:
+            result = client.account_info()
+        assert result.to_dict("list") == {"a": [1]}
+        connected.initialize_and_login_mt5.assert_not_called()
+        connected.shutdown.assert_not_called()
+        connected.account_info_as_df.assert_called_once()
+        after_exit = client.terminal_info()
+        assert after_exit.to_dict("list") == {"b": [2]}
+        connected.terminal_info_as_df.assert_called_once()
+
+    def test_constructor_injected_client_is_reused_and_not_shutdown(self) -> None:
+        """Test constructor injection has the same non-owning lifecycle."""
+        connected = MagicMock()
+        connected.terminal_info_as_df.return_value = pd.DataFrame({"b": [2]})
+        client = Mt5CliClient(client=connected)
+        with client:
+            result = client.terminal_info()
+        assert result.to_dict("list") == {"b": [2]}
+        connected.initialize_and_login_mt5.assert_not_called()
+        connected.shutdown.assert_not_called()
+
 
 class TestModuleFunctions:
     """Tests for module-level SDK wrappers."""
@@ -271,6 +330,7 @@ class TestModuleFunctions:
             (last_error, (), "last_error_as_df"),
             (symbol_info_tick, ("EURUSD",), "symbol_info_tick_as_df"),
             (market_book, ("EURUSD",), "market_book_get_as_df"),
+            (latest_rates, ("EURUSD", "M1", 10), "copy_rates_from_pos_as_df"),
         ],
     )
     def test_module_functions_delegate(
@@ -353,6 +413,214 @@ class TestMt5CliClient:
         )
         assert isinstance(df, pd.DataFrame)
         mock_client.copy_rates_range_as_df.assert_called_once()
+
+    def test_latest_rates_delegates_to_copy_rates_from_pos(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test latest_rates is a convenience wrapper for positional rates."""
+        Mt5CliClient().latest_rates("EURUSD", "M1", 5, start_pos=2)
+        mock_client.copy_rates_from_pos_as_df.assert_called_once_with(
+            symbol="EURUSD",
+            timeframe=1,
+            start_pos=2,
+            count=5,
+        )
+
+    def test_latest_rates_rejects_non_positive_count(self) -> None:
+        """Test latest_rates validates count."""
+        with pytest.raises(ValueError, match="count must be positive"):
+            Mt5CliClient().latest_rates("EURUSD", "M1", 0)
+
+    def test_collect_latest_rates_returns_mapping(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test multi-target latest rate collection."""
+        result = collect_latest_rates(["EURUSD", "GBPUSD"], ["M1", "H1"], count=3)
+        assert set(result) == {
+            ("EURUSD", 1),
+            ("EURUSD", 16385),
+            ("GBPUSD", 1),
+            ("GBPUSD", 16385),
+        }
+        assert mock_client.copy_rates_from_pos_as_df.call_count == 4
+
+    def test_collect_latest_rates_uses_single_transient_connection(
+        self,
+        mock_client: MagicMock,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test module helper opens one connection for all target pairs."""
+        mt5_data_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+
+        collect_latest_rates(["EURUSD", "GBPUSD"], ["M1", "H1"], count=3)
+
+        mt5_data_client.assert_called_once()
+        mock_client.initialize_and_login_mt5.assert_called_once()
+        mock_client.shutdown.assert_called_once()
+        assert mock_client.copy_rates_from_pos_as_df.call_count == 4
+        mock_client.copy_rates_from_pos_as_df.assert_has_calls(
+            [
+                call(symbol="EURUSD", timeframe=1, start_pos=0, count=3),
+                call(symbol="EURUSD", timeframe=16385, start_pos=0, count=3),
+                call(symbol="GBPUSD", timeframe=1, start_pos=0, count=3),
+                call(symbol="GBPUSD", timeframe=16385, start_pos=0, count=3),
+            ],
+        )
+
+    @pytest.mark.parametrize(
+        ("symbols", "timeframes", "match"),
+        [
+            ([], ["M1"], "At least one symbol"),
+            (["EURUSD"], [], "At least one timeframe"),
+        ],
+    )
+    def test_collect_latest_rates_rejects_empty_inputs(
+        self,
+        symbols: list[str],
+        timeframes: list[str],
+        match: str,
+    ) -> None:
+        """Test multi-target latest rate input validation."""
+        with pytest.raises(ValueError, match=match):
+            Mt5CliClient().collect_latest_rates(symbols, timeframes, count=1)
+
+    def test_recent_history_deals_uses_trailing_window(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test recent_history_deals calculates date_from from hours."""
+        result = recent_history_deals(
+            6,
+            date_to="2024-01-02T00:00:00+00:00",
+            group="*",
+            symbol="EURUSD",
+        )
+        assert isinstance(result, pd.DataFrame)
+        mock_client.history_deals_get_as_df.assert_called_once_with(
+            date_from=datetime(2024, 1, 1, 18, tzinfo=UTC),
+            date_to=datetime(2024, 1, 2, tzinfo=UTC),
+            group="*",
+            symbol="EURUSD",
+            ticket=None,
+            position=None,
+        )
+
+    def test_recent_history_deals_defaults_date_to_now(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test recent_history_deals uses current UTC time when date_to is omitted."""
+        before = datetime.now(UTC)
+        recent_history_deals(1.0)
+        after = datetime.now(UTC)
+        call_kwargs = mock_client.history_deals_get_as_df.call_args.kwargs
+        assert before <= call_kwargs["date_to"] <= after
+        assert call_kwargs["date_from"] == call_kwargs["date_to"] - timedelta(hours=1)
+
+    def test_recent_history_deals_rejects_non_positive_hours(self) -> None:
+        """Test recent_history_deals validates hours."""
+        with pytest.raises(ValueError, match="hours must be positive"):
+            Mt5CliClient().recent_history_deals(0)
+
+    def test_mt5_summary_returns_status_mapping(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test mt5_summary calls raw terminal/account status methods."""
+        mock_client.version.return_value = (5, 0, 1)
+        mock_client.terminal_info.return_value = {"connected": True}
+        mock_client.account_info.return_value = {"login": 123}
+        mock_client.symbols_total.return_value = 42
+        assert mt5_summary() == {
+            "version": [5, 0, 1],
+            "terminal_info": {"connected": True},
+            "account_info": {"login": 123},
+            "symbols_total": 42,
+        }
+
+    def test_mt5_summary_normalizes_namedtuple_values(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test mt5_summary returns structured plain Python values."""
+        mock_client.version.return_value = (5, 0, 1)
+        mock_client.terminal_info.return_value = _TerminalInfo(
+            connected=True,
+            path="terminal.exe",
+        )
+        mock_client.account_info.return_value = _AccountInfo(
+            login=123,
+            limits={"modes": ("netting", "hedging"), "servers": ["demo"]},
+        )
+        mock_client.symbols_total.return_value = 42
+
+        assert mt5_summary() == {
+            "version": [5, 0, 1],
+            "terminal_info": {"connected": True, "path": "terminal.exe"},
+            "account_info": {
+                "login": 123,
+                "limits": {"modes": ["netting", "hedging"], "servers": ["demo"]},
+            },
+            "symbols_total": 42,
+        }
+
+    def test_mt5_summary_as_df_stringifies_nested_values(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test mt5_summary_as_df returns export-safe tabular values."""
+        mock_client.version.return_value = (5, 0, 1)
+        mock_client.terminal_info.return_value = _TerminalInfo(
+            connected=True,
+            path="terminal.exe",
+        )
+        mock_client.account_info.return_value = _AccountInfo(
+            login=123,
+            limits={"modes": ("netting", "hedging"), "servers": ["demo"]},
+        )
+        mock_client.symbols_total.return_value = 42
+
+        result = mt5_summary_as_df()
+
+        assert len(result) == 1
+        assert result.iloc[0].to_dict() == {
+            "version": "[5,0,1]",
+            "terminal_info": '{"connected":true,"path":"terminal.exe"}',
+            "account_info": (
+                '{"limits":{"modes":["netting","hedging"],'
+                '"servers":["demo"]},"login":123}'
+            ),
+            "symbols_total": 42,
+        }
+
+    def test_mt5_summary_missing_method_raises_clear_error(self) -> None:
+        """Test mt5_summary fails clearly when a required method is missing."""
+        client = Mt5CliClient(
+            client=cast("Mt5DataClient", _MissingSummaryMethodClient()),
+        )
+
+        with pytest.raises(
+            AttributeError,
+            match="MT5 client is missing required method: account_info",
+        ):
+            client.mt5_summary()
+
+    def test_mt5_summary_non_callable_method_raises_clear_error(self) -> None:
+        """Test mt5_summary fails clearly when a required method is not callable."""
+        client = Mt5CliClient(
+            client=cast("Mt5DataClient", _NonCallableSummaryMethodClient()),
+        )
+
+        with pytest.raises(
+            TypeError,
+            match="MT5 client attribute is not callable: version",
+        ):
+            client.mt5_summary()
 
 
 class TestCollectHistory:
