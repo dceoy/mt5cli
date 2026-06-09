@@ -21,7 +21,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from pdmt5 import Mt5DataClient
 
@@ -989,7 +989,20 @@ def drop_duplicates_in_table(
     )
 
 
-DedupScope = tuple[str, tuple[object, ...]]
+@dataclass(frozen=True)
+class DedupScope:
+    """Scoped deduplication predicate and the columns it references.
+
+    Attributes:
+        where: SQL predicate appended to the duplicate-removal query.
+        params: Parameters bound to the scope predicate.
+        required_columns: Columns that must be present in the written table for
+            the scope to run.
+    """
+
+    where: str
+    params: tuple[object, ...]
+    required_columns: frozenset[str]
 
 
 def _record_dedup_scope(
@@ -997,17 +1010,25 @@ def _record_dedup_scope(
     dataset: Dataset,
     scope_where: str,
     scope_params: tuple[object, ...],
+    required_columns: frozenset[str],
 ) -> None:
-    dedup_scopes.setdefault(dataset, []).append((scope_where, scope_params))
+    dedup_scopes.setdefault(dataset, []).append(
+        DedupScope(scope_where, scope_params, required_columns),
+    )
 
 
 def deduplicate_history_tables(
     conn: sqlite3.Connection,
     written_columns: dict[Dataset, set[str]],
     written_tables: set[Dataset],
-    dedup_scopes: dict[Dataset, list[DedupScope]] | None = None,
+    dedup_scopes: Mapping[Dataset, Sequence[DedupScope]] | None = None,
 ) -> None:
-    """Deduplicate appended history tables by stable identifiers."""
+    """Deduplicate appended history tables by stable identifiers.
+
+    Scopes whose required columns are not present in the written table are
+    skipped. If all scopes for a dataset are skipped, the table receives one
+    unscoped deduplication pass instead.
+    """
     cursor = conn.cursor()
     for dataset in written_tables:
         columns = written_columns.get(dataset, set())
@@ -1026,16 +1047,19 @@ def deduplicate_history_tables(
                 table,
             )
             continue
-        scopes = dedup_scopes.get(dataset, []) if dedup_scopes else []
+        raw_scopes: Sequence[DedupScope] = (
+            dedup_scopes.get(dataset, ()) if dedup_scopes else ()
+        )
+        scopes = [scope for scope in raw_scopes if scope.required_columns <= columns]
         if scopes:
-            for scope_where, scope_params in scopes:
+            for scope in scopes:
                 drop_duplicates_in_table(
                     cursor,
                     table,
                     list(keys),
                     keep="last",
-                    scope_where=scope_where,
-                    scope_params=scope_params,
+                    scope_where=scope.where,
+                    scope_params=scope.params,
                 )
             continue
         drop_duplicates_in_table(cursor, table, list(keys), keep="last")
@@ -1402,6 +1426,7 @@ def _write_incremental_rates(
                     Dataset.rates,
                     "symbol = ? AND timeframe = ? AND time >= ?",
                     (symbol, timeframe, start_date),
+                    frozenset({"symbol", "timeframe", "time"}),
                 )
 
 
@@ -1440,6 +1465,7 @@ def _write_incremental_ticks(
                 Dataset.ticks,
                 "symbol = ? AND time >= ?",
                 (symbol, start_date),
+                frozenset({"symbol", "time"}),
             )
 
 
@@ -1478,6 +1504,7 @@ def _write_incremental_history_orders(
                 Dataset.history_orders,
                 "symbol = ? AND time >= ?",
                 (symbol, start_date),
+                frozenset({"symbol", "time"}),
             )
 
 
@@ -1531,6 +1558,7 @@ def _write_incremental_history_deals(
                         Dataset.history_deals,
                         "symbol = ? AND time >= ?",
                         (symbol, start_by_symbol[symbol, None]),
+                        frozenset({"symbol", "time"}),
                     )
             if "type" in columns:
                 _record_dedup_scope(
@@ -1538,6 +1566,7 @@ def _write_incremental_history_deals(
                     Dataset.history_deals,
                     f"type NOT IN {_TRADE_DEAL_TYPES_SQL} AND time >= ?",
                     (account_event_start,),
+                    frozenset({"type", "time"}),
                 )
             if "type" not in columns and "symbol" in columns:
                 _record_dedup_scope(
@@ -1545,6 +1574,7 @@ def _write_incremental_history_deals(
                     Dataset.history_deals,
                     "(symbol IS NULL OR symbol = '') AND time >= ?",
                     (account_event_start,),
+                    frozenset({"symbol", "time"}),
                 )
         return
     start_by_symbol = load_incremental_start_datetimes(
@@ -1572,6 +1602,7 @@ def _write_incremental_history_deals(
                 Dataset.history_deals,
                 "symbol = ? AND time >= ?",
                 (symbol, start_date),
+                frozenset({"symbol", "time"}),
             )
 
 

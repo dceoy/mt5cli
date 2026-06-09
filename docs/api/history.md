@@ -133,8 +133,8 @@ The `update_history` SDK path uses the same base tables and optional
 ### Rate view resolution
 
 Downstream tools can resolve mt5cli-managed compatibility view names from an
-existing SQLite history database without creating files or guessing legacy
-naming schemes:
+existing SQLite history database without creating files or guessing naming
+schemes:
 
 ```python
 from pathlib import Path
