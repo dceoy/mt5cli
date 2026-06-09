@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -135,14 +136,17 @@ def _require_non_empty_identifier(identifier: str, kind: str) -> str:
 
 
 def _open_history_connection(
-    conn_or_path: SqliteConnOrPath,
+    conn_or_path: SqliteConnOrPath | None,
 ) -> tuple[sqlite3.Connection | None, bool]:
     """Open a read-only SQLite connection when given a path.
 
     Returns:
-        A connection and whether the caller should close it. When the path does
-        not exist, returns ``(None, False)`` without creating a database file.
+        A connection and whether the caller should close it. When ``conn_or_path``
+        is None or the path does not exist, returns ``(None, False)`` without
+        creating a database file.
     """
+    if conn_or_path is None:
+        return None, False
     if isinstance(conn_or_path, sqlite3.Connection):
         return conn_or_path, False
     path = Path(conn_or_path)
@@ -376,7 +380,7 @@ def _resolve_rate_view_name_from_context(
 
 
 def resolve_rate_view_name(
-    conn_or_path: SqliteConnOrPath,
+    conn_or_path: SqliteConnOrPath | None,
     symbol: str,
     granularity: str,
     *,
@@ -385,7 +389,9 @@ def resolve_rate_view_name(
     """Resolve the mt5cli-managed rate compatibility view name.
 
     Args:
-        conn_or_path: SQLite database path or open connection.
+        conn_or_path: SQLite database path or open connection. When None or a
+            non-existing path and ``require_existing`` is False, the deterministic
+            default view name is returned without creating a database file.
         symbol: Symbol stored in the normalized ``rates`` table.
         granularity: Timeframe name (for example ``M1``) or integer string.
         require_existing: When True, require the database and a managed view to exist.
@@ -429,7 +435,7 @@ def resolve_rate_view_name(
 
 
 def resolve_rate_view_names(
-    conn_or_path: SqliteConnOrPath,
+    conn_or_path: SqliteConnOrPath | None,
     symbols: Sequence[str],
     granularities: Sequence[str],
     *,
@@ -438,7 +444,9 @@ def resolve_rate_view_names(
     """Resolve rate compatibility view names for symbol and granularity pairs.
 
     Args:
-        conn_or_path: SQLite database path or open connection.
+        conn_or_path: SQLite database path or open connection. When None or a
+            non-existing path and ``require_existing`` is False, deterministic
+            default view names are returned without creating a database file.
         symbols: Symbols stored in the normalized ``rates`` table.
         granularities: Timeframe names (for example ``M1``) or integer strings.
         require_existing: When True, require the database and managed views to exist.
@@ -479,6 +487,158 @@ def resolve_rate_view_names(
         return resolved
     finally:
         if should_close and conn is not None:
+            conn.close()
+
+
+@dataclass(frozen=True)
+class RateTarget:
+    """A single rate series identified by symbol and timeframe.
+
+    Attributes:
+        symbol: MT5 symbol name, or None when the rate series is addressed only
+            by an explicit table (for example a custom SQLite view).
+        timeframe: MT5 timeframe as an integer or name (for example ``M1``).
+    """
+
+    symbol: str | None
+    timeframe: int | str
+
+    @property
+    def timeframe_int(self) -> int:
+        """Return the timeframe as its integer MT5 value."""
+        if isinstance(self.timeframe, int):
+            return self.timeframe
+        return parse_timeframe(self.timeframe)
+
+
+def build_rate_targets(
+    symbols: Sequence[str],
+    timeframes: Sequence[int | str],
+    *,
+    allow_missing_symbol: bool = False,
+) -> list[RateTarget]:
+    """Build rate targets for every symbol and timeframe combination.
+
+    Args:
+        symbols: MT5 symbol names. May be empty when ``allow_missing_symbol``.
+        timeframes: MT5 timeframes as integers or names (for example ``M1``).
+        allow_missing_symbol: When True and ``symbols`` is empty, build targets
+            with ``symbol=None`` for each timeframe instead of raising.
+
+    Returns:
+        Targets in row-major order: every timeframe for the first symbol, then
+        every timeframe for the next symbol, and so on.
+
+    Raises:
+        ValueError: If ``timeframes`` is empty, or ``symbols`` is empty and
+            ``allow_missing_symbol`` is False.
+    """
+    if not timeframes:
+        msg = "At least one timeframe is required."
+        raise ValueError(msg)
+    if not symbols:
+        if not allow_missing_symbol:
+            msg = "At least one symbol is required."
+            raise ValueError(msg)
+        return [RateTarget(symbol=None, timeframe=tf) for tf in timeframes]
+    return [
+        RateTarget(symbol=symbol, timeframe=tf)
+        for symbol in symbols
+        for tf in timeframes
+    ]
+
+
+def resolve_rate_tables(
+    conn_or_path: SqliteConnOrPath | None,
+    targets: Sequence[RateTarget],
+    explicit_tables: Sequence[str] | None = None,
+) -> list[str]:
+    """Resolve SQLite table or view names for rate targets.
+
+    Args:
+        conn_or_path: SQLite database path or open connection. May be None when
+            ``explicit_tables`` is provided.
+        targets: Rate targets to resolve.
+        explicit_tables: Optional explicit table or view names. When provided,
+            they are used as-is and must match the number of targets.
+
+    Returns:
+        Table or view names aligned with ``targets``.
+
+    Raises:
+        ValueError: If ``targets`` is empty, ``explicit_tables`` length does not
+            match the target count, or a target without a symbol is resolved
+            without an explicit table.
+    """
+    target_list = list(targets)
+    if not target_list:
+        msg = "At least one rate target is required."
+        raise ValueError(msg)
+    if explicit_tables is not None:
+        tables = list(explicit_tables)
+        if len(tables) != len(target_list):
+            msg = (
+                f"Expected {len(target_list)} explicit table(s) "
+                f"to match the targets, got {len(tables)}."
+            )
+            raise ValueError(msg)
+        return tables
+    resolved: list[str] = []
+    for target in target_list:
+        if target.symbol is None:
+            msg = (
+                "Cannot resolve a rate table for a target without a symbol; "
+                "provide explicit_tables."
+            )
+            raise ValueError(msg)
+        resolved.append(
+            resolve_rate_view_name(
+                conn_or_path,
+                target.symbol,
+                str(target.timeframe),
+            ),
+        )
+    return resolved
+
+
+def load_rate_series_from_sqlite(
+    conn_or_path: SqliteConnOrPath,
+    targets: Sequence[RateTarget],
+    count: int,
+    explicit_tables: Sequence[str] | None = None,
+) -> dict[tuple[str | None, int], pd.DataFrame]:
+    """Load multiple rate series from a SQLite database.
+
+    Args:
+        conn_or_path: SQLite database path or open connection.
+        targets: Rate targets to load.
+        count: Number of most recent rows to load per series.
+        explicit_tables: Optional explicit table or view names matching targets.
+
+    Returns:
+        Mapping keyed by ``(symbol, timeframe_int)`` to each rate DataFrame.
+
+    Raises:
+        ValueError: If ``count`` is not positive, targets are empty, or table
+            resolution fails.
+    """
+    if count <= 0:
+        msg = "count must be positive."
+        raise ValueError(msg)
+    target_list = list(targets)
+    tables = resolve_rate_tables(conn_or_path, target_list, explicit_tables)
+    conn, should_close = _open_existing_sqlite_database(conn_or_path)
+    try:
+        return {
+            (target.symbol, target.timeframe_int): load_rate_data_from_connection(
+                conn,
+                table,
+                count=count,
+            )
+            for target, table in zip(target_list, tables, strict=True)
+        }
+    finally:
+        if should_close:
             conn.close()
 
 

@@ -183,3 +183,27 @@ rates = load_rate_data(Path("history.db"), view, count=1000)
 The loader accepts close-based OHLC rate data or tick-like bid/ask data. It
 validates that `time` exists, parses timestamps with pandas, and returns a
 DataFrame indexed by ascending `DatetimeIndex` named `time`.
+
+### Multi-series rate loading
+
+For loading many rate series at once, build neutral `RateTarget` pairs and load
+them from SQLite in one call. View names are resolved via the same
+compatibility-view rules, or you can pass `explicit_tables` to bypass resolution:
+
+```python
+from pathlib import Path
+
+from mt5cli import build_rate_targets, load_rate_series_from_sqlite
+
+targets = build_rate_targets(["EURUSD", "GBPUSD"], ["M1", "H1"])
+series = load_rate_series_from_sqlite(Path("history.db"), targets, count=1000)
+frame = series["EURUSD", 1]  # keyed by (symbol, timeframe_int)
+```
+
+- `build_rate_targets()` returns `RateTarget(symbol, timeframe)` pairs in
+  row-major order; set `allow_missing_symbol=True` to address series solely by
+  `explicit_tables` (targets carry `symbol=None`).
+- `resolve_rate_tables()` maps targets to table or view names and validates that
+  any `explicit_tables` count matches the target count.
+- `load_rate_series_from_sqlite()` returns a mapping keyed by
+  `(symbol, timeframe_int)`.

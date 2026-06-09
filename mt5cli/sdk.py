@@ -40,11 +40,13 @@ T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "AccountSpec",
     "Mt5CliClient",
     "account_info",
     "build_config",
     "collect_history",
     "collect_latest_rates",
+    "collect_latest_rates_for_accounts",
     "copy_rates_from",
     "copy_rates_from_pos",
     "copy_rates_range",
@@ -56,6 +58,7 @@ __all__ = [
     "latest_rates",
     "market_book",
     "minimum_margins",
+    "mt5_session",
     "mt5_summary",
     "mt5_summary_as_df",
     "orders",
@@ -275,6 +278,26 @@ def _run_with_client(
     """
     with _connected_client(config) as client:
         return fetch_fn(client)
+
+
+@contextmanager
+def mt5_session(config: Mt5Config | None = None) -> Iterator[Mt5CliClient]:
+    """Open an MT5 terminal session and yield a connected client.
+
+    Launches the MetaTrader 5 terminal using ``Mt5Config.path`` (when set),
+    logs in, yields a connected :class:`Mt5CliClient`, and always shuts the
+    terminal down on exit.
+
+    Args:
+        config: MT5 connection configuration. Defaults to an empty config that
+            attaches to a running terminal.
+
+    Yields:
+        Connected ``Mt5CliClient`` bound to the session.
+    """
+    mt5_config = config or build_config()
+    with _connected_client(mt5_config) as client:
+        yield Mt5CliClient.from_connected_client(client)
 
 
 class Mt5CliClient:
@@ -1073,6 +1096,120 @@ def collect_latest_rates(
         count=count,
         start_pos=start_pos,
     )
+
+
+@dataclass(frozen=True)
+class AccountSpec:
+    """Connection parameters and symbols for one MT5 account group.
+
+    Attributes:
+        symbols: Symbols to load latest rates for under this account.
+        login: Trading account login. String values are coerced to int when
+            non-empty.
+        password: Trading account password.
+        server: Trading server name.
+        path: Path to the MetaTrader5 terminal EXE file.
+        timeout: Connection timeout in milliseconds.
+    """
+
+    symbols: Sequence[str]
+    login: int | str | None = None
+    password: str | None = None
+    server: str | None = None
+    path: str | None = None
+    timeout: int | None = None
+
+
+def _coerce_login(login: int | str | None) -> int | None:
+    """Coerce a login value to int, treating empty strings as unset.
+
+    Returns:
+        Integer login, or None when unset or an empty string.
+    """
+    if login is None or isinstance(login, int):
+        return login
+    text = login.strip()
+    if not text:
+        return None
+    return int(text)
+
+
+def _build_account_config(
+    account: AccountSpec,
+    base_config: Mt5Config | None,
+) -> Mt5Config:
+    """Build an ``Mt5Config`` for an account, falling back to ``base_config``.
+
+    Returns:
+        Merged MT5 configuration for the account.
+    """
+    login = _coerce_login(account.login)
+    if login is None and base_config is not None:
+        login = base_config.login
+    return build_config(
+        path=account.path or (base_config.path if base_config else None),
+        login=login,
+        password=account.password or (base_config.password if base_config else None),
+        server=account.server or (base_config.server if base_config else None),
+        timeout=account.timeout
+        if account.timeout is not None
+        else (base_config.timeout if base_config else None),
+    )
+
+
+def collect_latest_rates_for_accounts(
+    accounts: Sequence[AccountSpec],
+    timeframes: Sequence[int | str],
+    count: int,
+    *,
+    start_pos: int = 0,
+    base_config: Mt5Config | None = None,
+) -> dict[tuple[str, int], pd.DataFrame]:
+    """Collect latest rates across multiple MT5 account groups.
+
+    Each account is connected in turn, its symbols are read for every
+    timeframe, and the resulting frames are merged into a single mapping.
+
+    Args:
+        accounts: Account groups to read. Each must define at least one symbol.
+        timeframes: MT5 timeframes as integers or names (for example ``M1``).
+        count: Number of most recent bars to read per symbol/timeframe.
+        start_pos: Initial bar position offset.
+        base_config: Optional base configuration whose fields fill any value not
+            set on an individual account.
+
+    Returns:
+        Mapping keyed by ``(symbol, timeframe_int)``. When accounts share a
+        symbol/timeframe pair, the last account processed wins.
+
+    Raises:
+        ValueError: If ``accounts``, ``timeframes``, or any account's symbols are
+            empty, or ``count`` is not positive.
+    """
+    account_list = list(accounts)
+    if not account_list:
+        msg = "At least one account is required."
+        raise ValueError(msg)
+    if not timeframes:
+        msg = "At least one timeframe is required."
+        raise ValueError(msg)
+    _require_positive(count, "count")
+    result: dict[tuple[str, int], pd.DataFrame] = {}
+    for account in account_list:
+        if not account.symbols:
+            msg = "Each account requires at least one symbol."
+            raise ValueError(msg)
+        config = _build_account_config(account, base_config)
+        with Mt5CliClient(config=config) as client:
+            result.update(
+                client.collect_latest_rates(
+                    account.symbols,
+                    timeframes,
+                    count=count,
+                    start_pos=start_pos,
+                ),
+            )
+    return result
 
 
 def copy_rates_range(
