@@ -51,7 +51,7 @@ rates = copy_rates_range(
 export_dataframe(rates, Path("rates.csv"), "csv")
 
 # Resolve SQLite rate compatibility views for downstream tools
-view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1")
+view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1", require_existing=True)
 offline_rates = load_rate_data(Path("history.db"), view, count=1000)
 
 # Recent tick window and minimum margin summary

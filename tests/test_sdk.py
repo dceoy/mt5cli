@@ -269,12 +269,16 @@ class TestConnectionLifecycle:
         """Test injected connected clients are not initialized or shut down."""
         connected = MagicMock()
         connected.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
+        connected.terminal_info_as_df.return_value = pd.DataFrame({"b": [2]})
         with Mt5CliClient.from_connected_client(connected) as client:
             result = client.account_info()
         assert result.to_dict("list") == {"a": [1]}
         connected.initialize_and_login_mt5.assert_not_called()
         connected.shutdown.assert_not_called()
         connected.account_info_as_df.assert_called_once()
+        after_exit = client.terminal_info()
+        assert after_exit.to_dict("list") == {"b": [2]}
+        connected.terminal_info_as_df.assert_called_once()
 
     def test_constructor_injected_client_is_reused_and_not_shutdown(self) -> None:
         """Test constructor injection has the same non-owning lifecycle."""
@@ -505,6 +509,18 @@ class TestMt5CliClient:
             ticket=None,
             position=None,
         )
+
+    def test_recent_history_deals_defaults_date_to_now(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test recent_history_deals uses current UTC time when date_to is omitted."""
+        before = datetime.now(UTC)
+        recent_history_deals(1.0)
+        after = datetime.now(UTC)
+        call_kwargs = mock_client.history_deals_get_as_df.call_args.kwargs
+        assert before <= call_kwargs["date_to"] <= after
+        assert call_kwargs["date_from"] == call_kwargs["date_to"] - timedelta(hours=1)
 
     def test_recent_history_deals_rejects_non_positive_hours(self) -> None:
         """Test recent_history_deals validates hours."""

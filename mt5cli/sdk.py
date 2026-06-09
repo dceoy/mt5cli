@@ -345,7 +345,7 @@ class Mt5CliClient:
             client.shutdown()
             raise
         self._client = client
-        self._owns_client = True
+        self._owns_client = True  # only set when this method created the client
         return self
 
     def __exit__(

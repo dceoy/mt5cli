@@ -200,11 +200,11 @@ def _ensure_rate_columns(columns: set[str], table: str) -> None:
 
 
 def _parse_rate_time_index(frame: pd.DataFrame, table: str) -> pd.DataFrame:
-    parsed = pd.to_datetime(frame["time"], errors="coerce")
+    parsed = frame["time"].map(parse_sqlite_timestamp)
     if parsed.isna().any():
         msg = f"SQLite table or view {table!r} contains unparsable time values."
         raise ValueError(msg)
-    result = frame.drop(columns=["time"]).copy()
+    result = frame.drop(columns=["time"])
     result.index = pd.DatetimeIndex(parsed, name="time")
     return result.sort_index(kind="stable")
 
@@ -225,7 +225,8 @@ def load_rate_data_from_connection(
         DataFrame indexed by ascending ``time``.
 
     Raises:
-        ValueError: If inputs, schema, or timestamps are invalid.
+        ValueError: If inputs, schema, timestamps are invalid, or the table
+            or view contains no rows.
     """
     table_name = _validate_rate_load_request(table, count)
     columns = get_table_columns(connection, table_name)

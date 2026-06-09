@@ -467,6 +467,19 @@ class TestLoadRateData:
             with pytest.raises(ValueError, match="unparsable time"):
                 load_rate_data_from_connection(conn, "rates")
 
+    def test_loads_numeric_mt5_epoch_seconds(self, tmp_path: Path) -> None:
+        """Test MT5-native integer timestamps are parsed as epoch seconds."""
+        db_path = tmp_path / "epoch-rates.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE rates(time INTEGER, close REAL)")
+            conn.execute(
+                "INSERT INTO rates(time, close) VALUES (?, ?)",
+                (1_704_067_200, 1.0),
+            )
+            frame = load_rate_data_from_connection(conn, "rates")
+        assert frame.index[0] == pd.Timestamp("2024-01-01", tz="UTC")
+        assert list(frame["close"]) == [1.0]
+
 
 class TestResolveHistorySettings:
     """Tests for history dataset and timeframe resolution."""
