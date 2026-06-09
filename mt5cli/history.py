@@ -997,8 +997,7 @@ class DedupScope:
         where: SQL predicate appended to the duplicate-removal query.
         params: Parameters bound to the scope predicate.
         required_columns: Columns that must be present in the written table for
-            the scope to run. An empty set means the scope is always active,
-            which preserves legacy tuple-scope behavior.
+            the scope to run.
     """
 
     where: str
@@ -1018,33 +1017,11 @@ def _record_dedup_scope(
     )
 
 
-def _normalize_dedup_scope(
-    scope: DedupScope | tuple[str, tuple[object, ...]],
-) -> DedupScope:
-    """Normalize legacy tuple scopes to the column-aware scope model.
-
-    Legacy tuple scopes do not carry column requirements, so they are converted
-    with an empty ``required_columns`` set and are never filtered out by written
-    table columns.
-
-    Returns:
-        Column-aware deduplication scope.
-    """
-    if isinstance(scope, DedupScope):
-        return scope
-    scope_where, scope_params = scope
-    return DedupScope(scope_where, scope_params, frozenset())
-
-
 def deduplicate_history_tables(
     conn: sqlite3.Connection,
     written_columns: dict[Dataset, set[str]],
     written_tables: set[Dataset],
-    dedup_scopes: Mapping[
-        Dataset,
-        Sequence[DedupScope | tuple[str, tuple[object, ...]]],
-    ]
-    | None = None,
+    dedup_scopes: Mapping[Dataset, Sequence[DedupScope]] | None = None,
 ) -> None:
     """Deduplicate appended history tables by stable identifiers.
 
@@ -1070,14 +1047,10 @@ def deduplicate_history_tables(
                 table,
             )
             continue
-        raw_scopes: Sequence[DedupScope | tuple[str, tuple[object, ...]]] = (
+        raw_scopes: Sequence[DedupScope] = (
             dedup_scopes.get(dataset, ()) if dedup_scopes else ()
         )
-        scopes = [
-            scope
-            for raw_scope in raw_scopes
-            if (scope := _normalize_dedup_scope(raw_scope)).required_columns <= columns
-        ]
+        scopes = [scope for scope in raw_scopes if scope.required_columns <= columns]
         if scopes:
             for scope in scopes:
                 drop_duplicates_in_table(

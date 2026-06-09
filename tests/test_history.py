@@ -888,9 +888,10 @@ class TestDeduplication:
                 {Dataset.rates},
                 {
                     Dataset.rates: [
-                        (
+                        DedupScope(
                             "symbol = ? AND timeframe = ? AND time >= ?",
                             ("EURUSD", 1, boundary),
+                            frozenset({"symbol", "timeframe", "time"}),
                         ),
                     ],
                 },
