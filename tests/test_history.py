@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 from mt5cli import history
 from mt5cli.history import (
     DEFAULT_HISTORY_TIMEFRAMES,
+    DedupScope,
     RateTarget,
     append_dataframe,
     augment_written_columns_from_sqlite,
@@ -902,6 +903,41 @@ class TestDeduplication:
             ("2024-01-02T00:00:00+00:00", 9.9),
         ]
 
+    def test_unusable_scope_falls_back_to_table_dedup(self, tmp_path: Path) -> None:
+        """Test scopes with missing columns do not break stable-key dedup."""
+        boundary = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "orders-without-time.db") as conn:
+            conn.execute(
+                "CREATE TABLE history_orders("
+                " ticket INTEGER, symbol TEXT, time_setup TEXT, type INTEGER)",
+            )
+            conn.executemany(
+                "INSERT INTO history_orders(ticket, symbol, time_setup, type)"
+                " VALUES (?, ?, ?, ?)",
+                [
+                    (1, "EURUSD", "2024-01-01T00:00:00+00:00", 0),
+                    (1, "EURUSD", "2024-01-01T00:00:01+00:00", 1),
+                ],
+            )
+            deduplicate_history_tables(
+                conn,
+                {Dataset.history_orders: {"ticket", "symbol", "time_setup", "type"}},
+                {Dataset.history_orders},
+                {
+                    Dataset.history_orders: [
+                        DedupScope(
+                            "symbol = ? AND time >= ?",
+                            ("EURUSD", boundary),
+                            frozenset({"symbol", "time"}),
+                        ),
+                    ],
+                },
+            )
+            rows = conn.execute(
+                "SELECT ticket, time_setup, type FROM history_orders",
+            ).fetchall()
+        assert rows == [(1, "2024-01-01T00:00:01+00:00", 1)]
+
 
 class TestRateCompatibilityViews:
     """Tests for rate compatibility view creation."""
@@ -1361,6 +1397,54 @@ class TestIncrementalIntegration:
             "rate_EURUSD__H1_16385",
             "rate_EURUSD_M1__1",
         }
+
+    def test_incremental_orders_without_time_deduplicate_by_ticket(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test incremental history_orders without time deduplicate safely."""
+
+        def history_orders_get_as_df(**kwargs: object) -> pd.DataFrame:
+            if kwargs["symbol"] == "GBPUSD":
+                return pd.DataFrame()
+            return pd.DataFrame({
+                "ticket": [1, 1],
+                "symbol": ["EURUSD", "EURUSD"],
+                "time_setup": [
+                    "2024-01-01T00:00:00+00:00",
+                    "2024-01-01T00:00:01+00:00",
+                ],
+                "type": [0, 1],
+            })
+
+        client = MagicMock()
+        client.history_orders_get_as_df.side_effect = history_orders_get_as_df
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        with (
+            sqlite3.connect(tmp_path / "incremental-orders-without-time.db") as conn,
+            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
+        ):
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD", "GBPUSD"],
+                {Dataset.history_orders},
+                [],
+                0,
+                start,
+                end,
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=False,
+            )
+            rows = conn.execute(
+                "SELECT ticket, time_setup, type FROM history_orders",
+            ).fetchall()
+        assert rows == [(1, "2024-01-01T00:00:01+00:00", 1)]
+        assert "Skipping history_orders: dataset returned no columns" in caplog.text
 
     def test_write_collected_datasets_and_edge_branches(
         self,
