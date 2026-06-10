@@ -133,6 +133,12 @@ def _require_positive(value: float, name: str) -> None:
         raise ValueError(msg)
 
 
+def _require_non_negative(value: int, name: str) -> None:
+    if value < 0:
+        msg = f"{name} must be non-negative."
+        raise ValueError(msg)
+
+
 def _call_required_client_method(client: Mt5DataClient, name: str) -> object:
     try:
         method = getattr(client, name)
@@ -1574,9 +1580,11 @@ def collect_latest_closed_rates_for_accounts(
         Mapping keyed by ``(symbol, timeframe_int)``.
 
     Raises:
-        ValueError: If inputs are invalid, or any series is empty after dropping
-            the still-forming bar.
+        ValueError: If inputs are invalid, or any series is empty (after
+            dropping the still-forming bar when ``start_pos`` is ``0``).
     """
+    _require_positive(count, "count")
+    _require_non_negative(start_pos, "start_pos")
     fetch_count = count + 1 if start_pos == 0 else count
     loaded = collect_latest_rates_for_accounts_with_retries(
         accounts,
@@ -1589,7 +1597,7 @@ def collect_latest_closed_rates_for_accounts(
     )
     result: dict[tuple[str, int], pd.DataFrame] = {}
     for key, df_rate in loaded.items():
-        closed = drop_forming_rate_bar(df_rate) if start_pos == 0 else df_rate.copy()
+        closed = drop_forming_rate_bar(df_rate) if start_pos == 0 else df_rate
         if closed.empty:
             msg = "Rate data is empty."
             raise ValueError(msg)

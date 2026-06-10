@@ -1605,6 +1605,88 @@ class TestCollectLatestClosedRatesForAccounts:
         )
         pd.testing.assert_frame_equal(result["EURUSD", 1], df_rate)
 
+    def test_rejects_zero_count_before_fetching(self, mocker: MockerFixture) -> None:
+        """Test count=0 is rejected before any MT5 collection attempt."""
+        wrapped = mocker.patch(
+            "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
+        )
+
+        with pytest.raises(ValueError, match="count must be positive"):
+            collect_latest_closed_rates_for_accounts(
+                [AccountSpec(symbols=["EURUSD"])],
+                ["M1"],
+                count=0,
+            )
+
+        wrapped.assert_not_called()
+
+    def test_rejects_negative_start_pos(self, mocker: MockerFixture) -> None:
+        """Test negative start_pos is rejected before any MT5 collection attempt."""
+        wrapped = mocker.patch(
+            "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
+        )
+
+        with pytest.raises(ValueError, match="start_pos must be non-negative"):
+            collect_latest_closed_rates_for_accounts(
+                [AccountSpec(symbols=["EURUSD"])],
+                ["M1"],
+                count=1,
+                start_pos=-1,
+            )
+
+        wrapped.assert_not_called()
+
+    def test_rejects_empty_frames_with_start_pos_nonzero(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test empty upstream frames raise ValueError when start_pos > 0."""
+        mocker.patch(
+            "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
+            return_value={("EURUSD", 1): pd.DataFrame(columns=["time", "close"])},
+        )
+
+        with pytest.raises(ValueError, match="Rate data is empty"):
+            collect_latest_closed_rates_for_accounts(
+                [AccountSpec(symbols=["EURUSD"])],
+                ["M1"],
+                count=1,
+                start_pos=1,
+            )
+
+    def test_processes_multiple_symbol_timeframe_pairs(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test each returned series is trimmed and validated independently."""
+        mocker.patch(
+            "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
+            return_value={
+                ("EURUSD", 1): pd.DataFrame(
+                    {"time": [1, 2, 3], "close": [1.1, 1.2, 1.3]},
+                ),
+                ("GBPUSD", 16385): pd.DataFrame(
+                    {"time": [4, 5, 6], "close": [2.1, 2.2, 2.3]},
+                ),
+            },
+        )
+
+        result = collect_latest_closed_rates_for_accounts(
+            [AccountSpec(symbols=["EURUSD", "GBPUSD"])],
+            ["M1", "H1"],
+            count=2,
+        )
+
+        assert set(result) == {("EURUSD", 1), ("GBPUSD", 16385)}
+        pd.testing.assert_frame_equal(
+            result["EURUSD", 1],
+            pd.DataFrame({"time": [1, 2], "close": [1.1, 1.2]}),
+        )
+        pd.testing.assert_frame_equal(
+            result["GBPUSD", 16385],
+            pd.DataFrame({"time": [4, 5], "close": [2.1, 2.2]}),
+        )
+
 
 class TestCollectLatestClosedRatesByGranularity:
     """Tests for collect_latest_closed_rates_by_granularity."""
