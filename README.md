@@ -137,6 +137,20 @@ update_history_with_config(
 - **Rate view loading**: use `load_rate_data()` / `load_rate_data_from_connection()` to load a SQLite rate table or view into a `DatetimeIndex` DataFrame.
 - **Multi-series rate loading**: use `build_rate_targets()` to build neutral `RateTarget(symbol, timeframe)` pairs, `resolve_rate_tables()` to map them to table/view names (pass `require_existing=True` for strict resolution), and `load_rate_series_from_sqlite()` to load them into a mapping keyed by `(symbol, integer timeframe)`. The loader requires existing managed views unless `explicit_tables` is supplied, and rejects duplicate `(symbol, timeframe)` targets.
 - **Multi-account latest rates**: use `collect_latest_rates_for_accounts()` with `AccountSpec` to read the latest bars for several account groups, merged into a `(symbol, integer timeframe)` mapping. For long-running pollers, `collect_latest_rates_for_accounts_with_retries()` adds bounded exponential backoff that retries only `pdmt5.Mt5TradingError` / `pdmt5.Mt5RuntimeError` and re-raises once `retry_count` is exhausted.
+- **Latest closed bars**: use `collect_latest_closed_rates_for_accounts()` when downstream logic must exclude the still-forming current bar. It fetches `count + 1` bars at `start_pos=0`, drops the last row with `drop_forming_rate_bar()`, and validates each series is non-empty. `collect_latest_closed_rates_by_granularity()` returns the same data keyed by `(symbol, granularity_name)` such as `("EURUSD", "M1")`.
+
+```python
+from mt5cli import AccountSpec, collect_latest_closed_rates_by_granularity
+
+rates = collect_latest_closed_rates_by_granularity(
+    [AccountSpec(symbols=["EURUSD", "GBPUSD"], login=12345)],
+    ["M1", "H1"],
+    count=500,
+    retry_count=3,
+)
+eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
+```
+
 - **Credential resolution**: use `resolve_account_spec()` / `resolve_account_specs()` to merge explicit override values over `AccountSpec` fields and expand `${ENV_VAR}` placeholders (via `substitute_env_placeholders()`), raising `ValueError` for missing variables. This keeps secrets out of plan/config files without coupling to any strategy code.
 - **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`/`sqlite3.Error` and let the caller decide logging.
 - **Granularity-keyed rate loading**: `load_rate_series_by_granularity()` builds targets with `build_rate_targets()`, loads them with `load_rate_series_from_sqlite()`, and returns a mapping keyed by `(symbol | None, granularity_name)` such as `("EURUSD", "M1")` to reduce downstream boilerplate.
