@@ -1599,7 +1599,8 @@ def collect_latest_closed_rates_for_accounts(
     for key, df_rate in loaded.items():
         closed = drop_forming_rate_bar(df_rate) if start_pos == 0 else df_rate
         if closed.empty:
-            msg = "Rate data is empty."
+            symbol, timeframe = key
+            msg = f"Rate data is empty for {symbol!r} at timeframe {timeframe}."
             raise ValueError(msg)
         result[key] = closed
     return result
