@@ -126,6 +126,24 @@ class TestCalculateMarginAndVolume:
         client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "BUY")
         client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "SELL")
 
+    def test_clamps_negative_margin_free_to_zero(self) -> None:
+        """Test negative margin_free is clamped to zero before sizing."""
+        client = MagicMock()
+        client.account_info_as_dict.return_value = {"margin_free": -500.0}
+        client.calculate_volume_by_margin.return_value = 0.0
+
+        result = calculate_margin_and_volume(
+            client,
+            "EURUSD",
+            unit_margin_ratio=0.5,
+            preserved_margin_ratio=0.2,
+        )
+
+        expected_margin_free = 0.0
+        assert result["margin_free"] == expected_margin_free
+        client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "BUY")
+        client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "SELL")
+
     @pytest.mark.parametrize(
         ("unit_ratio", "preserved_ratio"),
         [
@@ -248,13 +266,39 @@ class TestDetermineOrderLimits:
         take_profit_ratio: float,
     ) -> None:
         """Test out-of-range protective ratios raise ValueError."""
-        with pytest.raises(ValueError, match="must be between 0 and 1"):
+        with pytest.raises(ValueError, match="must be at least 0 and less than 1"):
             determine_order_limits(
                 MagicMock(),
                 "EURUSD",
                 "long",
                 stop_loss_limit_ratio=stop_loss_ratio,
                 take_profit_limit_ratio=take_profit_ratio,
+            )
+
+    @pytest.mark.parametrize(
+        ("field", "ratio"),
+        [
+            ("stop_loss_limit_ratio", 1.0),
+            ("take_profit_limit_ratio", 1.0),
+        ],
+    )
+    def test_rejects_unit_boundary_protective_ratios(
+        self,
+        field: str,
+        ratio: float,
+    ) -> None:
+        """Test protective ratios of exactly 1.0 are rejected."""
+        kwargs = {
+            "stop_loss_limit_ratio": 0.01,
+            "take_profit_limit_ratio": 0.01,
+            field: ratio,
+        }
+        with pytest.raises(ValueError, match="must be at least 0 and less than 1"):
+            determine_order_limits(
+                MagicMock(),
+                "EURUSD",
+                "long",
+                **kwargs,
             )
 
 

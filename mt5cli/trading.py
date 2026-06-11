@@ -33,6 +33,12 @@ def _require_unit_ratio(value: float, name: str) -> None:
         raise ValueError(msg)
 
 
+def _require_protective_ratio(value: float, name: str) -> None:
+    if not 0.0 <= value < 1.0:
+        msg = f"{name} must be at least 0 and less than 1."
+        raise ValueError(msg)
+
+
 def _sum_position_volume(positions: pd.DataFrame, position_type: object) -> float:
     matched = positions.loc[positions["type"] == position_type, "volume"]
     if matched.empty:
@@ -103,13 +109,14 @@ def calculate_margin_and_volume(
 
     Returns:
         Dictionary with ``margin_free``, ``available_margin``, ``trade_margin``,
-        ``buy_volume``, and ``sell_volume``.
+        ``buy_volume``, and ``sell_volume``. Negative ``margin_free`` values are
+        clamped to ``0.0`` before sizing.
     """
     _require_unit_ratio(unit_margin_ratio, "unit_margin_ratio")
     _require_unit_ratio(preserved_margin_ratio, "preserved_margin_ratio")
 
     account = client.account_info_as_dict()
-    margin_free = float(account.get("margin_free") or 0.0)
+    margin_free = max(0.0, float(account.get("margin_free") or 0.0))
     available_margin = margin_free * (1.0 - preserved_margin_ratio)
     trade_margin = available_margin * unit_margin_ratio
     buy_volume = client.calculate_volume_by_margin(symbol, trade_margin, "BUY")
@@ -138,16 +145,16 @@ def determine_order_limits(
         side: Position side as ``"long"``/``"short"`` (``"buy"``/``"sell"``
             aliases are accepted).
         stop_loss_limit_ratio: Relative distance from entry for stop loss in
-            ``[0, 1]``. A value of ``0`` omits the stop loss.
+            ``[0, 1)``. A value of ``0`` omits the stop loss.
         take_profit_limit_ratio: Relative distance from entry for take profit in
-            ``[0, 1]``. A value of ``0`` omits the take profit.
+            ``[0, 1)``. A value of ``0`` omits the take profit.
 
     Returns:
         Dictionary with ``entry``, ``stop_loss``, and ``take_profit`` keys.
         Omitted protective levels are returned as ``None``.
     """
-    _require_unit_ratio(stop_loss_limit_ratio, "stop_loss_limit_ratio")
-    _require_unit_ratio(take_profit_limit_ratio, "take_profit_limit_ratio")
+    _require_protective_ratio(stop_loss_limit_ratio, "stop_loss_limit_ratio")
+    _require_protective_ratio(take_profit_limit_ratio, "take_profit_limit_ratio")
     normalized_side = _normalize_order_side(side)
     tick = client.symbol_info_tick_as_dict(symbol=symbol)
     entry = float(tick["ask"] if normalized_side == "long" else tick["bid"])
