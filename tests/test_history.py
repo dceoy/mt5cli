@@ -30,6 +30,7 @@ from mt5cli.history import (
     create_rate_compatibility_views,
     deduplicate_history_tables,
     drop_duplicates_in_table,
+    drop_forming_rate_bar,
     filter_incremental_history_deals_frame,
     filter_trade_history_frame,
     get_history_deals_account_event_start_datetime,
@@ -532,6 +533,46 @@ class TestResolveHistorySettings:
         """Test unknown timeframe constants fall back to integer text."""
         assert resolve_granularity_name(999) == "999"
         assert resolve_granularity_name(1) == "M1"
+
+
+class TestDropFormingRateBar:
+    """Tests for drop_forming_rate_bar."""
+
+    def test_drops_still_forming_last_bar(self) -> None:
+        """Test the still-forming last bar is removed."""
+        df_rate = pd.DataFrame(
+            {"time": [1, 2, 3], "close": [1.1, 1.2, 1.3]},
+            index=pd.Index(["a", "b", "c"], name="idx"),
+        )
+
+        result = drop_forming_rate_bar(df_rate)
+
+        pd.testing.assert_frame_equal(
+            result,
+            pd.DataFrame(
+                {"time": [1, 2], "close": [1.1, 1.2]},
+                index=pd.Index(["a", "b"], name="idx"),
+            ),
+        )
+        assert df_rate.shape == (3, 2)
+
+    def test_returns_empty_frame_when_input_empty(self) -> None:
+        """Test empty frames stay empty."""
+        df_rate = pd.DataFrame(columns=["time", "close"])
+
+        result = drop_forming_rate_bar(df_rate)
+
+        assert result.empty
+        assert list(result.columns) == ["time", "close"]
+
+    def test_returns_empty_frame_when_only_forming_bar_present(self) -> None:
+        """Test a single-bar frame becomes empty after dropping the forming bar."""
+        df_rate = pd.DataFrame({"time": [1], "close": [1.1]})
+
+        result = drop_forming_rate_bar(df_rate)
+
+        assert result.empty
+        assert list(result.columns) == ["time", "close"]
 
 
 class TestParseSqliteTimestamp:

@@ -106,6 +106,23 @@ def resolve_granularity_name(timeframe: int) -> str:
     return str(timeframe)
 
 
+def drop_forming_rate_bar(df_rate: pd.DataFrame) -> pd.DataFrame:
+    """Return closed bars from chronologically ordered MT5 rate data.
+
+    MetaTrader 5 ``copy_rates_from_pos(start_pos=0)`` includes the still-forming
+    current bar as the last row. Slice it off so downstream logic only sees
+    completed bars. Empty frames and single-row frames return empty results.
+
+    Args:
+        df_rate: Rate data ordered oldest-to-newest with the forming bar last.
+
+    Returns:
+        A new DataFrame with all rows except the last. Index and columns are
+        preserved. The input frame is not modified.
+    """
+    return df_rate.iloc[:-1].copy()
+
+
 def build_rate_view_name(
     *,
     symbol: str,

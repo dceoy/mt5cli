@@ -22,6 +22,8 @@ from .history import (
     create_cash_events_view,
     create_history_indexes,
     create_positions_reconstructed_view,
+    drop_forming_rate_bar,
+    resolve_granularity_name,
     resolve_history_datasets,
     resolve_history_tick_flags,
     resolve_history_timeframes,
@@ -104,6 +106,8 @@ __all__ = [
     "account_info",
     "build_config",
     "collect_history",
+    "collect_latest_closed_rates_by_granularity",
+    "collect_latest_closed_rates_for_accounts",
     "collect_latest_rates",
     "collect_latest_rates_for_accounts",
     "collect_latest_rates_for_accounts_with_retries",
@@ -181,6 +185,12 @@ def _coerce_datetime(value: datetime | str | None) -> datetime | None:
 def _require_positive(value: float, name: str) -> None:
     if value <= 0:
         msg = f"{name} must be positive."
+        raise ValueError(msg)
+
+
+def _require_non_negative(value: int, name: str) -> None:
+    if value < 0:
+        msg = f"{name} must be non-negative."
         raise ValueError(msg)
 
 
@@ -1606,6 +1616,115 @@ def collect_latest_rates_for_accounts_with_retries(
             )
             time.sleep(delay)
     return _collect()
+
+
+def collect_latest_closed_rates_for_accounts(
+    accounts: Sequence[AccountSpec],
+    timeframes: Sequence[int | str],
+    count: int,
+    *,
+    start_pos: int = 0,
+    base_config: Mt5Config | None = None,
+    retry_count: int = 0,
+    backoff_base: float = 2.0,
+) -> dict[tuple[str, int], pd.DataFrame]:
+    """Collect latest closed rate bars across multiple MT5 account groups.
+
+    When ``start_pos`` is ``0`` (the default), MetaTrader 5 includes the
+    still-forming current bar as the last row. This helper fetches
+    ``count + 1`` bars, drops that bar with :func:`drop_forming_rate_bar`, and
+    validates that each resulting frame is non-empty. When ``start_pos`` is
+    greater than zero the forming bar is not in range, so only ``count`` bars
+    are fetched and no row is dropped.
+
+    Wraps :func:`collect_latest_rates_for_accounts_with_retries` for transient
+    MT5 error handling.
+
+    Args:
+        accounts: Account groups to read. Each must define at least one symbol.
+        timeframes: MT5 timeframes as integers or names (for example ``M1``).
+        count: Number of closed bars to return per symbol/timeframe.
+        start_pos: Initial bar position offset passed to the underlying collector.
+        base_config: Optional base configuration whose fields fill any value not
+            set on an individual account.
+        retry_count: Maximum number of retries after the first attempt. ``0``
+            disables retries.
+        backoff_base: Base for exponential backoff between retry attempts.
+
+    Returns:
+        Mapping keyed by ``(symbol, timeframe_int)``.
+
+    Raises:
+        ValueError: If inputs are invalid, or any series is empty (after
+            dropping the still-forming bar when ``start_pos`` is ``0``).
+    """
+    _require_positive(count, "count")
+    _require_non_negative(start_pos, "start_pos")
+    fetch_count = count + 1 if start_pos == 0 else count
+    loaded = collect_latest_rates_for_accounts_with_retries(
+        accounts,
+        timeframes,
+        fetch_count,
+        start_pos=start_pos,
+        base_config=base_config,
+        retry_count=retry_count,
+        backoff_base=backoff_base,
+    )
+    result: dict[tuple[str, int], pd.DataFrame] = {}
+    for key, df_rate in loaded.items():
+        closed = drop_forming_rate_bar(df_rate) if start_pos == 0 else df_rate
+        if closed.empty:
+            symbol, timeframe = key
+            msg = f"Rate data is empty for {symbol!r} at timeframe {timeframe}."
+            raise ValueError(msg)
+        result[key] = closed
+    return result
+
+
+def collect_latest_closed_rates_by_granularity(
+    accounts: Sequence[AccountSpec],
+    granularities: Sequence[int | str],
+    count: int,
+    *,
+    start_pos: int = 0,
+    base_config: Mt5Config | None = None,
+    retry_count: int = 0,
+    backoff_base: float = 2.0,
+) -> dict[tuple[str, str], pd.DataFrame]:
+    """Collect latest closed rate bars keyed by symbol and granularity name.
+
+    Thin wrapper around :func:`collect_latest_closed_rates_for_accounts` that
+    rekeys the result by granularity name (for example ``M1``) instead of the
+    integer timeframe.
+
+    Args:
+        accounts: Account groups to read. Each must define at least one symbol.
+        granularities: MT5 timeframes as integers or names (for example ``M1``).
+        count: Number of closed bars to return per symbol/timeframe.
+        start_pos: Initial bar position offset passed to the underlying collector.
+        base_config: Optional base configuration whose fields fill any value not
+            set on an individual account.
+        retry_count: Maximum number of retries after the first attempt. ``0``
+            disables retries.
+        backoff_base: Base for exponential backoff between retry attempts.
+
+    Returns:
+        Mapping keyed by ``(symbol, granularity_name)``. Propagates
+        ``ValueError`` from :func:`collect_latest_closed_rates_for_accounts`.
+    """
+    loaded = collect_latest_closed_rates_for_accounts(
+        accounts,
+        granularities,
+        count,
+        start_pos=start_pos,
+        base_config=base_config,
+        retry_count=retry_count,
+        backoff_base=backoff_base,
+    )
+    return {
+        (symbol, resolve_granularity_name(timeframe)): frame
+        for (symbol, timeframe), frame in loaded.items()
+    }
 
 
 def copy_rates_range(

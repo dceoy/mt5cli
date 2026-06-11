@@ -28,6 +28,26 @@ rates = collect_latest_rates_for_accounts_with_retries(
 )
 ```
 
+### Latest closed rate bars
+
+MetaTrader 5 `start_pos=0` includes the still-forming current bar as the last
+row. `collect_latest_closed_rates_for_accounts()` fetches `count + 1` bars,
+drops that row with `drop_forming_rate_bar()`, and validates each series is
+non-empty. Use `collect_latest_closed_rates_by_granularity()` when callers
+prefer keys such as `("EURUSD", "M1")` instead of integer timeframes.
+
+```python
+from mt5cli import AccountSpec, collect_latest_closed_rates_by_granularity
+
+rates = collect_latest_closed_rates_by_granularity(
+    [AccountSpec(symbols=["EURUSD"], login=12345)],
+    ["M1", "H1"],
+    count=500,
+    retry_count=3,
+)
+closed_m1 = rates["EURUSD", "M1"]
+```
+
 ### Resolving credentials and `${ENV_VAR}` placeholders
 
 `resolve_account_spec()` / `resolve_account_specs()` merge explicit override
