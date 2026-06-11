@@ -517,6 +517,9 @@ class TestResolveHistorySettings:
         """Test default timeframes include all fixed MT5 values."""
         resolved = resolve_history_timeframes(None)
         assert len(resolved) == len(DEFAULT_HISTORY_TIMEFRAMES)
+        assert not any(
+            name.startswith("TIMEFRAME_") for name in DEFAULT_HISTORY_TIMEFRAMES
+        )
         assert 1 in resolved
         assert TIMEFRAME_MAP["H1"] in resolved
 
@@ -533,6 +536,17 @@ class TestResolveHistorySettings:
         """Test unknown timeframe constants fall back to integer text."""
         assert resolve_granularity_name(999) == "999"
         assert resolve_granularity_name(1) == "M1"
+
+    def test_resolve_granularity_name_strips_official_prefix(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test official pdmt5 timeframe names are normalized to short aliases."""
+        mocker.patch(
+            "mt5cli.history._get_timeframe_name",
+            return_value="TIMEFRAME_H1",
+        )
+        assert resolve_granularity_name(16385) == "H1"
 
 
 class TestDropFormingRateBar:

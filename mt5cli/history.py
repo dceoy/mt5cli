@@ -10,11 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 import pandas as pd
-
 from pdmt5 import get_timeframe_name as _get_timeframe_name
 
 from .utils import (
-    TIMEFRAME_MAP,
+    TIMEFRAME_NAMES,
     Dataset,
     IfExists,
     parse_datetime,
@@ -29,9 +28,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = tuple(
-    name for name in TIMEFRAME_MAP if not name.startswith("TIMEFRAME_")
-)
+DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = TIMEFRAME_NAMES
 
 _HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
     Dataset.rates: (("symbol", "timeframe", "time"), ("symbol", "time")),

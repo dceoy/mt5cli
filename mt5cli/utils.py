@@ -23,12 +23,15 @@ if TYPE_CHECKING:
 # Constants
 # ---------------------------------------------------------------------------
 
-TICK_FLAG_MAP = COPY_TICKS_MAP
+# Backward-compatible snapshot; prefer ``COPY_TICKS_MAP`` from pdmt5 directly.
+TICK_FLAG_MAP: dict[str, int] = dict(COPY_TICKS_MAP)
 
-_TIMEFRAME_NAMES: tuple[str, ...] = tuple(
+TIMEFRAME_NAMES: tuple[str, ...] = tuple(
     name for name in TIMEFRAME_MAP if not name.startswith("TIMEFRAME_")
 )
-_TICK_FLAG_NAMES: tuple[str, ...] = ("ALL", "INFO", "TRADE")
+_TICK_FLAG_NAMES: tuple[str, ...] = tuple(
+    name for name in COPY_TICKS_MAP if not name.startswith("COPY_TICKS_")
+)
 
 _FORMAT_EXTENSIONS: dict[str, str] = {
     ".csv": "csv",
@@ -362,7 +365,7 @@ def parse_timeframe(value: object) -> int:
         return _parse_timeframe(value)
     except ValueError:
         display = value if isinstance(value, str) else repr(value)
-        valid = ", ".join(_TIMEFRAME_NAMES)
+        valid = ", ".join(TIMEFRAME_NAMES)
         msg = (
             f"Invalid timeframe: '{display}'. "
             f"Use one of: {valid}, or a supported integer."
