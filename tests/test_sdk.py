@@ -390,7 +390,7 @@ class TestMt5CliClient:
             symbol="EURUSD",
             date_from=datetime(2024, 1, 1, tzinfo=UTC),
             count=100,
-            flags=2,
+            flags=1,
         )
 
     def test_history_orders_accepts_string_dates(
@@ -951,7 +951,7 @@ class TestUpdateHistory:
             assert kwargs["symbol"] == "EURUSD"
             assert kwargs["date_from"] == expected_start
             assert kwargs["date_to"] == date_to
-            assert kwargs["flags"] == 1
+            assert kwargs["flags"] == -1
             return pd.DataFrame({
                 "time": ["2024-01-01T12:00:00+00:00"],
                 "time_msc": [1_704_110_400_000],
@@ -1119,7 +1119,7 @@ class TestRecentTicks:
             symbol="EURUSD",
             date_from=end - timedelta(seconds=60),
             count=100,
-            flags=2,
+            flags=1,
         )
         client.copy_ticks_range_as_df.assert_not_called()
 
@@ -1149,7 +1149,7 @@ class TestRecentTicks:
         assert kwargs["symbol"] == "EURUSD"
         assert kwargs["date_to"] == tick.time
         assert kwargs["date_from"] == tick.time - timedelta(seconds=30)
-        assert kwargs["flags"] == 1
+        assert kwargs["flags"] == -1
 
     def test_recent_ticks_rejects_unsupported_tick_time(
         self,
@@ -1219,7 +1219,7 @@ class TestRecentTicks:
             symbol="EURUSD",
             date_from=end - timedelta(seconds=60),
             date_to=end,
-            flags=1,
+            flags=-1,
         )
 
 

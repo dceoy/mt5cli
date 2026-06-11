@@ -274,8 +274,14 @@ class TestParseTimeframe:
         assert parse_timeframe(value) == expected
 
     def test_integer_timeframe(self) -> None:
-        """Test parsing integer timeframe."""
-        assert parse_timeframe("42") == 42
+        """Test parsing supported integer timeframes."""
+        assert parse_timeframe("1") == 1
+        assert parse_timeframe(16385) == 16385
+
+    def test_unsupported_integer_timeframe_raises(self) -> None:
+        """Test that unsupported integer timeframes raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid timeframe"):
+            parse_timeframe("42")
 
     def test_invalid_timeframe_raises(self) -> None:
         """Test that invalid timeframe raises ValueError."""
@@ -288,15 +294,21 @@ class TestParseTickFlags:
 
     @pytest.mark.parametrize(
         ("value", "expected"),
-        [("ALL", 1), ("info", 2), ("TRADE", 4)],
+        [("ALL", -1), ("info", 1), ("TRADE", 2), ("COPY_TICKS_ALL", -1)],
     )
     def test_named_flag(self, value: str, expected: int) -> None:
         """Test parsing named tick flags."""
         assert parse_tick_flags(value) == expected
 
     def test_integer_flag(self) -> None:
-        """Test parsing integer tick flag."""
-        assert parse_tick_flags("7") == 7
+        """Test parsing supported integer tick flags."""
+        assert parse_tick_flags("-1") == -1
+        assert parse_tick_flags(2) == 2
+
+    def test_unsupported_integer_flag_raises(self) -> None:
+        """Test that unsupported integer tick flags raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid tick flags"):
+            parse_tick_flags("7")
 
     def test_invalid_flag_raises(self) -> None:
         """Test that invalid flag raises ValueError."""
@@ -355,8 +367,11 @@ class TestConstants:
             assert key in TIMEFRAME_MAP
 
     def test_tick_flag_map_has_expected_keys(self) -> None:
-        """Test that TICK_FLAG_MAP contains standard flags."""
-        assert set(TICK_FLAG_MAP) == {"ALL", "INFO", "TRADE"}
+        """Test that TICK_FLAG_MAP contains standard flags with MT5 values."""
+        assert {"ALL", "INFO", "TRADE"} <= set(TICK_FLAG_MAP)
+        assert TICK_FLAG_MAP["ALL"] == -1
+        assert TICK_FLAG_MAP["INFO"] == 1
+        assert TICK_FLAG_MAP["TRADE"] == 2
 
     @pytest.mark.parametrize(
         ("dataset", "expected"),
@@ -403,14 +418,25 @@ class TestTimeframeType:
         """Test converting a string to timeframe integer."""
         assert TIMEFRAME_TYPE.convert("H1", None, None) == 16385
 
-    def test_convert_int_passthrough(self) -> None:
-        """Test that integer values pass through unchanged."""
-        assert TIMEFRAME_TYPE.convert(42, None, None) == 42
+    def test_convert_int(self) -> None:
+        """Test converting supported integer timeframe values."""
+        assert TIMEFRAME_TYPE.convert(16385, None, None) == 16385
+
+    def test_convert_unsupported_int(self) -> None:
+        """Test that unsupported integer values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid timeframe"):
+            TIMEFRAME_TYPE.convert(42, None, None)
 
     def test_convert_invalid(self) -> None:
         """Test that invalid values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid timeframe"):
             TIMEFRAME_TYPE.convert("bad", None, None)
+
+    @pytest.mark.parametrize("value", [True, False, None, 1.5])
+    def test_convert_invalid_types(self, value: object) -> None:
+        """Test that bool, float, and None values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid timeframe"):
+            TIMEFRAME_TYPE.convert(value, None, None)
 
 
 class TestTickFlagsType:
@@ -418,11 +444,22 @@ class TestTickFlagsType:
 
     def test_convert_string(self) -> None:
         """Test converting a string to tick flags integer."""
-        assert TICK_FLAGS_TYPE.convert("ALL", None, None) == 1
+        assert TICK_FLAGS_TYPE.convert("ALL", None, None) == -1
 
-    def test_convert_int_passthrough(self) -> None:
-        """Test that integer values pass through unchanged."""
-        assert TICK_FLAGS_TYPE.convert(7, None, None) == 7
+    def test_convert_int(self) -> None:
+        """Test converting supported integer tick flag values."""
+        assert TICK_FLAGS_TYPE.convert(2, None, None) == 2
+
+    def test_convert_unsupported_int(self) -> None:
+        """Test that unsupported integer values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid tick flags"):
+            TICK_FLAGS_TYPE.convert(7, None, None)
+
+    @pytest.mark.parametrize("value", [True, False, None, 1.5])
+    def test_convert_invalid_types(self, value: object) -> None:
+        """Test that bool, float, and None values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid tick flags"):
+            TICK_FLAGS_TYPE.convert(value, None, None)
 
     def test_convert_invalid(self) -> None:
         """Test that invalid values raise BadParameter."""

@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeGuard
 
 import click
+from pdmt5 import COPY_TICKS_MAP, TIMEFRAME_MAP
+from pdmt5 import parse_copy_ticks as _parse_copy_ticks
+from pdmt5 import parse_timeframe as _parse_timeframe
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -20,35 +23,15 @@ if TYPE_CHECKING:
 # Constants
 # ---------------------------------------------------------------------------
 
-TIMEFRAME_MAP: dict[str, int] = {
-    "M1": 1,
-    "M2": 2,
-    "M3": 3,
-    "M4": 4,
-    "M5": 5,
-    "M6": 6,
-    "M10": 10,
-    "M12": 12,
-    "M15": 15,
-    "M20": 20,
-    "M30": 30,
-    "H1": 16385,
-    "H2": 16386,
-    "H3": 16387,
-    "H4": 16388,
-    "H6": 16390,
-    "H8": 16392,
-    "H12": 16396,
-    "D1": 16408,
-    "W1": 32769,
-    "MN1": 49153,
-}
+# Backward-compatible snapshot; prefer ``COPY_TICKS_MAP`` from pdmt5 directly.
+TICK_FLAG_MAP: dict[str, int] = dict(COPY_TICKS_MAP)
 
-TICK_FLAG_MAP: dict[str, int] = {
-    "ALL": 1,
-    "INFO": 2,
-    "TRADE": 4,
-}
+TIMEFRAME_NAMES: tuple[str, ...] = tuple(
+    name for name in TIMEFRAME_MAP if not name.startswith("TIMEFRAME_")
+)
+_TICK_FLAG_NAMES: tuple[str, ...] = tuple(
+    name for name in COPY_TICKS_MAP if not name.startswith("COPY_TICKS_")
+)
 
 _FORMAT_EXTENSIONS: dict[str, str] = {
     ".csv": "csv",
@@ -160,10 +143,8 @@ class _TimeframeType(click.ParamType):
         Returns:
             Integer timeframe value.
         """
-        if isinstance(value, int):
-            return value
         try:
-            return parse_timeframe(str(value))
+            return parse_timeframe(value)
         except ValueError as exc:
             self.fail(str(exc), param, ctx)
 
@@ -189,10 +170,8 @@ class _TickFlagsType(click.ParamType):
         Returns:
             Integer tick flag value.
         """
-        if isinstance(value, int):
-            return value
         try:
-            return parse_tick_flags(str(value))
+            return parse_tick_flags(value)
         except ValueError as exc:
             self.fail(str(exc), param, ctx)
 
@@ -370,7 +349,7 @@ def parse_datetime(value: str) -> datetime:
     return dt
 
 
-def parse_timeframe(value: str) -> int:
+def parse_timeframe(value: object) -> int:
     """Parse a timeframe string or integer value.
 
     Args:
@@ -382,37 +361,39 @@ def parse_timeframe(value: str) -> int:
     Raises:
         ValueError: If the timeframe is invalid.
     """
-    upper = value.upper()
-    if upper in TIMEFRAME_MAP:
-        return TIMEFRAME_MAP[upper]
     try:
-        return int(value)
+        return _parse_timeframe(value)
     except ValueError:
-        valid = ", ".join(TIMEFRAME_MAP)
-        msg = f"Invalid timeframe: '{value}'. Use one of: {valid}, or an integer."
+        display = value if isinstance(value, str) else repr(value)
+        valid = ", ".join(TIMEFRAME_NAMES)
+        msg = (
+            f"Invalid timeframe: '{display}'. "
+            f"Use one of: {valid}, or a supported integer."
+        )
         raise ValueError(msg) from None
 
 
-def parse_tick_flags(value: str) -> int:
+def parse_tick_flags(value: object) -> int:
     """Parse tick flags string or integer value.
 
     Args:
-        value: Tick flag name (ALL, INFO, TRADE) or integer value.
+        value: Tick flag name (ALL, INFO, TRADE, COPY_TICKS_*) or integer value.
 
     Returns:
-        Integer tick flag value.
+        Integer tick flag value compatible with MetaTrader 5 ``COPY_TICKS_*``.
 
     Raises:
         ValueError: If the flag is invalid.
     """
-    upper = value.upper()
-    if upper in TICK_FLAG_MAP:
-        return TICK_FLAG_MAP[upper]
     try:
-        return int(value)
+        return _parse_copy_ticks(value)
     except ValueError:
-        valid = ", ".join(TICK_FLAG_MAP)
-        msg = f"Invalid tick flags: '{value}'. Use one of: {valid}, or an integer."
+        display = value if isinstance(value, str) else repr(value)
+        valid = ", ".join(_TICK_FLAG_NAMES)
+        msg = (
+            f"Invalid tick flags: '{display}'. "
+            f"Use one of: {valid}, or a supported integer."
+        )
         raise ValueError(msg) from None
 
 

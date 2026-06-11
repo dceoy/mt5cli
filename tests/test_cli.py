@@ -317,7 +317,7 @@ class TestCommands:
             symbol="EURUSD",
             date_from=datetime(2024, 1, 1, tzinfo=UTC),
             count=100,
-            flags=1,
+            flags=-1,
         )
 
     def test_ticks_range(
@@ -348,7 +348,7 @@ class TestCommands:
             symbol="EURUSD",
             date_from=datetime(2024, 1, 1, tzinfo=UTC),
             date_to=datetime(2024, 2, 1, tzinfo=UTC),
-            flags=2,
+            flags=1,
         )
 
     def test_ticks_recent(
@@ -381,7 +381,7 @@ class TestCommands:
             symbol="EURUSD",
             date_from=datetime(2024, 1, 2, tzinfo=UTC) - timedelta(seconds=120),
             count=500,
-            flags=1,
+            flags=-1,
         )
         mock_client.copy_ticks_range_as_df.assert_not_called()
 
@@ -1000,7 +1000,7 @@ class TestCollectHistory:
             symbol="EURUSD",
             date_from=datetime(2024, 1, 1, tzinfo=UTC),
             date_to=datetime(2024, 2, 1, tzinfo=UTC),
-            flags=1,
+            flags=-1,
         )
         with sqlite3.connect(output) as conn:
             tables = {
@@ -1213,7 +1213,7 @@ class TestCollectHistory:
             symbol="EURUSD",
             date_from=datetime(2024, 1, 1, tzinfo=UTC),
             date_to=datetime(2024, 2, 1, tzinfo=UTC),
-            flags=1,
+            flags=-1,
         )
 
     def test_collect_history_with_views(

@@ -487,7 +487,7 @@ wheels = [
 
 [[package]]
 name = "mt5cli"
-version = "0.6.1"
+version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -513,7 +513,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1.0" },
-    { name = "pdmt5", specifier = ">=0.2.3" },
+    { name = "pdmt5", specifier = ">=0.3.0" },
     { name = "pyarrow", specifier = ">=19.0.0" },
     { name = "typer", specifier = ">=0.15.0" },
 ]
@@ -684,16 +684,16 @@ wheels = [
 
 [[package]]
 name = "pdmt5"
-version = "0.2.3"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "metatrader5", marker = "sys_platform == 'win32'" },
     { name = "pandas" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/02/25/52d9d954504ccdd0fe91f715ab74c424d61234b237cc4160d3ebe20070f1/pdmt5-0.2.3.tar.gz", hash = "sha256:21384f5826fb0125fee3f93c90b108340f55ab53b1c819d229ceac162289d2ec", size = 226665, upload-time = "2026-02-05T13:28:21.071Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/cc/c8fa3a01e0e34178fec8527992f7bb8eda5881477ce23aaacaa9b2ef7bec/pdmt5-0.3.0.tar.gz", hash = "sha256:bb612d5c2695eafac9b2a7b74756e13bd383d7e5517bd90c9a2efa92492c484c", size = 215100, upload-time = "2026-06-11T13:26:46.976Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/75/c5e52a9cf459b85b2dd52f83e70857571b1b45805c9fe610b3959a26ac15/pdmt5-0.2.3-py3-none-any.whl", hash = "sha256:f92246a05cfc3b7feb3ab0cc5b48768a4d84aad6b02e7a68060948f5828718a1", size = 22967, upload-time = "2026-02-05T13:28:19.523Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/03/b12cc4c9db983d971c9172b3765161b6d91136d0624e6718a04dd815e7a1/pdmt5-0.3.0-py3-none-any.whl", hash = "sha256:5388b406cc583202600cfe22c9d781679b1d931b1ed5a2b5dcf37c566149b49f", size = 26250, upload-time = "2026-06-11T13:26:45.689Z" },
 ]
 
 [[package]]

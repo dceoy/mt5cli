@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 import pandas as pd
+from pdmt5 import get_timeframe_name as _get_timeframe_name
 
 from .utils import (
-    TIMEFRAME_MAP,
+    TIMEFRAME_NAMES,
     Dataset,
     IfExists,
     parse_datetime,
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = tuple(TIMEFRAME_MAP)
+DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = TIMEFRAME_NAMES
 
 _HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
     Dataset.rates: (("symbol", "timeframe", "time"), ("symbol", "time")),
@@ -80,7 +81,7 @@ def resolve_history_timeframes(
     seen: set[int] = set()
     resolved: list[int] = []
     for value in raw:
-        tf = value if isinstance(value, int) else parse_timeframe(str(value))
+        tf = parse_timeframe(value)
         if tf not in seen:
             seen.add(tf)
             resolved.append(tf)
@@ -93,17 +94,16 @@ def resolve_history_tick_flags(flags: int | str) -> int:
     Returns:
         Integer tick flag value.
     """
-    if isinstance(flags, int):
-        return flags
     return parse_tick_flags(flags)
 
 
 def resolve_granularity_name(timeframe: int) -> str:
     """Return a granularity name for a timeframe integer when known."""
-    for name, value in TIMEFRAME_MAP.items():
-        if value == timeframe:
-            return name
-    return str(timeframe)
+    try:
+        name = _get_timeframe_name(timeframe)
+    except ValueError:
+        return str(timeframe)
+    return name.removeprefix("TIMEFRAME_")
 
 
 def drop_forming_rate_bar(df_rate: pd.DataFrame) -> pd.DataFrame:

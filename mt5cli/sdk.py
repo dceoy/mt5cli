@@ -144,14 +144,10 @@ __all__ = [
 
 
 def _coerce_timeframe(timeframe: int | str) -> int:
-    if isinstance(timeframe, int):
-        return timeframe
     return parse_timeframe(timeframe)
 
 
 def _coerce_tick_flags(flags: int | str) -> int:
-    if isinstance(flags, int):
-        return flags
     return parse_tick_flags(flags)
 
 
@@ -1171,7 +1167,7 @@ def collect_history(
     *,
     datasets: set[Dataset] | None = None,
     timeframe: int | str = 1,
-    flags: int | str = 1,
+    flags: int | str = "ALL",
     if_exists: IfExists = IfExists.FAIL,
     with_views: bool = False,
     config: Mt5Config | None = None,
