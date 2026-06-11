@@ -55,6 +55,10 @@
 </li>
                                     
 <li>
+    <a href="trading/" class="dropdown-item">Trading</a>
+</li>
+                                    
+<li>
     <a href="history/" class="dropdown-item">History Collection (SQLite)</a>
 </li>
                                     
@@ -146,6 +150,8 @@
 <p>Utility module providing constants, enums, Click parameter types, and helper functions for parsing and exporting data.</p>
 <h3 id="sdk"><a href="sdk/">SDK</a><a class="headerlink" href="#sdk" title="Permanent link">&para;</a></h3>
 <p>Programmatic SDK for read-only MetaTrader 5 data collection. Returns pandas DataFrames and provides <code>collect_history</code> for SQLite bulk collection.</p>
+<h3 id="trading"><a href="trading/">Trading</a><a class="headerlink" href="#trading" title="Permanent link">&para;</a></h3>
+<p>Trading-capable session management and operational helpers built on <code>pdmt5.Mt5TradingClient</code>. Complements the read-only SDK without changing existing <code>Mt5CliClient</code> behavior.</p>
 <h3 id="history-collection-sqlite"><a href="history/">History Collection (SQLite)</a><a class="headerlink" href="#history-collection-sqlite" title="Permanent link">&para;</a></h3>
 <p>SQLite storage helpers for the <code>collect-history</code> command schema, incremental updates, deduplication, indexes, and optional views.</p>
 <h2 id="architecture-overview">Architecture Overview<a class="headerlink" href="#architecture-overview" title="Permanent link">&para;</a></h2>
@@ -153,8 +159,9 @@
 <ol>
 <li><strong>CLI Layer</strong> (<code>cli.py</code>): Typer application with subcommands that delegate to the SDK and export results.</li>
 <li><strong>SDK Layer</strong> (<code>sdk.py</code>): Read-only data access functions, <code>Mt5CliClient</code>, and <code>collect_history</code> orchestration.</li>
+<li><strong>Trading Layer</strong> (<code>trading.py</code>): Trading-capable sessions and operational helpers on <code>Mt5TradingClient</code>.</li>
 <li><strong>Utils Layer</strong> (<code>utils.py</code>): Constants, enums, custom Click parameter types, parsing helpers, and format detection/export utilities.</li>
-<li><strong>Data Layer</strong> (via <code>pdmt5</code>): Uses <code>Mt5DataClient</code> and <code>Mt5Config</code> from the pdmt5 package for all MetaTrader 5 data access.</li>
+<li><strong>Data Layer</strong> (via <code>pdmt5</code>): Uses <code>Mt5DataClient</code>, <code>Mt5TradingClient</code>, and <code>Mt5Config</code> from the pdmt5 package for MetaTrader 5 access.</li>
 </ol>
 <h2 id="usage-guidelines">Usage Guidelines<a class="headerlink" href="#usage-guidelines" title="Permanent link">&para;</a></h2>
 <p>All modules follow these conventions:</p>
