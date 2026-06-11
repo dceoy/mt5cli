@@ -526,7 +526,7 @@ class TestResolveHistorySettings:
 
     def test_resolve_history_tick_flags(self) -> None:
         """Test tick flag resolution."""
-        assert resolve_history_tick_flags("ALL") == 1
+        assert resolve_history_tick_flags("ALL") == -1
         assert resolve_history_tick_flags(2) == 2
 
     def test_resolve_granularity_name_falls_back_to_integer(self) -> None:

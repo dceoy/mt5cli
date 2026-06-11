@@ -9,7 +9,7 @@ license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">= 3.11, < 3.14"
 dependencies = [
-  "pdmt5 >= 0.2.3",
+  "pdmt5>=0.3.0",
   "click >= 8.1.0",
   "pyarrow >= 19.0.0",
   "typer >= 0.15.0",

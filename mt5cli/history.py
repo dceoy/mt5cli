@@ -80,7 +80,7 @@ def resolve_history_timeframes(
     seen: set[int] = set()
     resolved: list[int] = []
     for value in raw:
-        tf = value if isinstance(value, int) else parse_timeframe(str(value))
+        tf = parse_timeframe(value)
         if tf not in seen:
             seen.add(tf)
             resolved.append(tf)
@@ -93,8 +93,6 @@ def resolve_history_tick_flags(flags: int | str) -> int:
     Returns:
         Integer tick flag value.
     """
-    if isinstance(flags, int):
-        return flags
     return parse_tick_flags(flags)
 
 

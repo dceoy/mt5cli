@@ -6,6 +6,12 @@ Command-line tool for MetaTrader 5 data export.
 
 mt5cli is a CLI application that exports MetaTrader 5 trading data to multiple file formats. It is built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data handler for MetaTrader 5.
 
+## Architecture
+
+- **pdmt5** — canonical MT5 client, DataFrame/trading primitives, and MT5 constant parsing (`TIMEFRAME_*`, `COPY_TICKS_*`, order types).
+- **mt5cli** — CLI commands, CSV/JSON/Parquet/SQLite export, SQLite history collection, rate views, and local batch/automation SDK helpers built on pdmt5.
+- **mt5api** — sibling HTTP adapter for remote MT5 access; not a dependency of mt5cli.
+
 ## Features
 
 - **Multi-format export**: CSV, JSON, Parquet, and SQLite3 output formats

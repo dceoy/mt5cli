@@ -144,14 +144,10 @@ __all__ = [
 
 
 def _coerce_timeframe(timeframe: int | str) -> int:
-    if isinstance(timeframe, int):
-        return timeframe
     return parse_timeframe(timeframe)
 
 
 def _coerce_tick_flags(flags: int | str) -> int:
-    if isinstance(flags, int):
-        return flags
     return parse_tick_flags(flags)
 
 
