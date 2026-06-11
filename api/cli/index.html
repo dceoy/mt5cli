@@ -303,7 +303,7 @@
    (mt5cli.utils.TICK_FLAGS_TYPE)" href="../utils/#mt5cli.utils.TICK_FLAGS_TYPE">TICK_FLAGS_TYPE</a></span><span class="p">,</span>
 <a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>            <span class="n"><span title="typer.Option(help)">help</span></span><span class="o">=</span><span class="s2">&quot;Tick copy flags (ALL, INFO, TRADE, or integer).&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>        <span class="p">),</span>
-<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;ALL&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>    <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Annotated">Annotated</span></span><span class="p">[</span>
 <a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>        <span class="n"><a class="autorefs autorefs-internal" title="IfExists (mt5cli.utils.IfExists)" href="../utils/#mt5cli.utils.IfExists">IfExists</a></span><span class="p">,</span>
 <a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>        <span class="n"><span title="typer.Option">Option</span></span><span class="p">(</span>
@@ -500,7 +500,7 @@ views <code>cash_events</code> and <code>positions_reconstructed</code> are deri
 <a id="__codelineno-0-656" name="__codelineno-0-656"></a>            <span class="n">click_type</span><span class="o">=</span><span class="n">TICK_FLAGS_TYPE</span><span class="p">,</span>
 <a id="__codelineno-0-657" name="__codelineno-0-657"></a>            <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Tick copy flags (ALL, INFO, TRADE, or integer).&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-658" name="__codelineno-0-658"></a>        <span class="p">),</span>
-<a id="__codelineno-0-659" name="__codelineno-0-659"></a>    <span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-659" name="__codelineno-0-659"></a>    <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;ALL&quot;</span><span class="p">,</span>  <span class="c1"># pyright: ignore[reportArgumentType]</span>
 <a id="__codelineno-0-660" name="__codelineno-0-660"></a>    <span class="n">if_exists</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
 <a id="__codelineno-0-661" name="__codelineno-0-661"></a>        <span class="n">IfExists</span><span class="p">,</span>
 <a id="__codelineno-0-662" name="__codelineno-0-662"></a>        <span class="n">typer</span><span class="o">.</span><span class="n">Option</span><span class="p">(</span>
@@ -2167,7 +2167,7 @@ views <code>cash_events</code> and <code>positions_reconstructed</code> are deri
    (mt5cli.utils.TICK_FLAGS_TYPE)" href="../utils/#mt5cli.utils.TICK_FLAGS_TYPE">TICK_FLAGS_TYPE</a></span><span class="p">,</span>
 <a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>            <span class="n"><span title="typer.Option(help)">help</span></span><span class="o">=</span><span class="s2">&quot;Tick flags (ALL, INFO, TRADE, or integer).&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>        <span class="p">),</span>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;ALL&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
@@ -2235,7 +2235,7 @@ views <code>cash_events</code> and <code>positions_reconstructed</code> are deri
 <a id="__codelineno-0-347" name="__codelineno-0-347"></a>            <span class="n">click_type</span><span class="o">=</span><span class="n">TICK_FLAGS_TYPE</span><span class="p">,</span>
 <a id="__codelineno-0-348" name="__codelineno-0-348"></a>            <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Tick flags (ALL, INFO, TRADE, or integer).&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-349" name="__codelineno-0-349"></a>        <span class="p">),</span>
-<a id="__codelineno-0-350" name="__codelineno-0-350"></a>    <span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-350" name="__codelineno-0-350"></a>    <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;ALL&quot;</span><span class="p">,</span>  <span class="c1"># pyright: ignore[reportArgumentType]</span>
 <a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-352" name="__codelineno-0-352"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Export ticks from a recent time window.&quot;&quot;&quot;</span>
 <a id="__codelineno-0-353" name="__codelineno-0-353"></a>    <span class="n">client</span> <span class="o">=</span> <span class="n">_sdk_client</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>

@@ -113,6 +113,10 @@
               <ul class="nav flex-column">
               </ul>
             </li>
+            <li class="nav-item" data-bs-level="2"><a href="#architecture" class="nav-link">Architecture</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
             <li class="nav-item" data-bs-level="2"><a href="#features" class="nav-link">Features</a>
               <ul class="nav flex-column">
               </ul>
@@ -164,6 +168,12 @@
 <p>Command-line tool for MetaTrader 5 data export.</p>
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <p>mt5cli is a CLI application that exports MetaTrader 5 trading data to multiple file formats. It is built on top of <a href="https://github.com/dceoy/pdmt5">pdmt5</a>, a pandas-based data handler for MetaTrader 5.</p>
+<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>pdmt5</strong> — canonical MT5 client, DataFrame/trading primitives, and MT5 constant parsing (<code>TIMEFRAME_*</code>, <code>COPY_TICKS_*</code>, order types).</li>
+<li><strong>mt5cli</strong> — CLI commands, CSV/JSON/Parquet/SQLite export, SQLite history collection, rate views, and local batch/automation SDK helpers built on pdmt5.</li>
+<li><strong>mt5api</strong> — sibling HTTP adapter for remote MT5 access; not a dependency of mt5cli.</li>
+</ul>
 <h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Multi-format export</strong>: CSV, JSON, Parquet, and SQLite3 output formats</li>
@@ -618,5 +628,5 @@
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2026-06-11 10:38:36.809440+00:00
+Build Date UTC : 2026-06-11 14:23:25.139752+00:00
 -->

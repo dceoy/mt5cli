@@ -233,11 +233,7 @@
   </span>
 
 <a href="#mt5cli.utils.TICK_FLAG_MAP" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">TICK_FLAG_MAP</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="int">int</span></span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="s2">&quot;ALL&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="s2">&quot;INFO&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="s2">&quot;TRADE&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">}</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">TICK_FLAG_MAP</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="int">int</span></span><span class="p">]</span> <span class="o">=</span> <span class="n"><span title="dict">dict</span></span><span class="p">(</span><span class="n"><span title="pdmt5.COPY_TICKS_MAP">COPY_TICKS_MAP</span></span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -250,38 +246,20 @@
 
 
 
-<h3 id="mt5cli.utils.TIMEFRAME_MAP" class="doc doc-heading">
-            <span class="doc doc-object-name doc-attribute-name">TIMEFRAME_MAP</span>
+<h3 id="mt5cli.utils.TIMEFRAME_NAMES" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">TIMEFRAME_NAMES</span>
 
 
   <span class="doc doc-labels">
       <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
   </span>
 
-<a href="#mt5cli.utils.TIMEFRAME_MAP" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">TIMEFRAME_MAP</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="int">int</span></span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="s2">&quot;M1&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="s2">&quot;M2&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="s2">&quot;M3&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="s2">&quot;M4&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="s2">&quot;M5&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="s2">&quot;M6&quot;</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="s2">&quot;M10&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="s2">&quot;M12&quot;</span><span class="p">:</span> <span class="mi">12</span><span class="p">,</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="s2">&quot;M15&quot;</span><span class="p">:</span> <span class="mi">15</span><span class="p">,</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="s2">&quot;M20&quot;</span><span class="p">:</span> <span class="mi">20</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="s2">&quot;M30&quot;</span><span class="p">:</span> <span class="mi">30</span><span class="p">,</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="s2">&quot;H1&quot;</span><span class="p">:</span> <span class="mi">16385</span><span class="p">,</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="s2">&quot;H2&quot;</span><span class="p">:</span> <span class="mi">16386</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="s2">&quot;H3&quot;</span><span class="p">:</span> <span class="mi">16387</span><span class="p">,</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="s2">&quot;H4&quot;</span><span class="p">:</span> <span class="mi">16388</span><span class="p">,</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="s2">&quot;H6&quot;</span><span class="p">:</span> <span class="mi">16390</span><span class="p">,</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="s2">&quot;H8&quot;</span><span class="p">:</span> <span class="mi">16392</span><span class="p">,</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="s2">&quot;H12&quot;</span><span class="p">:</span> <span class="mi">16396</span><span class="p">,</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="s2">&quot;D1&quot;</span><span class="p">:</span> <span class="mi">16408</span><span class="p">,</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="s2">&quot;W1&quot;</span><span class="p">:</span> <span class="mi">32769</span><span class="p">,</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="s2">&quot;MN1&quot;</span><span class="p">:</span> <span class="mi">49153</span><span class="p">,</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="p">}</span>
+<a href="#mt5cli.utils.TIMEFRAME_NAMES" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">TIMEFRAME_NAMES</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n"><span title="name">name</span></span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="k">for</span> <span class="n"><span title="name">name</span></span> <span class="ow">in</span> <span class="n"><span title="pdmt5.TIMEFRAME_MAP">TIMEFRAME_MAP</span></span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n"><span title="name.startswith">startswith</span></span><span class="p">(</span><span class="s2">&quot;TIMEFRAME_&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -989,57 +967,57 @@
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-237">237</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-216">216</a></span>
+<span class="normal"><a href="#__codelineno-0-217">217</a></span>
+<span class="normal"><a href="#__codelineno-0-218">218</a></span>
+<span class="normal"><a href="#__codelineno-0-219">219</a></span>
+<span class="normal"><a href="#__codelineno-0-220">220</a></span>
+<span class="normal"><a href="#__codelineno-0-221">221</a></span>
+<span class="normal"><a href="#__codelineno-0-222">222</a></span>
+<span class="normal"><a href="#__codelineno-0-223">223</a></span>
+<span class="normal"><a href="#__codelineno-0-224">224</a></span>
+<span class="normal"><a href="#__codelineno-0-225">225</a></span>
+<span class="normal"><a href="#__codelineno-0-226">226</a></span>
+<span class="normal"><a href="#__codelineno-0-227">227</a></span>
+<span class="normal"><a href="#__codelineno-0-228">228</a></span>
+<span class="normal"><a href="#__codelineno-0-229">229</a></span>
+<span class="normal"><a href="#__codelineno-0-230">230</a></span>
+<span class="normal"><a href="#__codelineno-0-231">231</a></span>
+<span class="normal"><a href="#__codelineno-0-232">232</a></span>
+<span class="normal"><a href="#__codelineno-0-233">233</a></span>
+<span class="normal"><a href="#__codelineno-0-234">234</a></span>
+<span class="normal"><a href="#__codelineno-0-235">235</a></span>
+<span class="normal"><a href="#__codelineno-0-236">236</a></span>
+<span class="normal"><a href="#__codelineno-0-237">237</a></span>
 <span class="normal"><a href="#__codelineno-0-238">238</a></span>
 <span class="normal"><a href="#__codelineno-0-239">239</a></span>
 <span class="normal"><a href="#__codelineno-0-240">240</a></span>
-<span class="normal"><a href="#__codelineno-0-241">241</a></span>
-<span class="normal"><a href="#__codelineno-0-242">242</a></span>
-<span class="normal"><a href="#__codelineno-0-243">243</a></span>
-<span class="normal"><a href="#__codelineno-0-244">244</a></span>
-<span class="normal"><a href="#__codelineno-0-245">245</a></span>
-<span class="normal"><a href="#__codelineno-0-246">246</a></span>
-<span class="normal"><a href="#__codelineno-0-247">247</a></span>
-<span class="normal"><a href="#__codelineno-0-248">248</a></span>
-<span class="normal"><a href="#__codelineno-0-249">249</a></span>
-<span class="normal"><a href="#__codelineno-0-250">250</a></span>
-<span class="normal"><a href="#__codelineno-0-251">251</a></span>
-<span class="normal"><a href="#__codelineno-0-252">252</a></span>
-<span class="normal"><a href="#__codelineno-0-253">253</a></span>
-<span class="normal"><a href="#__codelineno-0-254">254</a></span>
-<span class="normal"><a href="#__codelineno-0-255">255</a></span>
-<span class="normal"><a href="#__codelineno-0-256">256</a></span>
-<span class="normal"><a href="#__codelineno-0-257">257</a></span>
-<span class="normal"><a href="#__codelineno-0-258">258</a></span>
-<span class="normal"><a href="#__codelineno-0-259">259</a></span>
-<span class="normal"><a href="#__codelineno-0-260">260</a></span>
-<span class="normal"><a href="#__codelineno-0-261">261</a></span>
-<span class="normal"><a href="#__codelineno-0-262">262</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="k">def</span><span class="w"> </span><span class="nf">detect_format</span><span class="p">(</span>
-<a id="__codelineno-0-238" name="__codelineno-0-238"></a>    <span class="n">output_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
-<a id="__codelineno-0-239" name="__codelineno-0-239"></a>    <span class="n">explicit_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Detect the output format from a file extension or explicit format string.</span>
-<a id="__codelineno-0-242" name="__codelineno-0-242"></a>
-<a id="__codelineno-0-243" name="__codelineno-0-243"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="sd">        output_path: Path to the output file.</span>
-<a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="sd">        explicit_format: Explicitly specified format, if any.</span>
-<a id="__codelineno-0-246" name="__codelineno-0-246"></a>
-<a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-248" name="__codelineno-0-248"></a><span class="sd">        The detected format string.</span>
-<a id="__codelineno-0-249" name="__codelineno-0-249"></a>
-<a id="__codelineno-0-250" name="__codelineno-0-250"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-251" name="__codelineno-0-251"></a><span class="sd">        ValueError: If the format cannot be determined.</span>
-<a id="__codelineno-0-252" name="__codelineno-0-252"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-253" name="__codelineno-0-253"></a>    <span class="k">if</span> <span class="n">explicit_format</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-254" name="__codelineno-0-254"></a>        <span class="k">return</span> <span class="n">explicit_format</span>
-<a id="__codelineno-0-255" name="__codelineno-0-255"></a>    <span class="n">suffix</span> <span class="o">=</span> <span class="n">output_path</span><span class="o">.</span><span class="n">suffix</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
-<a id="__codelineno-0-256" name="__codelineno-0-256"></a>    <span class="k">if</span> <span class="n">suffix</span> <span class="ow">in</span> <span class="n">_FORMAT_EXTENSIONS</span><span class="p">:</span>
-<a id="__codelineno-0-257" name="__codelineno-0-257"></a>        <span class="k">return</span> <span class="n">_FORMAT_EXTENSIONS</span><span class="p">[</span><span class="n">suffix</span><span class="p">]</span>
-<a id="__codelineno-0-258" name="__codelineno-0-258"></a>    <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-259" name="__codelineno-0-259"></a>        <span class="sa">f</span><span class="s2">&quot;Cannot detect format from extension &#39;</span><span class="si">{</span><span class="n">suffix</span><span class="si">}</span><span class="s2">&#39;.&quot;</span>
-<a id="__codelineno-0-260" name="__codelineno-0-260"></a>        <span class="s2">&quot; Use --format to specify the output format.&quot;</span>
-<a id="__codelineno-0-261" name="__codelineno-0-261"></a>    <span class="p">)</span>
-<a id="__codelineno-0-262" name="__codelineno-0-262"></a>    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-241">241</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="k">def</span><span class="w"> </span><span class="nf">detect_format</span><span class="p">(</span>
+<a id="__codelineno-0-217" name="__codelineno-0-217"></a>    <span class="n">output_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-218" name="__codelineno-0-218"></a>    <span class="n">explicit_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-219" name="__codelineno-0-219"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Detect the output format from a file extension or explicit format string.</span>
+<a id="__codelineno-0-221" name="__codelineno-0-221"></a>
+<a id="__codelineno-0-222" name="__codelineno-0-222"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-223" name="__codelineno-0-223"></a><span class="sd">        output_path: Path to the output file.</span>
+<a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="sd">        explicit_format: Explicitly specified format, if any.</span>
+<a id="__codelineno-0-225" name="__codelineno-0-225"></a>
+<a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">        The detected format string.</span>
+<a id="__codelineno-0-228" name="__codelineno-0-228"></a>
+<a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">        ValueError: If the format cannot be determined.</span>
+<a id="__codelineno-0-231" name="__codelineno-0-231"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-232" name="__codelineno-0-232"></a>    <span class="k">if</span> <span class="n">explicit_format</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-233" name="__codelineno-0-233"></a>        <span class="k">return</span> <span class="n">explicit_format</span>
+<a id="__codelineno-0-234" name="__codelineno-0-234"></a>    <span class="n">suffix</span> <span class="o">=</span> <span class="n">output_path</span><span class="o">.</span><span class="n">suffix</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+<a id="__codelineno-0-235" name="__codelineno-0-235"></a>    <span class="k">if</span> <span class="n">suffix</span> <span class="ow">in</span> <span class="n">_FORMAT_EXTENSIONS</span><span class="p">:</span>
+<a id="__codelineno-0-236" name="__codelineno-0-236"></a>        <span class="k">return</span> <span class="n">_FORMAT_EXTENSIONS</span><span class="p">[</span><span class="n">suffix</span><span class="p">]</span>
+<a id="__codelineno-0-237" name="__codelineno-0-237"></a>    <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a>        <span class="sa">f</span><span class="s2">&quot;Cannot detect format from extension &#39;</span><span class="si">{</span><span class="n">suffix</span><span class="si">}</span><span class="s2">&#39;.&quot;</span>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a>        <span class="s2">&quot; Use --format to specify the output format.&quot;</span>
+<a id="__codelineno-0-240" name="__codelineno-0-240"></a>    <span class="p">)</span>
+<a id="__codelineno-0-241" name="__codelineno-0-241"></a>    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1171,7 +1149,28 @@
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-309">309</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-288">288</a></span>
+<span class="normal"><a href="#__codelineno-0-289">289</a></span>
+<span class="normal"><a href="#__codelineno-0-290">290</a></span>
+<span class="normal"><a href="#__codelineno-0-291">291</a></span>
+<span class="normal"><a href="#__codelineno-0-292">292</a></span>
+<span class="normal"><a href="#__codelineno-0-293">293</a></span>
+<span class="normal"><a href="#__codelineno-0-294">294</a></span>
+<span class="normal"><a href="#__codelineno-0-295">295</a></span>
+<span class="normal"><a href="#__codelineno-0-296">296</a></span>
+<span class="normal"><a href="#__codelineno-0-297">297</a></span>
+<span class="normal"><a href="#__codelineno-0-298">298</a></span>
+<span class="normal"><a href="#__codelineno-0-299">299</a></span>
+<span class="normal"><a href="#__codelineno-0-300">300</a></span>
+<span class="normal"><a href="#__codelineno-0-301">301</a></span>
+<span class="normal"><a href="#__codelineno-0-302">302</a></span>
+<span class="normal"><a href="#__codelineno-0-303">303</a></span>
+<span class="normal"><a href="#__codelineno-0-304">304</a></span>
+<span class="normal"><a href="#__codelineno-0-305">305</a></span>
+<span class="normal"><a href="#__codelineno-0-306">306</a></span>
+<span class="normal"><a href="#__codelineno-0-307">307</a></span>
+<span class="normal"><a href="#__codelineno-0-308">308</a></span>
+<span class="normal"><a href="#__codelineno-0-309">309</a></span>
 <span class="normal"><a href="#__codelineno-0-310">310</a></span>
 <span class="normal"><a href="#__codelineno-0-311">311</a></span>
 <span class="normal"><a href="#__codelineno-0-312">312</a></span>
@@ -1188,66 +1187,45 @@
 <span class="normal"><a href="#__codelineno-0-323">323</a></span>
 <span class="normal"><a href="#__codelineno-0-324">324</a></span>
 <span class="normal"><a href="#__codelineno-0-325">325</a></span>
-<span class="normal"><a href="#__codelineno-0-326">326</a></span>
-<span class="normal"><a href="#__codelineno-0-327">327</a></span>
-<span class="normal"><a href="#__codelineno-0-328">328</a></span>
-<span class="normal"><a href="#__codelineno-0-329">329</a></span>
-<span class="normal"><a href="#__codelineno-0-330">330</a></span>
-<span class="normal"><a href="#__codelineno-0-331">331</a></span>
-<span class="normal"><a href="#__codelineno-0-332">332</a></span>
-<span class="normal"><a href="#__codelineno-0-333">333</a></span>
-<span class="normal"><a href="#__codelineno-0-334">334</a></span>
-<span class="normal"><a href="#__codelineno-0-335">335</a></span>
-<span class="normal"><a href="#__codelineno-0-336">336</a></span>
-<span class="normal"><a href="#__codelineno-0-337">337</a></span>
-<span class="normal"><a href="#__codelineno-0-338">338</a></span>
-<span class="normal"><a href="#__codelineno-0-339">339</a></span>
-<span class="normal"><a href="#__codelineno-0-340">340</a></span>
-<span class="normal"><a href="#__codelineno-0-341">341</a></span>
-<span class="normal"><a href="#__codelineno-0-342">342</a></span>
-<span class="normal"><a href="#__codelineno-0-343">343</a></span>
-<span class="normal"><a href="#__codelineno-0-344">344</a></span>
-<span class="normal"><a href="#__codelineno-0-345">345</a></span>
-<span class="normal"><a href="#__codelineno-0-346">346</a></span>
-<span class="normal"><a href="#__codelineno-0-347">347</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="k">def</span><span class="w"> </span><span class="nf">export_dataframe</span><span class="p">(</span>
-<a id="__codelineno-0-310" name="__codelineno-0-310"></a>    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
-<a id="__codelineno-0-311" name="__codelineno-0-311"></a>    <span class="n">output_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
-<a id="__codelineno-0-312" name="__codelineno-0-312"></a>    <span class="n">output_format</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-0-313" name="__codelineno-0-313"></a>    <span class="n">table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;data&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-315" name="__codelineno-0-315"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Export a pandas DataFrame to the specified file format.</span>
-<a id="__codelineno-0-316" name="__codelineno-0-316"></a>
-<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-318" name="__codelineno-0-318"></a><span class="sd">        df: DataFrame to export.</span>
-<a id="__codelineno-0-319" name="__codelineno-0-319"></a><span class="sd">        output_path: Path to the output file.</span>
-<a id="__codelineno-0-320" name="__codelineno-0-320"></a><span class="sd">        output_format: Output format (csv, json, parquet, or sqlite3).</span>
-<a id="__codelineno-0-321" name="__codelineno-0-321"></a><span class="sd">        table_name: Table name for SQLite3 output.</span>
-<a id="__codelineno-0-322" name="__codelineno-0-322"></a>
-<a id="__codelineno-0-323" name="__codelineno-0-323"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-324" name="__codelineno-0-324"></a><span class="sd">        ValueError: If the output format is not supported.</span>
-<a id="__codelineno-0-325" name="__codelineno-0-325"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-326" name="__codelineno-0-326"></a>    <span class="k">if</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;csv&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-327" name="__codelineno-0-327"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-0-328" name="__codelineno-0-328"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;json&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-329" name="__codelineno-0-329"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_json</span><span class="p">(</span>
-<a id="__codelineno-0-330" name="__codelineno-0-330"></a>            <span class="n">output_path</span><span class="p">,</span>
-<a id="__codelineno-0-331" name="__codelineno-0-331"></a>            <span class="n">orient</span><span class="o">=</span><span class="s2">&quot;records&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-332" name="__codelineno-0-332"></a>            <span class="n">date_format</span><span class="o">=</span><span class="s2">&quot;iso&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-333" name="__codelineno-0-333"></a>            <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-0-334" name="__codelineno-0-334"></a>        <span class="p">)</span>
-<a id="__codelineno-0-335" name="__codelineno-0-335"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;parquet&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-336" name="__codelineno-0-336"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_parquet</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-0-337" name="__codelineno-0-337"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;sqlite3&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-338" name="__codelineno-0-338"></a>        <span class="n">export_dataframe_to_sqlite</span><span class="p">(</span>
-<a id="__codelineno-0-339" name="__codelineno-0-339"></a>            <span class="n">df</span><span class="p">,</span>
-<a id="__codelineno-0-340" name="__codelineno-0-340"></a>            <span class="n">output_path</span><span class="p">,</span>
-<a id="__codelineno-0-341" name="__codelineno-0-341"></a>            <span class="n">table_name</span><span class="p">,</span>
-<a id="__codelineno-0-342" name="__codelineno-0-342"></a>            <span class="n">if_exists</span><span class="o">=</span><span class="n">IfExists</span><span class="o">.</span><span class="n">REPLACE</span><span class="p">,</span>
-<a id="__codelineno-0-343" name="__codelineno-0-343"></a>            <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-344" name="__codelineno-0-344"></a>        <span class="p">)</span>
-<a id="__codelineno-0-345" name="__codelineno-0-345"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-346" name="__codelineno-0-346"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Unsupported output format: </span><span class="si">{</span><span class="n">output_format</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-347" name="__codelineno-0-347"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-326">326</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-288" name="__codelineno-0-288"></a><span class="k">def</span><span class="w"> </span><span class="nf">export_dataframe</span><span class="p">(</span>
+<a id="__codelineno-0-289" name="__codelineno-0-289"></a>    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+<a id="__codelineno-0-290" name="__codelineno-0-290"></a>    <span class="n">output_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-291" name="__codelineno-0-291"></a>    <span class="n">output_format</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-292" name="__codelineno-0-292"></a>    <span class="n">table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;data&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-293" name="__codelineno-0-293"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-294" name="__codelineno-0-294"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Export a pandas DataFrame to the specified file format.</span>
+<a id="__codelineno-0-295" name="__codelineno-0-295"></a>
+<a id="__codelineno-0-296" name="__codelineno-0-296"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-297" name="__codelineno-0-297"></a><span class="sd">        df: DataFrame to export.</span>
+<a id="__codelineno-0-298" name="__codelineno-0-298"></a><span class="sd">        output_path: Path to the output file.</span>
+<a id="__codelineno-0-299" name="__codelineno-0-299"></a><span class="sd">        output_format: Output format (csv, json, parquet, or sqlite3).</span>
+<a id="__codelineno-0-300" name="__codelineno-0-300"></a><span class="sd">        table_name: Table name for SQLite3 output.</span>
+<a id="__codelineno-0-301" name="__codelineno-0-301"></a>
+<a id="__codelineno-0-302" name="__codelineno-0-302"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-303" name="__codelineno-0-303"></a><span class="sd">        ValueError: If the output format is not supported.</span>
+<a id="__codelineno-0-304" name="__codelineno-0-304"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-305" name="__codelineno-0-305"></a>    <span class="k">if</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;csv&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-306" name="__codelineno-0-306"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-0-307" name="__codelineno-0-307"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;json&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-308" name="__codelineno-0-308"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_json</span><span class="p">(</span>
+<a id="__codelineno-0-309" name="__codelineno-0-309"></a>            <span class="n">output_path</span><span class="p">,</span>
+<a id="__codelineno-0-310" name="__codelineno-0-310"></a>            <span class="n">orient</span><span class="o">=</span><span class="s2">&quot;records&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-311" name="__codelineno-0-311"></a>            <span class="n">date_format</span><span class="o">=</span><span class="s2">&quot;iso&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-312" name="__codelineno-0-312"></a>            <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-0-313" name="__codelineno-0-313"></a>        <span class="p">)</span>
+<a id="__codelineno-0-314" name="__codelineno-0-314"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;parquet&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-315" name="__codelineno-0-315"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_parquet</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-0-316" name="__codelineno-0-316"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;sqlite3&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-317" name="__codelineno-0-317"></a>        <span class="n">export_dataframe_to_sqlite</span><span class="p">(</span>
+<a id="__codelineno-0-318" name="__codelineno-0-318"></a>            <span class="n">df</span><span class="p">,</span>
+<a id="__codelineno-0-319" name="__codelineno-0-319"></a>            <span class="n">output_path</span><span class="p">,</span>
+<a id="__codelineno-0-320" name="__codelineno-0-320"></a>            <span class="n">table_name</span><span class="p">,</span>
+<a id="__codelineno-0-321" name="__codelineno-0-321"></a>            <span class="n">if_exists</span><span class="o">=</span><span class="n">IfExists</span><span class="o">.</span><span class="n">REPLACE</span><span class="p">,</span>
+<a id="__codelineno-0-322" name="__codelineno-0-322"></a>            <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-323" name="__codelineno-0-323"></a>        <span class="p">)</span>
+<a id="__codelineno-0-324" name="__codelineno-0-324"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-325" name="__codelineno-0-325"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Unsupported output format: </span><span class="si">{</span><span class="n">output_format</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-326" name="__codelineno-0-326"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1423,7 +1401,28 @@ columns when appending frequently.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-265">265</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-244">244</a></span>
+<span class="normal"><a href="#__codelineno-0-245">245</a></span>
+<span class="normal"><a href="#__codelineno-0-246">246</a></span>
+<span class="normal"><a href="#__codelineno-0-247">247</a></span>
+<span class="normal"><a href="#__codelineno-0-248">248</a></span>
+<span class="normal"><a href="#__codelineno-0-249">249</a></span>
+<span class="normal"><a href="#__codelineno-0-250">250</a></span>
+<span class="normal"><a href="#__codelineno-0-251">251</a></span>
+<span class="normal"><a href="#__codelineno-0-252">252</a></span>
+<span class="normal"><a href="#__codelineno-0-253">253</a></span>
+<span class="normal"><a href="#__codelineno-0-254">254</a></span>
+<span class="normal"><a href="#__codelineno-0-255">255</a></span>
+<span class="normal"><a href="#__codelineno-0-256">256</a></span>
+<span class="normal"><a href="#__codelineno-0-257">257</a></span>
+<span class="normal"><a href="#__codelineno-0-258">258</a></span>
+<span class="normal"><a href="#__codelineno-0-259">259</a></span>
+<span class="normal"><a href="#__codelineno-0-260">260</a></span>
+<span class="normal"><a href="#__codelineno-0-261">261</a></span>
+<span class="normal"><a href="#__codelineno-0-262">262</a></span>
+<span class="normal"><a href="#__codelineno-0-263">263</a></span>
+<span class="normal"><a href="#__codelineno-0-264">264</a></span>
+<span class="normal"><a href="#__codelineno-0-265">265</a></span>
 <span class="normal"><a href="#__codelineno-0-266">266</a></span>
 <span class="normal"><a href="#__codelineno-0-267">267</a></span>
 <span class="normal"><a href="#__codelineno-0-268">268</a></span>
@@ -1443,69 +1442,48 @@ columns when appending frequently.</p>
 <span class="normal"><a href="#__codelineno-0-282">282</a></span>
 <span class="normal"><a href="#__codelineno-0-283">283</a></span>
 <span class="normal"><a href="#__codelineno-0-284">284</a></span>
-<span class="normal"><a href="#__codelineno-0-285">285</a></span>
-<span class="normal"><a href="#__codelineno-0-286">286</a></span>
-<span class="normal"><a href="#__codelineno-0-287">287</a></span>
-<span class="normal"><a href="#__codelineno-0-288">288</a></span>
-<span class="normal"><a href="#__codelineno-0-289">289</a></span>
-<span class="normal"><a href="#__codelineno-0-290">290</a></span>
-<span class="normal"><a href="#__codelineno-0-291">291</a></span>
-<span class="normal"><a href="#__codelineno-0-292">292</a></span>
-<span class="normal"><a href="#__codelineno-0-293">293</a></span>
-<span class="normal"><a href="#__codelineno-0-294">294</a></span>
-<span class="normal"><a href="#__codelineno-0-295">295</a></span>
-<span class="normal"><a href="#__codelineno-0-296">296</a></span>
-<span class="normal"><a href="#__codelineno-0-297">297</a></span>
-<span class="normal"><a href="#__codelineno-0-298">298</a></span>
-<span class="normal"><a href="#__codelineno-0-299">299</a></span>
-<span class="normal"><a href="#__codelineno-0-300">300</a></span>
-<span class="normal"><a href="#__codelineno-0-301">301</a></span>
-<span class="normal"><a href="#__codelineno-0-302">302</a></span>
-<span class="normal"><a href="#__codelineno-0-303">303</a></span>
-<span class="normal"><a href="#__codelineno-0-304">304</a></span>
-<span class="normal"><a href="#__codelineno-0-305">305</a></span>
-<span class="normal"><a href="#__codelineno-0-306">306</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-265" name="__codelineno-0-265"></a><span class="k">def</span><span class="w"> </span><span class="nf">export_dataframe_to_sqlite</span><span class="p">(</span>
-<a id="__codelineno-0-266" name="__codelineno-0-266"></a>    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
-<a id="__codelineno-0-267" name="__codelineno-0-267"></a>    <span class="n">output_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
-<a id="__codelineno-0-268" name="__codelineno-0-268"></a>    <span class="n">table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;data&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-269" name="__codelineno-0-269"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-270" name="__codelineno-0-270"></a>    <span class="n">if_exists</span><span class="p">:</span> <span class="n">IfExists</span> <span class="o">=</span> <span class="n">IfExists</span><span class="o">.</span><span class="n">APPEND</span><span class="p">,</span>
-<a id="__codelineno-0-271" name="__codelineno-0-271"></a>    <span class="n">index</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-272" name="__codelineno-0-272"></a>    <span class="n">index_label</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-273" name="__codelineno-0-273"></a>    <span class="n">deduplicate_on</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-274" name="__codelineno-0-274"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-275" name="__codelineno-0-275"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Write a DataFrame to SQLite with configurable append and deduplication.</span>
-<a id="__codelineno-0-276" name="__codelineno-0-276"></a>
-<a id="__codelineno-0-277" name="__codelineno-0-277"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-278" name="__codelineno-0-278"></a><span class="sd">        df: DataFrame to export.</span>
-<a id="__codelineno-0-279" name="__codelineno-0-279"></a><span class="sd">        output_path: SQLite database path.</span>
-<a id="__codelineno-0-280" name="__codelineno-0-280"></a><span class="sd">        table_name: Target table name.</span>
-<a id="__codelineno-0-281" name="__codelineno-0-281"></a><span class="sd">        if_exists: Conflict behavior when the table already exists.</span>
-<a id="__codelineno-0-282" name="__codelineno-0-282"></a><span class="sd">        index: Whether to write the DataFrame index as a column.</span>
-<a id="__codelineno-0-283" name="__codelineno-0-283"></a><span class="sd">        index_label: Column name for the index when ``index=True``.</span>
-<a id="__codelineno-0-284" name="__codelineno-0-284"></a><span class="sd">        deduplicate_on: Optional key columns to deduplicate after writing,</span>
-<a id="__codelineno-0-285" name="__codelineno-0-285"></a><span class="sd">            keeping the latest ``ROWID`` per key group. Deduplication scans the</span>
-<a id="__codelineno-0-286" name="__codelineno-0-286"></a><span class="sd">            full table, so repeated appends cost O(table size); index the key</span>
-<a id="__codelineno-0-287" name="__codelineno-0-287"></a><span class="sd">            columns when appending frequently.</span>
-<a id="__codelineno-0-288" name="__codelineno-0-288"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-289" name="__codelineno-0-289"></a>    <span class="k">with</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
-<a id="__codelineno-0-290" name="__codelineno-0-290"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_sql</span><span class="p">(</span>  <span class="c1"># type: ignore[reportUnknownMemberType]</span>
-<a id="__codelineno-0-291" name="__codelineno-0-291"></a>            <span class="n">table_name</span><span class="p">,</span>
-<a id="__codelineno-0-292" name="__codelineno-0-292"></a>            <span class="n">conn</span><span class="p">,</span>
-<a id="__codelineno-0-293" name="__codelineno-0-293"></a>            <span class="n">if_exists</span><span class="o">=</span><span class="n">if_exists</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
-<a id="__codelineno-0-294" name="__codelineno-0-294"></a>            <span class="n">index</span><span class="o">=</span><span class="n">index</span><span class="p">,</span>
-<a id="__codelineno-0-295" name="__codelineno-0-295"></a>            <span class="n">index_label</span><span class="o">=</span><span class="n">index_label</span><span class="p">,</span>
-<a id="__codelineno-0-296" name="__codelineno-0-296"></a>        <span class="p">)</span>
-<a id="__codelineno-0-297" name="__codelineno-0-297"></a>        <span class="k">if</span> <span class="n">deduplicate_on</span><span class="p">:</span>
-<a id="__codelineno-0-298" name="__codelineno-0-298"></a>            <span class="kn">from</span><span class="w"> </span><span class="nn">.history</span><span class="w"> </span><span class="kn">import</span> <span class="n">drop_duplicates_in_table</span>  <span class="c1"># noqa: PLC0415</span>
-<a id="__codelineno-0-299" name="__codelineno-0-299"></a>
-<a id="__codelineno-0-300" name="__codelineno-0-300"></a>            <span class="n">drop_duplicates_in_table</span><span class="p">(</span>
-<a id="__codelineno-0-301" name="__codelineno-0-301"></a>                <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">(),</span>
-<a id="__codelineno-0-302" name="__codelineno-0-302"></a>                <span class="n">table_name</span><span class="p">,</span>
-<a id="__codelineno-0-303" name="__codelineno-0-303"></a>                <span class="nb">list</span><span class="p">(</span><span class="n">deduplicate_on</span><span class="p">),</span>
-<a id="__codelineno-0-304" name="__codelineno-0-304"></a>                <span class="n">keep</span><span class="o">=</span><span class="s2">&quot;last&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-305" name="__codelineno-0-305"></a>            <span class="p">)</span>
-<a id="__codelineno-0-306" name="__codelineno-0-306"></a>            <span class="n">conn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+<span class="normal"><a href="#__codelineno-0-285">285</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="k">def</span><span class="w"> </span><span class="nf">export_dataframe_to_sqlite</span><span class="p">(</span>
+<a id="__codelineno-0-245" name="__codelineno-0-245"></a>    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+<a id="__codelineno-0-246" name="__codelineno-0-246"></a>    <span class="n">output_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-247" name="__codelineno-0-247"></a>    <span class="n">table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;data&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-248" name="__codelineno-0-248"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-249" name="__codelineno-0-249"></a>    <span class="n">if_exists</span><span class="p">:</span> <span class="n">IfExists</span> <span class="o">=</span> <span class="n">IfExists</span><span class="o">.</span><span class="n">APPEND</span><span class="p">,</span>
+<a id="__codelineno-0-250" name="__codelineno-0-250"></a>    <span class="n">index</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-251" name="__codelineno-0-251"></a>    <span class="n">index_label</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-252" name="__codelineno-0-252"></a>    <span class="n">deduplicate_on</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-253" name="__codelineno-0-253"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Write a DataFrame to SQLite with configurable append and deduplication.</span>
+<a id="__codelineno-0-255" name="__codelineno-0-255"></a>
+<a id="__codelineno-0-256" name="__codelineno-0-256"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-257" name="__codelineno-0-257"></a><span class="sd">        df: DataFrame to export.</span>
+<a id="__codelineno-0-258" name="__codelineno-0-258"></a><span class="sd">        output_path: SQLite database path.</span>
+<a id="__codelineno-0-259" name="__codelineno-0-259"></a><span class="sd">        table_name: Target table name.</span>
+<a id="__codelineno-0-260" name="__codelineno-0-260"></a><span class="sd">        if_exists: Conflict behavior when the table already exists.</span>
+<a id="__codelineno-0-261" name="__codelineno-0-261"></a><span class="sd">        index: Whether to write the DataFrame index as a column.</span>
+<a id="__codelineno-0-262" name="__codelineno-0-262"></a><span class="sd">        index_label: Column name for the index when ``index=True``.</span>
+<a id="__codelineno-0-263" name="__codelineno-0-263"></a><span class="sd">        deduplicate_on: Optional key columns to deduplicate after writing,</span>
+<a id="__codelineno-0-264" name="__codelineno-0-264"></a><span class="sd">            keeping the latest ``ROWID`` per key group. Deduplication scans the</span>
+<a id="__codelineno-0-265" name="__codelineno-0-265"></a><span class="sd">            full table, so repeated appends cost O(table size); index the key</span>
+<a id="__codelineno-0-266" name="__codelineno-0-266"></a><span class="sd">            columns when appending frequently.</span>
+<a id="__codelineno-0-267" name="__codelineno-0-267"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-268" name="__codelineno-0-268"></a>    <span class="k">with</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+<a id="__codelineno-0-269" name="__codelineno-0-269"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_sql</span><span class="p">(</span>  <span class="c1"># type: ignore[reportUnknownMemberType]</span>
+<a id="__codelineno-0-270" name="__codelineno-0-270"></a>            <span class="n">table_name</span><span class="p">,</span>
+<a id="__codelineno-0-271" name="__codelineno-0-271"></a>            <span class="n">conn</span><span class="p">,</span>
+<a id="__codelineno-0-272" name="__codelineno-0-272"></a>            <span class="n">if_exists</span><span class="o">=</span><span class="n">if_exists</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+<a id="__codelineno-0-273" name="__codelineno-0-273"></a>            <span class="n">index</span><span class="o">=</span><span class="n">index</span><span class="p">,</span>
+<a id="__codelineno-0-274" name="__codelineno-0-274"></a>            <span class="n">index_label</span><span class="o">=</span><span class="n">index_label</span><span class="p">,</span>
+<a id="__codelineno-0-275" name="__codelineno-0-275"></a>        <span class="p">)</span>
+<a id="__codelineno-0-276" name="__codelineno-0-276"></a>        <span class="k">if</span> <span class="n">deduplicate_on</span><span class="p">:</span>
+<a id="__codelineno-0-277" name="__codelineno-0-277"></a>            <span class="kn">from</span><span class="w"> </span><span class="nn">.history</span><span class="w"> </span><span class="kn">import</span> <span class="n">drop_duplicates_in_table</span>  <span class="c1"># noqa: PLC0415</span>
+<a id="__codelineno-0-278" name="__codelineno-0-278"></a>
+<a id="__codelineno-0-279" name="__codelineno-0-279"></a>            <span class="n">drop_duplicates_in_table</span><span class="p">(</span>
+<a id="__codelineno-0-280" name="__codelineno-0-280"></a>                <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">(),</span>
+<a id="__codelineno-0-281" name="__codelineno-0-281"></a>                <span class="n">table_name</span><span class="p">,</span>
+<a id="__codelineno-0-282" name="__codelineno-0-282"></a>                <span class="nb">list</span><span class="p">(</span><span class="n">deduplicate_on</span><span class="p">),</span>
+<a id="__codelineno-0-283" name="__codelineno-0-283"></a>                <span class="n">keep</span><span class="o">=</span><span class="s2">&quot;last&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-284" name="__codelineno-0-284"></a>            <span class="p">)</span>
+<a id="__codelineno-0-285" name="__codelineno-0-285"></a>            <span class="n">conn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1608,47 +1586,47 @@ columns when appending frequently.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-350">350</a></span>
-<span class="normal"><a href="#__codelineno-0-351">351</a></span>
-<span class="normal"><a href="#__codelineno-0-352">352</a></span>
-<span class="normal"><a href="#__codelineno-0-353">353</a></span>
-<span class="normal"><a href="#__codelineno-0-354">354</a></span>
-<span class="normal"><a href="#__codelineno-0-355">355</a></span>
-<span class="normal"><a href="#__codelineno-0-356">356</a></span>
-<span class="normal"><a href="#__codelineno-0-357">357</a></span>
-<span class="normal"><a href="#__codelineno-0-358">358</a></span>
-<span class="normal"><a href="#__codelineno-0-359">359</a></span>
-<span class="normal"><a href="#__codelineno-0-360">360</a></span>
-<span class="normal"><a href="#__codelineno-0-361">361</a></span>
-<span class="normal"><a href="#__codelineno-0-362">362</a></span>
-<span class="normal"><a href="#__codelineno-0-363">363</a></span>
-<span class="normal"><a href="#__codelineno-0-364">364</a></span>
-<span class="normal"><a href="#__codelineno-0-365">365</a></span>
-<span class="normal"><a href="#__codelineno-0-366">366</a></span>
-<span class="normal"><a href="#__codelineno-0-367">367</a></span>
-<span class="normal"><a href="#__codelineno-0-368">368</a></span>
-<span class="normal"><a href="#__codelineno-0-369">369</a></span>
-<span class="normal"><a href="#__codelineno-0-370">370</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_datetime</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">datetime</span><span class="p">:</span>
-<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse an ISO 8601 datetime string to a timezone-aware datetime.</span>
-<a id="__codelineno-0-352" name="__codelineno-0-352"></a>
-<a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-354" name="__codelineno-0-354"></a><span class="sd">        value: ISO 8601 datetime string (e.g., &#39;2024-01-01&#39; or</span>
-<a id="__codelineno-0-355" name="__codelineno-0-355"></a><span class="sd">            &#39;2024-01-01T12:00:00+00:00&#39;).</span>
-<a id="__codelineno-0-356" name="__codelineno-0-356"></a>
-<a id="__codelineno-0-357" name="__codelineno-0-357"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-358" name="__codelineno-0-358"></a><span class="sd">        Parsed datetime with UTC timezone if no timezone is specified.</span>
-<a id="__codelineno-0-359" name="__codelineno-0-359"></a>
-<a id="__codelineno-0-360" name="__codelineno-0-360"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-361" name="__codelineno-0-361"></a><span class="sd">        ValueError: If the string cannot be parsed.</span>
-<a id="__codelineno-0-362" name="__codelineno-0-362"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-363" name="__codelineno-0-363"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-364" name="__codelineno-0-364"></a>        <span class="n">dt</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
-<a id="__codelineno-0-365" name="__codelineno-0-365"></a>    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
-<a id="__codelineno-0-366" name="__codelineno-0-366"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid datetime format: &#39;</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&#39;. Use ISO 8601 format.&quot;</span>
-<a id="__codelineno-0-367" name="__codelineno-0-367"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
-<a id="__codelineno-0-368" name="__codelineno-0-368"></a>    <span class="k">if</span> <span class="n">dt</span><span class="o">.</span><span class="n">tzinfo</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-369" name="__codelineno-0-369"></a>        <span class="n">dt</span> <span class="o">=</span> <span class="n">dt</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">)</span>
-<a id="__codelineno-0-370" name="__codelineno-0-370"></a>    <span class="k">return</span> <span class="n">dt</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-329">329</a></span>
+<span class="normal"><a href="#__codelineno-0-330">330</a></span>
+<span class="normal"><a href="#__codelineno-0-331">331</a></span>
+<span class="normal"><a href="#__codelineno-0-332">332</a></span>
+<span class="normal"><a href="#__codelineno-0-333">333</a></span>
+<span class="normal"><a href="#__codelineno-0-334">334</a></span>
+<span class="normal"><a href="#__codelineno-0-335">335</a></span>
+<span class="normal"><a href="#__codelineno-0-336">336</a></span>
+<span class="normal"><a href="#__codelineno-0-337">337</a></span>
+<span class="normal"><a href="#__codelineno-0-338">338</a></span>
+<span class="normal"><a href="#__codelineno-0-339">339</a></span>
+<span class="normal"><a href="#__codelineno-0-340">340</a></span>
+<span class="normal"><a href="#__codelineno-0-341">341</a></span>
+<span class="normal"><a href="#__codelineno-0-342">342</a></span>
+<span class="normal"><a href="#__codelineno-0-343">343</a></span>
+<span class="normal"><a href="#__codelineno-0-344">344</a></span>
+<span class="normal"><a href="#__codelineno-0-345">345</a></span>
+<span class="normal"><a href="#__codelineno-0-346">346</a></span>
+<span class="normal"><a href="#__codelineno-0-347">347</a></span>
+<span class="normal"><a href="#__codelineno-0-348">348</a></span>
+<span class="normal"><a href="#__codelineno-0-349">349</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-329" name="__codelineno-0-329"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_datetime</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">datetime</span><span class="p">:</span>
+<a id="__codelineno-0-330" name="__codelineno-0-330"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse an ISO 8601 datetime string to a timezone-aware datetime.</span>
+<a id="__codelineno-0-331" name="__codelineno-0-331"></a>
+<a id="__codelineno-0-332" name="__codelineno-0-332"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-333" name="__codelineno-0-333"></a><span class="sd">        value: ISO 8601 datetime string (e.g., &#39;2024-01-01&#39; or</span>
+<a id="__codelineno-0-334" name="__codelineno-0-334"></a><span class="sd">            &#39;2024-01-01T12:00:00+00:00&#39;).</span>
+<a id="__codelineno-0-335" name="__codelineno-0-335"></a>
+<a id="__codelineno-0-336" name="__codelineno-0-336"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-337" name="__codelineno-0-337"></a><span class="sd">        Parsed datetime with UTC timezone if no timezone is specified.</span>
+<a id="__codelineno-0-338" name="__codelineno-0-338"></a>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a><span class="sd">        ValueError: If the string cannot be parsed.</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a>        <span class="n">dt</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a>    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+<a id="__codelineno-0-345" name="__codelineno-0-345"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid datetime format: &#39;</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&#39;. Use ISO 8601 format.&quot;</span>
+<a id="__codelineno-0-346" name="__codelineno-0-346"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+<a id="__codelineno-0-347" name="__codelineno-0-347"></a>    <span class="k">if</span> <span class="n">dt</span><span class="o">.</span><span class="n">tzinfo</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-348" name="__codelineno-0-348"></a>        <span class="n">dt</span> <span class="o">=</span> <span class="n">dt</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">)</span>
+<a id="__codelineno-0-349" name="__codelineno-0-349"></a>    <span class="k">return</span> <span class="n">dt</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1751,7 +1729,26 @@ JSON object.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-423">423</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-404">404</a></span>
+<span class="normal"><a href="#__codelineno-0-405">405</a></span>
+<span class="normal"><a href="#__codelineno-0-406">406</a></span>
+<span class="normal"><a href="#__codelineno-0-407">407</a></span>
+<span class="normal"><a href="#__codelineno-0-408">408</a></span>
+<span class="normal"><a href="#__codelineno-0-409">409</a></span>
+<span class="normal"><a href="#__codelineno-0-410">410</a></span>
+<span class="normal"><a href="#__codelineno-0-411">411</a></span>
+<span class="normal"><a href="#__codelineno-0-412">412</a></span>
+<span class="normal"><a href="#__codelineno-0-413">413</a></span>
+<span class="normal"><a href="#__codelineno-0-414">414</a></span>
+<span class="normal"><a href="#__codelineno-0-415">415</a></span>
+<span class="normal"><a href="#__codelineno-0-416">416</a></span>
+<span class="normal"><a href="#__codelineno-0-417">417</a></span>
+<span class="normal"><a href="#__codelineno-0-418">418</a></span>
+<span class="normal"><a href="#__codelineno-0-419">419</a></span>
+<span class="normal"><a href="#__codelineno-0-420">420</a></span>
+<span class="normal"><a href="#__codelineno-0-421">421</a></span>
+<span class="normal"><a href="#__codelineno-0-422">422</a></span>
+<span class="normal"><a href="#__codelineno-0-423">423</a></span>
 <span class="normal"><a href="#__codelineno-0-424">424</a></span>
 <span class="normal"><a href="#__codelineno-0-425">425</a></span>
 <span class="normal"><a href="#__codelineno-0-426">426</a></span>
@@ -1762,56 +1759,37 @@ JSON object.</p>
 <span class="normal"><a href="#__codelineno-0-431">431</a></span>
 <span class="normal"><a href="#__codelineno-0-432">432</a></span>
 <span class="normal"><a href="#__codelineno-0-433">433</a></span>
-<span class="normal"><a href="#__codelineno-0-434">434</a></span>
-<span class="normal"><a href="#__codelineno-0-435">435</a></span>
-<span class="normal"><a href="#__codelineno-0-436">436</a></span>
-<span class="normal"><a href="#__codelineno-0-437">437</a></span>
-<span class="normal"><a href="#__codelineno-0-438">438</a></span>
-<span class="normal"><a href="#__codelineno-0-439">439</a></span>
-<span class="normal"><a href="#__codelineno-0-440">440</a></span>
-<span class="normal"><a href="#__codelineno-0-441">441</a></span>
-<span class="normal"><a href="#__codelineno-0-442">442</a></span>
-<span class="normal"><a href="#__codelineno-0-443">443</a></span>
-<span class="normal"><a href="#__codelineno-0-444">444</a></span>
-<span class="normal"><a href="#__codelineno-0-445">445</a></span>
-<span class="normal"><a href="#__codelineno-0-446">446</a></span>
-<span class="normal"><a href="#__codelineno-0-447">447</a></span>
-<span class="normal"><a href="#__codelineno-0-448">448</a></span>
-<span class="normal"><a href="#__codelineno-0-449">449</a></span>
-<span class="normal"><a href="#__codelineno-0-450">450</a></span>
-<span class="normal"><a href="#__codelineno-0-451">451</a></span>
-<span class="normal"><a href="#__codelineno-0-452">452</a></span>
-<span class="normal"><a href="#__codelineno-0-453">453</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-423" name="__codelineno-0-423"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_request</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<a id="__codelineno-0-424" name="__codelineno-0-424"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse a JSON-formatted order request string or file reference.</span>
-<a id="__codelineno-0-425" name="__codelineno-0-425"></a>
-<a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">        value: JSON object string, or &#39;@path&#39; to read JSON from a file.</span>
-<a id="__codelineno-0-428" name="__codelineno-0-428"></a>
-<a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">        Parsed request dictionary.</span>
-<a id="__codelineno-0-431" name="__codelineno-0-431"></a>
-<a id="__codelineno-0-432" name="__codelineno-0-432"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-433" name="__codelineno-0-433"></a><span class="sd">        ValueError: If the request file cannot be read or the value is not a</span>
-<a id="__codelineno-0-434" name="__codelineno-0-434"></a><span class="sd">            JSON object.</span>
-<a id="__codelineno-0-435" name="__codelineno-0-435"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-436" name="__codelineno-0-436"></a>    <span class="k">if</span> <span class="n">value</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;@&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-437" name="__codelineno-0-437"></a>        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span>
-<a id="__codelineno-0-438" name="__codelineno-0-438"></a>        <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-439" name="__codelineno-0-439"></a>            <span class="n">text</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-440" name="__codelineno-0-440"></a>        <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">UnicodeDecodeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-441" name="__codelineno-0-441"></a>            <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Failed to read JSON request file &#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-442" name="__codelineno-0-442"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-<a id="__codelineno-0-443" name="__codelineno-0-443"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-444" name="__codelineno-0-444"></a>        <span class="n">text</span> <span class="o">=</span> <span class="n">value</span>
-<a id="__codelineno-0-445" name="__codelineno-0-445"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-446" name="__codelineno-0-446"></a>        <span class="n">parsed</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
-<a id="__codelineno-0-447" name="__codelineno-0-447"></a>    <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-448" name="__codelineno-0-448"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid JSON request: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-449" name="__codelineno-0-449"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-<a id="__codelineno-0-450" name="__codelineno-0-450"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_request_dict</span><span class="p">(</span><span class="n">parsed</span><span class="p">):</span>
-<a id="__codelineno-0-451" name="__codelineno-0-451"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="s2">&quot;Order request must be a JSON object.&quot;</span>
-<a id="__codelineno-0-452" name="__codelineno-0-452"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
-<a id="__codelineno-0-453" name="__codelineno-0-453"></a>    <span class="k">return</span> <span class="n">parsed</span>
+<span class="normal"><a href="#__codelineno-0-434">434</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-404" name="__codelineno-0-404"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_request</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<a id="__codelineno-0-405" name="__codelineno-0-405"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse a JSON-formatted order request string or file reference.</span>
+<a id="__codelineno-0-406" name="__codelineno-0-406"></a>
+<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-408" name="__codelineno-0-408"></a><span class="sd">        value: JSON object string, or &#39;@path&#39; to read JSON from a file.</span>
+<a id="__codelineno-0-409" name="__codelineno-0-409"></a>
+<a id="__codelineno-0-410" name="__codelineno-0-410"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-411" name="__codelineno-0-411"></a><span class="sd">        Parsed request dictionary.</span>
+<a id="__codelineno-0-412" name="__codelineno-0-412"></a>
+<a id="__codelineno-0-413" name="__codelineno-0-413"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-414" name="__codelineno-0-414"></a><span class="sd">        ValueError: If the request file cannot be read or the value is not a</span>
+<a id="__codelineno-0-415" name="__codelineno-0-415"></a><span class="sd">            JSON object.</span>
+<a id="__codelineno-0-416" name="__codelineno-0-416"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-417" name="__codelineno-0-417"></a>    <span class="k">if</span> <span class="n">value</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;@&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-418" name="__codelineno-0-418"></a>        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span>
+<a id="__codelineno-0-419" name="__codelineno-0-419"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-420" name="__codelineno-0-420"></a>            <span class="n">text</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-421" name="__codelineno-0-421"></a>        <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">UnicodeDecodeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-422" name="__codelineno-0-422"></a>            <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Failed to read JSON request file &#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-423" name="__codelineno-0-423"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-424" name="__codelineno-0-424"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-425" name="__codelineno-0-425"></a>        <span class="n">text</span> <span class="o">=</span> <span class="n">value</span>
+<a id="__codelineno-0-426" name="__codelineno-0-426"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-427" name="__codelineno-0-427"></a>        <span class="n">parsed</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+<a id="__codelineno-0-428" name="__codelineno-0-428"></a>    <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-429" name="__codelineno-0-429"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid JSON request: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-430" name="__codelineno-0-430"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-431" name="__codelineno-0-431"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_request_dict</span><span class="p">(</span><span class="n">parsed</span><span class="p">):</span>
+<a id="__codelineno-0-432" name="__codelineno-0-432"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="s2">&quot;Order request must be a JSON object.&quot;</span>
+<a id="__codelineno-0-433" name="__codelineno-0-433"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<a id="__codelineno-0-434" name="__codelineno-0-434"></a>    <span class="k">return</span> <span class="n">parsed</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1826,7 +1804,7 @@ JSON object.</p>
 
 
 <a href="#mt5cli.utils.parse_tick_flags" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">parse_tick_flags</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">parse_tick_flags</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n"><span title="object">object</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1850,11 +1828,11 @@ JSON object.</p>
                 <code>value</code>
             </td>
             <td>
-                  <code><span title="str">str</span></code>
+                  <code><span title="object">object</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Tick flag name (ALL, INFO, TRADE) or integer value.</p>
+                <p>Tick flag name (ALL, INFO, TRADE, COPY_TICKS_*) or integer value.</p>
               </div>
             </td>
             <td>
@@ -1880,7 +1858,7 @@ JSON object.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Integer tick flag value.</p>
+                <p>Integer tick flag value compatible with MetaTrader 5 <code>COPY_TICKS_*</code>.</p>
               </div>
             </td>
           </tr>
@@ -1913,47 +1891,49 @@ JSON object.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-396">396</a></span>
-<span class="normal"><a href="#__codelineno-0-397">397</a></span>
-<span class="normal"><a href="#__codelineno-0-398">398</a></span>
-<span class="normal"><a href="#__codelineno-0-399">399</a></span>
-<span class="normal"><a href="#__codelineno-0-400">400</a></span>
-<span class="normal"><a href="#__codelineno-0-401">401</a></span>
-<span class="normal"><a href="#__codelineno-0-402">402</a></span>
-<span class="normal"><a href="#__codelineno-0-403">403</a></span>
-<span class="normal"><a href="#__codelineno-0-404">404</a></span>
-<span class="normal"><a href="#__codelineno-0-405">405</a></span>
-<span class="normal"><a href="#__codelineno-0-406">406</a></span>
-<span class="normal"><a href="#__codelineno-0-407">407</a></span>
-<span class="normal"><a href="#__codelineno-0-408">408</a></span>
-<span class="normal"><a href="#__codelineno-0-409">409</a></span>
-<span class="normal"><a href="#__codelineno-0-410">410</a></span>
-<span class="normal"><a href="#__codelineno-0-411">411</a></span>
-<span class="normal"><a href="#__codelineno-0-412">412</a></span>
-<span class="normal"><a href="#__codelineno-0-413">413</a></span>
-<span class="normal"><a href="#__codelineno-0-414">414</a></span>
-<span class="normal"><a href="#__codelineno-0-415">415</a></span>
-<span class="normal"><a href="#__codelineno-0-416">416</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-396" name="__codelineno-0-396"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_tick_flags</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-397" name="__codelineno-0-397"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse tick flags string or integer value.</span>
-<a id="__codelineno-0-398" name="__codelineno-0-398"></a>
-<a id="__codelineno-0-399" name="__codelineno-0-399"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-400" name="__codelineno-0-400"></a><span class="sd">        value: Tick flag name (ALL, INFO, TRADE) or integer value.</span>
-<a id="__codelineno-0-401" name="__codelineno-0-401"></a>
-<a id="__codelineno-0-402" name="__codelineno-0-402"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-403" name="__codelineno-0-403"></a><span class="sd">        Integer tick flag value.</span>
-<a id="__codelineno-0-404" name="__codelineno-0-404"></a>
-<a id="__codelineno-0-405" name="__codelineno-0-405"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-406" name="__codelineno-0-406"></a><span class="sd">        ValueError: If the flag is invalid.</span>
-<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-408" name="__codelineno-0-408"></a>    <span class="n">upper</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-409" name="__codelineno-0-409"></a>    <span class="k">if</span> <span class="n">upper</span> <span class="ow">in</span> <span class="n">TICK_FLAG_MAP</span><span class="p">:</span>
-<a id="__codelineno-0-410" name="__codelineno-0-410"></a>        <span class="k">return</span> <span class="n">TICK_FLAG_MAP</span><span class="p">[</span><span class="n">upper</span><span class="p">]</span>
-<a id="__codelineno-0-411" name="__codelineno-0-411"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-412" name="__codelineno-0-412"></a>        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
-<a id="__codelineno-0-413" name="__codelineno-0-413"></a>    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
-<a id="__codelineno-0-414" name="__codelineno-0-414"></a>        <span class="n">valid</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">TICK_FLAG_MAP</span><span class="p">)</span>
-<a id="__codelineno-0-415" name="__codelineno-0-415"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid tick flags: &#39;</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&#39;. Use one of: </span><span class="si">{</span><span class="n">valid</span><span class="si">}</span><span class="s2">, or an integer.&quot;</span>
-<a id="__codelineno-0-416" name="__codelineno-0-416"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-376">376</a></span>
+<span class="normal"><a href="#__codelineno-0-377">377</a></span>
+<span class="normal"><a href="#__codelineno-0-378">378</a></span>
+<span class="normal"><a href="#__codelineno-0-379">379</a></span>
+<span class="normal"><a href="#__codelineno-0-380">380</a></span>
+<span class="normal"><a href="#__codelineno-0-381">381</a></span>
+<span class="normal"><a href="#__codelineno-0-382">382</a></span>
+<span class="normal"><a href="#__codelineno-0-383">383</a></span>
+<span class="normal"><a href="#__codelineno-0-384">384</a></span>
+<span class="normal"><a href="#__codelineno-0-385">385</a></span>
+<span class="normal"><a href="#__codelineno-0-386">386</a></span>
+<span class="normal"><a href="#__codelineno-0-387">387</a></span>
+<span class="normal"><a href="#__codelineno-0-388">388</a></span>
+<span class="normal"><a href="#__codelineno-0-389">389</a></span>
+<span class="normal"><a href="#__codelineno-0-390">390</a></span>
+<span class="normal"><a href="#__codelineno-0-391">391</a></span>
+<span class="normal"><a href="#__codelineno-0-392">392</a></span>
+<span class="normal"><a href="#__codelineno-0-393">393</a></span>
+<span class="normal"><a href="#__codelineno-0-394">394</a></span>
+<span class="normal"><a href="#__codelineno-0-395">395</a></span>
+<span class="normal"><a href="#__codelineno-0-396">396</a></span>
+<span class="normal"><a href="#__codelineno-0-397">397</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-376" name="__codelineno-0-376"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_tick_flags</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-377" name="__codelineno-0-377"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse tick flags string or integer value.</span>
+<a id="__codelineno-0-378" name="__codelineno-0-378"></a>
+<a id="__codelineno-0-379" name="__codelineno-0-379"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-380" name="__codelineno-0-380"></a><span class="sd">        value: Tick flag name (ALL, INFO, TRADE, COPY_TICKS_*) or integer value.</span>
+<a id="__codelineno-0-381" name="__codelineno-0-381"></a>
+<a id="__codelineno-0-382" name="__codelineno-0-382"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-383" name="__codelineno-0-383"></a><span class="sd">        Integer tick flag value compatible with MetaTrader 5 ``COPY_TICKS_*``.</span>
+<a id="__codelineno-0-384" name="__codelineno-0-384"></a>
+<a id="__codelineno-0-385" name="__codelineno-0-385"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-386" name="__codelineno-0-386"></a><span class="sd">        ValueError: If the flag is invalid.</span>
+<a id="__codelineno-0-387" name="__codelineno-0-387"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-388" name="__codelineno-0-388"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-389" name="__codelineno-0-389"></a>        <span class="k">return</span> <span class="n">_parse_copy_ticks</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-390" name="__codelineno-0-390"></a>    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+<a id="__codelineno-0-391" name="__codelineno-0-391"></a>        <span class="n">display</span> <span class="o">=</span> <span class="n">value</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="nb">repr</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-392" name="__codelineno-0-392"></a>        <span class="n">valid</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">_TICK_FLAG_NAMES</span><span class="p">)</span>
+<a id="__codelineno-0-393" name="__codelineno-0-393"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-0-394" name="__codelineno-0-394"></a>            <span class="sa">f</span><span class="s2">&quot;Invalid tick flags: &#39;</span><span class="si">{</span><span class="n">display</span><span class="si">}</span><span class="s2">&#39;. &quot;</span>
+<a id="__codelineno-0-395" name="__codelineno-0-395"></a>            <span class="sa">f</span><span class="s2">&quot;Use one of: </span><span class="si">{</span><span class="n">valid</span><span class="si">}</span><span class="s2">, or a supported integer.&quot;</span>
+<a id="__codelineno-0-396" name="__codelineno-0-396"></a>        <span class="p">)</span>
+<a id="__codelineno-0-397" name="__codelineno-0-397"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1968,7 +1948,7 @@ JSON object.</p>
 
 
 <a href="#mt5cli.utils.parse_timeframe" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">parse_timeframe</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">parse_timeframe</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n"><span title="object">object</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1992,7 +1972,7 @@ JSON object.</p>
                 <code>value</code>
             </td>
             <td>
-                  <code><span title="str">str</span></code>
+                  <code><span title="object">object</span></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -2055,47 +2035,49 @@ JSON object.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-373">373</a></span>
-<span class="normal"><a href="#__codelineno-0-374">374</a></span>
-<span class="normal"><a href="#__codelineno-0-375">375</a></span>
-<span class="normal"><a href="#__codelineno-0-376">376</a></span>
-<span class="normal"><a href="#__codelineno-0-377">377</a></span>
-<span class="normal"><a href="#__codelineno-0-378">378</a></span>
-<span class="normal"><a href="#__codelineno-0-379">379</a></span>
-<span class="normal"><a href="#__codelineno-0-380">380</a></span>
-<span class="normal"><a href="#__codelineno-0-381">381</a></span>
-<span class="normal"><a href="#__codelineno-0-382">382</a></span>
-<span class="normal"><a href="#__codelineno-0-383">383</a></span>
-<span class="normal"><a href="#__codelineno-0-384">384</a></span>
-<span class="normal"><a href="#__codelineno-0-385">385</a></span>
-<span class="normal"><a href="#__codelineno-0-386">386</a></span>
-<span class="normal"><a href="#__codelineno-0-387">387</a></span>
-<span class="normal"><a href="#__codelineno-0-388">388</a></span>
-<span class="normal"><a href="#__codelineno-0-389">389</a></span>
-<span class="normal"><a href="#__codelineno-0-390">390</a></span>
-<span class="normal"><a href="#__codelineno-0-391">391</a></span>
-<span class="normal"><a href="#__codelineno-0-392">392</a></span>
-<span class="normal"><a href="#__codelineno-0-393">393</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-373" name="__codelineno-0-373"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_timeframe</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-374" name="__codelineno-0-374"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse a timeframe string or integer value.</span>
-<a id="__codelineno-0-375" name="__codelineno-0-375"></a>
-<a id="__codelineno-0-376" name="__codelineno-0-376"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-377" name="__codelineno-0-377"></a><span class="sd">        value: Timeframe name (e.g., &#39;M1&#39;, &#39;H1&#39;, &#39;D1&#39;) or integer value.</span>
-<a id="__codelineno-0-378" name="__codelineno-0-378"></a>
-<a id="__codelineno-0-379" name="__codelineno-0-379"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-380" name="__codelineno-0-380"></a><span class="sd">        Integer timeframe value.</span>
-<a id="__codelineno-0-381" name="__codelineno-0-381"></a>
-<a id="__codelineno-0-382" name="__codelineno-0-382"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-383" name="__codelineno-0-383"></a><span class="sd">        ValueError: If the timeframe is invalid.</span>
-<a id="__codelineno-0-384" name="__codelineno-0-384"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-385" name="__codelineno-0-385"></a>    <span class="n">upper</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-386" name="__codelineno-0-386"></a>    <span class="k">if</span> <span class="n">upper</span> <span class="ow">in</span> <span class="n">TIMEFRAME_MAP</span><span class="p">:</span>
-<a id="__codelineno-0-387" name="__codelineno-0-387"></a>        <span class="k">return</span> <span class="n">TIMEFRAME_MAP</span><span class="p">[</span><span class="n">upper</span><span class="p">]</span>
-<a id="__codelineno-0-388" name="__codelineno-0-388"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-389" name="__codelineno-0-389"></a>        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
-<a id="__codelineno-0-390" name="__codelineno-0-390"></a>    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
-<a id="__codelineno-0-391" name="__codelineno-0-391"></a>        <span class="n">valid</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">TIMEFRAME_MAP</span><span class="p">)</span>
-<a id="__codelineno-0-392" name="__codelineno-0-392"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Invalid timeframe: &#39;</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&#39;. Use one of: </span><span class="si">{</span><span class="n">valid</span><span class="si">}</span><span class="s2">, or an integer.&quot;</span>
-<a id="__codelineno-0-393" name="__codelineno-0-393"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-352">352</a></span>
+<span class="normal"><a href="#__codelineno-0-353">353</a></span>
+<span class="normal"><a href="#__codelineno-0-354">354</a></span>
+<span class="normal"><a href="#__codelineno-0-355">355</a></span>
+<span class="normal"><a href="#__codelineno-0-356">356</a></span>
+<span class="normal"><a href="#__codelineno-0-357">357</a></span>
+<span class="normal"><a href="#__codelineno-0-358">358</a></span>
+<span class="normal"><a href="#__codelineno-0-359">359</a></span>
+<span class="normal"><a href="#__codelineno-0-360">360</a></span>
+<span class="normal"><a href="#__codelineno-0-361">361</a></span>
+<span class="normal"><a href="#__codelineno-0-362">362</a></span>
+<span class="normal"><a href="#__codelineno-0-363">363</a></span>
+<span class="normal"><a href="#__codelineno-0-364">364</a></span>
+<span class="normal"><a href="#__codelineno-0-365">365</a></span>
+<span class="normal"><a href="#__codelineno-0-366">366</a></span>
+<span class="normal"><a href="#__codelineno-0-367">367</a></span>
+<span class="normal"><a href="#__codelineno-0-368">368</a></span>
+<span class="normal"><a href="#__codelineno-0-369">369</a></span>
+<span class="normal"><a href="#__codelineno-0-370">370</a></span>
+<span class="normal"><a href="#__codelineno-0-371">371</a></span>
+<span class="normal"><a href="#__codelineno-0-372">372</a></span>
+<span class="normal"><a href="#__codelineno-0-373">373</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-352" name="__codelineno-0-352"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_timeframe</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse a timeframe string or integer value.</span>
+<a id="__codelineno-0-354" name="__codelineno-0-354"></a>
+<a id="__codelineno-0-355" name="__codelineno-0-355"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-356" name="__codelineno-0-356"></a><span class="sd">        value: Timeframe name (e.g., &#39;M1&#39;, &#39;H1&#39;, &#39;D1&#39;) or integer value.</span>
+<a id="__codelineno-0-357" name="__codelineno-0-357"></a>
+<a id="__codelineno-0-358" name="__codelineno-0-358"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-359" name="__codelineno-0-359"></a><span class="sd">        Integer timeframe value.</span>
+<a id="__codelineno-0-360" name="__codelineno-0-360"></a>
+<a id="__codelineno-0-361" name="__codelineno-0-361"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-362" name="__codelineno-0-362"></a><span class="sd">        ValueError: If the timeframe is invalid.</span>
+<a id="__codelineno-0-363" name="__codelineno-0-363"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-364" name="__codelineno-0-364"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-365" name="__codelineno-0-365"></a>        <span class="k">return</span> <span class="n">_parse_timeframe</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-366" name="__codelineno-0-366"></a>    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+<a id="__codelineno-0-367" name="__codelineno-0-367"></a>        <span class="n">display</span> <span class="o">=</span> <span class="n">value</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="nb">repr</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-368" name="__codelineno-0-368"></a>        <span class="n">valid</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">TIMEFRAME_NAMES</span><span class="p">)</span>
+<a id="__codelineno-0-369" name="__codelineno-0-369"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-0-370" name="__codelineno-0-370"></a>            <span class="sa">f</span><span class="s2">&quot;Invalid timeframe: &#39;</span><span class="si">{</span><span class="n">display</span><span class="si">}</span><span class="s2">&#39;. &quot;</span>
+<a id="__codelineno-0-371" name="__codelineno-0-371"></a>            <span class="sa">f</span><span class="s2">&quot;Use one of: </span><span class="si">{</span><span class="n">valid</span><span class="si">}</span><span class="s2">, or a supported integer.&quot;</span>
+<a id="__codelineno-0-372" name="__codelineno-0-372"></a>        <span class="p">)</span>
+<a id="__codelineno-0-373" name="__codelineno-0-373"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
