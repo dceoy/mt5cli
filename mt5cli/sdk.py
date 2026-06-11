@@ -8,7 +8,6 @@ import os
 import re
 import sqlite3
 import time
-import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -59,7 +58,7 @@ _MT5_CLIENT_CAPABILITY_METHODS: frozenset[str] = frozenset({
     "history_deals_get_as_df",
     "history_orders_get_as_df",
 })
-_MT5_HISTORY_MODULE = Path(__file__).with_name("history.py")
+_MT5_HISTORY_MODULE = Path(__file__).with_name("history.py").resolve()
 _MT5_HISTORY_CLIENT_CALL_FUNCTIONS: frozenset[str] = frozenset({
     "write_rates_dataset",
     "write_ticks_dataset",
@@ -73,14 +72,16 @@ def _is_non_callable_history_client_type_error(exc: TypeError) -> bool:
     """Return whether a TypeError came from calling a history client API attribute."""
     if not _NON_CALLABLE_TYPE_ERROR.match(str(exc)):
         return False
-    history_module = _MT5_HISTORY_MODULE.resolve()
-    for frame, _lineno in traceback.walk_tb(exc.__traceback__):
-        if (
-            frame.f_code.co_name in _MT5_HISTORY_CLIENT_CALL_FUNCTIONS
-            and Path(frame.f_code.co_filename).resolve() == history_module
-        ):
-            return True
-    return False
+    tb = exc.__traceback__
+    if tb is None:
+        return False
+    while tb.tb_next is not None:
+        tb = tb.tb_next
+    frame = tb.tb_frame
+    return (
+        frame.f_code.co_name in _MT5_HISTORY_CLIENT_CALL_FUNCTIONS
+        and Path(frame.f_code.co_filename).resolve() == _MT5_HISTORY_MODULE
+    )
 
 
 def _is_mt5_client_capability_error(exc: BaseException) -> bool:

@@ -137,15 +137,17 @@ def determine_order_limits(
         symbol: Symbol used for the quote lookup.
         side: Position side as ``"long"``/``"short"`` (``"buy"``/``"sell"``
             aliases are accepted).
-        stop_loss_limit_ratio: Relative distance from entry for stop loss. A
-            value ``<= 0`` omits the stop loss.
-        take_profit_limit_ratio: Relative distance from entry for take profit.
-            A value ``<= 0`` omits the take profit.
+        stop_loss_limit_ratio: Relative distance from entry for stop loss in
+            ``[0, 1]``. A value of ``0`` omits the stop loss.
+        take_profit_limit_ratio: Relative distance from entry for take profit in
+            ``[0, 1]``. A value of ``0`` omits the take profit.
 
     Returns:
         Dictionary with ``entry``, ``stop_loss``, and ``take_profit`` keys.
         Omitted protective levels are returned as ``None``.
     """
+    _require_unit_ratio(stop_loss_limit_ratio, "stop_loss_limit_ratio")
+    _require_unit_ratio(take_profit_limit_ratio, "take_profit_limit_ratio")
     normalized_side = _normalize_order_side(side)
     tick = client.symbol_info_tick_as_dict(symbol=symbol)
     entry = float(tick["ask"] if normalized_side == "long" else tick["bid"])

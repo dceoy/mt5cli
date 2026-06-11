@@ -98,6 +98,35 @@ class TestCalculateMarginAndVolume:
         client.calculate_volume_by_margin.assert_any_call("EURUSD", 400.0, "SELL")
 
     @pytest.mark.parametrize(
+        ("account_dict", "expected_margin_free"),
+        [
+            ({"margin_free": 0.0}, 0.0),
+            ({}, 0.0),
+            ({"margin_free": None}, 0.0),
+        ],
+    )
+    def test_zero_or_missing_margin_free(
+        self,
+        account_dict: dict[str, float | None],
+        expected_margin_free: float,
+    ) -> None:
+        """Test missing or zero margin_free yields zero trade margin."""
+        client = MagicMock()
+        client.account_info_as_dict.return_value = account_dict
+        client.calculate_volume_by_margin.return_value = 0.0
+
+        result = calculate_margin_and_volume(
+            client,
+            "EURUSD",
+            unit_margin_ratio=0.5,
+            preserved_margin_ratio=0.2,
+        )
+
+        assert result["margin_free"] == expected_margin_free
+        client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "BUY")
+        client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "SELL")
+
+    @pytest.mark.parametrize(
         ("unit_ratio", "preserved_ratio"),
         [
             (-0.1, 0.0),
@@ -206,6 +235,28 @@ class TestDetermineOrderLimits:
                 take_profit_limit_ratio=0.01,
             )
 
+    @pytest.mark.parametrize(
+        ("stop_loss_ratio", "take_profit_ratio"),
+        [
+            (-0.05, 0.01),
+            (0.01, 2.0),
+        ],
+    )
+    def test_rejects_invalid_protective_ratios(
+        self,
+        stop_loss_ratio: float,
+        take_profit_ratio: float,
+    ) -> None:
+        """Test out-of-range protective ratios raise ValueError."""
+        with pytest.raises(ValueError, match="must be between 0 and 1"):
+            determine_order_limits(
+                MagicMock(),
+                "EURUSD",
+                "long",
+                stop_loss_limit_ratio=stop_loss_ratio,
+                take_profit_limit_ratio=take_profit_ratio,
+            )
+
 
 class TestMt5TradingSession:
     """Tests for the mt5_trading_session context manager."""
@@ -246,5 +297,16 @@ class TestMt5TradingSession:
 
         with pytest.raises(Mt5RuntimeError, match="boom"), mt5_trading_session():
             pass
+
+        mock_client.shutdown.assert_called_once()
+
+    def test_shuts_down_when_body_raises(self, mocker: MockerFixture) -> None:
+        """Test shutdown is called when the context body raises."""
+        mock_client = MagicMock()
+        mocker.patch("mt5cli.trading.Mt5TradingClient", return_value=mock_client)
+
+        body_error = "body error"
+        with pytest.raises(RuntimeError, match=body_error), mt5_trading_session():
+            raise RuntimeError(body_error)
 
         mock_client.shutdown.assert_called_once()

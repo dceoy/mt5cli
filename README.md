@@ -179,7 +179,6 @@ Replace local MT5 lifecycle and trading helper code with mt5cli imports:
 # After (mt5cli shared layer)
 from pdmt5 import Mt5Config
 from mt5cli import (
-    ThrottledHistoryUpdater,
     calculate_margin_and_volume,
     detect_position_side,
     determine_order_limits,
@@ -201,10 +200,24 @@ with mt5_trading_session(
             stop_loss_limit_ratio=0.01,
             take_profit_limit_ratio=0.02,
         )
+```
+
+Throttled history updates use a separate read-only session:
+
+```python
+from pdmt5 import Mt5Config, Mt5DataClient
+
+from mt5cli import ThrottledHistoryUpdater
 
 updater = ThrottledHistoryUpdater(
     output="history.db", interval_seconds=60, suppress_errors=True
 )
+client = Mt5DataClient(config=Mt5Config(login=login))
+client.initialize_and_login_mt5()
+try:
+    updater.update(client, ["EURUSD"])
+finally:
+    client.shutdown()
 ```
 
 Read-only collectors can keep using `mt5_session()` and `Mt5CliClient` without changes.

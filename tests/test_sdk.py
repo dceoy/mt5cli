@@ -2036,6 +2036,25 @@ class TestThrottledHistoryUpdater:
         assert updater.update(client, ["EURUSD"]) is False
         assert updater.last_update_monotonic is None
 
+    def test_suppress_errors_does_not_hide_internal_client_type_error(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test TypeError raised inside a callable client method still propagates."""
+        mocker.patch(
+            "mt5cli.sdk.update_history",
+            side_effect=TypeError("'int' object is not callable"),
+        )
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            suppress_errors=True,
+        )
+
+        with pytest.raises(TypeError, match="not callable"):
+            updater.update(MagicMock(), ["EURUSD"])
+
+        assert updater.last_update_monotonic is None
+
     def test_suppresses_validation_errors_before_update(
         self,
         mocker: MockerFixture,
