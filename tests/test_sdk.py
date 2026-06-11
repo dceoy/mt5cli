@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from pdmt5 import Mt5Config, Mt5DataClient
 
 from mt5cli import sdk
-from mt5cli.history import DEFAULT_HISTORY_TIMEFRAMES
+from mt5cli.history import DEFAULT_HISTORY_TIMEFRAMES, write_rates_dataset
 from mt5cli.sdk import (
     AccountSpec,
     Mt5CliClient,
@@ -61,7 +61,7 @@ from mt5cli.sdk import (
     update_history_with_config,
     version,
 )
-from mt5cli.utils import Dataset
+from mt5cli.utils import Dataset, IfExists
 
 
 class _TerminalInfo(NamedTuple):
@@ -1913,6 +1913,16 @@ class TestThrottledHistoryUpdater:
             Mt5RuntimeError("boom"),
             Mt5TradingError("trade failed"),
             sqlite3.OperationalError("locked"),
+            ValueError("invalid symbols"),
+            OSError("disk full"),
+            AttributeError(
+                "'StubClient' object has no attribute 'copy_rates_range_as_df'",
+                name="copy_rates_range_as_df",
+            ),
+            AttributeError(
+                "MT5 client is missing required method: copy_ticks_range_as_df"
+            ),
+            TypeError("MT5 client attribute is not callable: history_orders_get_as_df"),
         ],
     )
     def test_suppresses_errors_when_requested(
@@ -1931,4 +1941,131 @@ class TestThrottledHistoryUpdater:
         )
 
         assert updater.update(MagicMock(), ["EURUSD"]) is False
+        assert updater.last_update_monotonic is None
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            AttributeError("'dict' object has no attribute 'typo'"),
+            TypeError("unsupported operand types"),
+        ],
+    )
+    def test_suppress_errors_does_not_hide_programming_errors(
+        self,
+        mocker: MockerFixture,
+        error: Exception,
+    ) -> None:
+        """Test generic AttributeError/TypeError still propagate when suppressed."""
+        mocker.patch(
+            "mt5cli.sdk.update_history",
+            side_effect=error,
+        )
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            suppress_errors=True,
+        )
+
+        with pytest.raises(type(error)):
+            updater.update(MagicMock(), ["EURUSD"])
+
+        assert updater.last_update_monotonic is None
+
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            (AttributeError("MT5 client is missing required method: version"), True),
+            (
+                AttributeError(
+                    "'Stub' object has no attribute 'copy_rates_range_as_df'",
+                    name="copy_rates_range_as_df",
+                ),
+                True,
+            ),
+            (AttributeError("'dict' object has no attribute 'typo'"), False),
+            (TypeError("MT5 client attribute is not callable: version"), True),
+            (TypeError("unsupported operand types"), False),
+            (TypeError("'NoneType' object is not callable"), False),
+            (ValueError("invalid"), False),
+        ],
+    )
+    def test_is_mt5_client_capability_error(
+        self,
+        error: BaseException,
+        expected: bool,
+    ) -> None:
+        """Test MT5 client capability error detection."""
+        assert sdk._is_mt5_client_capability_error(error) is expected  # type: ignore[reportPrivateUsage]
+
+    def test_is_mt5_client_capability_error_for_non_callable_history_client(
+        self,
+    ) -> None:
+        """Test non-callable history client attributes are capability errors."""
+        client = MagicMock()
+        client.copy_rates_range_as_df = None
+        with (
+            sqlite3.connect(":memory:") as conn,
+            pytest.raises(TypeError, match="not callable") as exc_info,
+        ):
+            write_rates_dataset(
+                conn,
+                client,
+                ["EURUSD"],
+                1,
+                datetime.now(UTC),
+                datetime.now(UTC),
+                IfExists.APPEND,
+                {},
+            )
+
+        assert sdk._is_mt5_client_capability_error(exc_info.value) is True  # type: ignore[reportPrivateUsage]
+
+    def test_suppresses_non_callable_history_client_method(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test suppress_errors swallows non-callable history client API attributes."""
+        client = MagicMock()
+        client.copy_rates_range_as_df = None
+        updater = ThrottledHistoryUpdater(
+            output=tmp_path / "history.db",
+            datasets={Dataset.rates},
+            timeframes=["M1"],
+            suppress_errors=True,
+        )
+
+        assert updater.update(client, ["EURUSD"]) is False
+        assert updater.last_update_monotonic is None
+
+    def test_suppress_errors_does_not_hide_internal_client_type_error(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test TypeError raised inside a callable client method still propagates."""
+        mocker.patch(
+            "mt5cli.sdk.update_history",
+            side_effect=TypeError("'int' object is not callable"),
+        )
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            suppress_errors=True,
+        )
+
+        with pytest.raises(TypeError, match="not callable"):
+            updater.update(MagicMock(), ["EURUSD"])
+
+        assert updater.last_update_monotonic is None
+
+    def test_suppresses_validation_errors_before_update(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test validation failures are suppressed without calling update_history."""
+        update = mocker.patch("mt5cli.sdk.update_history")
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            suppress_errors=True,
+        )
+
+        assert updater.update(MagicMock(), []) is False
+        update.assert_not_called()
         assert updater.last_update_monotonic is None

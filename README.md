@@ -152,7 +152,8 @@ eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 ```
 
 - **Credential resolution**: use `resolve_account_spec()` / `resolve_account_specs()` to merge explicit override values over `AccountSpec` fields and expand `${ENV_VAR}` placeholders (via `substitute_env_placeholders()`), raising `ValueError` for missing variables. This keeps secrets out of plan/config files without coupling to any strategy code.
-- **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`/`sqlite3.Error` and let the caller decide logging.
+- **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, `OSError`, and MT5 client capability errors for history API methods without advancing the throttle (other `AttributeError` / `TypeError` values always propagate).
+- **Trading session helpers**: use `mt5_trading_session()` for a trading-capable `pdmt5.Mt5TradingClient` that initializes/logs in via `Mt5Config.path` and always shuts down safely. Pair with `detect_position_side()`, `calculate_margin_and_volume()`, and `determine_order_limits()` for generic position and sizing utilities. The read-only `mt5_session()` / `Mt5CliClient` SDK is unchanged.
 - **Granularity-keyed rate loading**: `load_rate_series_by_granularity()` builds targets with `build_rate_targets()`, loads them with `load_rate_series_from_sqlite()`, and returns a mapping keyed by `(symbol | None, granularity_name)` such as `("EURUSD", "M1")` to reduce downstream boilerplate.
 - **MT5 session helper**: use the `mt5_session()` context manager to attach to (or, when `Mt5Config.path` is set, launch) an MT5 terminal, log in, and yield a connected `Mt5CliClient` that shuts down on exit.
 - **SQLite export helpers**: use `export_dataframe_to_sqlite()` for append mode, optional index export, and post-write deduplication by key columns.
@@ -163,6 +164,63 @@ eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 - Python 3.11+
 - Windows OS (MetaTrader 5 requirement)
 - MetaTrader 5 platform installed
+
+### Migration note for mteor
+
+Replace local MT5 lifecycle and trading helper code with mt5cli imports:
+
+```python
+# Before (local mteor helpers)
+# with local_mt5_trading_session(config) as client:
+#     side = local_detect_position_side(client, symbol)
+#     sizing = local_calculate_margin_and_volume(client, symbol, unit_ratio, preserved_ratio)
+#     limits = local_determine_order_limits(client, symbol, side, sl_ratio, tp_ratio)
+
+# After (mt5cli shared layer)
+from pdmt5 import Mt5Config
+from mt5cli import (
+    calculate_margin_and_volume,
+    detect_position_side,
+    determine_order_limits,
+    mt5_trading_session,
+)
+
+with mt5_trading_session(
+    Mt5Config(path=terminal_path, login=login), retry_count=2
+) as client:
+    side = detect_position_side(client, symbol)
+    sizing = calculate_margin_and_volume(
+        client, symbol, unit_margin_ratio=0.5, preserved_margin_ratio=0.2
+    )
+    if side is not None:
+        limits = determine_order_limits(
+            client,
+            symbol,
+            side,
+            stop_loss_limit_ratio=0.01,
+            take_profit_limit_ratio=0.02,
+        )
+```
+
+Throttled history updates use a separate read-only session:
+
+```python
+from pdmt5 import Mt5Config, Mt5DataClient
+
+from mt5cli import ThrottledHistoryUpdater
+
+updater = ThrottledHistoryUpdater(
+    output="history.db", interval_seconds=60, suppress_errors=True
+)
+client = Mt5DataClient(config=Mt5Config(login=login))
+client.initialize_and_login_mt5()
+try:
+    updater.update(client, ["EURUSD"])
+finally:
+    client.shutdown()
+```
+
+Read-only collectors can keep using `mt5_session()` and `Mt5CliClient` without changes.
 
 ## Development
 

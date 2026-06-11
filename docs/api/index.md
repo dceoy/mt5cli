@@ -18,6 +18,10 @@ Utility module providing constants, enums, Click parameter types, and helper fun
 
 Programmatic SDK for read-only MetaTrader 5 data collection. Returns pandas DataFrames and provides `collect_history` for SQLite bulk collection.
 
+### [Trading](trading.md)
+
+Trading-capable session management and operational helpers built on `pdmt5.Mt5TradingClient`. Complements the read-only SDK without changing existing `Mt5CliClient` behavior.
+
 ### [History Collection (SQLite)](history.md)
 
 SQLite storage helpers for the `collect-history` command schema, incremental updates, deduplication, indexes, and optional views.
@@ -28,8 +32,9 @@ The package follows a simple architecture built on top of pdmt5:
 
 1. **CLI Layer** (`cli.py`): Typer application with subcommands that delegate to the SDK and export results.
 2. **SDK Layer** (`sdk.py`): Read-only data access functions, `Mt5CliClient`, and `collect_history` orchestration.
-3. **Utils Layer** (`utils.py`): Constants, enums, custom Click parameter types, parsing helpers, and format detection/export utilities.
-4. **Data Layer** (via `pdmt5`): Uses `Mt5DataClient` and `Mt5Config` from the pdmt5 package for all MetaTrader 5 data access.
+3. **Trading Layer** (`trading.py`): Trading-capable sessions and operational helpers on `Mt5TradingClient`.
+4. **Utils Layer** (`utils.py`): Constants, enums, custom Click parameter types, parsing helpers, and format detection/export utilities.
+5. **Data Layer** (via `pdmt5`): Uses `Mt5DataClient`, `Mt5TradingClient`, and `Mt5Config` from the pdmt5 package for MetaTrader 5 access.
 
 ## Usage Guidelines
 

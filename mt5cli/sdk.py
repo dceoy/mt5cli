@@ -44,6 +44,62 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
+_RECOVERABLE_HISTORY_UPDATE_ERRORS: tuple[type[BaseException], ...] = (
+    Mt5TradingError,
+    Mt5RuntimeError,
+    sqlite3.Error,
+    ValueError,
+    OSError,
+)
+
+_MT5_CLIENT_CAPABILITY_METHODS: frozenset[str] = frozenset({
+    "copy_rates_range_as_df",
+    "copy_ticks_range_as_df",
+    "history_deals_get_as_df",
+    "history_orders_get_as_df",
+})
+_MT5_HISTORY_MODULE = Path(__file__).with_name("history.py").resolve()
+_MT5_HISTORY_CLIENT_CALL_FUNCTIONS: frozenset[str] = frozenset({
+    "write_rates_dataset",
+    "write_ticks_dataset",
+    "write_history_dataset",
+    "_write_incremental_history_deals",
+})
+_NON_CALLABLE_TYPE_ERROR = re.compile(r"^'[^']+' object is not callable$")
+
+
+def _is_non_callable_history_client_type_error(exc: TypeError) -> bool:
+    """Return whether a TypeError came from calling a history client API attribute."""
+    if not _NON_CALLABLE_TYPE_ERROR.match(str(exc)):
+        return False
+    tb = exc.__traceback__
+    if tb is None:
+        return False
+    while tb.tb_next is not None:
+        tb = tb.tb_next
+    frame = tb.tb_frame
+    return (
+        frame.f_code.co_name in _MT5_HISTORY_CLIENT_CALL_FUNCTIONS
+        and Path(frame.f_code.co_filename).resolve() == _MT5_HISTORY_MODULE
+    )
+
+
+def _is_mt5_client_capability_error(exc: BaseException) -> bool:
+    """Return whether an error indicates an incompatible MT5 client API surface."""
+    if isinstance(exc, AttributeError):
+        msg = str(exc)
+        if msg.startswith("MT5 client is missing required method:"):
+            return True
+        name = getattr(exc, "name", None)
+        return isinstance(name, str) and name in _MT5_CLIENT_CAPABILITY_METHODS
+    if isinstance(exc, TypeError):
+        msg = str(exc)
+        if msg.startswith("MT5 client attribute is not callable:"):
+            return True
+        return _is_non_callable_history_client_type_error(exc)
+    return False
+
+
 __all__ = [
     "AccountSpec",
     "Mt5CliClient",
@@ -1014,10 +1070,14 @@ class ThrottledHistoryUpdater:
             include_account_events: Include account-level cash events.
             interval_seconds: Minimum seconds between successful updates. Values
                 ``<= 0`` update on every call.
-            suppress_errors: When True, ``Mt5TradingError``, ``Mt5RuntimeError``,
-                and ``sqlite3.Error`` raised during an update are swallowed and
-                :meth:`update` returns False without advancing the throttle. When
-                False (default), such errors propagate so callers control logging.
+            suppress_errors: When True, recoverable errors (``Mt5TradingError``,
+                ``Mt5RuntimeError``, ``sqlite3.Error``, ``ValueError``,
+                ``OSError``, and MT5 client capability ``AttributeError`` /
+                ``TypeError`` for history API methods) raised during an update
+                are swallowed and :meth:`update` returns False without advancing
+                the throttle. Other ``AttributeError`` / ``TypeError`` values
+                always propagate. When False (default), recoverable errors
+                propagate so callers control logging.
         """
         self.output = output
         self.datasets = datasets
@@ -1057,16 +1117,27 @@ class ThrottledHistoryUpdater:
         Returns:
             True if an update ran successfully, False if it was throttled or
             (when ``suppress_errors`` is True) failed with a recoverable error.
+            When ``suppress_errors`` is False, recoverable update failures
+            propagate to the caller.
 
         Raises:
-            Mt5TradingError: If the update fails and ``suppress_errors`` is False.
-            Mt5RuntimeError: If the update fails and ``suppress_errors`` is False.
-            sqlite3.Error: If the SQLite write fails and ``suppress_errors`` is
-                False.
+            AttributeError: MT5 client capability mismatch when
+                ``suppress_errors`` is False, or any other attribute error.
+            TypeError: MT5 client capability mismatch when ``suppress_errors``
+                is False, or any other type error.
         """
         if not self.should_update():
             return False
         try:
+            _resolve_update_history_request(
+                output=self.output,
+                symbols=symbols,
+                datasets=self.datasets,
+                timeframes=self.timeframes,
+                flags=self.flags,
+                lookback_hours=self.lookback_hours,
+                date_to=None,
+            )
             update_history(
                 client=client,
                 output=self.output,
@@ -1078,8 +1149,13 @@ class ThrottledHistoryUpdater:
                 with_views=self.with_views,
                 include_account_events=self.include_account_events,
             )
-        except (Mt5TradingError, Mt5RuntimeError, sqlite3.Error):
+        except _RECOVERABLE_HISTORY_UPDATE_ERRORS:
             if self.suppress_errors:
+                logger.warning("Suppressed history update error", exc_info=True)
+                return False
+            raise
+        except (AttributeError, TypeError) as exc:
+            if self.suppress_errors and _is_mt5_client_capability_error(exc):
                 logger.warning("Suppressed history update error", exc_info=True)
                 return False
             raise

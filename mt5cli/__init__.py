@@ -61,6 +61,12 @@ from .sdk import (
 from .sdk import (
     version as mt5_version,
 )
+from .trading import (
+    calculate_margin_and_volume,
+    detect_position_side,
+    determine_order_limits,
+    mt5_trading_session,
+)
 from .utils import (
     TICK_FLAG_MAP,
     TIMEFRAME_MAP,
@@ -89,6 +95,7 @@ __all__ = [
     "build_config",
     "build_rate_targets",
     "build_rate_view_name",
+    "calculate_margin_and_volume",
     "collect_history",
     "collect_latest_closed_rates_by_granularity",
     "collect_latest_closed_rates_for_accounts",
@@ -101,6 +108,8 @@ __all__ = [
     "copy_ticks_from",
     "copy_ticks_range",
     "detect_format",
+    "detect_position_side",
+    "determine_order_limits",
     "drop_forming_rate_bar",
     "export_dataframe",
     "export_dataframe_to_sqlite",
@@ -117,6 +126,7 @@ __all__ = [
     "mt5_session",
     "mt5_summary",
     "mt5_summary_as_df",
+    "mt5_trading_session",
     "mt5_version",
     "orders",
     "parse_datetime",

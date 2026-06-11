@@ -98,6 +98,17 @@ finally:
     client.shutdown()
 ```
 
-By default `Mt5TradingError`, `Mt5RuntimeError`, and `sqlite3.Error` propagate so
-the caller controls logging; pass `suppress_errors=True` to swallow them and
-return `False` without advancing the throttle.
+By default recoverable errors (`Mt5TradingError`, `Mt5RuntimeError`,
+`sqlite3.Error`, `ValueError`, `OSError`, and MT5 client capability
+`AttributeError` / `TypeError` for history API methods) propagate so the caller
+controls logging; pass `suppress_errors=True` to swallow them and return
+`False` without advancing the throttle. Other `AttributeError` / `TypeError`
+values always propagate. Input validation (`_resolve_update_history_request`)
+runs before any MT5 or SQLite calls, but when `suppress_errors=True` the
+resulting `ValueError` is suppressed along with other recoverable errors.
+
+## Trading-capable sessions
+
+For order placement and trading calculations, use the dedicated
+[Trading module](trading.md). The read-only `Mt5CliClient` and `mt5_session()`
+helpers in this module are unchanged.
