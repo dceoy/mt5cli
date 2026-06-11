@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 
 TICK_FLAG_MAP = COPY_TICKS_MAP
 
+_TIMEFRAME_NAMES: tuple[str, ...] = tuple(
+    name for name in TIMEFRAME_MAP if not name.startswith("TIMEFRAME_")
+)
 _TICK_FLAG_NAMES: tuple[str, ...] = ("ALL", "INFO", "TRADE")
 
 _FORMAT_EXTENSIONS: dict[str, str] = {
@@ -359,7 +362,7 @@ def parse_timeframe(value: object) -> int:
         return _parse_timeframe(value)
     except ValueError:
         display = value if isinstance(value, str) else repr(value)
-        valid = ", ".join(TIMEFRAME_MAP)
+        valid = ", ".join(_TIMEFRAME_NAMES)
         msg = (
             f"Invalid timeframe: '{display}'. "
             f"Use one of: {valid}, or a supported integer."

@@ -432,7 +432,6 @@ class TestTimeframeType:
         with pytest.raises(Exception, match="Invalid timeframe"):
             TIMEFRAME_TYPE.convert("bad", None, None)
 
-
     @pytest.mark.parametrize("value", [True, False, None, 1.5])
     def test_convert_invalid_types(self, value: object) -> None:
         """Test that bool, float, and None values raise BadParameter."""

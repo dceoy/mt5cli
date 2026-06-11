@@ -1167,7 +1167,7 @@ def collect_history(
     *,
     datasets: set[Dataset] | None = None,
     timeframe: int | str = 1,
-    flags: int | str = 1,
+    flags: int | str = "ALL",
     if_exists: IfExists = IfExists.FAIL,
     with_views: bool = False,
     config: Mt5Config | None = None,

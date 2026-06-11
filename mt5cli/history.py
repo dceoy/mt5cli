@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import pandas as pd
 
+from pdmt5 import get_timeframe_name as _get_timeframe_name
+
 from .utils import (
     TIMEFRAME_MAP,
     Dataset,
@@ -27,7 +29,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = tuple(TIMEFRAME_MAP)
+DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = tuple(
+    name for name in TIMEFRAME_MAP if not name.startswith("TIMEFRAME_")
+)
 
 _HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
     Dataset.rates: (("symbol", "timeframe", "time"), ("symbol", "time")),
@@ -98,10 +102,11 @@ def resolve_history_tick_flags(flags: int | str) -> int:
 
 def resolve_granularity_name(timeframe: int) -> str:
     """Return a granularity name for a timeframe integer when known."""
-    for name, value in TIMEFRAME_MAP.items():
-        if value == timeframe:
-            return name
-    return str(timeframe)
+    try:
+        name = _get_timeframe_name(timeframe)
+    except ValueError:
+        return str(timeframe)
+    return name.removeprefix("TIMEFRAME_")
 
 
 def drop_forming_rate_bar(df_rate: pd.DataFrame) -> pd.DataFrame:

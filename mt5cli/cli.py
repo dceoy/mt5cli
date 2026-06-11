@@ -347,7 +347,7 @@ def ticks_recent(
             click_type=TICK_FLAGS_TYPE,
             help="Tick flags (ALL, INFO, TRADE, or integer).",
         ),
-    ] = 1,
+    ] = -1,
 ) -> None:
     """Export ticks from a recent time window."""
     client = _sdk_client(ctx)
@@ -656,7 +656,7 @@ def collect_history(
             click_type=TICK_FLAGS_TYPE,
             help="Tick copy flags (ALL, INFO, TRADE, or integer).",
         ),
-    ] = 1,
+    ] = -1,
     if_exists: Annotated[
         IfExists,
         typer.Option(

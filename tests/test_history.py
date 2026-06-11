@@ -1754,6 +1754,8 @@ class TestIncrementalIntegration:
         """Test invalid tick flags raise ValueError."""
         with pytest.raises(ValueError, match="Invalid tick flags"):
             resolve_history_tick_flags("BAD")
+        with pytest.raises(ValueError, match="Invalid tick flags"):
+            resolve_history_tick_flags(7)
 
     def test_resolve_history_timeframes_invalid(self) -> None:
         """Test invalid timeframes raise ValueError."""
