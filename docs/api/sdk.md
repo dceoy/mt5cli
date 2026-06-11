@@ -79,10 +79,12 @@ finally:
 ```
 
 By default recoverable errors (`Mt5TradingError`, `Mt5RuntimeError`,
-`sqlite3.Error`, `ValueError`, `OSError`, and missing-method `AttributeError` /
-`TypeError`) propagate so the caller controls logging; pass
-`suppress_errors=True` to swallow them and return `False` without advancing the
-throttle. Input validation runs inside `update()` before any MT5 or SQLite work.
+`sqlite3.Error`, `ValueError`, `OSError`, and MT5 client capability
+`AttributeError` / `TypeError` for history API methods) propagate so the caller
+controls logging; pass `suppress_errors=True` to swallow them and return
+`False` without advancing the throttle. Other `AttributeError` / `TypeError`
+values always propagate. Input validation runs inside `update()` before any MT5
+or SQLite work.
 
 ## Trading-capable sessions
 

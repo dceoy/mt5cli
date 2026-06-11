@@ -1720,8 +1720,14 @@ class TestThrottledHistoryUpdater:
             sqlite3.OperationalError("locked"),
             ValueError("invalid symbols"),
             OSError("disk full"),
-            AttributeError("missing method"),
-            TypeError("not callable"),
+            AttributeError(
+                "'StubClient' object has no attribute 'copy_rates_range_as_df'",
+                name="copy_rates_range_as_df",
+            ),
+            AttributeError(
+                "MT5 client is missing required method: copy_ticks_range_as_df"
+            ),
+            TypeError("MT5 client attribute is not callable: history_orders_get_as_df"),
         ],
     )
     def test_suppresses_errors_when_requested(
@@ -1741,6 +1747,58 @@ class TestThrottledHistoryUpdater:
 
         assert updater.update(MagicMock(), ["EURUSD"]) is False
         assert updater.last_update_monotonic is None
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            AttributeError("'dict' object has no attribute 'typo'"),
+            TypeError("unsupported operand types"),
+        ],
+    )
+    def test_suppress_errors_does_not_hide_programming_errors(
+        self,
+        mocker: MockerFixture,
+        error: Exception,
+    ) -> None:
+        """Test generic AttributeError/TypeError still propagate when suppressed."""
+        mocker.patch(
+            "mt5cli.sdk.update_history",
+            side_effect=error,
+        )
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            suppress_errors=True,
+        )
+
+        with pytest.raises(type(error)):
+            updater.update(MagicMock(), ["EURUSD"])
+
+        assert updater.last_update_monotonic is None
+
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            (AttributeError("MT5 client is missing required method: version"), True),
+            (
+                AttributeError(
+                    "'Stub' object has no attribute 'copy_rates_range_as_df'",
+                    name="copy_rates_range_as_df",
+                ),
+                True,
+            ),
+            (AttributeError("'dict' object has no attribute 'typo'"), False),
+            (TypeError("MT5 client attribute is not callable: version"), True),
+            (TypeError("unsupported operand types"), False),
+            (ValueError("invalid"), False),
+        ],
+    )
+    def test_is_mt5_client_capability_error(
+        self,
+        error: BaseException,
+        expected: bool,
+    ) -> None:
+        """Test MT5 client capability error detection."""
+        assert sdk._is_mt5_client_capability_error(error) is expected  # type: ignore[reportPrivateUsage]
 
     def test_suppresses_validation_errors_before_update(
         self,

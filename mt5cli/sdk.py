@@ -48,9 +48,28 @@ _RECOVERABLE_HISTORY_UPDATE_ERRORS: tuple[type[BaseException], ...] = (
     sqlite3.Error,
     ValueError,
     OSError,
-    AttributeError,
-    TypeError,
 )
+
+_MT5_CLIENT_CAPABILITY_METHODS: frozenset[str] = frozenset({
+    "copy_rates_range_as_df",
+    "copy_ticks_range_as_df",
+    "history_deals_get_as_df",
+    "history_orders_get_as_df",
+})
+
+
+def _is_mt5_client_capability_error(exc: BaseException) -> bool:
+    """Return whether an error indicates an incompatible MT5 client API surface."""
+    if isinstance(exc, AttributeError):
+        msg = str(exc)
+        if msg.startswith("MT5 client is missing required method:"):
+            return True
+        name = getattr(exc, "name", None)
+        return isinstance(name, str) and name in _MT5_CLIENT_CAPABILITY_METHODS
+    if isinstance(exc, TypeError):
+        return str(exc).startswith("MT5 client attribute is not callable:")
+    return False
+
 
 __all__ = [
     "AccountSpec",
@@ -1016,10 +1035,12 @@ class ThrottledHistoryUpdater:
                 ``<= 0`` update on every call.
             suppress_errors: When True, recoverable errors (``Mt5TradingError``,
                 ``Mt5RuntimeError``, ``sqlite3.Error``, ``ValueError``,
-                ``OSError``, and missing-method ``AttributeError`` /
-                ``TypeError``) raised during an update are swallowed and
-                :meth:`update` returns False without advancing the throttle. When
-                False (default), such errors propagate so callers control logging.
+                ``OSError``, and MT5 client capability ``AttributeError`` /
+                ``TypeError`` for history API methods) raised during an update
+                are swallowed and :meth:`update` returns False without advancing
+                the throttle. Other ``AttributeError`` / ``TypeError`` values
+                always propagate. When False (default), recoverable errors
+                propagate so callers control logging.
         """
         self.output = output
         self.datasets = datasets
@@ -1061,6 +1082,12 @@ class ThrottledHistoryUpdater:
             (when ``suppress_errors`` is True) failed with a recoverable error.
             When ``suppress_errors`` is False, recoverable update failures
             propagate to the caller.
+
+        Raises:
+            AttributeError: MT5 client capability mismatch when
+                ``suppress_errors`` is False, or any other attribute error.
+            TypeError: MT5 client capability mismatch when ``suppress_errors``
+                is False, or any other type error.
         """
         if not self.should_update():
             return False
@@ -1087,6 +1114,11 @@ class ThrottledHistoryUpdater:
             )
         except _RECOVERABLE_HISTORY_UPDATE_ERRORS:
             if self.suppress_errors:
+                logger.warning("Suppressed history update error", exc_info=True)
+                return False
+            raise
+        except (AttributeError, TypeError) as exc:
+            if self.suppress_errors and _is_mt5_client_capability_error(exc):
                 logger.warning("Suppressed history update error", exc_info=True)
                 return False
             raise
