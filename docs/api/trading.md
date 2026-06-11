@@ -51,8 +51,8 @@ limits = determine_order_limits(
 )
 ```
 
-Protective ratios must satisfy ``0 <= ratio < 1``; ``0`` omits that level.
-``calculate_margin_and_volume()`` clamps negative ``margin_free`` to ``0.0``
+Protective ratios must satisfy `0 <= ratio < 1`; `0` omits that level.
+`calculate_margin_and_volume()` clamps negative `margin_free` to `0.0`
 before sizing.
 
 ## Migration from mteor-local helpers
