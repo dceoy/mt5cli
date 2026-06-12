@@ -1332,6 +1332,50 @@ def create_rate_compatibility_views(conn: sqlite3.Connection) -> None:
             )
 
 
+def _stream_symbol_frames(
+    conn: sqlite3.Connection,
+    symbols: Sequence[str],
+    dataset: Dataset,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+    fetch_frame: Callable[[str], pd.DataFrame],
+) -> bool:
+    """Stream per-symbol frames into SQLite.
+
+    Returns:
+        True if the dataset table was written.
+    """
+    table_exists = False
+    for sym in symbols:
+        table_exists = write_streamed_frame(
+            conn,
+            fetch_frame(sym),
+            dataset,
+            table_exists,
+            if_exists,
+            written_columns,
+        )
+    return table_exists
+
+
+def _record_symbol_time_dedup(
+    dedup_scopes: dict[Dataset, list[DedupScope]],
+    written_tables: set[Dataset],
+    dataset: Dataset,
+    symbol: str,
+    start_date: datetime,
+) -> None:
+    """Record a symbol-scoped deduplication window after an incremental write."""
+    written_tables.add(dataset)
+    _record_dedup_scope(
+        dedup_scopes,
+        dataset,
+        "symbol = ? AND time >= ?",
+        (symbol, start_date),
+        frozenset({"symbol", "time"}),
+    )
+
+
 def write_rates_dataset(
     conn: sqlite3.Connection,
     client: Mt5DataClient,
@@ -1347,8 +1391,8 @@ def write_rates_dataset(
     Returns:
         True if the rates table was written.
     """
-    table_exists = False
-    for sym in symbols:
+
+    def _fetch_rates_frame(sym: str) -> pd.DataFrame:
         frame = client.copy_rates_range_as_df(
             symbol=sym,
             timeframe=timeframe,
@@ -1358,15 +1402,16 @@ def write_rates_dataset(
         if len(frame.columns) != 0:
             frame.insert(0, "symbol", sym)
             frame.insert(1, "timeframe", timeframe)
-        table_exists = write_streamed_frame(
-            conn,
-            frame,
-            Dataset.rates,
-            table_exists,
-            if_exists,
-            written_columns,
-        )
-    return table_exists
+        return frame
+
+    return _stream_symbol_frames(
+        conn,
+        symbols,
+        Dataset.rates,
+        if_exists,
+        written_columns,
+        _fetch_rates_frame,
+    )
 
 
 def write_ticks_dataset(
@@ -1384,8 +1429,8 @@ def write_ticks_dataset(
     Returns:
         True if the ticks table was written.
     """
-    table_exists = False
-    for sym in symbols:
+
+    def _fetch_ticks_frame(sym: str) -> pd.DataFrame:
         frame = client.copy_ticks_range_as_df(
             symbol=sym,
             date_from=date_from,
@@ -1394,15 +1439,16 @@ def write_ticks_dataset(
         ).drop(columns=["symbol"], errors="ignore")
         if len(frame.columns) != 0:
             frame.insert(0, "symbol", sym)
-        table_exists = write_streamed_frame(
-            conn,
-            frame,
-            Dataset.ticks,
-            table_exists,
-            if_exists,
-            written_columns,
-        )
-    return table_exists
+        return frame
+
+    return _stream_symbol_frames(
+        conn,
+        symbols,
+        Dataset.ticks,
+        if_exists,
+        written_columns,
+        _fetch_ticks_frame,
+    )
 
 
 def write_history_dataset(
@@ -1437,22 +1483,22 @@ def write_history_dataset(
             if_exists,
             written_columns,
         )
-    for sym in symbols:
-        frame = fetch(date_from=date_from, date_to=date_to, symbol=sym)
-        frame = filter_trade_history_frame(
-            frame,
+
+    def _fetch_history_frame(sym: str) -> pd.DataFrame:
+        return filter_trade_history_frame(
+            fetch(date_from=date_from, date_to=date_to, symbol=sym),
             [sym],
             include_account_events=False,
         )
-        table_exists = write_streamed_frame(
-            conn,
-            frame,
-            dataset,
-            table_exists,
-            if_exists,
-            written_columns,
-        )
-    return table_exists
+
+    return _stream_symbol_frames(
+        conn,
+        symbols,
+        dataset,
+        if_exists,
+        written_columns,
+        _fetch_history_frame,
+    )
 
 
 def _write_incremental_rates(
@@ -1525,13 +1571,12 @@ def _write_incremental_ticks(
             IfExists.APPEND,
             written_columns,
         ):
-            written_tables.add(Dataset.ticks)
-            _record_dedup_scope(
+            _record_symbol_time_dedup(
                 dedup_scopes,
+                written_tables,
                 Dataset.ticks,
-                "symbol = ? AND time >= ?",
-                (symbol, start_date),
-                frozenset({"symbol", "time"}),
+                symbol,
+                start_date,
             )
 
 
@@ -1564,13 +1609,12 @@ def _write_incremental_history_orders(
             written_columns,
             include_account_events=False,
         ):
-            written_tables.add(Dataset.history_orders)
-            _record_dedup_scope(
+            _record_symbol_time_dedup(
                 dedup_scopes,
+                written_tables,
                 Dataset.history_orders,
-                "symbol = ? AND time >= ?",
-                (symbol, start_date),
-                frozenset({"symbol", "time"}),
+                symbol,
+                start_date,
             )
 
 
@@ -1662,13 +1706,12 @@ def _write_incremental_history_deals(
             written_columns,
             include_account_events=False,
         ):
-            written_tables.add(Dataset.history_deals)
-            _record_dedup_scope(
+            _record_symbol_time_dedup(
                 dedup_scopes,
+                written_tables,
                 Dataset.history_deals,
-                "symbol = ? AND time >= ?",
-                (symbol, start_date),
-                frozenset({"symbol", "time"}),
+                symbol,
+                start_date,
             )
 
 
