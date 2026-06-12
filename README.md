@@ -2,14 +2,14 @@
 
 [![CI/CD](https://github.com/dceoy/mt5cli/actions/workflows/ci.yml/badge.svg)](https://github.com/dceoy/mt5cli/actions/workflows/ci.yml)
 
-Command-line tool for exporting MetaTrader 5 data to CSV, JSON, Parquet, and SQLite3.
+Generic MT5 data and execution infrastructure for Python applications. Export from the CLI or import a small, stable Python API in downstream packages.
 
 Built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data handler for MetaTrader 5.
 
 ## Architecture
 
 - **pdmt5** — canonical MT5 client, DataFrame/trading primitives, and MT5 constant parsing (`TIMEFRAME_*`, `COPY_TICKS_*`, order types).
-- **mt5cli** — CLI commands, CSV/JSON/Parquet/SQLite export, SQLite history collection, rate views, and local batch/automation SDK helpers built on pdmt5.
+- **mt5cli** — public `MT5Client` API, standardized dataset schemas, storage helpers, CLI commands, and SQLite history collection built on pdmt5.
 - **mt5api** — sibling HTTP adapter for remote MT5 access; not a dependency of mt5cli.
 
 ## Features
@@ -27,7 +27,65 @@ Built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data han
 pip install -U mt5cli MetaTrader5
 ```
 
-## Usage
+## Python API (downstream packages)
+
+Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives. `Mt5CliClient` remains available as a backward-compatible alias.
+
+```python
+from datetime import UTC, datetime
+from pathlib import Path
+
+from mt5cli import (
+    DataKind,
+    Dataset,
+    MT5Client,
+    build_config,
+    collect_history,
+    export_dataframe,
+    mt5_session,
+    normalize_dataframe,
+    update_history_with_config,
+)
+
+# Persistent session for multiple calls
+with mt5_session(build_config(login=12345, server="Broker-Demo")) as client:
+    rates = client.copy_rates_range(
+        "EURUSD",
+        timeframe="H1",
+        date_from="2024-01-01",
+        date_to="2024-02-01",
+    )
+    positions = client.positions()
+    check = client.order_check({"action": 1, "symbol": "EURUSD", "volume": 0.1})
+
+# Normalize MT5 frames to the public schema contract before storage
+closed_rates = normalize_dataframe(
+    rates, DataKind.rates, symbol="EURUSD", timeframe="H1"
+)
+export_dataframe(closed_rates, Path("rates.csv"), "csv")
+
+# Bulk SQLite history (same behavior as collect-history CLI command)
+collect_history(
+    Path("history.db"),
+    symbols=["EURUSD"],
+    date_from=datetime(2024, 1, 1, tzinfo=UTC),
+    date_to=datetime(2024, 2, 1, tzinfo=UTC),
+    datasets={Dataset.rates, Dataset.history_deals},
+)
+
+# Incremental append for automated pipelines
+update_history_with_config(
+    output="history.db",
+    symbols=["EURUSD"],
+    config=build_config(login=12345),
+)
+```
+
+Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Storage helpers are re-exported from `mt5cli.storage` and the package root.
+
+`MT5Client.order_send()` is a live execution primitive: it can place real trades on the connected account. mt5cli does not implement strategy logic, signal generation, backtesting, or optimization — downstream applications must gate live execution explicitly.
+
+## CLI usage
 
 ```bash
 # Export account information to CSV
@@ -161,7 +219,7 @@ eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 - **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, `OSError`, and MT5 client capability errors for history API methods without advancing the throttle (other `AttributeError` / `TypeError` values always propagate).
 - **Trading session helpers**: use `mt5_trading_session()` for a trading-capable `pdmt5.Mt5TradingClient` that initializes/logs in via `Mt5Config.path` and always shuts down safely. Pair with `detect_position_side()`, `calculate_margin_and_volume()`, and `determine_order_limits()` for generic position and sizing utilities. The read-only `mt5_session()` / `Mt5CliClient` SDK is unchanged.
 - **Granularity-keyed rate loading**: `load_rate_series_by_granularity()` builds targets with `build_rate_targets()`, loads them with `load_rate_series_from_sqlite()`, and returns a mapping keyed by `(symbol | None, granularity_name)` such as `("EURUSD", "M1")` to reduce downstream boilerplate.
-- **MT5 session helper**: use the `mt5_session()` context manager to attach to (or, when `Mt5Config.path` is set, launch) an MT5 terminal, log in, and yield a connected `Mt5CliClient` that shuts down on exit.
+- **MT5 session helper**: use the `mt5_session()` context manager to attach to (or, when `Mt5Config.path` is set, launch) an MT5 terminal, log in, and yield a connected `MT5Client` that shuts down on exit.
 - **SQLite export helpers**: use `export_dataframe_to_sqlite()` for append mode, optional index export, and post-write deduplication by key columns.
 - **Recent ticks and margins**: `recent_ticks()` and `minimum_margins()` SDK helpers (and matching CLI commands) cover common downstream read-only queries.
 
@@ -226,7 +284,7 @@ finally:
     client.shutdown()
 ```
 
-Read-only collectors can keep using `mt5_session()` and `Mt5CliClient` without changes.
+Read-only collectors can keep using `mt5_session()` and `MT5Client` (or the `Mt5CliClient` alias) without changes.
 
 ## Development
 

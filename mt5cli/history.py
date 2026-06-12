@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import pandas as pd
 from pdmt5 import get_timeframe_name as _get_timeframe_name
 
+from .schemas import DEDUP_KEYS, DataKind
 from .utils import (
     TIMEFRAME_NAMES,
     Dataset,
@@ -31,10 +32,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = TIMEFRAME_NAMES
 
 _HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
-    Dataset.rates: (("symbol", "timeframe", "time"), ("symbol", "time")),
-    Dataset.ticks: (("symbol", "time_msc"), ("symbol", "time")),
-    Dataset.history_orders: (("ticket",), ("symbol", "time", "type")),
-    Dataset.history_deals: (("ticket",), ("symbol", "time", "type", "entry")),
+    Dataset.rates: DEDUP_KEYS[DataKind.rates],
+    Dataset.ticks: DEDUP_KEYS[DataKind.ticks],
+    Dataset.history_orders: DEDUP_KEYS[DataKind.history_orders],
+    Dataset.history_deals: DEDUP_KEYS[DataKind.history_deals],
 }
 
 _TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)

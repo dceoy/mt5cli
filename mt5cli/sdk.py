@@ -29,6 +29,7 @@ from .history import (
     write_collected_datasets,
     write_incremental_datasets,
 )
+from .retry import retry_with_backoff
 from .utils import (
     Dataset,
     IfExists,
@@ -115,6 +116,7 @@ __all__ = [
     "collect_latest_rates",
     "collect_latest_rates_for_accounts",
     "collect_latest_rates_for_accounts_with_retries",
+    "connected_client",
     "copy_rates_from",
     "copy_rates_from_pos",
     "copy_rates_range",
@@ -319,7 +321,7 @@ def build_config(
 
 
 @contextmanager
-def _connected_client(config: Mt5Config) -> Iterator[Mt5DataClient]:
+def connected_client(config: Mt5Config) -> Iterator[Mt5DataClient]:
     """Initialize MT5, yield a connected client, and always shut down.
 
     Args:
@@ -349,7 +351,7 @@ def _run_with_client(
     Returns:
         Value returned by ``fetch_fn``.
     """
-    with _connected_client(config) as client:
+    with connected_client(config) as client:
         return fetch_fn(client)
 
 
@@ -369,7 +371,7 @@ def mt5_session(config: Mt5Config | None = None) -> Iterator[Mt5CliClient]:
         Connected ``Mt5CliClient`` bound to the session.
     """
     mt5_config = config or build_config()
-    with _connected_client(mt5_config) as client:
+    with connected_client(mt5_config) as client:
         yield Mt5CliClient.from_connected_client(client)
 
 
@@ -384,6 +386,7 @@ class Mt5CliClient:
         password: str | None = None,
         server: str | None = None,
         timeout: int | None = None,
+        retry_count: int = 3,
         config: Mt5Config | None = None,
         client: Mt5DataClient | None = None,
     ) -> None:
@@ -395,6 +398,8 @@ class Mt5CliClient:
             password: Trading account password.
             server: Trading server name.
             timeout: Connection timeout in milliseconds.
+            retry_count: Number of MT5 initialization retries for sessions
+                opened by this client.
             config: Optional pre-built ``Mt5Config`` (overrides other args).
             client: Optional already-connected ``Mt5DataClient``. Injected
                 clients are reused as-is and are not initialized or shut down.
@@ -406,6 +411,7 @@ class Mt5CliClient:
             server=server,
             timeout=timeout,
         )
+        self._retry_count = retry_count
         self._client = client
         self._owns_client = client is None
 
@@ -434,7 +440,7 @@ class Mt5CliClient:
         """
         if self._client is not None:
             return self
-        client = Mt5DataClient(config=self._config)
+        client = Mt5DataClient(config=self._config, retry_count=self._retry_count)
         try:
             client.initialize_and_login_mt5()
         except Exception:
@@ -1016,7 +1022,7 @@ def update_history_with_config(  # noqa: PLR0913
     if request is None:
         return
     mt5_config = config or build_config()
-    with _connected_client(mt5_config) as client:
+    with connected_client(mt5_config) as client:
         update_history(
             client=client,
             output=output,
@@ -1195,7 +1201,7 @@ def collect_history(
     tf = _coerce_timeframe(timeframe)
     tick_flags = _coerce_tick_flags(flags)
     mt5_config = config or build_config()
-    with _connected_client(mt5_config) as client, sqlite3.connect(output) as conn:
+    with connected_client(mt5_config) as client, sqlite3.connect(output) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         written_tables, written_columns = write_collected_datasets(
@@ -1591,7 +1597,6 @@ def collect_latest_rates_for_accounts_with_retries(
         re-raises the last ``pdmt5.Mt5TradingError`` or ``pdmt5.Mt5RuntimeError``
         once retries are exhausted.
     """
-    attempts = max(retry_count, 0) + 1
 
     def _collect() -> dict[tuple[str, int], pd.DataFrame]:
         return collect_latest_rates_for_accounts(
@@ -1602,20 +1607,12 @@ def collect_latest_rates_for_accounts_with_retries(
             base_config=base_config,
         )
 
-    for attempt in range(attempts - 1):
-        try:
-            return _collect()
-        except (Mt5TradingError, Mt5RuntimeError) as exc:
-            delay = backoff_base ** (attempt + 1)
-            logger.warning(
-                "Rate collection failed (attempt %d/%d): %s; retrying in %.1fs",
-                attempt + 1,
-                attempts,
-                exc,
-                delay,
-            )
-            time.sleep(delay)
-    return _collect()
+    return retry_with_backoff(
+        _collect,
+        retry_count=retry_count,
+        backoff_base=backoff_base,
+        operation="Rate collection",
+    )
 
 
 def collect_latest_closed_rates_for_accounts(

@@ -1,15 +1,15 @@
 # mt5cli
 
-Command-line tool for MetaTrader 5 data export.
+Generic MT5 data and execution infrastructure for Python applications.
 
 ## Overview
 
-mt5cli is a CLI application that exports MetaTrader 5 trading data to multiple file formats. It is built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data handler for MetaTrader 5.
+mt5cli provides a stable `MT5Client` Python API, standardized dataset schemas, storage helpers, and a CLI for exporting MetaTrader 5 data. It is built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data handler for MetaTrader 5.
 
 ## Architecture
 
 - **pdmt5** — canonical MT5 client, DataFrame/trading primitives, and MT5 constant parsing (`TIMEFRAME_*`, `COPY_TICKS_*`, order types).
-- **mt5cli** — CLI commands, CSV/JSON/Parquet/SQLite export, SQLite history collection, rate views, and local batch/automation SDK helpers built on pdmt5.
+- **mt5cli** — public `MT5Client` API, schema contracts, storage helpers, CLI commands, and SQLite history collection built on pdmt5.
 - **mt5api** — sibling HTTP adapter for remote MT5 access; not a dependency of mt5cli.
 
 ## Features
@@ -27,66 +27,68 @@ mt5cli is a CLI application that exports MetaTrader 5 trading data to multiple f
 pip install mt5cli
 ```
 
-## Programmatic usage / SDK usage
+## Python API for downstream packages
 
-mt5cli can be used as a small Python SDK for read-only MetaTrader 5 data collection. SDK functions return pandas DataFrames without writing files. Use `export_dataframe` or `export_dataframe_to_sqlite` when you need to persist results.
+Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives. `Mt5CliClient` remains available as a backward-compatible alias.
 
 ```python
 from datetime import UTC, datetime
 from pathlib import Path
 
 from mt5cli import (
-    Mt5CliClient,
+    DataKind,
+    Dataset,
+    MT5Client,
+    build_config,
     collect_history,
-    copy_rates_range,
     export_dataframe,
-    export_dataframe_to_sqlite,
     load_rate_data,
     minimum_margins,
+    mt5_session,
+    normalize_dataframe,
     recent_ticks,
+    resolve_rate_view_name,
 )
-from mt5cli.history import resolve_rate_view_name
 
-# One-off fetch with module-level helpers
-rates = copy_rates_range(
-    "EURUSD",
-    timeframe="H1",
-    date_from="2024-01-01",
-    date_to="2024-02-01",
+# Persistent session for multiple calls
+with mt5_session(build_config(login=12345, server="Broker-Demo")) as client:
+    rates = client.copy_rates_range(
+        "EURUSD",
+        timeframe="H1",
+        date_from="2024-01-01",
+        date_to="2024-02-01",
+    )
+    positions = client.positions()
+    check = client.order_check({"action": 1, "symbol": "EURUSD", "volume": 0.1})
+
+# Normalize MT5 frames to the public schema contract before storage
+closed_rates = normalize_dataframe(
+    rates, DataKind.rates, symbol="EURUSD", timeframe="H1"
 )
-export_dataframe(rates, Path("rates.csv"), "csv")
+export_dataframe(closed_rates, Path("rates.csv"), "csv")
 
-# Resolve SQLite rate compatibility views for downstream tools
+# Offline rate loading from mt5cli-managed SQLite history
 view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1", require_existing=True)
 offline_rates = load_rate_data(Path("history.db"), view, count=1000)
 
-# Recent tick window and minimum margin summary
+# One-off helpers still work without instantiating a client
 ticks = recent_ticks("EURUSD", seconds=300)
 margins = minimum_margins("EURUSD")
 
-# Reuse one MT5 connection for multiple calls
-with Mt5CliClient(login=12345, password="secret", server="Broker-Demo") as client:
-    account = client.account_info()
-    positions = client.positions()
-    latest = client.latest_rates("EURUSD", "M1", count=100)
-    summary = client.mt5_summary()
-    summary_table = client.mt5_summary_as_df()
-
-# Bulk SQLite collection (same behavior as the collect-history CLI command)
 collect_history(
     Path("history.db"),
     symbols=["EURUSD", "GBPUSD"],
     date_from=datetime(2024, 1, 1, tzinfo=UTC),
     date_to=datetime(2024, 2, 1, tzinfo=UTC),
-    timeframe="M1",
-    flags="ALL",
-    with_views=True,
+    datasets={Dataset.rates, Dataset.history_deals},
 )
 ```
 
-Timeframes, tick flags, and ISO 8601 date strings are accepted wherever noted in the SDK API.
+Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Storage helpers are re-exported from `mt5cli.storage` and the package root.
 
-`Mt5CliClient.mt5_summary()` returns the SDK structured form as plain nested Python values. Use `Mt5CliClient.mt5_summary_as_df()` when you need a one-row DataFrame for export. The `mt5-summary` CLI command uses this tabular form, so nested terminal/account fields are JSON-encoded strings that are safe for CSV, JSON, Parquet, and SQLite output.
+`MT5Client.order_send()` is a live execution primitive: it can place real trades on the connected account. mt5cli does not implement strategy logic, signal generation, backtesting, or optimization — downstream applications must gate live execution explicitly (the CLI requires `--yes` for `order-send`).
+
+`MT5Client.mt5_summary()` returns structured nested Python values. Use `MT5Client.mt5_summary_as_df()` when you need a one-row DataFrame for export.
 
 ## Quick Start
 

@@ -12,6 +12,7 @@ import typer
 from pdmt5 import Mt5Config
 
 from . import sdk
+from .client import MT5Client
 from .utils import (
     DATETIME_TYPE,
     REQUEST_TYPE,
@@ -91,14 +92,14 @@ def _execute_export(
     )
 
 
-def _sdk_client(ctx: typer.Context) -> sdk.Mt5CliClient:
+def _sdk_client(ctx: typer.Context) -> MT5Client:
     export_ctx = _get_export_context(ctx)
-    return sdk.Mt5CliClient(config=export_ctx.config)
+    return MT5Client(config=export_ctx.config)
 
 
 def _export_command(
     ctx: typer.Context,
-    fetch_fn: Callable[[sdk.Mt5CliClient], pd.DataFrame],
+    fetch_fn: Callable[[MT5Client], pd.DataFrame],
 ) -> None:
     """Create an SDK client, fetch a DataFrame, and export it."""
     client = _sdk_client(ctx)
@@ -573,15 +574,7 @@ def order_check(
     ],
 ) -> None:
     """Check funds sufficiency for a trading operation."""
-    export_ctx = _get_export_context(ctx)
-
-    def _fetch() -> pd.DataFrame:
-        return sdk._run_with_client(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-            export_ctx.config,
-            lambda c: c.order_check_as_df(request=request),
-        )
-
-    _execute_export(ctx, _fetch)
+    _export_command(ctx, lambda client: client.order_check(request))
 
 
 @app.command()
@@ -604,15 +597,7 @@ def order_send(
     if not yes:
         msg = "Pass --yes to send a live trade request."
         raise typer.BadParameter(msg, param_hint="--yes")
-    export_ctx = _get_export_context(ctx)
-
-    def _fetch() -> pd.DataFrame:
-        return sdk._run_with_client(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-            export_ctx.config,
-            lambda c: c.order_send_as_df(request=request),
-        )
-
-    _execute_export(ctx, _fetch)
+    _export_command(ctx, lambda client: client.order_send(request))
 
 
 @app.command()

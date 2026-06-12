@@ -1,5 +1,5 @@
 site_name: mt5cli API Documentation
-site_description: Command-line tool for MetaTrader 5
+site_description: Generic MT5 data and execution infrastructure for Python
 site_author: dceoy
 site_url: https://github.com/dceoy/mt5cli
 
@@ -56,6 +56,11 @@ nav:
   - Home: index.md
   - API Reference:
       - Overview: api/index.md
+      - Client: api/client.md
+      - Schemas: api/schemas.md
+      - Storage: api/storage.md
+      - Converters: api/converters.md
+      - Exceptions: api/exceptions.md
       - CLI: api/cli.md
       - SDK: api/sdk.md
       - Trading: api/trading.md

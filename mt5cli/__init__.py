@@ -1,7 +1,25 @@
-"""mt5cli: Command-line tool and SDK for MetaTrader 5."""
+"""mt5cli: Generic MT5 data and execution infrastructure for Python applications."""
 
 from importlib.metadata import version
 
+from .client import MT5Client, build_config, mt5_session
+from .converters import (
+    ensure_utc,
+    granularity_name,
+    normalize_symbol,
+    normalize_symbols,
+    parse_date_range,
+    recent_window,
+)
+from .exceptions import (
+    Mt5CliError,
+    Mt5ConnectionError,
+    Mt5OperationError,
+    Mt5SchemaError,
+    call_with_normalized_errors,
+    is_recoverable_mt5_error,
+    normalize_mt5_exception,
+)
 from .history import (
     RateTarget,
     build_rate_targets,
@@ -18,12 +36,22 @@ from .history import (
     resolve_rate_view_name,
     resolve_rate_view_names,
 )
+from .schemas import (
+    DEDUP_KEYS,
+    KNOWN_MT5_TIME_COLUMNS,
+    REQUIRED_COLUMNS,
+    TIME_COLUMNS,
+    DataKind,
+    normalize_dataframe,
+    normalize_time_columns,
+    schema_columns,
+    validate_schema,
+)
 from .sdk import (
     AccountSpec,
     Mt5CliClient,
     ThrottledHistoryUpdater,
     account_info,
-    build_config,
     collect_history,
     collect_latest_closed_rates_by_granularity,
     collect_latest_closed_rates_for_accounts,
@@ -41,7 +69,6 @@ from .sdk import (
     latest_rates,
     market_book,
     minimum_margins,
-    mt5_session,
     mt5_summary,
     mt5_summary_as_df,
     orders,
@@ -61,6 +88,13 @@ from .sdk import (
 from .sdk import (
     version as mt5_version,
 )
+from .storage import (
+    Dataset,
+    IfExists,
+    detect_format,
+    export_dataframe,
+    export_dataframe_to_sqlite,
+)
 from .trading import (
     calculate_margin_and_volume,
     detect_position_side,
@@ -70,11 +104,6 @@ from .trading import (
 from .utils import (
     TICK_FLAG_MAP,
     TIMEFRAME_MAP,
-    Dataset,
-    IfExists,
-    detect_format,
-    export_dataframe,
-    export_dataframe_to_sqlite,
     parse_datetime,
     parse_tick_flags,
     parse_timeframe,
@@ -83,12 +112,22 @@ from .utils import (
 __version__ = version(__package__) if __package__ else None
 
 __all__ = [
+    "DEDUP_KEYS",
+    "KNOWN_MT5_TIME_COLUMNS",
+    "REQUIRED_COLUMNS",
     "TICK_FLAG_MAP",
     "TIMEFRAME_MAP",
+    "TIME_COLUMNS",
     "AccountSpec",
+    "DataKind",
     "Dataset",
     "IfExists",
+    "MT5Client",
     "Mt5CliClient",
+    "Mt5CliError",
+    "Mt5ConnectionError",
+    "Mt5OperationError",
+    "Mt5SchemaError",
     "RateTarget",
     "ThrottledHistoryUpdater",
     "account_info",
@@ -96,6 +135,7 @@ __all__ = [
     "build_rate_targets",
     "build_rate_view_name",
     "calculate_margin_and_volume",
+    "call_with_normalized_errors",
     "collect_history",
     "collect_latest_closed_rates_by_granularity",
     "collect_latest_closed_rates_for_accounts",
@@ -111,10 +151,13 @@ __all__ = [
     "detect_position_side",
     "determine_order_limits",
     "drop_forming_rate_bar",
+    "ensure_utc",
     "export_dataframe",
     "export_dataframe_to_sqlite",
+    "granularity_name",
     "history_deals",
     "history_orders",
+    "is_recoverable_mt5_error",
     "last_error",
     "latest_rates",
     "load_rate_data",
@@ -128,13 +171,20 @@ __all__ = [
     "mt5_summary_as_df",
     "mt5_trading_session",
     "mt5_version",
+    "normalize_dataframe",
+    "normalize_mt5_exception",
+    "normalize_symbol",
+    "normalize_symbols",
+    "normalize_time_columns",
     "orders",
+    "parse_date_range",
     "parse_datetime",
     "parse_tick_flags",
     "parse_timeframe",
     "positions",
     "recent_history_deals",
     "recent_ticks",
+    "recent_window",
     "resolve_account_spec",
     "resolve_account_specs",
     "resolve_history_datasets",
@@ -143,6 +193,7 @@ __all__ = [
     "resolve_rate_tables",
     "resolve_rate_view_name",
     "resolve_rate_view_names",
+    "schema_columns",
     "substitute_env_placeholders",
     "symbol_info",
     "symbol_info_tick",
@@ -150,4 +201,5 @@ __all__ = [
     "terminal_info",
     "update_history",
     "update_history_with_config",
+    "validate_schema",
 ]
