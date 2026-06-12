@@ -64,6 +64,9 @@ _MT5_HISTORY_CLIENT_CALL_FUNCTIONS: frozenset[str] = frozenset({
     "write_ticks_dataset",
     "write_history_dataset",
     "_write_incremental_history_deals",
+    "_fetch_rates_frame",
+    "_fetch_ticks_frame",
+    "_fetch_history_frame",
 })
 _NON_CALLABLE_TYPE_ERROR = re.compile(r"^'[^']+' object is not callable$")
 

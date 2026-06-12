@@ -132,32 +132,6 @@ _DEALS_FIXTURE: dict[str, list[object]] = {
 }
 
 
-@pytest.fixture
-def mock_client(mocker: MockerFixture) -> MagicMock:
-    """Create and patch a mock Mt5DataClient for SDK tests."""
-    client = MagicMock()
-    sample_df = pd.DataFrame({"col": [1]})
-    client.copy_rates_from_as_df.return_value = sample_df
-    client.copy_rates_from_pos_as_df.return_value = sample_df
-    client.copy_rates_range_as_df.return_value = sample_df
-    client.copy_ticks_from_as_df.return_value = sample_df
-    client.copy_ticks_range_as_df.return_value = sample_df
-    client.account_info_as_df.return_value = sample_df
-    client.terminal_info_as_df.return_value = sample_df
-    client.symbols_get_as_df.return_value = sample_df
-    client.symbol_info_as_df.return_value = sample_df
-    client.orders_get_as_df.return_value = sample_df
-    client.positions_get_as_df.return_value = sample_df
-    client.history_orders_get_as_df.return_value = sample_df
-    client.history_deals_get_as_df.return_value = sample_df
-    client.version_as_df.return_value = sample_df
-    client.last_error_as_df.return_value = sample_df
-    client.symbol_info_tick_as_df.return_value = sample_df
-    client.market_book_get_as_df.return_value = sample_df
-    mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
-    return client
-
-
 def _build_history_client(mocker: MockerFixture) -> MagicMock:
     """Build a mocked Mt5DataClient with per-symbol history results."""
     client = MagicMock()

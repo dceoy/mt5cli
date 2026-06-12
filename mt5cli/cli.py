@@ -96,6 +96,15 @@ def _sdk_client(ctx: typer.Context) -> sdk.Mt5CliClient:
     return sdk.Mt5CliClient(config=export_ctx.config)
 
 
+def _export_command(
+    ctx: typer.Context,
+    fetch_fn: Callable[[sdk.Mt5CliClient], pd.DataFrame],
+) -> None:
+    """Create an SDK client, fetch a DataFrame, and export it."""
+    client = _sdk_client(ctx)
+    _execute_export(ctx, lambda: fetch_fn(client))
+
+
 @app.callback()
 def _callback(  # pyright: ignore[reportUnusedFunction]
     ctx: typer.Context,
@@ -193,10 +202,9 @@ def rates_from(
     count: Annotated[int, typer.Option(help="Number of records.")],
 ) -> None:
     """Export rates from a start date."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.copy_rates_from(symbol, timeframe, date_from, count),
+        lambda client: client.copy_rates_from(symbol, timeframe, date_from, count),
     )
 
 
@@ -215,10 +223,14 @@ def rates_from_pos(
     count: Annotated[int, typer.Option(help="Number of records.")],
 ) -> None:
     """Export rates from a start position."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.copy_rates_from_pos(symbol, timeframe, start_pos, count),
+        lambda client: client.copy_rates_from_pos(
+            symbol,
+            timeframe,
+            start_pos,
+            count,
+        ),
     )
 
 
@@ -240,10 +252,14 @@ def latest_rates(
     ] = 0,
 ) -> None:
     """Export latest rates from a start position."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.latest_rates(symbol, timeframe, count, start_pos=start_pos),
+        lambda client: client.latest_rates(
+            symbol,
+            timeframe,
+            count,
+            start_pos=start_pos,
+        ),
     )
 
 
@@ -268,10 +284,9 @@ def rates_range(
     ],
 ) -> None:
     """Export rates for a date range."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.copy_rates_range(symbol, timeframe, date_from, date_to),
+        lambda client: client.copy_rates_range(symbol, timeframe, date_from, date_to),
     )
 
 
@@ -293,10 +308,9 @@ def ticks_from(
     ],
 ) -> None:
     """Export ticks from a start date."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.copy_ticks_from(symbol, date_from, count, flags),
+        lambda client: client.copy_ticks_from(symbol, date_from, count, flags),
     )
 
 
@@ -318,10 +332,9 @@ def ticks_range(
     ],
 ) -> None:
     """Export ticks for a date range."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.copy_ticks_range(symbol, date_from, date_to, flags),
+        lambda client: client.copy_ticks_range(symbol, date_from, date_to, flags),
     )
 
 
@@ -350,10 +363,9 @@ def ticks_recent(
     ] = "ALL",  # pyright: ignore[reportArgumentType]
 ) -> None:
     """Export ticks from a recent time window."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.recent_ticks(
+        lambda client: client.recent_ticks(
             symbol,
             seconds,
             date_to=date_to,
@@ -366,13 +378,13 @@ def ticks_recent(
 @app.command()
 def account_info(ctx: typer.Context) -> None:
     """Export account information."""
-    _execute_export(ctx, _sdk_client(ctx).account_info)
+    _export_command(ctx, lambda client: client.account_info())
 
 
 @app.command()
 def terminal_info(ctx: typer.Context) -> None:
     """Export terminal information."""
-    _execute_export(ctx, _sdk_client(ctx).terminal_info)
+    _export_command(ctx, lambda client: client.terminal_info())
 
 
 @app.command()
@@ -384,8 +396,7 @@ def symbols(
     ] = None,
 ) -> None:
     """Export symbol list."""
-    client = _sdk_client(ctx)
-    _execute_export(ctx, lambda: client.symbols(group=group))
+    _export_command(ctx, lambda client: client.symbols(group=group))
 
 
 @app.command()
@@ -394,8 +405,7 @@ def symbol_info(
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
 ) -> None:
     """Export symbol details."""
-    client = _sdk_client(ctx)
-    _execute_export(ctx, lambda: client.symbol_info(symbol))
+    _export_command(ctx, lambda client: client.symbol_info(symbol))
 
 
 @app.command()
@@ -404,8 +414,7 @@ def minimum_margins(
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
 ) -> None:
     """Export minimum-volume buy and sell margin requirements."""
-    client = _sdk_client(ctx)
-    _execute_export(ctx, lambda: client.minimum_margins(symbol))
+    _export_command(ctx, lambda client: client.minimum_margins(symbol))
 
 
 @app.command()
@@ -416,10 +425,9 @@ def orders(
     ticket: Annotated[int | None, typer.Option(help="Ticket filter.")] = None,
 ) -> None:
     """Export active orders."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.orders(symbol=symbol, group=group, ticket=ticket),
+        lambda client: client.orders(symbol=symbol, group=group, ticket=ticket),
     )
 
 
@@ -431,10 +439,9 @@ def positions(
     ticket: Annotated[int | None, typer.Option(help="Ticket filter.")] = None,
 ) -> None:
     """Export open positions."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.positions(symbol=symbol, group=group, ticket=ticket),
+        lambda client: client.positions(symbol=symbol, group=group, ticket=ticket),
     )
 
 
@@ -455,10 +462,9 @@ def history_orders(
     position: Annotated[int | None, typer.Option(help="Position ticket.")] = None,
 ) -> None:
     """Export historical orders."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.history_orders(
+        lambda client: client.history_orders(
             date_from=date_from,
             date_to=date_to,
             group=group,
@@ -486,10 +492,9 @@ def history_deals(
     position: Annotated[int | None, typer.Option(help="Position ticket.")] = None,
 ) -> None:
     """Export historical deals."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.history_deals(
+        lambda client: client.history_deals(
             date_from=date_from,
             date_to=date_to,
             group=group,
@@ -512,10 +517,9 @@ def recent_history_deals(
     symbol: Annotated[str | None, typer.Option(help="Symbol filter.")] = None,
 ) -> None:
     """Export historical deals from a recent trailing window."""
-    client = _sdk_client(ctx)
-    _execute_export(
+    _export_command(
         ctx,
-        lambda: client.recent_history_deals(
+        lambda client: client.recent_history_deals(
             hours,
             date_to=date_to,
             group=group,
@@ -527,20 +531,19 @@ def recent_history_deals(
 @app.command()
 def mt5_summary(ctx: typer.Context) -> None:
     """Export a compact terminal/account status summary."""
-    client = _sdk_client(ctx)
-    _execute_export(ctx, client.mt5_summary_as_df)
+    _export_command(ctx, lambda client: client.mt5_summary_as_df())
 
 
 @app.command()
 def version(ctx: typer.Context) -> None:
     """Export MetaTrader5 version information."""
-    _execute_export(ctx, _sdk_client(ctx).version)
+    _export_command(ctx, lambda client: client.version())
 
 
 @app.command()
 def last_error(ctx: typer.Context) -> None:
     """Export the last error information."""
-    _execute_export(ctx, _sdk_client(ctx).last_error)
+    _export_command(ctx, lambda client: client.last_error())
 
 
 @app.command()
@@ -549,8 +552,7 @@ def symbol_info_tick(
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
 ) -> None:
     """Export the last tick for a symbol."""
-    client = _sdk_client(ctx)
-    _execute_export(ctx, lambda: client.symbol_info_tick(symbol))
+    _export_command(ctx, lambda client: client.symbol_info_tick(symbol))
 
 
 @app.command()
@@ -559,8 +561,7 @@ def market_book(
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
 ) -> None:
     """Export market depth (order book) for a symbol."""
-    client = _sdk_client(ctx)
-    _execute_export(ctx, lambda: client.market_book(symbol))
+    _export_command(ctx, lambda client: client.market_book(symbol))
 
 
 @app.command()

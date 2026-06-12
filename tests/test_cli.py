@@ -69,38 +69,6 @@ class TestExecuteExport:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def mock_client(mocker: MockerFixture) -> MagicMock:
-    """Create and patch a mock Mt5DataClient for CLI tests."""
-    client = MagicMock()
-    sample_df = pd.DataFrame({"col": [1]})
-    client.copy_rates_from_as_df.return_value = sample_df
-    client.copy_rates_from_pos_as_df.return_value = sample_df
-    client.copy_rates_range_as_df.return_value = sample_df
-    client.copy_ticks_from_as_df.return_value = sample_df
-    client.copy_ticks_range_as_df.return_value = sample_df
-    client.account_info_as_df.return_value = sample_df
-    client.terminal_info_as_df.return_value = sample_df
-    client.symbols_get_as_df.return_value = sample_df
-    client.symbol_info_as_df.return_value = sample_df
-    client.orders_get_as_df.return_value = sample_df
-    client.positions_get_as_df.return_value = sample_df
-    client.history_orders_get_as_df.return_value = sample_df
-    client.history_deals_get_as_df.return_value = sample_df
-    client.version_as_df.return_value = sample_df
-    client.last_error_as_df.return_value = sample_df
-    client.symbol_info_tick_as_df.return_value = sample_df
-    client.market_book_get_as_df.return_value = sample_df
-    client.order_check_as_df.return_value = sample_df
-    client.order_send_as_df.return_value = sample_df
-    client.version.return_value = (5, 0, 1)
-    client.terminal_info.return_value = {"connected": True, "paths": ["terminal.exe"]}
-    client.account_info.return_value = {"login": 123, "limits": {"modes": ["demo"]}}
-    client.symbols_total.return_value = 42
-    mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
-    return client
-
-
 class TestCommands:
     """Tests for all CLI subcommands via CliRunner."""
 
