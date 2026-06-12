@@ -175,7 +175,7 @@ class TestConnectionLifecycle:
         mock_client = MagicMock()
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
         config = MagicMock()
-        with sdk._connected_client(config):  # type: ignore[reportPrivateUsage]
+        with sdk.connected_client(config):  # type: ignore[reportPrivateUsage]
             mock_client.initialize_and_login_mt5.assert_called_once()
         mock_client.shutdown.assert_called_once()
 
@@ -191,7 +191,7 @@ class TestConnectionLifecycle:
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
         with (
             pytest.raises(RuntimeError, match="login failed"),
-            sdk._connected_client(MagicMock()),  # type: ignore[reportPrivateUsage]
+            sdk.connected_client(MagicMock()),  # type: ignore[reportPrivateUsage]
         ):
             pass
         mock_client.shutdown.assert_called_once()
@@ -1342,7 +1342,7 @@ class TestCollectLatestRatesForAccounts:
         """Test account fields override base_config, empty login falls back."""
         configs: list[object] = []
 
-        def _record_config(*, config: object) -> MagicMock:
+        def _record_config(*, config: object, **_: object) -> MagicMock:
             configs.append(config)
             return mock_client
 

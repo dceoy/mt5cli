@@ -1,7 +1,7 @@
 [project]
 name = "mt5cli"
 version = "0.7.1"
-description = "Command-line tool for MetaTrader 5"
+description = "Generic MT5 data and execution infrastructure for Python applications"
 authors = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
 maintainers = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
 license = "MIT"
