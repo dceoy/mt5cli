@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DEDUP_KEYS",
+    "KNOWN_MT5_TIME_COLUMNS",
     "REQUIRED_COLUMNS",
     "TIME_COLUMNS",
     "DataKind",
@@ -24,7 +25,7 @@ __all__ = [
     "validate_schema",
 ]
 
-_TIME_COLUMN_NAMES: Final[frozenset[str]] = frozenset({
+KNOWN_MT5_TIME_COLUMNS: Final[frozenset[str]] = frozenset({
     "time",
     "time_setup",
     "time_setup_msc",
@@ -32,6 +33,8 @@ _TIME_COLUMN_NAMES: Final[frozenset[str]] = frozenset({
     "time_done_msc",
     "time_msc",
 })
+
+_TIME_COLUMN_NAMES = KNOWN_MT5_TIME_COLUMNS
 
 
 class DataKind(StrEnum):
@@ -107,9 +110,24 @@ REQUIRED_COLUMNS: dict[DataKind, frozenset[str]] = {
     }),
 }
 
+_OPTIONAL_TIME_COLUMNS_BY_KIND: dict[DataKind, frozenset[str]] = {
+    DataKind.orders: frozenset({
+        "time_setup_msc",
+        "time_done",
+        "time_done_msc",
+    }),
+    DataKind.history_orders: frozenset({
+        "time_setup_msc",
+        "time_done",
+        "time_done_msc",
+    }),
+    DataKind.positions: frozenset({"time_msc"}),
+}
+
 TIME_COLUMNS: dict[DataKind, frozenset[str]] = {
-    kind: frozenset(columns & _TIME_COLUMN_NAMES)
-    for kind, columns in REQUIRED_COLUMNS.items()
+    kind: (REQUIRED_COLUMNS[kind] & _TIME_COLUMN_NAMES)
+    | _OPTIONAL_TIME_COLUMNS_BY_KIND.get(kind, frozenset())
+    for kind in DataKind
 }
 
 DEDUP_KEYS: dict[DataKind, tuple[tuple[str, ...], ...]] = {
@@ -163,32 +181,40 @@ def validate_schema(
         raise Mt5SchemaError(msg)
 
 
+def _coerce_mt5_time_column(series: pd.Series, column: str) -> pd.Series:
+    """Coerce one MT5 time column to UTC-aware datetimes.
+
+    Returns:
+        Series with UTC-aware datetime values.
+    """
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return pd.to_datetime(series, utc=True, errors="coerce")
+    if pd.api.types.is_numeric_dtype(series):
+        unit = "ms" if column.endswith("_msc") else "s"
+        return pd.to_datetime(series, unit=unit, utc=True, errors="coerce")
+    return pd.to_datetime(series, utc=True, errors="coerce")
+
+
 def normalize_time_columns(frame: pd.DataFrame, kind: DataKind) -> pd.DataFrame:
     """Coerce dataset time columns to UTC-aware datetimes when present.
 
+    Any column in :data:`KNOWN_MT5_TIME_COLUMNS` that is present in ``frame``
+    is normalized. Numeric MT5 epoch values use seconds for ``time``,
+    ``time_setup``, and ``time_done``, and milliseconds for ``*_msc`` columns.
+
     Args:
         frame: Source DataFrame from MT5 or pdmt5.
-        kind: Dataset kind guiding which time columns are coerced.
+        kind: Dataset kind (retained for API compatibility).
 
     Returns:
         DataFrame copy with normalized time columns.
     """
+    del kind
     normalized = frame.copy()
-    for column in TIME_COLUMNS[kind]:
-        if column not in normalized.columns:
+    for column in normalized.columns:
+        if column not in _TIME_COLUMN_NAMES:
             continue
-        if column.endswith("_msc"):
-            normalized[column] = pd.to_datetime(
-                normalized[column],
-                utc=True,
-                errors="coerce",
-            )
-        else:
-            normalized[column] = pd.to_datetime(
-                normalized[column],
-                utc=True,
-                errors="coerce",
-            )
+        normalized[column] = _coerce_mt5_time_column(normalized[column], column)
     return normalized
 
 
@@ -256,7 +282,10 @@ def ensure_utc_columns(frame: pd.DataFrame, columns: Iterable[str]) -> pd.DataFr
     for column in columns:
         if column not in normalized.columns:
             continue
-        normalized[column] = pd.to_datetime(
-            normalized[column], utc=True, errors="coerce"
-        )
+        if column in _TIME_COLUMN_NAMES:
+            normalized[column] = _coerce_mt5_time_column(normalized[column], column)
+        else:
+            normalized[column] = pd.to_datetime(
+                normalized[column], utc=True, errors="coerce"
+            )
     return normalized

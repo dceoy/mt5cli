@@ -13,6 +13,7 @@ from pytest_mock import MockerFixture  # noqa: TC002
 from mt5cli import (
     DEDUP_KEYS,
     REQUIRED_COLUMNS,
+    TIME_COLUMNS,
     DataKind,
     Dataset,
     MT5Client,
@@ -130,7 +131,7 @@ def test_normalize_dataframe_injects_storage_metadata(kind: DataKind) -> None:
         timeframe="M1" if kind is DataKind.rates else None,
     )
     if kind is DataKind.rates:
-        assert normalized.loc[0, "symbol"] == "EURUSD"
+        assert normalized.loc[0, "symbol"] == "eurusd"
         assert normalized.loc[0, "timeframe"] == 1
     validate_schema(normalized, kind)
 
@@ -151,20 +152,24 @@ def test_history_dedup_keys_match_schema_contract() -> None:
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        (" eurusd ", "EURUSD"),
-        ("GbpJpy", "GBPJPY"),
+        (" eurusd ", "eurusd"),
+        ("GbpJpy", "GbpJpy"),
+        ("XAUUSDm", "XAUUSDm"),
+        ("US500.cash", "US500.cash"),
+        ("EURUSD.r", "EURUSD.r"),
     ],
 )
 def test_normalize_symbol(raw: str, expected: str) -> None:
-    """Symbol normalization uppercases and trims broker symbols."""
+    """Symbol normalization trims whitespace and preserves broker casing."""
     assert normalize_symbol(raw) == expected
 
 
 def test_normalize_symbols_deduplicates() -> None:
     """Symbol lists are normalized and de-duplicated in order."""
-    assert normalize_symbols(["eurusd", " EURUSD ", "gbpusd"]) == [
-        "EURUSD",
-        "GBPUSD",
+    assert normalize_symbols(["XAUUSDm", " XAUUSDm ", "EURUSD.r", "eurusd"]) == [
+        "XAUUSDm",
+        "EURUSD.r",
+        "eurusd",
     ]
 
 
@@ -382,6 +387,53 @@ def test_normalize_time_columns_skips_absent_time_fields() -> None:
     assert list(result.columns) == ["open"]
 
 
+def test_normalize_time_columns_converts_unix_seconds() -> None:
+    """Numeric MT5 ``time`` values are interpreted as Unix seconds."""
+    frame = pd.DataFrame({"time": [1704067200]})
+    result = normalize_time_columns(frame, DataKind.rates)
+    assert result.loc[0, "time"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
+
+
+def test_normalize_time_columns_converts_unix_milliseconds() -> None:
+    """Numeric MT5 ``time_msc`` values are interpreted as Unix milliseconds."""
+    frame = pd.DataFrame({"time_msc": [1704067200000]})
+    result = normalize_time_columns(frame, DataKind.ticks)
+    assert result.loc[0, "time_msc"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
+
+
+def test_normalize_time_columns_preserves_utc_datetimes() -> None:
+    """Already-converted datetime values remain UTC-normalized."""
+    aware = datetime(2024, 1, 1, tzinfo=UTC)
+    frame = pd.DataFrame({"time": [aware]})
+    result = normalize_time_columns(frame, DataKind.rates)
+    assert result.loc[0, "time"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
+
+
+def test_normalize_time_columns_handles_optional_order_times() -> None:
+    """Optional order/history time columns are normalized when present."""
+    frame = pd.DataFrame({
+        "time_setup": [1704067200],
+        "time_setup_msc": [1704067200000],
+        "time_done": [1704153600],
+        "time_done_msc": [1704153600000],
+    })
+    result = normalize_time_columns(frame, DataKind.orders)
+    assert result.loc[0, "time_setup"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
+    assert result.loc[0, "time_setup_msc"] == pd.Timestamp(
+        "2024-01-01T00:00:00+00:00",
+    )
+    assert result.loc[0, "time_done"] == pd.Timestamp("2024-01-02T00:00:00+00:00")
+    assert result.loc[0, "time_done_msc"] == pd.Timestamp(
+        "2024-01-02T00:00:00+00:00",
+    )
+
+
+def test_time_columns_include_optional_order_fields() -> None:
+    """Schema contracts document optional MT5 time columns per dataset kind."""
+    assert "time_done" in TIME_COLUMNS[DataKind.orders]
+    assert "time_setup_msc" in TIME_COLUMNS[DataKind.history_orders]
+
+
 def test_normalize_dataframe_sorts_ticks_by_time_msc(
     mocker: MockerFixture,
 ) -> None:
@@ -402,6 +454,20 @@ def test_ensure_utc_columns_skips_missing_columns() -> None:
     frame = _sample_frame(DataKind.rates)
     result = ensure_utc_columns(frame, ["time", "missing"])
     assert "time" in result.columns
+
+
+def test_normalize_time_columns_coerces_string_timestamps() -> None:
+    """String timestamps are parsed with timezone-aware datetime coercion."""
+    frame = pd.DataFrame({"time": ["2024-01-01T00:00:00+00:00"]})
+    result = normalize_time_columns(frame, DataKind.rates)
+    assert result.loc[0, "time"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
+
+
+def test_ensure_utc_columns_coerces_non_mt5_columns() -> None:
+    """Non-MT5 columns still coerce to UTC datetimes."""
+    frame = pd.DataFrame({"created_at": ["2024-01-01T00:00:00+00:00"]})
+    result = ensure_utc_columns(frame, ["created_at"])
+    assert result.loc[0, "created_at"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
 
 
 def test_mt5_session_yields_connected_client(mocker: MockerFixture) -> None:

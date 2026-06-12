@@ -27,6 +27,10 @@ class MT5Client(Mt5CliClient):
     exposes the same connection lifecycle as :class:`~mt5cli.sdk.Mt5CliClient`.
     Downstream applications such as private trading packages should prefer this
     type over the legacy ``Mt5CliClient`` name.
+
+    mt5cli intentionally exposes minimal execution primitives only. Trading
+    decisions, signals, strategies, backtests, and optimization remain the
+    responsibility of downstream applications.
     """
 
     def order_check(self, request: dict[str, Any]) -> pd.DataFrame:
@@ -41,7 +45,14 @@ class MT5Client(Mt5CliClient):
         return self._fetch(lambda client: client.order_check_as_df(request=request))
 
     def order_send(self, request: dict[str, Any]) -> pd.DataFrame:
-        """Send a trade request to the MT5 trade server.
+        """Send a live trade request to the MT5 trade server.
+
+        Warning:
+            This is a live execution primitive. A successful call can place,
+            modify, or close real trades on the connected account. Downstream
+            applications must gate usage explicitly (for example behind manual
+            confirmation or application-specific risk controls). mt5cli does
+            not implement strategy logic, signal generation, or trade sizing.
 
         Args:
             request: MT5 order request dictionary.

@@ -83,6 +83,8 @@ update_history_with_config(
 
 Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Storage helpers are re-exported from `mt5cli.storage` and the package root.
 
+`MT5Client.order_send()` is a live execution primitive: it can place real trades on the connected account. mt5cli does not implement strategy logic, signal generation, backtesting, or optimization — downstream applications must gate live execution explicitly.
+
 ## CLI usage
 
 ```bash

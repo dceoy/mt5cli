@@ -32,6 +32,8 @@ flowchart TD
 
 Downstream packages should depend on the package root exports (`MT5Client`, `DataKind`, `normalize_dataframe`, `export_dataframe`, `collect_history`, etc.) rather than private modules.
 
+`MT5Client.order_send()` is a live execution primitive that can place real trades. mt5cli exposes minimal execution helpers only; strategy logic, signals, backtests, and optimization remain out of scope and must be implemented downstream with explicit execution gating.
+
 ## Quick start
 
 ```python

@@ -28,8 +28,8 @@ __all__ = [
 def normalize_symbol(symbol: str) -> str:
     """Normalize a broker symbol name for MT5 API calls.
 
-    Strips surrounding whitespace and uppercases the symbol so downstream
-    applications can accept mixed-case input consistently.
+    Strips surrounding whitespace while preserving broker-specific casing and
+    suffixes (for example ``XAUUSDm``, ``US500.cash``, or ``EURUSD.r``).
 
     Args:
         symbol: Raw symbol name.
@@ -40,7 +40,7 @@ def normalize_symbol(symbol: str) -> str:
     Raises:
         ValueError: If the symbol is empty after normalization.
     """
-    normalized = symbol.strip().upper()
+    normalized = symbol.strip()
     if not normalized:
         msg = "Symbol must not be empty."
         raise ValueError(msg)

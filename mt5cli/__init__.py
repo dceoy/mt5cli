@@ -38,6 +38,7 @@ from .history import (
 )
 from .schemas import (
     DEDUP_KEYS,
+    KNOWN_MT5_TIME_COLUMNS,
     REQUIRED_COLUMNS,
     TIME_COLUMNS,
     DataKind,
@@ -112,6 +113,7 @@ __version__ = version(__package__) if __package__ else None
 
 __all__ = [
     "DEDUP_KEYS",
+    "KNOWN_MT5_TIME_COLUMNS",
     "REQUIRED_COLUMNS",
     "TICK_FLAG_MAP",
     "TIMEFRAME_MAP",

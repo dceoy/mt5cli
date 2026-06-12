@@ -86,6 +86,8 @@ collect_history(
 
 Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Storage helpers are re-exported from `mt5cli.storage` and the package root.
 
+`MT5Client.order_send()` is a live execution primitive: it can place real trades on the connected account. mt5cli does not implement strategy logic, signal generation, backtesting, or optimization — downstream applications must gate live execution explicitly (the CLI requires `--yes` for `order-send`).
+
 `MT5Client.mt5_summary()` returns structured nested Python values. Use `MT5Client.mt5_summary_as_df()` when you need a one-row DataFrame for export.
 
 ## Quick Start
