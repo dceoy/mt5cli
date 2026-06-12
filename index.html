@@ -4,7 +4,7 @@
         <meta charset="utf-8">
         <meta http-equiv="X-UA-Compatible" content="IE=edge">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta name="description" content="Command-line tool for MetaTrader 5">
+        <meta name="description" content="Generic MT5 data and execution infrastructure for Python">
         <meta name="author" content="dceoy">
         <link rel="canonical" href="https://github.com/dceoy/mt5cli/">
         <link rel="shortcut icon" href="img/favicon.ico">
@@ -44,6 +44,26 @@
                                     
 <li>
     <a href="api/" class="dropdown-item">Overview</a>
+</li>
+                                    
+<li>
+    <a href="api/client/" class="dropdown-item">Client</a>
+</li>
+                                    
+<li>
+    <a href="api/schemas/" class="dropdown-item">Schemas</a>
+</li>
+                                    
+<li>
+    <a href="api/storage/" class="dropdown-item">Storage</a>
+</li>
+                                    
+<li>
+    <a href="api/converters/" class="dropdown-item">Converters</a>
+</li>
+                                    
+<li>
+    <a href="api/exceptions/" class="dropdown-item">Exceptions</a>
 </li>
                                     
 <li>
@@ -125,7 +145,7 @@
               <ul class="nav flex-column">
               </ul>
             </li>
-            <li class="nav-item" data-bs-level="2"><a href="#programmatic-usage-sdk-usage" class="nav-link">Programmatic usage / SDK usage</a>
+            <li class="nav-item" data-bs-level="2"><a href="#python-api-for-downstream-packages" class="nav-link">Python API for downstream packages</a>
               <ul class="nav flex-column">
               </ul>
             </li>
@@ -165,13 +185,13 @@
                     <div class="col-md-9" role="main">
 
 <h1 id="mt5cli">mt5cli<a class="headerlink" href="#mt5cli" title="Permanent link">&para;</a></h1>
-<p>Command-line tool for MetaTrader 5 data export.</p>
+<p>Generic MT5 data and execution infrastructure for Python applications.</p>
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
-<p>mt5cli is a CLI application that exports MetaTrader 5 trading data to multiple file formats. It is built on top of <a href="https://github.com/dceoy/pdmt5">pdmt5</a>, a pandas-based data handler for MetaTrader 5.</p>
+<p>mt5cli provides a stable <code>MT5Client</code> Python API, standardized dataset schemas, storage helpers, and a CLI for exporting MetaTrader 5 data. It is built on top of <a href="https://github.com/dceoy/pdmt5">pdmt5</a>, a pandas-based data handler for MetaTrader 5.</p>
 <h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>pdmt5</strong> — canonical MT5 client, DataFrame/trading primitives, and MT5 constant parsing (<code>TIMEFRAME_*</code>, <code>COPY_TICKS_*</code>, order types).</li>
-<li><strong>mt5cli</strong> — CLI commands, CSV/JSON/Parquet/SQLite export, SQLite history collection, rate views, and local batch/automation SDK helpers built on pdmt5.</li>
+<li><strong>mt5cli</strong> — public <code>MT5Client</code> API, schema contracts, storage helpers, CLI commands, and SQLite history collection built on pdmt5.</li>
 <li><strong>mt5api</strong> — sibling HTTP adapter for remote MT5 access; not a dependency of mt5cli.</li>
 </ul>
 <h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
@@ -186,61 +206,62 @@
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>mt5cli
 </code></pre></div>
-<h2 id="programmatic-usage-sdk-usage">Programmatic usage / SDK usage<a class="headerlink" href="#programmatic-usage-sdk-usage" title="Permanent link">&para;</a></h2>
-<p>mt5cli can be used as a small Python SDK for read-only MetaTrader 5 data collection. SDK functions return pandas DataFrames without writing files. Use <code>export_dataframe</code> or <code>export_dataframe_to_sqlite</code> when you need to persist results.</p>
+<h2 id="python-api-for-downstream-packages">Python API for downstream packages<a class="headerlink" href="#python-api-for-downstream-packages" title="Permanent link">&para;</a></h2>
+<p>Import <code>MT5Client</code> for generic MT5 data access, schema normalization, and optional order primitives. <code>Mt5CliClient</code> remains available as a backward-compatible alias.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">UTC</span><span class="p">,</span> <span class="n">datetime</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">Mt5CliClient</span><span class="p">,</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">collect_history</span><span class="p">,</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">copy_rates_range</span><span class="p">,</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">export_dataframe</span><span class="p">,</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">export_dataframe_to_sqlite</span><span class="p">,</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">load_rate_data</span><span class="p">,</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="n">minimum_margins</span><span class="p">,</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="n">recent_ticks</span><span class="p">,</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="p">)</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli.history</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_rate_view_name</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="c1"># One-off fetch with module-level helpers</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="n">rates</span> <span class="o">=</span> <span class="n">copy_rates_range</span><span class="p">(</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>    <span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>    <span class="n">timeframe</span><span class="o">=</span><span class="s2">&quot;H1&quot;</span><span class="p">,</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>    <span class="n">date_from</span><span class="o">=</span><span class="s2">&quot;2024-01-01&quot;</span><span class="p">,</span>
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>    <span class="n">date_to</span><span class="o">=</span><span class="s2">&quot;2024-02-01&quot;</span><span class="p">,</span>
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="p">)</span>
-<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="n">export_dataframe</span><span class="p">(</span><span class="n">rates</span><span class="p">,</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;rates.csv&quot;</span><span class="p">),</span> <span class="s2">&quot;csv&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>
-<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="c1"># Resolve SQLite rate compatibility views for downstream tools</span>
-<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="n">view</span> <span class="o">=</span> <span class="n">resolve_rate_view_name</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;history.db&quot;</span><span class="p">),</span> <span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="s2">&quot;M1&quot;</span><span class="p">,</span> <span class="n">require_existing</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="n">offline_rates</span> <span class="o">=</span> <span class="n">load_rate_data</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;history.db&quot;</span><span class="p">),</span> <span class="n">view</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
-<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>
-<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a><span class="c1"># Recent tick window and minimum margin summary</span>
-<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="n">ticks</span> <span class="o">=</span> <span class="n">recent_ticks</span><span class="p">(</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="n">seconds</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
-<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a><span class="n">margins</span> <span class="o">=</span> <span class="n">minimum_margins</span><span class="p">(</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>
-<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a><span class="c1"># Reuse one MT5 connection for multiple calls</span>
-<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a><span class="k">with</span> <span class="n">Mt5CliClient</span><span class="p">(</span><span class="n">login</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">password</span><span class="o">=</span><span class="s2">&quot;secret&quot;</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="s2">&quot;Broker-Demo&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
-<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>    <span class="n">account</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">account_info</span><span class="p">()</span>
-<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>    <span class="n">positions</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">positions</span><span class="p">()</span>
-<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>    <span class="n">latest</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">latest_rates</span><span class="p">(</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="s2">&quot;M1&quot;</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
-<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>    <span class="n">summary</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">mt5_summary</span><span class="p">()</span>
-<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>    <span class="n">summary_table</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">mt5_summary_as_df</span><span class="p">()</span>
-<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>
-<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a><span class="c1"># Bulk SQLite collection (same behavior as the collect-history CLI command)</span>
-<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a><span class="n">collect_history</span><span class="p">(</span>
-<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>    <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;history.db&quot;</span><span class="p">),</span>
-<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>    <span class="n">symbols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="s2">&quot;GBPUSD&quot;</span><span class="p">],</span>
-<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>    <span class="n">date_from</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">),</span>
-<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>    <span class="n">date_to</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">),</span>
-<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>    <span class="n">timeframe</span><span class="o">=</span><span class="s2">&quot;M1&quot;</span><span class="p">,</span>
-<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>    <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;ALL&quot;</span><span class="p">,</span>
-<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>    <span class="n">with_views</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">DataKind</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">Dataset</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">MT5Client</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">build_config</span><span class="p">,</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">collect_history</span><span class="p">,</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">export_dataframe</span><span class="p">,</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="n">load_rate_data</span><span class="p">,</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="n">minimum_margins</span><span class="p">,</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    <span class="n">mt5_session</span><span class="p">,</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    <span class="n">normalize_dataframe</span><span class="p">,</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>    <span class="n">recent_ticks</span><span class="p">,</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    <span class="n">resolve_rate_view_name</span><span class="p">,</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="p">)</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="c1"># Persistent session for multiple calls</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="k">with</span> <span class="n">mt5_session</span><span class="p">(</span><span class="n">build_config</span><span class="p">(</span><span class="n">login</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="s2">&quot;Broker-Demo&quot;</span><span class="p">))</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>    <span class="n">rates</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">copy_rates_range</span><span class="p">(</span>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>        <span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>        <span class="n">timeframe</span><span class="o">=</span><span class="s2">&quot;H1&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>        <span class="n">date_from</span><span class="o">=</span><span class="s2">&quot;2024-01-01&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>        <span class="n">date_to</span><span class="o">=</span><span class="s2">&quot;2024-02-01&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>    <span class="p">)</span>
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>    <span class="n">positions</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">positions</span><span class="p">()</span>
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>    <span class="n">check</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">order_check</span><span class="p">({</span><span class="s2">&quot;action&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;symbol&quot;</span><span class="p">:</span> <span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="s2">&quot;volume&quot;</span><span class="p">:</span> <span class="mf">0.1</span><span class="p">})</span>
+<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>
+<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="c1"># Normalize MT5 frames to the public schema contract before storage</span>
+<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a><span class="n">closed_rates</span> <span class="o">=</span> <span class="n">normalize_dataframe</span><span class="p">(</span>
+<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>    <span class="n">rates</span><span class="p">,</span> <span class="n">DataKind</span><span class="o">.</span><span class="n">rates</span><span class="p">,</span> <span class="n">symbol</span><span class="o">=</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="n">timeframe</span><span class="o">=</span><span class="s2">&quot;H1&quot;</span>
+<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a><span class="p">)</span>
+<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a><span class="n">export_dataframe</span><span class="p">(</span><span class="n">closed_rates</span><span class="p">,</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;rates.csv&quot;</span><span class="p">),</span> <span class="s2">&quot;csv&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>
+<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a><span class="c1"># Offline rate loading from mt5cli-managed SQLite history</span>
+<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a><span class="n">view</span> <span class="o">=</span> <span class="n">resolve_rate_view_name</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;history.db&quot;</span><span class="p">),</span> <span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="s2">&quot;M1&quot;</span><span class="p">,</span> <span class="n">require_existing</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a><span class="n">offline_rates</span> <span class="o">=</span> <span class="n">load_rate_data</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;history.db&quot;</span><span class="p">),</span> <span class="n">view</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>
+<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a><span class="c1"># One-off helpers still work without instantiating a client</span>
+<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a><span class="n">ticks</span> <span class="o">=</span> <span class="n">recent_ticks</span><span class="p">(</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="n">seconds</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
+<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a><span class="n">margins</span> <span class="o">=</span> <span class="n">minimum_margins</span><span class="p">(</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>
+<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a><span class="n">collect_history</span><span class="p">(</span>
+<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>    <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;history.db&quot;</span><span class="p">),</span>
+<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>    <span class="n">symbols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="s2">&quot;GBPUSD&quot;</span><span class="p">],</span>
+<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>    <span class="n">date_from</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">),</span>
+<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>    <span class="n">date_to</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">),</span>
+<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>    <span class="n">datasets</span><span class="o">=</span><span class="p">{</span><span class="n">Dataset</span><span class="o">.</span><span class="n">rates</span><span class="p">,</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">history_deals</span><span class="p">},</span>
 <a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a><span class="p">)</span>
 </code></pre></div>
-<p>Timeframes, tick flags, and ISO 8601 date strings are accepted wherever noted in the SDK API.</p>
-<p><code>Mt5CliClient.mt5_summary()</code> returns the SDK structured form as plain nested Python values. Use <code>Mt5CliClient.mt5_summary_as_df()</code> when you need a one-row DataFrame for export. The <code>mt5-summary</code> CLI command uses this tabular form, so nested terminal/account fields are JSON-encoded strings that are safe for CSV, JSON, Parquet, and SQLite output.</p>
+<p>Schema contracts live in <code>mt5cli.schemas</code> (<code>DataKind</code>, <code>validate_schema</code>, <code>normalize_dataframe</code>). Storage helpers are re-exported from <code>mt5cli.storage</code> and the package root.</p>
+<p><code>MT5Client.order_send()</code> is a live execution primitive: it can place real trades on the connected account. mt5cli does not implement strategy logic, signal generation, backtesting, or optimization — downstream applications must gate live execution explicitly (the CLI requires <code>--yes</code> for <code>order-send</code>).</p>
+<p><code>MT5Client.mt5_summary()</code> returns structured nested Python values. Use <code>MT5Client.mt5_summary_as_df()</code> when you need a one-row DataFrame for export.</p>
 <h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Export account information to CSV</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>mt5cli<span class="w"> </span>-o<span class="w"> </span>account.csv<span class="w"> </span>account-info
@@ -628,5 +649,5 @@
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2026-06-12 14:15:05.812228+00:00
+Build Date UTC : 2026-06-12 16:32:31.356274+00:00
 -->
