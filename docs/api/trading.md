@@ -4,38 +4,60 @@
 
 ## Trading-capable MT5 sessions
 
-`mt5_trading_session()` complements the read-only `mt5_session()` helper in
-`sdk.py`. It yields a connected `pdmt5.Mt5TradingClient`, uses
-`Mt5Config.path` to launch the terminal when configured, and always calls
-`shutdown()` on exit.
+`create_trading_client()` and `mt5_trading_session()` complement the read-only
+`mt5_session()` helper in `sdk.py`. They return or yield an initialized
+`pdmt5.Mt5TradingClient`, use `Mt5Config.path` to launch the terminal when
+configured, and `mt5_trading_session()` always calls `shutdown()` on exit.
 
 ```python
-from pdmt5 import Mt5Config
-
-from mt5cli import mt5_trading_session
+from mt5cli import create_trading_client, mt5_trading_session
 
 with mt5_trading_session(
-    Mt5Config(path=r"C:\Program Files\MetaTrader 5\terminal64.exe", login=12345),
+    path=r"C:\Program Files\MetaTrader 5\terminal64.exe",
+    login="12345",
+    password="secret",
+    server="Broker-Demo",
     retry_count=2,
 ) as client:
     positions = client.positions_get_as_df(symbol="EURUSD")
+
+client = create_trading_client(login=12345, server="Broker-Demo")
+try:
+    account = client.account_info_as_dict()
+finally:
+    client.shutdown()
 ```
 
+`login` accepts `int`, numeric `str`, or an empty string; empty strings are
+treated as unset. `path`, `password`, `server`, and `timeout` are forwarded to
+`pdmt5.Mt5Config`, and omitted `timeout` values keep the lower-level default.
 The read-only `Mt5CliClient` / `mt5_session()` API is unchanged.
 
-## Operational trading helpers
+## State and order helpers
 
 These helpers are strategy-agnostic and do not depend on signal detection,
 betting logic, or scheduling code in downstream applications.
 
 ```python
 from mt5cli import (
+    calculate_spread_ratio,
     calculate_margin_and_volume,
+    close_open_positions,
     detect_position_side,
     determine_order_limits,
+    get_account_snapshot,
+    get_positions_frame,
+    get_symbol_snapshot,
+    get_tick_snapshot,
+    place_market_order,
 )
 
+account = get_account_snapshot(client)
+symbol = get_symbol_snapshot(client, "EURUSD")
+tick = get_tick_snapshot(client, "EURUSD")
+positions = get_positions_frame(client, "EURUSD")
 side = detect_position_side(client, "EURUSD")
+spread_ratio = calculate_spread_ratio(client, "EURUSD")
 sizing = calculate_margin_and_volume(
     client,
     "EURUSD",
@@ -49,11 +71,29 @@ limits = determine_order_limits(
     stop_loss_limit_ratio=0.01,
     take_profit_limit_ratio=0.02,
 )
+preview = place_market_order(
+    client,
+    symbol="EURUSD",
+    volume=sizing["buy_volume"],
+    order_side="BUY",
+    sl=limits["stop_loss"],
+    tp=limits["take_profit"],
+    dry_run=True,
+)
+closed = close_open_positions(client, symbols="EURUSD", dry_run=True)
 ```
 
-Protective ratios must satisfy `0 <= ratio < 1`; `0` omits that level.
+`detect_position_side()` returns `long` for buy-only exposure, `short` for
+sell-only exposure, and `None` for no positions or mixed long/short exposure.
+`calculate_spread_ratio()` uses `(ask - bid) / ((ask + bid) / 2)` and raises
+`Mt5TradingError` when bid or ask is missing or non-positive.
+
+Protective ratios must satisfy `0 <= ratio < 1`; `0` omits that level. SL/TP
+prices are rounded with symbol `digits` metadata when available.
 `calculate_margin_and_volume()` clamps negative `margin_free` to `0.0`
-before sizing.
+before sizing. Execution helpers return normalized dictionaries containing the
+request, response, status, retcode, and `dry_run` flag; `dry_run=True` never
+sends an order.
 
 ## Migration from mteor-local helpers
 

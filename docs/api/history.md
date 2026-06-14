@@ -167,18 +167,44 @@ Resolution rules:
 
 ### Rate data loading
 
-Use `load_rate_data()` to load a table or view from a SQLite path, or
-`load_rate_data_from_connection()` when you already have a connection:
+The canonical normalized rate table is `rates`; compatibility views are named
+with `rate_<symbol>__<timeframe>` for single-timeframe symbols or
+`rate_<symbol>__<granularity>_<timeframe>` when a symbol has multiple stored
+timeframes. `resolve_rate_table_name()` returns `rates`, while
+`resolve_rate_view_name()` returns the per-symbol compatibility view name.
+
+Use `load_rate_data()` or `load_rate_series_from_sqlite(..., table=...)` to load
+a single table or view from a SQLite path. Use
+`load_rate_series_by_granularity()` to load multiple instrument/granularity
+targets without hard-coding view names:
 
 ```python
 from pathlib import Path
 
-from mt5cli import load_rate_data
+from mt5cli import (
+    load_rate_data,
+    load_rate_series_by_granularity,
+    load_rate_series_from_sqlite,
+    resolve_rate_table_name,
+)
 from mt5cli.history import resolve_rate_view_name
 
 view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1", require_existing=True)
 rates = load_rate_data(Path("history.db"), view, count=1000)
+same_rates = load_rate_series_from_sqlite(Path("history.db"), table=view, count=1000)
+
+table = resolve_rate_table_name("EURUSD", "M1")  # "rates"
+series = load_rate_series_by_granularity(
+    Path("history.db"),
+    symbols=["EURUSD", "GBPUSD"],
+    granularities=["M1", "H1"],
+    count=500,
+)
 ```
+
+`count` returns the latest rows while preserving chronological order. Missing
+tables/views and mismatched `explicit_tables` lengths raise `ValueError` with
+the requested database target in the message.
 
 The loader accepts close-based OHLC rate data or tick-like bid/ask data. It
 validates that `time` exists, parses timestamps with pandas, and returns a

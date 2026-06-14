@@ -85,6 +85,37 @@ Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `norma
 
 `MT5Client.order_send()` is a live execution primitive: it can place real trades on the connected account. mt5cli does not implement strategy logic, signal generation, backtesting, or optimization — downstream applications must gate live execution explicitly.
 
+### Trading lifecycle and state helpers
+
+Trading applications can depend on `mt5cli` imports only; terminal path,
+credentials, server, and timeout are forwarded to `pdmt5.Mt5Config`, numeric
+login strings are coerced to integers, and empty login strings are treated as
+unset.
+
+```python
+from mt5cli import (
+    calculate_spread_ratio,
+    create_trading_client,
+    get_account_snapshot,
+    mt5_trading_session,
+)
+
+with mt5_trading_session(
+    path=r"C:\Program Files\MetaTrader 5\terminal64.exe",
+    login="12345",
+    password="from-env-or-secret-store",
+    server="Broker-Demo",
+) as client:
+    account = get_account_snapshot(client)
+    spread = calculate_spread_ratio(client, "EURUSD")
+
+client = create_trading_client(login=12345, server="Broker-Demo")
+try:
+    positions = client.positions_get_as_df(symbol="EURUSD")
+finally:
+    client.shutdown()
+```
+
 ## CLI usage
 
 ```bash

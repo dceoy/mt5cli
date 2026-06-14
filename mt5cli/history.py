@@ -142,6 +142,26 @@ def build_rate_view_name(
     return f"rate_{symbol}__{granularity}_{timeframe}"
 
 
+def resolve_rate_table_name(symbol: str, granularity: str) -> str:
+    """Return the canonical normalized SQLite rate table name.
+
+    The normalized history table stores all symbols and timeframes in
+    ``rates``; use :func:`resolve_rate_view_name` for per-symbol compatibility
+    view names.
+
+    Returns:
+        Canonical normalized rates table name.
+
+    Raises:
+        ValueError: If ``symbol`` or ``granularity`` is invalid.
+    """
+    parse_timeframe(granularity)
+    if not symbol.strip():
+        msg = "symbol must not be empty."
+        raise ValueError(msg)
+    return Dataset.rates.table_name
+
+
 SqliteConnOrPath = sqlite3.Connection | Path | str
 
 
@@ -655,31 +675,40 @@ def resolve_rate_tables(
 
 def load_rate_series_from_sqlite(
     conn_or_path: SqliteConnOrPath,
-    targets: Sequence[RateTarget],
-    count: int,
+    targets: Sequence[RateTarget] | None = None,
+    count: int | None = None,
     explicit_tables: Sequence[str] | None = None,
-) -> dict[tuple[str | None, int], pd.DataFrame]:
-    """Load multiple rate series from a SQLite database.
+    *,
+    table: str | None = None,
+) -> dict[tuple[str | None, int], pd.DataFrame] | pd.DataFrame:
+    """Load one table/view or multiple rate series from a SQLite database.
 
     Args:
         conn_or_path: SQLite database path or open connection.
-        targets: Rate targets to load. Each ``(symbol, timeframe_int)`` pair
-            must be unique.
-        count: Number of most recent rows to load per series.
+        targets: Rate targets to load. Each ``(symbol, timeframe_int)`` pair must
+            be unique. Omit when loading a single explicit ``table``.
+        count: Optional number of most recent rows to load per series.
         explicit_tables: Optional explicit table or view names matching targets.
             When omitted, managed ``rate_*`` compatibility views must already
             exist in the database.
+        table: Optional single table or view name to load directly.
 
     Returns:
-        Mapping keyed by ``(symbol, timeframe_int)`` to each rate DataFrame.
+        A DataFrame when ``table`` is provided, otherwise a mapping keyed by
+        ``(symbol, timeframe_int)`` to each rate DataFrame.
 
     Raises:
         ValueError: If ``count`` is not positive, targets are empty, duplicate
             ``(symbol, timeframe_int)`` pairs are present, or table resolution
             fails.
     """
-    if count <= 0:
+    if table is not None:
+        return load_rate_data(conn_or_path, table, count=count)
+    if count is None or count <= 0:
         msg = "count must be positive."
+        raise ValueError(msg)
+    if targets is None:
+        msg = "targets are required when table is not provided."
         raise ValueError(msg)
     target_list = list(targets)
     if not target_list:
@@ -761,11 +790,14 @@ def load_rate_series_by_granularity(
         granularities,
         allow_missing_symbol=allow_missing_symbol,
     )
-    series = load_rate_series_from_sqlite(
-        conn_or_path,
-        targets,
-        count,
-        explicit_tables=explicit_tables,
+    series = cast(
+        "dict[tuple[str | None, int], pd.DataFrame]",
+        load_rate_series_from_sqlite(
+            conn_or_path,
+            targets,
+            count,
+            explicit_tables=explicit_tables,
+        ),
     )
     return {
         (symbol, resolve_granularity_name(timeframe)): frame

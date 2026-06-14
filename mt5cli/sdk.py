@@ -122,6 +122,7 @@ __all__ = [
     "copy_rates_range",
     "copy_ticks_from",
     "copy_ticks_range",
+    "fetch_latest_closed_rates",
     "history_deals",
     "history_orders",
     "last_error",
@@ -1287,6 +1288,33 @@ def latest_rates(
         count,
         start_pos=start_pos,
     )
+
+
+def fetch_latest_closed_rates(
+    client: Mt5CliClient,
+    *,
+    symbol: str,
+    granularity: str,
+    count: int,
+) -> pd.DataFrame:
+    """Fetch up to ``count`` most recent closed bars, oldest to newest.
+
+    Returns:
+        Closed rate bars ordered oldest to newest.
+
+    Raises:
+        ValueError: If ``count`` is not positive or no closed bars are returned.
+    """
+    _require_positive(count, "count")
+    frame = client.latest_rates(symbol, granularity, count + 1, start_pos=0)
+    closed = drop_forming_rate_bar(frame)
+    if closed.empty:
+        msg = (
+            f"Rate data is empty for {symbol!r} at granularity {granularity!r} "
+            f"with count {count}."
+        )
+        raise ValueError(msg)
+    return closed.tail(count).reset_index(drop=True)
 
 
 def collect_latest_rates(

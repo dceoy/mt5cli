@@ -3,27 +3,84 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Literal
+from math import floor
+from typing import TYPE_CHECKING, Literal, cast
 
-from pdmt5 import Mt5Config, Mt5TradingClient
+import pandas as pd
+from pdmt5 import Mt5Config, Mt5TradingClient, Mt5TradingError
 
 from .sdk import build_config
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    import pandas as pd
-
 PositionSide = Literal["long", "short"]
-OrderSide = Literal["long", "short"]
+OrderSide = Literal["BUY", "SELL"]
+OrderFillingMode = Literal["IOC", "FOK", "RETURN"]
+OrderTimeMode = Literal["GTC", "DAY", "SPECIFIED", "SPECIFIED_DAY"]
+
+_ACCOUNT_SNAPSHOT_FIELDS = (
+    "login",
+    "balance",
+    "equity",
+    "margin",
+    "margin_free",
+    "margin_level",
+    "leverage",
+    "currency",
+)
+_SYMBOL_SNAPSHOT_FIELDS = (
+    "symbol",
+    "visible",
+    "trade_mode",
+    "digits",
+    "point",
+    "volume_min",
+    "volume_max",
+    "volume_step",
+    "trade_contract_size",
+    "trade_tick_size",
+    "trade_tick_value",
+    "trade_stops_level",
+    "filling_mode",
+)
+_TICK_SNAPSHOT_FIELDS = ("symbol", "time", "bid", "ask", "last", "volume")
+POSITION_COLUMNS = (
+    "ticket",
+    "time",
+    "symbol",
+    "type",
+    "volume",
+    "price_open",
+    "sl",
+    "tp",
+    "price_current",
+    "profit",
+    "swap",
+    "comment",
+)
 
 __all__ = [
+    "POSITION_COLUMNS",
+    "OrderFillingMode",
     "OrderSide",
+    "OrderTimeMode",
     "PositionSide",
     "calculate_margin_and_volume",
+    "calculate_new_position_margin_ratio",
+    "calculate_spread_ratio",
+    "calculate_volume_by_margin",
+    "close_open_positions",
+    "create_trading_client",
     "detect_position_side",
     "determine_order_limits",
+    "get_account_snapshot",
+    "get_positions_frame",
+    "get_symbol_snapshot",
+    "get_tick_snapshot",
     "mt5_trading_session",
+    "place_market_order",
+    "update_sltp_for_open_positions",
 ]
 
 
@@ -46,16 +103,113 @@ def _sum_position_volume(positions: pd.DataFrame, position_type: object) -> floa
     return float(matched.to_numpy(dtype=float).sum())
 
 
+def _coerce_login(login: int | str | None) -> int | None:
+    if login is None or isinstance(login, int):
+        return login
+    text = login.strip()
+    if not text:
+        return None
+    return int(text)
+
+
+def _resolve_config(
+    *,
+    config: Mt5Config | None,
+    login: int | str | None,
+    password: str | None,
+    server: str | None,
+    path: str | None,
+    timeout: int | None,
+) -> Mt5Config:
+    if config is not None:
+        return config
+    return build_config(
+        path=path,
+        login=_coerce_login(login),
+        password=password,
+        server=server,
+        timeout=timeout,
+    )
+
+
 def _normalize_order_side(side: str) -> OrderSide:
+    normalized = side.upper()
+    if normalized in {"BUY", "LONG"}:
+        return "BUY"
+    if normalized in {"SELL", "SHORT"}:
+        return "SELL"
+    msg = f"Unsupported order side: {side!r}. Expected 'BUY' or 'SELL'."
+    raise ValueError(msg)
+
+
+def _position_side_from_order_side(side: str) -> PositionSide:
     normalized = side.lower()
     if normalized in {"long", "buy"}:
         return "long"
     if normalized in {"short", "sell"}:
         return "short"
-    msg = (
-        f"Unsupported order side: {side!r}. Expected 'long', 'short', 'buy', or 'sell'."
-    )
+    msg = f"Unsupported position side: {side!r}. Expected 'long' or 'short'."
     raise ValueError(msg)
+
+
+def _snapshot_from_value(value: object, fields: tuple[str, ...]) -> dict[str, object]:
+    if isinstance(value, pd.DataFrame):
+        row: dict[str, object] = (
+            {} if value.empty else cast("dict[str, object]", value.iloc[0].to_dict())
+        )
+    else:
+        asdict = getattr(value, "_asdict", None)
+        if callable(asdict):
+            row = cast("dict[str, object]", asdict())
+        elif isinstance(value, dict):
+            typed_value = cast("dict[object, object]", value)
+            row = {str(key): item for key, item in typed_value.items()}
+        else:
+            row = {
+                field: getattr(value, field)
+                for field in fields
+                if hasattr(value, field)
+            }
+    if not fields:
+        return row
+    return {field: row.get(field) for field in fields}
+
+
+def _call_snapshot_method(client: Mt5TradingClient, *names: str) -> object:
+    for name in names:
+        method = getattr(client, name, None)
+        if callable(method):
+            return method()
+    msg = f"MT5 client is missing required method: {' or '.join(names)}"
+    raise AttributeError(msg)
+
+
+def create_trading_client(
+    *,
+    config: Mt5Config | None = None,
+    login: int | str | None = None,
+    password: str | None = None,
+    server: str | None = None,
+    path: str | None = None,
+    timeout: int | None = None,
+    retry_count: int = 0,
+) -> Mt5TradingClient:
+    """Return an initialized and logged-in trading client."""
+    mt5_config = _resolve_config(
+        config=config,
+        login=login,
+        password=password,
+        server=server,
+        path=path,
+        timeout=timeout,
+    )
+    client = Mt5TradingClient(config=mt5_config, retry_count=retry_count)
+    try:
+        client.initialize_and_login_mt5()
+    except Exception:
+        client.shutdown()
+        raise
+    return client
 
 
 def detect_position_side(
@@ -69,11 +223,11 @@ def detect_position_side(
         symbol: Symbol to inspect.
 
     Returns:
-        ``"long"`` when net buy volume exceeds sell volume, ``"short"`` when
-        net sell volume exceeds buy volume, or ``None`` when no positions exist
-        or buy/sell volumes are exactly balanced.
+        ``"long"`` when there are buy positions and no sell positions,
+        ``"short"`` when there are sell positions and no buy positions, or
+        ``None`` when no positions or mixed exposure exists.
     """
-    positions = client.positions_get_as_df(symbol=symbol)
+    positions = get_positions_frame(client, symbol=symbol)
     if positions.empty:
         return None
 
@@ -81,12 +235,112 @@ def detect_position_side(
     sell_type = client.mt5.POSITION_TYPE_SELL
     buy_volume = _sum_position_volume(positions, buy_type)
     sell_volume = _sum_position_volume(positions, sell_type)
-    net_volume = buy_volume - sell_volume
-    if net_volume > 0:
+    if buy_volume > 0 and sell_volume == 0:
         return "long"
-    if net_volume < 0:
+    if sell_volume > 0 and buy_volume == 0:
         return "short"
     return None
+
+
+def get_account_snapshot(
+    client: Mt5TradingClient,
+) -> dict[str, float | int | str | None]:
+    """Return normalized account state with stable keys."""
+    value = _call_snapshot_method(client, "account_info_as_dict", "account_info")
+    return cast(
+        "dict[str, float | int | str | None]",
+        _snapshot_from_value(value, _ACCOUNT_SNAPSHOT_FIELDS),
+    )
+
+
+def get_symbol_snapshot(
+    client: Mt5TradingClient,
+    symbol: str,
+) -> dict[str, float | int | str | bool | None]:
+    """Return normalized symbol metadata required for trading decisions."""
+    method = getattr(client, "symbol_info_as_dict", None)
+    value = method(symbol=symbol) if callable(method) else client.symbol_info(symbol)
+    snapshot = _snapshot_from_value(value, _SYMBOL_SNAPSHOT_FIELDS)
+    snapshot["symbol"] = snapshot.get("symbol") or symbol
+    return cast("dict[str, float | int | str | bool | None]", snapshot)
+
+
+def get_tick_snapshot(
+    client: Mt5TradingClient,
+    symbol: str,
+) -> dict[str, float | int | None]:
+    """Return normalized latest tick data, including bid, ask, and timestamp."""
+    method = getattr(client, "symbol_info_tick_as_dict", None)
+    value = (
+        method(symbol=symbol) if callable(method) else client.symbol_info_tick(symbol)
+    )
+    snapshot = _snapshot_from_value(value, _TICK_SNAPSHOT_FIELDS)
+    snapshot["symbol"] = snapshot.get("symbol") or symbol
+    return cast("dict[str, float | int | None]", snapshot)
+
+
+def get_positions_frame(
+    client: Mt5TradingClient,
+    symbol: str | None = None,
+) -> pd.DataFrame:
+    """Return open positions as a DataFrame with stable baseline columns."""
+    frame = client.positions_get_as_df(symbol=symbol)
+    for column in POSITION_COLUMNS:
+        if column not in frame.columns:
+            frame[column] = pd.Series(dtype="object")
+    return frame
+
+
+def calculate_spread_ratio(client: Mt5TradingClient, symbol: str) -> float:
+    """Return ``(ask - bid) / ((ask + bid) / 2)`` for the latest tick.
+
+    Raises:
+        Mt5TradingError: If bid or ask is unavailable or non-positive.
+    """
+    tick = get_tick_snapshot(client, symbol)
+    bid = tick.get("bid")
+    ask = tick.get("ask")
+    if not isinstance(bid, int | float) or not isinstance(ask, int | float):
+        msg = f"Tick bid/ask is unavailable for {symbol!r}."
+        raise Mt5TradingError(msg)
+    if bid <= 0 or ask <= 0:
+        msg = f"Tick bid/ask must be positive for {symbol!r}."
+        raise Mt5TradingError(msg)
+    return (float(ask) - float(bid)) / ((float(ask) + float(bid)) / 2.0)
+
+
+def calculate_new_position_margin_ratio(
+    client: Mt5TradingClient,
+    *,
+    symbol: str,
+    new_position_side: OrderSide | None = None,
+    new_position_volume: float = 0.0,
+) -> float:
+    """Return total margin/equity ratio after an optional hypothetical position.
+
+    Raises:
+        Mt5TradingError: If equity or required tick data is invalid.
+    """
+    account = get_account_snapshot(client)
+    equity = float(account.get("equity") or 0.0)
+    if equity <= 0:
+        msg = "Account equity must be positive to calculate margin ratio."
+        raise Mt5TradingError(msg)
+    margin = float(account.get("margin") or 0.0)
+    if new_position_side is not None and new_position_volume > 0:
+        side = _normalize_order_side(new_position_side)
+        tick = get_tick_snapshot(client, symbol)
+        price = tick["ask"] if side == "BUY" else tick["bid"]
+        if not isinstance(price, int | float) or price <= 0:
+            msg = f"Tick price is unavailable for {symbol!r}."
+            raise Mt5TradingError(msg)
+        order_type = (
+            client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
+        )
+        margin += float(
+            client.order_calc_margin(order_type, symbol, new_position_volume, price),
+        )
+    return margin / equity
 
 
 def calculate_margin_and_volume(
@@ -119,23 +373,90 @@ def calculate_margin_and_volume(
     margin_free = max(0.0, float(account.get("margin_free") or 0.0))
     available_margin = margin_free * (1.0 - preserved_margin_ratio)
     trade_margin = available_margin * unit_margin_ratio
-    buy_volume = client.calculate_volume_by_margin(symbol, trade_margin, "BUY")
-    sell_volume = client.calculate_volume_by_margin(symbol, trade_margin, "SELL")
+    native_calculate_volume = getattr(client, "calculate_volume_by_margin", None)
+    if callable(native_calculate_volume):
+        buy_volume = float(
+            cast(
+                "float | int | str",
+                native_calculate_volume(symbol, trade_margin, "BUY"),
+            ),
+        )
+        sell_volume = float(
+            cast(
+                "float | int | str",
+                native_calculate_volume(symbol, trade_margin, "SELL"),
+            ),
+        )
+    else:
+        buy_volume = calculate_volume_by_margin(client, symbol, trade_margin, "BUY")
+        sell_volume = calculate_volume_by_margin(client, symbol, trade_margin, "SELL")
+    try:
+        symbol_info = get_symbol_snapshot(client, symbol)
+        volume_min = float(symbol_info.get("volume_min") or 0.0)
+        volume_max = float(symbol_info.get("volume_max") or 0.0)
+        volume_step = float(symbol_info.get("volume_step") or 0.0)
+    except (AttributeError, TypeError, ValueError):
+        volume_min = volume_max = volume_step = 0.0
     return {
         "margin_free": margin_free,
         "available_margin": available_margin,
         "trade_margin": trade_margin,
-        "buy_volume": buy_volume,
-        "sell_volume": sell_volume,
+        "buy_volume": float(buy_volume),
+        "sell_volume": float(sell_volume),
+        "volume_min": volume_min,
+        "volume_max": volume_max,
+        "volume_step": volume_step,
     }
+
+
+def calculate_volume_by_margin(
+    client: Mt5TradingClient,
+    symbol: str,
+    available_margin: float,
+    order_side: OrderSide,
+) -> float:
+    """Calculate max normalized volume affordable for one side.
+
+    Returns:
+        Affordable volume rounded down to symbol volume constraints.
+
+    Raises:
+        Mt5TradingError: If symbol volume constraints or tick data are invalid.
+    """
+    if available_margin <= 0:
+        return 0.0
+    symbol_info = get_symbol_snapshot(client, symbol)
+    volume_min = float(symbol_info.get("volume_min") or 0.0)
+    volume_max = float(symbol_info.get("volume_max") or 0.0)
+    volume_step = float(symbol_info.get("volume_step") or volume_min or 0.0)
+    if volume_min <= 0 or volume_step <= 0:
+        msg = f"Invalid volume constraints for {symbol!r}."
+        raise Mt5TradingError(msg)
+    side = _normalize_order_side(order_side)
+    tick = get_tick_snapshot(client, symbol)
+    price = tick["ask"] if side == "BUY" else tick["bid"]
+    if not isinstance(price, int | float) or price <= 0:
+        msg = f"Tick price is unavailable for {symbol!r}."
+        raise Mt5TradingError(msg)
+    order_type = (
+        client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
+    )
+    min_margin = float(client.order_calc_margin(order_type, symbol, volume_min, price))
+    if min_margin <= 0 or min_margin > available_margin:
+        return 0.0
+    raw_volume = available_margin / min_margin * volume_min
+    capped = min(raw_volume, volume_max) if volume_max > 0 else raw_volume
+    steps = floor((capped - volume_min) / volume_step)
+    normalized = volume_min + max(0, steps) * volume_step
+    return round(normalized, 10) if normalized >= volume_min else 0.0
 
 
 def determine_order_limits(
     client: Mt5TradingClient,
     symbol: str,
-    side: OrderSide | str,
-    stop_loss_limit_ratio: float,
-    take_profit_limit_ratio: float,
+    side: PositionSide | str,
+    stop_loss_limit_ratio: float | None = None,
+    take_profit_limit_ratio: float | None = None,
 ) -> dict[str, float | None]:
     """Derive entry and protective order prices from current market quotes.
 
@@ -153,25 +474,33 @@ def determine_order_limits(
         Dictionary with ``entry``, ``stop_loss``, and ``take_profit`` keys.
         Omitted protective levels are returned as ``None``.
     """
-    _require_protective_ratio(stop_loss_limit_ratio, "stop_loss_limit_ratio")
-    _require_protective_ratio(take_profit_limit_ratio, "take_profit_limit_ratio")
-    normalized_side = _normalize_order_side(side)
+    stop_loss_ratio = stop_loss_limit_ratio or 0.0
+    take_profit_ratio = take_profit_limit_ratio or 0.0
+    _require_protective_ratio(stop_loss_ratio, "stop_loss_limit_ratio")
+    _require_protective_ratio(take_profit_ratio, "take_profit_limit_ratio")
+    normalized_side = _position_side_from_order_side(side)
     tick = client.symbol_info_tick_as_dict(symbol=symbol)
     entry = float(tick["ask"] if normalized_side == "long" else tick["bid"])
+    try:
+        digits = int(get_symbol_snapshot(client, symbol).get("digits") or 8)
+    except (AttributeError, TypeError, ValueError):
+        digits = 8
 
     stop_loss: float | None = None
-    if stop_loss_limit_ratio > 0:
+    if stop_loss_ratio > 0:
         if normalized_side == "long":
-            stop_loss = entry * (1.0 - stop_loss_limit_ratio)
+            stop_loss = entry * (1.0 - stop_loss_ratio)
         else:
-            stop_loss = entry * (1.0 + stop_loss_limit_ratio)
+            stop_loss = entry * (1.0 + stop_loss_ratio)
+        stop_loss = round(stop_loss, digits)
 
     take_profit: float | None = None
-    if take_profit_limit_ratio > 0:
+    if take_profit_ratio > 0:
         if normalized_side == "long":
-            take_profit = entry * (1.0 + take_profit_limit_ratio)
+            take_profit = entry * (1.0 + take_profit_ratio)
         else:
-            take_profit = entry * (1.0 - take_profit_limit_ratio)
+            take_profit = entry * (1.0 - take_profit_ratio)
+        take_profit = round(take_profit, digits)
 
     return {
         "entry": entry,
@@ -180,9 +509,186 @@ def determine_order_limits(
     }
 
 
+def place_market_order(
+    client: Mt5TradingClient,
+    *,
+    symbol: str,
+    volume: float,
+    order_side: OrderSide,
+    order_filling_mode: OrderFillingMode = "IOC",
+    order_time_mode: OrderTimeMode = "GTC",
+    sl: float | None = None,
+    tp: float | None = None,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    """Place one normalized market order or return a dry-run result.
+
+    Returns:
+        Normalized execution result containing request and response details.
+
+    Raises:
+        Mt5TradingError: If volume or required tick data is invalid.
+    """
+    if volume <= 0:
+        msg = "volume must be positive."
+        raise Mt5TradingError(msg)
+    side = _normalize_order_side(order_side)
+    tick = get_tick_snapshot(client, symbol)
+    price = tick["ask"] if side == "BUY" else tick["bid"]
+    if not isinstance(price, int | float) or price <= 0:
+        msg = f"Tick price is unavailable for {symbol!r}."
+        raise Mt5TradingError(msg)
+    request = {
+        "action": client.mt5.TRADE_ACTION_DEAL,
+        "symbol": symbol,
+        "volume": volume,
+        "type": (
+            client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
+        ),
+        "price": float(price),
+        "type_filling": getattr(client.mt5, f"ORDER_FILLING_{order_filling_mode}"),
+        "type_time": getattr(client.mt5, f"ORDER_TIME_{order_time_mode}"),
+    }
+    if sl is not None:
+        request["sl"] = sl
+    if tp is not None:
+        request["tp"] = tp
+    if dry_run:
+        return {
+            "status": "dry_run",
+            "symbol": symbol,
+            "order_side": side,
+            "volume": volume,
+            "retcode": None,
+            "comment": None,
+            "request": request,
+            "response": None,
+            "dry_run": True,
+        }
+    response = client.order_send(request)
+    response_dict = _snapshot_from_value(response, ())
+    return {
+        "status": "executed",
+        "symbol": symbol,
+        "order_side": side,
+        "volume": volume,
+        "retcode": response_dict.get("retcode"),
+        "comment": response_dict.get("comment"),
+        "request": request,
+        "response": response_dict,
+        "dry_run": False,
+    }
+
+
+def _filter_positions(
+    positions: pd.DataFrame,
+    *,
+    symbols: str | list[str] | None = None,
+    tickets: list[int] | None = None,
+) -> pd.DataFrame:
+    frame = positions
+    if symbols is not None:
+        symbol_set = {symbols} if isinstance(symbols, str) else set(symbols)
+        frame = frame.loc[frame["symbol"].isin(symbol_set)]
+    if tickets is not None:
+        frame = frame.loc[frame["ticket"].isin(tickets)]
+    return frame
+
+
+def close_open_positions(
+    client: Mt5TradingClient,
+    *,
+    symbols: str | list[str] | None = None,
+    tickets: list[int] | None = None,
+    dry_run: bool = False,
+) -> list[dict[str, object]]:
+    """Close matching open positions.
+
+    Returns:
+        Normalized execution results for matching positions.
+    """
+    positions = _filter_positions(
+        get_positions_frame(client),
+        symbols=symbols,
+        tickets=tickets,
+    )
+    results: list[dict[str, object]] = []
+    for row in positions.to_dict("records"):
+        pos_type = row["type"]
+        side: OrderSide = "SELL" if pos_type == client.mt5.POSITION_TYPE_BUY else "BUY"
+        result = place_market_order(
+            client,
+            symbol=str(row["symbol"]),
+            volume=float(row["volume"]),
+            order_side=side,
+            dry_run=dry_run,
+        )
+        cast("dict[str, object]", result["request"])["position"] = row["ticket"]
+        results.append(result)
+    return results
+
+
+def update_sltp_for_open_positions(
+    client: Mt5TradingClient,
+    *,
+    symbol: str | None = None,
+    tickets: list[int] | None = None,
+    stop_loss: float | None = None,
+    take_profit: float | None = None,
+    dry_run: bool = False,
+) -> list[dict[str, object]]:
+    """Update SL/TP for matching open positions.
+
+    Returns:
+        Normalized execution results for matching positions.
+    """
+    positions = _filter_positions(
+        get_positions_frame(client),
+        symbols=symbol,
+        tickets=tickets,
+    )
+    results: list[dict[str, object]] = []
+    for row in positions.to_dict("records"):
+        request = {
+            "action": client.mt5.TRADE_ACTION_SLTP,
+            "symbol": row["symbol"],
+            "position": row["ticket"],
+            "sl": row.get("sl") if stop_loss is None else stop_loss,
+            "tp": row.get("tp") if take_profit is None else take_profit,
+        }
+        if dry_run:
+            response = None
+            status = "dry_run"
+        else:
+            response = _snapshot_from_value(client.order_send(request), ())
+            status = "executed"
+        results.append(
+            {
+                "status": status,
+                "symbol": row["symbol"],
+                "order_side": "BUY"
+                if row["type"] == client.mt5.POSITION_TYPE_BUY
+                else "SELL",
+                "volume": row["volume"],
+                "retcode": None if response is None else response.get("retcode"),
+                "comment": None if response is None else response.get("comment"),
+                "request": request,
+                "response": response,
+                "dry_run": dry_run,
+            },
+        )
+    return results
+
+
 @contextmanager
 def mt5_trading_session(
     config: Mt5Config | None = None,
+    *,
+    login: int | str | None = None,
+    password: str | None = None,
+    server: str | None = None,
+    path: str | None = None,
+    timeout: int | None = None,
     retry_count: int = 0,
 ) -> Iterator[Mt5TradingClient]:
     """Open a trading-capable MT5 session and always shut down safely.
@@ -195,16 +701,27 @@ def mt5_trading_session(
     Args:
         config: MT5 connection configuration. Defaults to an empty config that
             attaches to a running terminal.
+        login: Optional trading account login.
+        password: Optional trading account password.
+        server: Optional trading server name.
+        path: Optional terminal executable path.
+        timeout: Optional connection timeout in milliseconds.
         retry_count: Number of initialization retries passed to
             ``Mt5TradingClient``.
 
     Yields:
         Connected ``Mt5TradingClient`` bound to the session.
     """
-    mt5_config = config or build_config()
-    client = Mt5TradingClient(config=mt5_config, retry_count=retry_count)
+    client = create_trading_client(
+        config=config,
+        login=login,
+        password=password,
+        server=server,
+        path=path,
+        timeout=timeout,
+        retry_count=retry_count,
+    )
     try:
-        client.initialize_and_login_mt5()
         yield client
     finally:
         client.shutdown()
