@@ -26,6 +26,12 @@ _ORDER_TIME_MODES: frozenset[str] = frozenset({
     "SPECIFIED",
     "SPECIFIED_DAY",
 })
+_SUCCESS_RETCODE_NAMES: tuple[str, ...] = (
+    "TRADE_RETCODE_DONE",
+    "TRADE_RETCODE_DONE_PARTIAL",
+    "TRADE_RETCODE_PLACED",
+)
+_SUCCESS_RETCODE_FALLBACKS: frozenset[int] = frozenset({10008, 10009, 10010})
 
 _ACCOUNT_SNAPSHOT_FIELDS = (
     "login",
@@ -212,6 +218,55 @@ def _optional_price(value: object) -> float | None:
     return price
 
 
+def _success_retcodes(mt5: object) -> frozenset[int]:
+    values = {
+        value
+        for name in _SUCCESS_RETCODE_NAMES
+        if isinstance(value := getattr(mt5, name, None), int)
+    }
+    return frozenset(values) or _SUCCESS_RETCODE_FALLBACKS
+
+
+def _order_status_from_retcode(mt5: object, retcode: object) -> str:
+    if retcode is None:
+        return "executed"
+    if isinstance(retcode, int) and retcode not in _success_retcodes(mt5):
+        return "failed"
+    return "executed"
+
+
+def _calculate_min_volume_if_affordable(
+    client: Mt5TradingClient,
+    symbol: str,
+    available_margin: float,
+    order_side: OrderSide,
+) -> float:
+    if available_margin <= 0:
+        return 0.0
+    symbol_info = get_symbol_snapshot(client, symbol)
+    volume_min = float(symbol_info.get("volume_min") or 0.0)
+    volume_max = float(symbol_info.get("volume_max") or 0.0)
+    volume_step = float(symbol_info.get("volume_step") or volume_min or 0.0)
+    if (
+        volume_min <= 0
+        or volume_step <= 0
+        or (volume_max > 0 and volume_min > volume_max)
+    ):
+        msg = f"Invalid volume constraints for {symbol!r}."
+        raise Mt5TradingError(msg)
+    side = _normalize_order_side(order_side)
+    tick = get_tick_snapshot(client, symbol)
+    price = tick["ask"] if side == "BUY" else tick["bid"]
+    if not isinstance(price, int | float) or price <= 0:
+        msg = f"Tick price is unavailable for {symbol!r}."
+        raise Mt5TradingError(msg)
+    order_type = (
+        client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
+    )
+    min_margin = float(client.order_calc_margin(order_type, symbol, volume_min, price))
+    return round(volume_min, 10) if 0 < min_margin <= available_margin else 0.0
+
+
 def create_trading_client(
     *,
     config: Mt5Config | None = None,
@@ -381,7 +436,9 @@ def calculate_margin_and_volume(
 
     Applies ``preserved_margin_ratio`` to keep a reserve off ``margin_free``,
     then allocates ``unit_margin_ratio`` of the remainder as the margin budget
-    for volume sizing on both buy and sell sides.
+    for proportional volume sizing on both buy and sell sides. A
+    ``unit_margin_ratio`` of ``0`` requests exactly one minimum valid unit per
+    side when the post-reserve margin can afford it.
 
     Args:
         client: Connected ``Mt5TradingClient`` instance.
@@ -401,23 +458,42 @@ def calculate_margin_and_volume(
     margin_free = max(0.0, float(account.get("margin_free") or 0.0))
     available_margin = margin_free * (1.0 - preserved_margin_ratio)
     trade_margin = available_margin * unit_margin_ratio
-    native_calculate_volume = getattr(client, "calculate_volume_by_margin", None)
-    if callable(native_calculate_volume):
-        buy_volume = float(
-            cast(
-                "float | int | str",
-                native_calculate_volume(symbol, trade_margin, "BUY"),
-            ),
+    if unit_margin_ratio == 0:
+        buy_volume = _calculate_min_volume_if_affordable(
+            client,
+            symbol,
+            available_margin,
+            "BUY",
         )
-        sell_volume = float(
-            cast(
-                "float | int | str",
-                native_calculate_volume(symbol, trade_margin, "SELL"),
-            ),
+        sell_volume = _calculate_min_volume_if_affordable(
+            client,
+            symbol,
+            available_margin,
+            "SELL",
         )
     else:
-        buy_volume = calculate_volume_by_margin(client, symbol, trade_margin, "BUY")
-        sell_volume = calculate_volume_by_margin(client, symbol, trade_margin, "SELL")
+        native_calculate_volume = getattr(client, "calculate_volume_by_margin", None)
+        if callable(native_calculate_volume):
+            buy_volume = float(
+                cast(
+                    "float | int | str",
+                    native_calculate_volume(symbol, trade_margin, "BUY"),
+                ),
+            )
+            sell_volume = float(
+                cast(
+                    "float | int | str",
+                    native_calculate_volume(symbol, trade_margin, "SELL"),
+                ),
+            )
+        else:
+            buy_volume = calculate_volume_by_margin(client, symbol, trade_margin, "BUY")
+            sell_volume = calculate_volume_by_margin(
+                client,
+                symbol,
+                trade_margin,
+                "SELL",
+            )
     try:
         symbol_info = get_symbol_snapshot(client, symbol)
         volume_min = float(symbol_info.get("volume_min") or 0.0)
@@ -559,6 +635,11 @@ def place_market_order(
 ) -> dict[str, object]:
     """Place one normalized market order or return a dry-run result.
 
+    ``pdmt5.Mt5TradingClient.order_send()`` raises only when MT5 returns no
+    response. When MT5 returns a response with a known non-success retcode, this
+    helper returns ``status="failed"`` and keeps the normalized response
+    details for callers to inspect.
+
     Returns:
         Normalized execution result containing request and response details.
 
@@ -615,12 +696,13 @@ def place_market_order(
         }
     response = client.order_send(request)
     response_dict = _snapshot_from_value(response, ())
+    retcode = response_dict.get("retcode")
     return {
-        "status": "executed",
+        "status": _order_status_from_retcode(client.mt5, retcode),
         "symbol": symbol,
         "order_side": side,
         "volume": volume,
-        "retcode": response_dict.get("retcode"),
+        "retcode": retcode,
         "comment": response_dict.get("comment"),
         "request": request,
         "response": response_dict,

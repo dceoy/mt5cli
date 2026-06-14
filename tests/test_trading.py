@@ -41,6 +41,9 @@ def _mock_trade_client() -> MagicMock:
     client.mt5.TRADE_ACTION_SLTP = 21
     client.mt5.ORDER_FILLING_IOC = 30
     client.mt5.ORDER_TIME_GTC = 40
+    client.mt5.TRADE_RETCODE_PLACED = 10008
+    client.mt5.TRADE_RETCODE_DONE = 10009
+    client.mt5.TRADE_RETCODE_DONE_PARTIAL = 10010
     return client
 
 
@@ -702,6 +705,170 @@ class TestVolumeAndExecution:
         _assert_close(result["buy_volume"], 0.5)
         _assert_close(result["sell_volume"], 0.5)
 
+    def test_calculate_margin_and_volume_zero_ratio_uses_minimum_volume(
+        self,
+    ) -> None:
+        """Test zero unit ratio requests one minimum volume when affordable."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"margin_free": 100.0}
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        client.order_calc_margin.side_effect = [10.0, 20.0]
+
+        result = calculate_margin_and_volume(
+            client,
+            "EURUSD",
+            unit_margin_ratio=0.0,
+            preserved_margin_ratio=0.0,
+        )
+
+        _assert_close(result["available_margin"], 100.0)
+        _assert_close(result["trade_margin"], 0.0)
+        _assert_close(result["buy_volume"], 0.1)
+        _assert_close(result["sell_volume"], 0.1)
+        client.calculate_volume_by_margin.assert_not_called()
+
+    def test_calculate_margin_and_volume_zero_ratio_rejects_unaffordable_side(
+        self,
+    ) -> None:
+        """Test zero unit ratio returns zero for unaffordable minimum lots."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"margin_free": 15.0}
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        client.order_calc_margin.side_effect = [10.0, 20.0]
+
+        result = calculate_margin_and_volume(
+            client,
+            "EURUSD",
+            unit_margin_ratio=0.0,
+            preserved_margin_ratio=0.0,
+        )
+
+        _assert_close(result["buy_volume"], 0.1)
+        _assert_close(result["sell_volume"], 0.0)
+
+    def test_calculate_margin_and_volume_zero_ratio_preserves_margin_first(
+        self,
+    ) -> None:
+        """Test preserved margin reduces affordability before min sizing."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"margin_free": 100.0}
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        client.order_calc_margin.side_effect = [11.0, 9.0]
+
+        result = calculate_margin_and_volume(
+            client,
+            "EURUSD",
+            unit_margin_ratio=0.0,
+            preserved_margin_ratio=0.9,
+        )
+
+        _assert_close(result["available_margin"], 10.0)
+        _assert_close(result["buy_volume"], 0.0)
+        _assert_close(result["sell_volume"], 0.1)
+
+    def test_calculate_margin_and_volume_zero_ratio_without_available_margin(
+        self,
+    ) -> None:
+        """Test zero unit ratio returns zero when preserved margin consumes funds."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"margin_free": 100.0}
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+
+        result = calculate_margin_and_volume(
+            client,
+            "EURUSD",
+            unit_margin_ratio=0.0,
+            preserved_margin_ratio=1.0,
+        )
+
+        _assert_close(result["buy_volume"], 0.0)
+        _assert_close(result["sell_volume"], 0.0)
+        client.order_calc_margin.assert_not_called()
+
+    def test_calculate_margin_and_volume_zero_ratio_rejects_invalid_max_volume(
+        self,
+    ) -> None:
+        """Test zero unit ratio still respects max-volume constraints."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"margin_free": 100.0}
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.2,
+            "volume_max": 0.1,
+            "volume_step": 0.1,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Invalid volume constraints"):
+            calculate_margin_and_volume(
+                client,
+                "EURUSD",
+                unit_margin_ratio=0.0,
+                preserved_margin_ratio=0.0,
+            )
+
+    def test_calculate_margin_and_volume_zero_ratio_rejects_bad_tick(self) -> None:
+        """Test zero unit ratio validates tick data for minimum sizing."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"margin_free": 100.0}
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 99.0}
+
+        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+            calculate_margin_and_volume(
+                client,
+                "EURUSD",
+                unit_margin_ratio=0.0,
+                preserved_margin_ratio=0.0,
+            )
+
+    def test_calculate_margin_and_volume_positive_ratio_uses_existing_behavior(
+        self,
+    ) -> None:
+        """Test positive unit ratios keep proportional native sizing."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"margin_free": 100.0}
+        client.calculate_volume_by_margin.side_effect = [0.4, 0.3]
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+
+        result = calculate_margin_and_volume(
+            client,
+            "EURUSD",
+            unit_margin_ratio=0.5,
+            preserved_margin_ratio=0.2,
+        )
+
+        _assert_close(result["trade_margin"], 40.0)
+        _assert_close(result["buy_volume"], 0.4)
+        _assert_close(result["sell_volume"], 0.3)
+        client.calculate_volume_by_margin.assert_any_call("EURUSD", 40.0, "BUY")
+        client.calculate_volume_by_margin.assert_any_call("EURUSD", 40.0, "SELL")
+
     def test_calculate_margin_and_volume_handles_missing_symbol_snapshot(
         self,
     ) -> None:
@@ -907,6 +1074,24 @@ class TestVolumeAndExecution:
         assert result["status"] == "executed"
         assert result["retcode"] == 10009
         client.order_send.assert_called_once()
+
+    def test_place_market_order_marks_failed_retcode(self) -> None:
+        """Test order_send responses with failed retcodes are normalized."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10013, "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["status"] == "failed"
+        assert result["retcode"] == 10013
 
     def test_close_open_positions_filters_and_dry_runs(self) -> None:
         """Test close helper filters positions and builds opposite orders."""
