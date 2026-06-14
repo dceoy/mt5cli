@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from math import floor
+from math import floor, isfinite
 from typing import TYPE_CHECKING, Literal, cast
 
 import pandas as pd
 from pdmt5 import Mt5Config, Mt5TradingClient, Mt5TradingError
 
 from .sdk import build_config
+from .utils import coerce_login as _coerce_login
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -18,6 +19,13 @@ PositionSide = Literal["long", "short"]
 OrderSide = Literal["BUY", "SELL"]
 OrderFillingMode = Literal["IOC", "FOK", "RETURN"]
 OrderTimeMode = Literal["GTC", "DAY", "SPECIFIED", "SPECIFIED_DAY"]
+_ORDER_FILLING_MODES: frozenset[str] = frozenset({"IOC", "FOK", "RETURN"})
+_ORDER_TIME_MODES: frozenset[str] = frozenset({
+    "GTC",
+    "DAY",
+    "SPECIFIED",
+    "SPECIFIED_DAY",
+})
 
 _ACCOUNT_SNAPSHOT_FIELDS = (
     "login",
@@ -103,15 +111,6 @@ def _sum_position_volume(positions: pd.DataFrame, position_type: object) -> floa
     return float(matched.to_numpy(dtype=float).sum())
 
 
-def _coerce_login(login: int | str | None) -> int | None:
-    if login is None or isinstance(login, int):
-        return login
-    text = login.strip()
-    if not text:
-        return None
-    return int(text)
-
-
 def _resolve_config(
     *,
     config: Mt5Config | None,
@@ -182,6 +181,35 @@ def _call_snapshot_method(client: Mt5TradingClient, *names: str) -> object:
             return method()
     msg = f"MT5 client is missing required method: {' or '.join(names)}"
     raise AttributeError(msg)
+
+
+def _resolve_mt5_constant(
+    mt5: object,
+    prefix: str,
+    value: str,
+    allowed: frozenset[str],
+) -> int:
+    normalized = value.upper()
+    if normalized not in allowed:
+        msg = f"Unsupported {prefix.lower()} mode: {value!r}."
+        raise ValueError(msg)
+    name = f"{prefix}_{normalized}"
+    try:
+        return cast("int", getattr(mt5, name))
+    except AttributeError as exc:
+        msg = f"MT5 module is missing required constant: {name}"
+        raise Mt5TradingError(msg) from exc
+
+
+def _optional_price(value: object) -> float | None:
+    if value is None:
+        return None
+    if not isinstance(value, int | float):
+        return None
+    price = float(value)
+    if price <= 0 or not isfinite(price):
+        return None
+    return price
 
 
 def create_trading_client(
@@ -395,7 +423,7 @@ def calculate_margin_and_volume(
         volume_min = float(symbol_info.get("volume_min") or 0.0)
         volume_max = float(symbol_info.get("volume_max") or 0.0)
         volume_step = float(symbol_info.get("volume_step") or 0.0)
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError:
         volume_min = volume_max = volume_step = 0.0
     return {
         "margin_free": margin_free,
@@ -446,7 +474,7 @@ def calculate_volume_by_margin(
         return 0.0
     raw_volume = available_margin / min_margin * volume_min
     capped = min(raw_volume, volume_max) if volume_max > 0 else raw_volume
-    steps = floor((capped - volume_min) / volume_step)
+    steps = floor(((capped - volume_min) / volume_step) + 1e-12)
     normalized = volume_min + max(0, steps) * volume_step
     return round(normalized, 10) if normalized >= volume_min else 0.0
 
@@ -473,17 +501,24 @@ def determine_order_limits(
     Returns:
         Dictionary with ``entry``, ``stop_loss``, and ``take_profit`` keys.
         Omitted protective levels are returned as ``None``.
+
+    Raises:
+        Mt5TradingError: If required tick data is invalid.
     """
     stop_loss_ratio = stop_loss_limit_ratio or 0.0
     take_profit_ratio = take_profit_limit_ratio or 0.0
     _require_protective_ratio(stop_loss_ratio, "stop_loss_limit_ratio")
     _require_protective_ratio(take_profit_ratio, "take_profit_limit_ratio")
     normalized_side = _position_side_from_order_side(side)
-    tick = client.symbol_info_tick_as_dict(symbol=symbol)
-    entry = float(tick["ask"] if normalized_side == "long" else tick["bid"])
+    tick = get_tick_snapshot(client, symbol)
+    entry_value = tick["ask"] if normalized_side == "long" else tick["bid"]
+    if not isinstance(entry_value, int | float):
+        msg = f"Tick price is unavailable for {symbol!r}."
+        raise Mt5TradingError(msg)
+    entry = float(entry_value)
     try:
         digits = int(get_symbol_snapshot(client, symbol).get("digits") or 8)
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError:
         digits = 8
 
     stop_loss: float | None = None
@@ -519,6 +554,7 @@ def place_market_order(
     order_time_mode: OrderTimeMode = "GTC",
     sl: float | None = None,
     tp: float | None = None,
+    position: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, object]:
     """Place one normalized market order or return a dry-run result.
@@ -546,13 +582,25 @@ def place_market_order(
             client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
         ),
         "price": float(price),
-        "type_filling": getattr(client.mt5, f"ORDER_FILLING_{order_filling_mode}"),
-        "type_time": getattr(client.mt5, f"ORDER_TIME_{order_time_mode}"),
+        "type_filling": _resolve_mt5_constant(
+            client.mt5,
+            "ORDER_FILLING",
+            order_filling_mode,
+            _ORDER_FILLING_MODES,
+        ),
+        "type_time": _resolve_mt5_constant(
+            client.mt5,
+            "ORDER_TIME",
+            order_time_mode,
+            _ORDER_TIME_MODES,
+        ),
     }
     if sl is not None:
         request["sl"] = sl
     if tp is not None:
         request["tp"] = tp
+    if position is not None:
+        request["position"] = position
     if dry_run:
         return {
             "status": "dry_run",
@@ -621,9 +669,9 @@ def close_open_positions(
             symbol=str(row["symbol"]),
             volume=float(row["volume"]),
             order_side=side,
+            position=int(row["ticket"]),
             dry_run=dry_run,
         )
-        cast("dict[str, object]", result["request"])["position"] = row["ticket"]
         results.append(result)
     return results
 
@@ -653,9 +701,13 @@ def update_sltp_for_open_positions(
             "action": client.mt5.TRADE_ACTION_SLTP,
             "symbol": row["symbol"],
             "position": row["ticket"],
-            "sl": row.get("sl") if stop_loss is None else stop_loss,
-            "tp": row.get("tp") if take_profit is None else take_profit,
         }
+        sl = _optional_price(row.get("sl") if stop_loss is None else stop_loss)
+        tp = _optional_price(row.get("tp") if take_profit is None else take_profit)
+        if sl is not None:
+            request["sl"] = sl
+        if tp is not None:
+            request["tp"] = tp
         if dry_run:
             response = None
             status = "dry_run"

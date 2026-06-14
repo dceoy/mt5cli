@@ -7,7 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 import pandas as pd
 from pdmt5 import get_timeframe_name as _get_timeframe_name
@@ -673,6 +673,39 @@ def resolve_rate_tables(
             conn.close()
 
 
+if TYPE_CHECKING:
+
+    @overload
+    def load_rate_series_from_sqlite(
+        conn_or_path: SqliteConnOrPath,
+        targets: None = None,
+        count: int | None = None,
+        explicit_tables: None = None,
+        *,
+        table: str,
+    ) -> pd.DataFrame: ...
+
+    @overload
+    def load_rate_series_from_sqlite(
+        conn_or_path: SqliteConnOrPath,
+        targets: None = None,
+        count: int | None = None,
+        explicit_tables: Sequence[str] | None = None,
+        *,
+        table: None = None,
+    ) -> dict[tuple[str | None, int], pd.DataFrame]: ...
+
+    @overload
+    def load_rate_series_from_sqlite(
+        conn_or_path: SqliteConnOrPath,
+        targets: Sequence[RateTarget],
+        count: int,
+        explicit_tables: Sequence[str] | None = None,
+        *,
+        table: None = None,
+    ) -> dict[tuple[str | None, int], pd.DataFrame]: ...
+
+
 def load_rate_series_from_sqlite(
     conn_or_path: SqliteConnOrPath,
     targets: Sequence[RateTarget] | None = None,
@@ -790,14 +823,11 @@ def load_rate_series_by_granularity(
         granularities,
         allow_missing_symbol=allow_missing_symbol,
     )
-    series = cast(
-        "dict[tuple[str | None, int], pd.DataFrame]",
-        load_rate_series_from_sqlite(
-            conn_or_path,
-            targets,
-            count,
-            explicit_tables=explicit_tables,
-        ),
+    series = load_rate_series_from_sqlite(
+        conn_or_path,
+        targets,
+        count,
+        explicit_tables=explicit_tables,
     )
     return {
         (symbol, resolve_granularity_name(timeframe)): frame

@@ -241,6 +241,20 @@ def detect_format(
     raise ValueError(msg)
 
 
+def coerce_login(login: int | str | None) -> int | None:
+    """Coerce a login value to int, treating empty strings as unset.
+
+    Returns:
+        Integer login, or None when unset or an empty string.
+    """
+    if login is None or isinstance(login, int):
+        return login
+    text = login.strip()
+    if not text:
+        return None
+    return int(text)
+
+
 def export_dataframe_to_sqlite(
     df: pd.DataFrame,
     output_path: Path,

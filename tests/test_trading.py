@@ -357,6 +357,31 @@ class TestDetermineOrderLimits:
 
         _assert_close(result["stop_loss"], 1.22222221)
 
+    def test_uses_tick_snapshot_fallback(self) -> None:
+        """Test order limits use the normalized tick snapshot helper."""
+        client = MagicMock()
+        del client.symbol_info_tick_as_dict
+        client.symbol_info_tick.return_value = SimpleNamespace(ask=1.2, bid=1.1)
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        result = determine_order_limits(
+            client,
+            "EURUSD",
+            "long",
+            stop_loss_limit_ratio=0.01,
+        )
+
+        _assert_close(result["entry"], 1.2)
+        _assert_close(result["stop_loss"], 1.188)
+
+    def test_rejects_missing_entry_tick(self) -> None:
+        """Test missing entry prices raise a trading error."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1}
+
+        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+            determine_order_limits(client, "EURUSD", "long")
+
 
 class TestMt5TradingSession:
     """Tests for the mt5_trading_session context manager."""
@@ -549,6 +574,32 @@ class TestVolumeAndExecution:
             ),
             0.5,
         )
+
+    def test_calculate_volume_by_margin_caps_at_max_volume(self) -> None:
+        """Test positive volume_max caps raw affordable volume exactly."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 0.3,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        client.order_calc_margin.return_value = 10.0
+
+        _assert_close(calculate_volume_by_margin(client, "EURUSD", 100.0, "BUY"), 0.3)
+
+    def test_calculate_volume_by_margin_ignores_zero_max_volume(self) -> None:
+        """Test zero volume_max means uncapped volume normalization."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 0.0,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        client.order_calc_margin.return_value = 10.0
+
+        _assert_close(calculate_volume_by_margin(client, "EURUSD", 35.0, "BUY"), 0.3)
 
     def test_calculate_volume_by_margin_returns_zero_when_unaffordable(self) -> None:
         """Test unaffordable minimum volume returns zero."""
@@ -757,6 +808,51 @@ class TestVolumeAndExecution:
         _assert_close(_request_from_result(result)["sl"], 1.0)
         _assert_close(_request_from_result(result)["tp"], 1.4)
 
+    def test_place_market_order_rejects_invalid_filling_mode(self) -> None:
+        """Test MT5 filling mode names are validated before getattr."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        with pytest.raises(ValueError, match="Unsupported order_filling mode"):
+            place_market_order(
+                client,
+                symbol="EURUSD",
+                volume=0.1,
+                order_side="BUY",
+                order_filling_mode=cast("Any", "BAD"),
+                dry_run=True,
+            )
+
+    def test_place_market_order_rejects_invalid_time_mode(self) -> None:
+        """Test MT5 time mode names are validated before getattr."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        with pytest.raises(ValueError, match="Unsupported order_time mode"):
+            place_market_order(
+                client,
+                symbol="EURUSD",
+                volume=0.1,
+                order_side="BUY",
+                order_time_mode=cast("Any", "BAD"),
+                dry_run=True,
+            )
+
+    def test_place_market_order_rejects_missing_mt5_constant(self) -> None:
+        """Test missing MT5 constants fail with a controlled trading error."""
+        client = _mock_trade_client()
+        del client.mt5.ORDER_FILLING_IOC
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        with pytest.raises(Mt5TradingError, match="ORDER_FILLING_IOC"):
+            place_market_order(
+                client,
+                symbol="EURUSD",
+                volume=0.1,
+                order_side="BUY",
+                dry_run=True,
+            )
+
     def test_place_market_order_rejects_invalid_volume(self) -> None:
         """Test non-positive volume raises a trading error."""
         with pytest.raises(Mt5TradingError):
@@ -845,6 +941,19 @@ class TestVolumeAndExecution:
         assert len(result) == 1
         assert result[0]["order_side"] == "BUY"
 
+    def test_close_open_positions_sends_position_ticket(self) -> None:
+        """Test live close orders include the position before order_send."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 9, "symbol": "EURUSD", "type": 0, "volume": 0.1}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = SimpleNamespace(retcode=10009, comment="done")
+
+        close_open_positions(client, tickets=[9])
+
+        assert client.order_send.call_args.args[0]["position"] == 9
+
     def test_update_sltp_filters_and_dry_runs(self) -> None:
         """Test SL/TP updates filter positions and do not send in dry-run mode."""
         client = _mock_trade_client()
@@ -905,6 +1014,50 @@ class TestVolumeAndExecution:
         assert result[0]["status"] == "executed"
         assert result[0]["retcode"] == 10009
         _assert_close(_request_from_result(result[0])["sl"], 1.0)
+
+    def test_update_sltp_omits_invalid_existing_levels(self) -> None:
+        """Test raw broker SL/TP sentinels are not forwarded to order_send."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 0.0,
+                    "tp": float("nan"),
+                },
+            ],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], dry_run=True)
+
+        request = _request_from_result(result[0])
+        assert "sl" not in request
+        assert "tp" not in request
+
+    def test_update_sltp_omits_missing_and_non_numeric_existing_levels(self) -> None:
+        """Test missing and non-numeric SL/TP levels are not forwarded."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": None,
+                    "tp": "unset",
+                },
+            ],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], dry_run=True)
+
+        request = _request_from_result(result[0])
+        assert "sl" not in request
+        assert "tp" not in request
 
     def test_shuts_down_when_initialize_raises(
         self,

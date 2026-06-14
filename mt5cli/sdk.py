@@ -37,6 +37,7 @@ from .utils import (
     parse_tick_flags,
     parse_timeframe,
 )
+from .utils import coerce_login as _coerce_login
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -1496,20 +1497,6 @@ def resolve_account_specs(
         )
         for account in accounts
     ]
-
-
-def _coerce_login(login: int | str | None) -> int | None:
-    """Coerce a login value to int, treating empty strings as unset.
-
-    Returns:
-        Integer login, or None when unset or an empty string.
-    """
-    if login is None or isinstance(login, int):
-        return login
-    text = login.strip()
-    if not text:
-        return None
-    return int(text)
 
 
 def _build_account_config(

@@ -88,12 +88,13 @@ sell-only exposure, and `None` for no positions or mixed long/short exposure.
 `calculate_spread_ratio()` uses `(ask - bid) / ((ask + bid) / 2)` and raises
 `Mt5TradingError` when bid or ask is missing or non-positive.
 
-Protective ratios must satisfy `0 <= ratio < 1`; `0` omits that level. SL/TP
-prices are rounded with symbol `digits` metadata when available.
-`calculate_margin_and_volume()` clamps negative `margin_free` to `0.0`
-before sizing. Execution helpers return normalized dictionaries containing the
-request, response, status, retcode, and `dry_run` flag; `dry_run=True` never
-sends an order.
+SL/TP ratios for `determine_order_limits()` must satisfy `0 <= ratio < 1`; `0`
+omits that level. SL/TP prices are rounded with symbol `digits` metadata when
+available. `unit_margin_ratio` and `preserved_margin_ratio` for
+`calculate_margin_and_volume()` accept `0 <= ratio <= 1`; negative
+`margin_free` is clamped to `0.0` before sizing. Execution helpers return
+normalized dictionaries containing the request, response, status, retcode, and
+`dry_run` flag; `dry_run=True` never sends an order.
 
 ## Migration from mteor-local helpers
 
