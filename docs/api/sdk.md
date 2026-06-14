@@ -31,13 +31,25 @@ rates = collect_latest_rates_for_accounts_with_retries(
 ### Latest closed rate bars
 
 MetaTrader 5 `start_pos=0` includes the still-forming current bar as the last
-row. `collect_latest_closed_rates_for_accounts()` fetches `count + 1` bars,
-drops that row with `drop_forming_rate_bar()`, and validates each series is
-non-empty. Use `collect_latest_closed_rates_by_granularity()` when callers
-prefer keys such as `("EURUSD", "M1")` instead of integer timeframes.
+row. `fetch_latest_closed_rates()` handles one connected client; multi-account
+helpers fetch `count + 1` bars, drop that row with `drop_forming_rate_bar()`,
+and validate each series is non-empty. Returned frames are ordered
+oldest-to-newest and may contain fewer than `count` rows only when MT5 returns
+fewer closed bars.
 
 ```python
-from mt5cli import AccountSpec, collect_latest_closed_rates_by_granularity
+from mt5cli import (
+    AccountSpec,
+    collect_latest_closed_rates_by_granularity,
+    fetch_latest_closed_rates,
+)
+
+closed = fetch_latest_closed_rates(
+    client,
+    symbol="EURUSD",
+    granularity="M1",
+    count=500,
+)
 
 rates = collect_latest_closed_rates_by_granularity(
     [AccountSpec(symbols=["EURUSD"], login=12345)],
@@ -47,6 +59,9 @@ rates = collect_latest_closed_rates_by_granularity(
 )
 closed_m1 = rates["EURUSD", "M1"]
 ```
+
+Use `collect_latest_closed_rates_by_granularity()` when callers prefer keys such
+as `("EURUSD", "M1")` instead of integer timeframes.
 
 ### Resolving credentials and `${ENV_VAR}` placeholders
 

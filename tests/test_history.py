@@ -48,6 +48,7 @@ from mt5cli.history import (
     resolve_history_datasets,
     resolve_history_tick_flags,
     resolve_history_timeframes,
+    resolve_rate_table_name,
     resolve_rate_tables,
     resolve_rate_view_name,
     resolve_rate_view_names,
@@ -62,6 +63,15 @@ from mt5cli.utils import TIMEFRAME_MAP, Dataset, IfExists
 
 class TestResolveRateViewName:
     """Tests for resolve_rate_view_name and resolve_rate_view_names."""
+
+    def test_resolve_rate_table_name_returns_normalized_table(self) -> None:
+        """Test canonical normalized rates table name is stable."""
+        assert resolve_rate_table_name("EURUSD", "M1") == "rates"
+
+    def test_resolve_rate_table_name_rejects_empty_symbol(self) -> None:
+        """Test canonical rate table resolution validates symbols."""
+        with pytest.raises(ValueError, match="symbol must not be empty"):
+            resolve_rate_table_name(" ", "M1")
 
     def test_missing_database_path_does_not_create_file(self, tmp_path: Path) -> None:
         """Test resolving against a missing path does not create a database."""
@@ -415,6 +425,32 @@ class TestLoadRateData:
             conn.execute("CREATE VIEW rate_view AS SELECT time, close FROM rates")
             frame = load_rate_data_from_connection(conn, "rate_view")
         assert list(frame["close"]) == [1.0]
+
+    def test_load_rate_series_from_sqlite_table_style(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test public table-style loader returns one rate DataFrame."""
+        db_path = tmp_path / "table-style.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE rates(time TEXT, close REAL)")
+            conn.executemany(
+                "INSERT INTO rates(time, close) VALUES (?, ?)",
+                [
+                    ("2024-01-01T00:00:00+00:00", 1.0),
+                    ("2024-01-01T00:01:00+00:00", 1.1),
+                ],
+            )
+
+        frame = load_rate_series_from_sqlite(db_path, table="rates", count=1)
+
+        assert isinstance(frame, pd.DataFrame)
+        assert list(frame["close"]) == [1.1]
+
+    def test_load_rate_series_from_sqlite_requires_targets_without_table(self) -> None:
+        """Test multi-series loading requires targets when table is omitted."""
+        with pytest.raises(ValueError, match="targets are required"):
+            load_rate_series_from_sqlite("unused.db", count=1)
 
     def test_loads_quoted_identifier(self, tmp_path: Path) -> None:
         """Test table names are quoted safely."""

@@ -37,6 +37,7 @@ from mt5cli.sdk import (
     copy_rates_range,
     copy_ticks_from,
     copy_ticks_range,
+    fetch_latest_closed_rates,
     history_deals,
     history_orders,
     last_error,
@@ -61,7 +62,7 @@ from mt5cli.sdk import (
     update_history_with_config,
     version,
 )
-from mt5cli.utils import Dataset, IfExists
+from mt5cli.utils import Dataset, IfExists, coerce_login
 
 
 class _TerminalInfo(NamedTuple):
@@ -1301,12 +1302,12 @@ class TestAccountSpec:
         expected: int | None,
     ) -> None:
         """Test login values are normalized for account configs."""
-        assert sdk._coerce_login(login) == expected  # type: ignore[reportPrivateUsage]
+        assert coerce_login(login) == expected
 
     def test_coerce_login_rejects_non_numeric_string(self) -> None:
         """Test non-numeric login strings raise ValueError."""
         with pytest.raises(ValueError, match="invalid literal"):
-            sdk._coerce_login("abc")  # type: ignore[reportPrivateUsage]
+            coerce_login("abc")
 
 
 class TestCollectLatestRatesForAccounts:
@@ -1660,6 +1661,62 @@ class TestCollectLatestClosedRatesForAccounts:
             result["GBPUSD", 16385],
             pd.DataFrame({"time": [4, 5], "close": [2.1, 2.2]}),
         )
+
+
+class TestFetchLatestClosedRates:
+    """Tests for fetch_latest_closed_rates."""
+
+    def test_fetches_extra_bar_and_drops_forming_row(self) -> None:
+        """Test single-symbol closed-bar helper hides the forming bar."""
+        client = MagicMock()
+        client.latest_rates.return_value = pd.DataFrame(
+            {
+                "time": [1, 2, 3],
+                "close": [1.0, 1.1, 1.2],
+            },
+        )
+
+        result = fetch_latest_closed_rates(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        client.latest_rates.assert_called_once_with(
+            "EURUSD",
+            "M1",
+            3,
+            start_pos=0,
+        )
+        assert list(result["close"]) == [1.0, 1.1]
+
+    def test_raises_when_no_closed_bars_are_available(self) -> None:
+        """Test empty closed-bar results raise an actionable ValueError."""
+        client = MagicMock()
+        client.latest_rates.return_value = pd.DataFrame({"close": [1.0]})
+
+        with pytest.raises(ValueError, match="Rate data is empty"):
+            fetch_latest_closed_rates(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=1,
+            )
+
+    def test_rejects_non_positive_count_before_fetching(self) -> None:
+        """Test invalid count values fail before calling MT5."""
+        client = MagicMock()
+
+        with pytest.raises(ValueError, match="count must be positive"):
+            fetch_latest_closed_rates(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=0,
+            )
+
+        client.latest_rates.assert_not_called()
 
 
 class TestCollectLatestClosedRatesByGranularity:
