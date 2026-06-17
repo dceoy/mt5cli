@@ -1,10 +1,17 @@
-"""mt5cli: Generic MT5 data and execution infrastructure for Python applications."""
+"""mt5cli: Generic MT5 data and execution infrastructure for Python applications.
+
+Downstream packages should import from this module (``from mt5cli import ...``)
+rather than private submodule helpers. See ``docs/api/public-contract.md`` for
+the stable SDK contract, CLI surface, internal modules, and out-of-scope
+strategy responsibilities.
+"""
 
 from importlib.metadata import version
 
 from pdmt5 import Mt5Config, Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
 
 from .client import MT5Client, build_config, mt5_session
+from .contract import STABLE_SDK_EXPORTS
 from .converters import (
     ensure_utc,
     granularity_name,
@@ -136,6 +143,7 @@ __all__ = [
     "KNOWN_MT5_TIME_COLUMNS",
     "POSITION_COLUMNS",
     "REQUIRED_COLUMNS",
+    "STABLE_SDK_EXPORTS",
     "TICK_FLAG_MAP",
     "TIMEFRAME_MAP",
     "TIME_COLUMNS",

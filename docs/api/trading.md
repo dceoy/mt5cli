@@ -99,9 +99,9 @@ retcode, and `dry_run` flag; `dry_run=True` never sends an order. Market order
 helpers mark known non-success MT5 retcodes as `status="failed"` while keeping
 the normalized response for inspection.
 
-## Migration from mteor-local helpers
+## Migration from application-local helpers
 
-| mteor-local concern                                      | mt5cli replacement                              |
+| Application-local concern                                | mt5cli replacement                              |
 | -------------------------------------------------------- | ----------------------------------------------- |
 | Manual terminal spawn/kill around trading code           | `mt5_trading_session()`                         |
 | Local position-side detection                            | `detect_position_side()`                        |
