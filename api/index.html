@@ -47,6 +47,10 @@
 </li>
                                     
 <li>
+    <a href="public-contract/" class="dropdown-item">Public API Contract</a>
+</li>
+                                    
+<li>
     <a href="client/" class="dropdown-item">Client</a>
 </li>
                                     
@@ -101,7 +105,7 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a rel="next" href="client/" class="nav-link">
+                                <a rel="next" href="public-contract/" class="nav-link">
                                     Next <i class="fa fa-arrow-right"></i>
                                 </a>
                             </li>
@@ -150,6 +154,9 @@
 
 <h1 id="api-reference">API Reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h1>
 <p>This section documents the mt5cli public Python API and CLI modules.</p>
+<p>Start with the <a href="public-contract/">Public API Contract</a> for the stable
+downstream SDK surface, CLI boundary, internal modules, and out-of-scope strategy
+responsibilities.</p>
 <h2 id="public-api-layers">Public API layers<a class="headerlink" href="#public-api-layers" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -159,6 +166,10 @@
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><a href="public-contract/">Public API Contract</a></td>
+<td>Stable downstream SDK exports, CLI boundary, and out-of-scope items</td>
+</tr>
 <tr>
 <td><a href="client/">Client</a></td>
 <td><code>MT5Client</code> session abstraction for data access and order primitives</td>
@@ -211,7 +222,10 @@
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    Storage --&gt; Utils[&quot;utils export&quot;]
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    SDK --&gt; PDMT5[&quot;pdmt5.Mt5DataClient&quot;]
 </code></pre></div>
-<p>Downstream packages should depend on the package root exports (<code>MT5Client</code>, <code>DataKind</code>, <code>normalize_dataframe</code>, <code>export_dataframe</code>, <code>collect_history</code>, etc.) rather than private modules.</p>
+<p>Downstream packages should depend on the package root exports documented in the
+<a href="public-contract/">Public API Contract</a> (<code>MT5Client</code>,
+<code>DataKind</code>, <code>normalize_dataframe</code>, <code>collect_history</code>, <code>load_rate_data</code>,
+<code>resolve_rate_view_name</code>, etc.) rather than private modules.</p>
 <p><code>MT5Client.order_send()</code> is a live execution primitive that can place real trades. mt5cli exposes minimal execution helpers only; strategy logic, signals, backtests, and optimization remain out of scope and must be implemented downstream with explicit execution gating.</p>
 <h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli</span><span class="w"> </span><span class="kn">import</span> <span class="n">MT5Client</span><span class="p">,</span> <span class="n">build_config</span><span class="p">,</span> <span class="n">mt5_session</span>

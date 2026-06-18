@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        <meta name="author" content="dceoy">
+        <link rel="canonical" href="https://github.com/dceoy/mt5cli/api/public-contract/">
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>Public API Contract - mt5cli API Documentation</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../../assets/_mkdocstrings.css" rel="stylesheet">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">mt5cli API Documentation</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href="../.." class="nav-link">Home</a>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">API Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../" class="dropdown-item">Overview</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">Public API Contract</a>
+</li>
+                                    
+<li>
+    <a href="../client/" class="dropdown-item">Client</a>
+</li>
+                                    
+<li>
+    <a href="../schemas/" class="dropdown-item">Schemas</a>
+</li>
+                                    
+<li>
+    <a href="../storage/" class="dropdown-item">Storage</a>
+</li>
+                                    
+<li>
+    <a href="../converters/" class="dropdown-item">Converters</a>
+</li>
+                                    
+<li>
+    <a href="../exceptions/" class="dropdown-item">Exceptions</a>
+</li>
+                                    
+<li>
+    <a href="../cli/" class="dropdown-item">CLI</a>
+</li>
+                                    
+<li>
+    <a href="../sdk/" class="dropdown-item">SDK</a>
+</li>
+                                    
+<li>
+    <a href="../trading/" class="dropdown-item">Trading</a>
+</li>
+                                    
+<li>
+    <a href="../history/" class="dropdown-item">History Collection (SQLite)</a>
+</li>
+                                    
+<li>
+    <a href="../utils/" class="dropdown-item">Utils</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href="../" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../client/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/dceoy/mt5cli/edit/master/docs/api/public-contract.md" class="nav-link">Edit on dceoy/mt5cli
+                                    </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#public-api-contract" class="nav-link">Public API Contract</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#stable-downstream-sdk-api" class="nav-link">Stable downstream SDK API</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#cli-commands" class="nav-link">CLI commands</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#internal-helpers-not-stable" class="nav-link">Internal helpers (not stable)</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#explicitly-out-of-scope" class="nav-link">Explicitly out of scope</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#contract-verification" class="nav-link">Contract verification</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="public-api-contract">Public API Contract<a class="headerlink" href="#public-api-contract" title="Permanent link">&para;</a></h1>
+<p>mt5cli is the generic MT5 data and execution infrastructure layer for downstream
+Python applications. The intended dependency direction is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>downstream app -&gt; mt5cli -&gt; pdmt5 -&gt; MetaTrader 5
+</code></pre></div>
+<p>Downstream packages should import from the package root (<code>from mt5cli import
+...</code>) and treat the symbols listed below as the stable SDK contract. CLI
+commands mirror the same behavior but are not importable Python APIs.</p>
+<h2 id="stable-downstream-sdk-api">Stable downstream SDK API<a class="headerlink" href="#stable-downstream-sdk-api" title="Permanent link">&para;</a></h2>
+<p>These names are exported from <code>mt5cli</code> and covered by the contract in
+<code>mt5cli.STABLE_SDK_EXPORTS</code> (defined in <code>mt5cli.contract</code>). Prefer <code>MT5Client</code> over the legacy <code>Mt5CliClient</code>
+alias for new code.</p>
+<h3 id="session-lifecycle-and-configuration">Session lifecycle and configuration<a class="headerlink" href="#session-lifecycle-and-configuration" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MT5Client</code>, <code>Mt5CliClient</code></td>
+<td>Read-only data client with optional <code>order_check</code> / <code>order_send</code></td>
+</tr>
+<tr>
+<td><code>build_config</code></td>
+<td>Build <code>pdmt5.Mt5Config</code> from connection fields</td>
+</tr>
+<tr>
+<td><code>mt5_session</code></td>
+<td>Context manager: initialize, login, yield client, shutdown</td>
+</tr>
+<tr>
+<td><code>create_trading_client</code>, <code>mt5_trading_session</code></td>
+<td>Trading-capable <code>pdmt5.Mt5TradingClient</code> lifecycle</td>
+</tr>
+<tr>
+<td><code>AccountSpec</code></td>
+<td>Generic account group: symbols plus optional credentials</td>
+</tr>
+<tr>
+<td><code>resolve_account_spec</code>, <code>resolve_account_specs</code></td>
+<td>Merge overrides and expand <code>${ENV_VAR}</code> placeholders</td>
+</tr>
+<tr>
+<td><code>substitute_env_placeholders</code></td>
+<td>Replace <code>${NAME}</code> substrings from the environment</td>
+</tr>
+</tbody>
+</table>
+<p>Credential resolution is generic: any environment variable name may appear inside
+<code>${...}</code>. mt5cli does not hard-code application-specific keys such as
+<code>mt5_login</code> or <code>mt5_exe</code>.</p>
+<h3 id="read-only-mt5-data-access">Read-only MT5 data access<a class="headerlink" href="#read-only-mt5-data-access" title="Permanent link">&para;</a></h3>
+<p>Module-level helpers open a transient connection per call. Prefer <code>mt5_session</code>
+or <code>MT5Client</code> when making many requests in one process.</p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Symbols</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Rates</td>
+<td><code>copy_rates_from</code>, <code>copy_rates_from_pos</code>, <code>copy_rates_range</code>, <code>latest_rates</code>, <code>collect_latest_rates</code></td>
+</tr>
+<tr>
+<td>Ticks</td>
+<td><code>copy_ticks_from</code>, <code>copy_ticks_range</code>, <code>recent_ticks</code></td>
+</tr>
+<tr>
+<td>Account / terminal</td>
+<td><code>account_info</code>, <code>terminal_info</code>, <code>mt5_version</code>, <code>last_error</code>, <code>mt5_summary</code>, <code>mt5_summary_as_df</code></td>
+</tr>
+<tr>
+<td>Symbols / market</td>
+<td><code>symbols</code>, <code>symbol_info</code>, <code>symbol_info_tick</code>, <code>market_book</code>, <code>minimum_margins</code></td>
+</tr>
+<tr>
+<td>Trading state (read)</td>
+<td><code>orders</code>, <code>positions</code>, <code>history_orders</code>, <code>history_deals</code>, <code>recent_history_deals</code></td>
+</tr>
+</tbody>
+</table>
+<p>Use <code>mt5_version</code> for MetaTrader 5 terminal version data. The name <code>version</code> at
+the package root refers to <code>importlib.metadata.version</code> (package metadata), not
+the MT5 SDK helper.</p>
+<h3 id="closed-bar-rate-helpers">Closed-bar rate helpers<a class="headerlink" href="#closed-bar-rate-helpers" title="Permanent link">&para;</a></h3>
+<p>MetaTrader 5 returns the still-forming bar as the last row when
+<code>start_pos=0</code>. Use these helpers instead of reimplementing bar trimming or
+timestamp normalization in downstream apps.</p>
+<table>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>drop_forming_rate_bar</code></td>
+<td>Remove the last row from chronologically ordered rate data</td>
+</tr>
+<tr>
+<td><code>fetch_latest_closed_rates</code></td>
+<td>Single connected client: fetch <code>count + 1</code>, drop forming bar</td>
+</tr>
+<tr>
+<td><code>collect_latest_closed_rates_for_accounts</code></td>
+<td>Multi-account closed bars with optional retry wrapper</td>
+</tr>
+<tr>
+<td><code>collect_latest_closed_rates_by_granularity</code></td>
+<td>Same data keyed by <code>(symbol, granularity_name)</code></td>
+</tr>
+<tr>
+<td><code>collect_latest_rates_for_accounts</code></td>
+<td>Latest bars including the forming bar when <code>start_pos=0</code></td>
+</tr>
+<tr>
+<td><code>collect_latest_rates_for_accounts_with_retries</code></td>
+<td>Bounded exponential backoff for transient MT5 errors</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sqlite-history-collection-and-rate-loading">SQLite history collection and rate loading<a class="headerlink" href="#sqlite-history-collection-and-rate-loading" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>collect_history</code></td>
+<td>One-shot date-range export into SQLite</td>
+</tr>
+<tr>
+<td><code>update_history</code>, <code>update_history_with_config</code></td>
+<td>Incremental append from <code>MAX(time)</code> cursors</td>
+</tr>
+<tr>
+<td><code>ThrottledHistoryUpdater</code></td>
+<td>Minimum interval between successful incremental updates</td>
+</tr>
+<tr>
+<td><code>resolve_history_datasets</code>, <code>resolve_history_timeframes</code>, <code>resolve_history_tick_flags</code></td>
+<td>History pipeline configuration</td>
+</tr>
+<tr>
+<td><code>build_rate_view_name</code>, <code>resolve_rate_table_name</code>, <code>resolve_rate_view_name</code>, <code>resolve_rate_view_names</code>, <code>resolve_rate_tables</code></td>
+<td>Map symbols/timeframes to mt5cli-managed table or view names</td>
+</tr>
+<tr>
+<td><code>RateTarget</code>, <code>build_rate_targets</code></td>
+<td>Neutral <code>(symbol, timeframe)</code> series descriptors</td>
+</tr>
+<tr>
+<td><code>load_rate_data</code>, <code>load_rate_data_from_connection</code></td>
+<td>Load one table/view into a time-indexed DataFrame</td>
+</tr>
+<tr>
+<td><code>load_rate_series_from_sqlite</code>, <code>load_rate_series_by_granularity</code></td>
+<td>Load one or many series; fail clearly when managed views are missing</td>
+</tr>
+</tbody>
+</table>
+<p>Pass <code>require_existing=True</code> to rate view resolution helpers when downstream
+code must fail instead of receiving a best-guess view name. Multi-series loaders
+require existing managed <code>rate_*__*</code> views unless <code>explicit_tables</code> is supplied.</p>
+<p>See <a href="../history/">History Collection (SQLite)</a> for schema, view naming, and ER
+diagrams.</p>
+<h3 id="trading-and-sizing-primitives-generic">Trading and sizing primitives (generic)<a class="headerlink" href="#trading-and-sizing-primitives-generic" title="Permanent link">&para;</a></h3>
+<p>These helpers implement broker-facing calculations only. They do not encode
+strategy entries, exits, Kelly sizing, or signal logic.</p>
+<table>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_account_snapshot</code>, <code>get_symbol_snapshot</code>, <code>get_tick_snapshot</code>, <code>get_positions_frame</code></td>
+<td>Normalized account/symbol/tick/position views</td>
+</tr>
+<tr>
+<td><code>detect_position_side</code></td>
+<td>Net long / short / flat from open positions</td>
+</tr>
+<tr>
+<td><code>calculate_spread_ratio</code></td>
+<td>Relative bid-ask spread</td>
+</tr>
+<tr>
+<td><code>calculate_margin_and_volume</code>, <code>calculate_volume_by_margin</code>, <code>calculate_new_position_margin_ratio</code></td>
+<td>Margin budget and volume sizing</td>
+</tr>
+<tr>
+<td><code>determine_order_limits</code></td>
+<td>SL/TP price levels from ratios</td>
+</tr>
+<tr>
+<td><code>ensure_symbol_selected</code></td>
+<td>Select/verify Market Watch visibility</td>
+</tr>
+<tr>
+<td><code>place_market_order</code>, <code>close_open_positions</code>, <code>update_sltp_for_open_positions</code></td>
+<td>Order execution helpers (<code>dry_run</code> supported)</td>
+</tr>
+<tr>
+<td><code>MarginVolume</code>, <code>OrderLimits</code>, <code>OrderExecutionResult</code></td>
+<td>Typed return contracts for order helpers</td>
+</tr>
+<tr>
+<td><code>OrderSide</code>, <code>OrderFillingMode</code>, <code>OrderTimeMode</code>, <code>PositionSide</code>, <code>ExecutionStatus</code></td>
+<td>Typed enums for order helpers</td>
+</tr>
+</tbody>
+</table>
+<p><code>MT5Client.order_send()</code> and CLI <code>order-send --yes</code> are live execution paths.</p>
+<p>Order helpers validate broker stop-level distance in <code>determine_order_limits()</code> and
+raise <code>Mt5TradingError</code> when computed SL/TP prices are too close to the entry
+quote. Validation uses <code>trade_stops_level * point</code> from the current quote and
+symbol metadata as a pre-check only; it does not guarantee live order acceptance
+after price movement and does not inspect <code>trade_freeze_level</code>. Live
+<code>place_market_order()</code> and SL/TP updates call
+<code>ensure_symbol_selected()</code> so hidden symbols are added to Market Watch before
+sending requests. Failed, malformed, or unknown broker retcodes are fail-closed
+and returned as <code>status="failed"</code> with normalized <code>request</code> / <code>response</code> details;
+<code>dry_run=True</code> never calls <code>ensure_symbol_selected()</code> or <code>order_send()</code>.</p>
+<h3 id="errors-and-mt5-type-re-exports">Errors and MT5 type re-exports<a class="headerlink" href="#errors-and-mt5-type-re-exports" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Mt5CliError</code>, <code>Mt5ConnectionError</code>, <code>Mt5OperationError</code>, <code>Mt5SchemaError</code></td>
+<td>Stable mt5cli exception types</td>
+</tr>
+<tr>
+<td><code>normalize_mt5_exception</code>, <code>call_with_normalized_errors</code>, <code>is_recoverable_mt5_error</code></td>
+<td>Error normalization and retry classification</td>
+</tr>
+<tr>
+<td><code>Mt5Config</code>, <code>Mt5RuntimeError</code>, <code>Mt5TradingClient</code>, <code>Mt5TradingError</code></td>
+<td>Re-exported pdmt5 types for adapter convenience</td>
+</tr>
+</tbody>
+</table>
+<h3 id="additional-public-exports-secondary">Additional public exports (secondary)<a class="headerlink" href="#additional-public-exports-secondary" title="Permanent link">&para;</a></h3>
+<p>The package root also exports schema, storage, and parsing helpers (for example
+<code>DataKind</code>, <code>Dataset</code>, <code>normalize_dataframe</code>, <code>export_dataframe</code>,
+<code>parse_timeframe</code>, <code>TIMEFRAME_MAP</code>). These are public but oriented toward export
+pipelines and advanced integration. Prefer the stable symbols above for core
+infrastructure.</p>
+<h2 id="cli-commands">CLI commands<a class="headerlink" href="#cli-commands" title="Permanent link">&para;</a></h2>
+<p>The Typer application in <code>mt5cli.cli</code> exposes file-export commands documented in
+<a href="../cli/">CLI Module</a> and the project README. CLI commands:</p>
+<ul>
+<li>Require <code>-o/--output</code> and write CSV, JSON, Parquet, or SQLite.</li>
+<li>Accept global MT5 connection options (<code>--login</code>, <code>--password</code>, <code>--server</code>,
+  <code>--path</code>, <code>--timeout</code>).</li>
+<li>Delegate to the same Python APIs described here; they are not duplicated
+  business logic.</li>
+</ul>
+<p><code>order-send</code> requires <code>--yes</code> before placing live trades.</p>
+<h2 id="internal-helpers-not-stable">Internal helpers (not stable)<a class="headerlink" href="#internal-helpers-not-stable" title="Permanent link">&para;</a></h2>
+<p>Do not import these for downstream contracts; they may change without a semver
+notice:</p>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Examples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mt5cli.sdk</code></td>
+<td><code>connected_client</code>, <code>_run_with_client</code>, private coercion helpers</td>
+</tr>
+<tr>
+<td><code>mt5cli.history</code></td>
+<td><code>write_*_dataset</code>, <code>deduplicate_history_tables</code>, <code>parse_sqlite_timestamp</code></td>
+</tr>
+<tr>
+<td><code>mt5cli.retry</code></td>
+<td><code>retry_with_backoff</code></td>
+</tr>
+<tr>
+<td><code>mt5cli.cli</code></td>
+<td>Typer command handlers and Click parameter types</td>
+</tr>
+<tr>
+<td>Leading-underscore names</td>
+<td>Any <code>_</code>-prefixed function or method</td>
+</tr>
+</tbody>
+</table>
+<p>Use the package-root stable exports instead of reaching into submodule
+internals.</p>
+<h2 id="explicitly-out-of-scope">Explicitly out of scope<a class="headerlink" href="#explicitly-out-of-scope" title="Permanent link">&para;</a></h2>
+<p>mt5cli must <strong>not</strong> implement downstream strategy or research responsibilities.
+The following belong in consuming applications, not in mt5cli:</p>
+<ul>
+<li>Signal detection (for example AR-GARCH or other model-specific triggers)</li>
+<li>Backtesting, walk-forward analysis, or parameter optimization</li>
+<li>Strategy-specific risk policy, position sizing systems, or Kelly fractions</li>
+<li>Entry/exit decision logic or YAML strategy semantics</li>
+<li>Application-specific credential schema keys wired into mt5cli internals</li>
+</ul>
+<p>mt5cli provides connection lifecycle, normalized data access, SQLite history
+machinery, closed-bar helpers, generic margin/volume/spread/SL/TP utilities, and
+optional order primitives so downstream apps can focus on strategy code behind
+their own adapter layer.</p>
+<h2 id="contract-verification">Contract verification<a class="headerlink" href="#contract-verification" title="Permanent link">&para;</a></h2>
+<p><code>tests/test_contracts.py</code> asserts that every name in <code>STABLE_SDK_EXPORTS</code> is
+importable from <code>mt5cli</code>, documents key closed-bar, rate-view, SQLite loading,
+account-resolution, and trading-session behaviors, and keeps the contract set
+aligned with <code>__all__</code>.</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+        <script src="../../search/main.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
