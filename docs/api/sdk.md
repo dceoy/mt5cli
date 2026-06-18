@@ -31,9 +31,10 @@ rates = collect_latest_rates_for_accounts_with_retries(
 ### Latest closed rate bars
 
 MetaTrader 5 `start_pos=0` includes the still-forming current bar as the last
-row. `fetch_latest_closed_rates()` handles one connected client; multi-account
-helpers fetch `count + 1` bars, drop that row with `drop_forming_rate_bar()`,
-and validate each series is non-empty. Returned frames are ordered
+row. `fetch_latest_closed_rates()` handles one connected `Mt5CliClient`; use
+`fetch_latest_closed_rates_for_trading_client()` from an active
+`Mt5TradingClient` session. Multi-account helpers fetch `count + 1` bars, drop
+that row with `drop_forming_rate_bar()`, and validate each series is non-empty. Returned frames are ordered
 oldest-to-newest and may contain fewer than `count` rows only when MT5 returns
 fewer closed bars.
 

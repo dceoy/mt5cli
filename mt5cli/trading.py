@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING, Literal, TypedDict, cast
 import pandas as pd
 from pdmt5 import Mt5Config, Mt5TradingClient, Mt5TradingError
 
+from .history import drop_forming_rate_bar
 from .sdk import build_config
 from .utils import coerce_login as _coerce_login
+from .utils import parse_timeframe
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
 PositionSide = Literal["long", "short"]
 OrderSide = Literal["BUY", "SELL"]
@@ -125,6 +127,7 @@ __all__ = [
     "PositionSide",
     "calculate_margin_and_volume",
     "calculate_new_position_margin_ratio",
+    "calculate_positions_margin",
     "calculate_spread_ratio",
     "calculate_volume_by_margin",
     "close_open_positions",
@@ -132,11 +135,14 @@ __all__ = [
     "detect_position_side",
     "determine_order_limits",
     "ensure_symbol_selected",
+    "estimate_order_margin",
+    "fetch_latest_closed_rates_for_trading_client",
     "get_account_snapshot",
     "get_positions_frame",
     "get_symbol_snapshot",
     "get_tick_snapshot",
     "mt5_trading_session",
+    "normalize_order_volume",
     "place_market_order",
     "update_sltp_for_open_positions",
 ]
@@ -274,6 +280,31 @@ def _normalize_order_side(side: str) -> OrderSide:
         return "SELL"
     msg = f"Unsupported order side: {side!r}. Expected 'BUY' or 'SELL'."
     raise ValueError(msg)
+
+
+def normalize_order_volume(
+    volume: float,
+    *,
+    volume_min: float,
+    volume_max: float,
+    volume_step: float,
+) -> float:
+    """Normalize a requested order volume to broker volume constraints.
+
+    Returns:
+        Volume floored to the nearest valid broker step from ``volume_min``,
+        capped at ``volume_max`` when positive, and rounded deterministically.
+        Returns ``0.0`` when constraints are invalid or the capped request is
+        below ``volume_min``.
+    """
+    if volume_min <= 0 or volume_step <= 0:
+        return 0.0
+    capped = min(volume, volume_max) if volume_max > 0 else volume
+    if capped < volume_min:
+        return 0.0
+    steps = floor(((capped - volume_min) / volume_step) + 1e-12)
+    normalized = volume_min + max(0, steps) * volume_step
+    return round(normalized, 10) if normalized >= volume_min else 0.0
 
 
 def _position_side_from_order_side(side: str) -> PositionSide:
@@ -529,6 +560,95 @@ def get_positions_frame(
         if column not in frame.columns:
             frame[column] = pd.Series(dtype="object")
     return frame
+
+
+def _order_side_from_position_type(
+    client: Mt5TradingClient,
+    position_type: object,
+) -> OrderSide | None:
+    if position_type == client.mt5.POSITION_TYPE_BUY:
+        return "BUY"
+    if position_type == client.mt5.POSITION_TYPE_SELL:
+        return "SELL"
+    return None
+
+
+def _ensure_rate_time_column(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or "time" in frame.columns:
+        return frame
+    if frame.index.name == "time" or isinstance(frame.index, pd.DatetimeIndex):
+        return frame.reset_index()
+    if frame.index.name is not None:
+        return frame.reset_index()
+    return frame
+
+
+def estimate_order_margin(
+    client: Mt5TradingClient,
+    symbol: str,
+    order_side: OrderSide | str,
+    volume: float,
+) -> float:
+    """Estimate required margin for one order at the current market price.
+
+    Returns:
+        Positive finite margin required for the order at the current quote.
+
+    Raises:
+        Mt5TradingError: If volume, tick data, or margin estimation is invalid.
+    """
+    if volume <= 0:
+        msg = "Volume must be positive to estimate order margin."
+        raise Mt5TradingError(msg)
+    side = _normalize_order_side(order_side)
+    tick = get_tick_snapshot(client, symbol)
+    price = tick["ask"] if side == "BUY" else tick["bid"]
+    if not isinstance(price, int | float) or price <= 0 or not isfinite(price):
+        msg = f"Tick price is unavailable for {symbol!r}."
+        raise Mt5TradingError(msg)
+    order_type = (
+        client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
+    )
+    margin = float(client.order_calc_margin(order_type, symbol, volume, float(price)))
+    if margin <= 0 or not isfinite(margin):
+        msg = f"Margin estimate is invalid for {symbol!r}."
+        raise Mt5TradingError(msg)
+    return margin
+
+
+def calculate_positions_margin(
+    client: Mt5TradingClient,
+    *,
+    symbols: Sequence[str] | None = None,
+) -> float:
+    """Return the sum of estimated current margin for open positions.
+
+    Args:
+        client: Connected ``Mt5TradingClient`` instance.
+        symbols: Optional symbol filter. When omitted, all open positions are
+            included.
+
+    Returns:
+        Total estimated margin, or ``0.0`` when no matching positions exist.
+    """
+    frame = get_positions_frame(client)
+    if symbols is not None:
+        frame = frame[frame["symbol"].isin(list(symbols))]
+    if frame.empty:
+        return 0.0
+    total = 0.0
+    for _, row in frame.iterrows():
+        symbol = row.get("symbol")
+        if not isinstance(symbol, str) or not symbol:
+            continue
+        volume = row.get("volume")
+        if not isinstance(volume, int | float) or volume <= 0:
+            continue
+        order_side = _order_side_from_position_type(client, row.get("type"))
+        if order_side is None:
+            continue
+        total += estimate_order_margin(client, symbol, order_side, float(volume))
+    return total
 
 
 def calculate_spread_ratio(client: Mt5TradingClient, symbol: str) -> float:
@@ -995,6 +1115,60 @@ def update_sltp_for_open_positions(
             },
         )
     return results
+
+
+def fetch_latest_closed_rates_for_trading_client(
+    client: Mt5TradingClient,
+    *,
+    symbol: str,
+    granularity: str,
+    count: int,
+) -> pd.DataFrame:
+    """Fetch the latest closed bars from a connected trading client.
+
+    Returns:
+        Up to ``count`` closed bars ordered oldest to newest.
+
+    Raises:
+        ValueError: If ``count`` is not positive, rate data is empty or
+            malformed, or the ``time`` column is missing.
+        Mt5TradingError: If the trading client cannot fetch rate data.
+    """
+    if count <= 0:
+        msg = "count must be positive."
+        raise ValueError(msg)
+    fetch_method = getattr(client, "fetch_latest_rates_as_df", None)
+    if callable(fetch_method):
+        frame = cast(
+            "pd.DataFrame",
+            fetch_method(symbol, granularity, count + 1),
+        )
+    else:
+        copy_method = getattr(client, "copy_rates_from_pos_as_df", None)
+        if not callable(copy_method):
+            msg = "MT5 trading client cannot fetch rate data."
+            raise Mt5TradingError(msg)
+        frame = cast(
+            "pd.DataFrame",
+            copy_method(
+                symbol=symbol,
+                timeframe=parse_timeframe(granularity),
+                start_pos=0,
+                count=count + 1,
+            ),
+        )
+    frame = _ensure_rate_time_column(frame)
+    if "time" not in frame.columns:
+        msg = f"Rate data is missing a time column for {symbol!r}."
+        raise ValueError(msg)
+    closed = drop_forming_rate_bar(frame)
+    if closed.empty:
+        msg = (
+            f"Rate data is empty for {symbol!r} at granularity {granularity!r} "
+            f"with count {count}."
+        )
+        raise ValueError(msg)
+    return closed.tail(count).reset_index(drop=True)
 
 
 @contextmanager

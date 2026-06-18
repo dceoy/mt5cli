@@ -34,6 +34,7 @@ from mt5cli import (
     build_config,
     build_rate_targets,
     calculate_margin_and_volume,
+    calculate_positions_margin,
     call_with_normalized_errors,
     detect_format,
     drop_forming_rate_bar,
@@ -42,6 +43,7 @@ from mt5cli import (
     export_dataframe,
     export_dataframe_to_sqlite,
     fetch_latest_closed_rates,
+    fetch_latest_closed_rates_for_trading_client,
     granularity_name,
     is_recoverable_mt5_error,
     load_rate_data,
@@ -50,6 +52,7 @@ from mt5cli import (
     mt5_trading_session,
     normalize_dataframe,
     normalize_mt5_exception,
+    normalize_order_volume,
     normalize_symbol,
     normalize_symbols,
     parse_date_range,
@@ -571,6 +574,45 @@ class TestStableSdkContract:
 
         client.latest_rates.assert_called_once_with("EURUSD", "M1", 3, start_pos=0)
         assert list(result["close"]) == [1.0, 1.1]
+
+    def test_fetch_latest_closed_rates_for_trading_client_from_package_root(
+        self,
+    ) -> None:
+        """Trading-client closed-bar helper is importable from the stable surface."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
+            {"time": [1, 2, 3], "close": [1.0, 1.1, 1.2]},
+        )
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert list(result["close"]) == [1.0, 1.1]
+
+    def test_normalize_order_volume_from_package_root(self) -> None:
+        """Volume normalization helper is importable from the stable surface."""
+        result = normalize_order_volume(
+            0.25,
+            volume_min=0.1,
+            volume_max=1.0,
+            volume_step=0.1,
+        )
+        assert abs(result - 0.2) < 1e-9
+
+    def test_calculate_positions_margin_from_package_root(self) -> None:
+        """Position margin helper is importable from the stable surface."""
+        client = MagicMock()
+        client.mt5.POSITION_TYPE_BUY = 0
+        client.mt5.POSITION_TYPE_SELL = 1
+        client.mt5.ORDER_TYPE_BUY = 10
+        client.mt5.ORDER_TYPE_SELL = 11
+        client.positions_get_as_df.return_value = pd.DataFrame()
+
+        assert calculate_positions_margin(client) == 0
 
     def test_resolve_rate_view_name_from_package_root(self, tmp_path: Path) -> None:
         """Rate view resolution is importable and honors require_existing."""

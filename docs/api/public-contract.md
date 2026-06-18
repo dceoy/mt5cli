@@ -60,6 +60,7 @@ timestamp normalization in downstream apps.
 | ------------------------------------------------ | ------------------------------------------------------------ |
 | `drop_forming_rate_bar`                          | Remove the last row from chronologically ordered rate data   |
 | `fetch_latest_closed_rates`                      | Single connected client: fetch `count + 1`, drop forming bar |
+| `fetch_latest_closed_rates_for_trading_client`   | Closed bars from an active `Mt5TradingClient` session        |
 | `collect_latest_closed_rates_for_accounts`       | Multi-account closed bars with optional retry wrapper        |
 | `collect_latest_closed_rates_by_granularity`     | Same data keyed by `(symbol, granularity_name)`              |
 | `collect_latest_rates_for_accounts`              | Latest bars including the forming bar when `start_pos=0`     |
@@ -96,6 +97,7 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `detect_position_side`                                                                             | Net long / short / flat from open positions   |
 | `calculate_spread_ratio`                                                                           | Relative bid-ask spread                       |
 | `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio` | Margin budget and volume sizing               |
+| `normalize_order_volume`, `estimate_order_margin`, `calculate_positions_margin`                      | Broker volume normalization and margin totals |
 | `determine_order_limits`                                                                           | SL/TP price levels from ratios                |
 | `ensure_symbol_selected`                                                                           | Select/verify Market Watch visibility         |
 | `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`                     | Order execution helpers (`dry_run` supported) |
