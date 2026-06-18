@@ -97,10 +97,11 @@ violations raise `Mt5TradingError`. `unit_margin_ratio` and
 post-reserve margin can afford it. Negative `margin_free` is clamped to `0.0`
 before sizing. Execution helpers return normalized `OrderExecutionResult`
 dictionaries containing the request, response, status, retcode, and `dry_run`
-flag; `dry_run=True` never sends an order. `ensure_symbol_selected()` adds hidden
-symbols to Market Watch before live order placement. Market order helpers mark
-known non-success MT5 retcodes as `status="failed"` while keeping the normalized
-response for inspection.
+flag; `dry_run=True` never sends an order or mutates Market Watch visibility.
+`ensure_symbol_selected()` adds hidden symbols to Market Watch before live order
+placement and SL/TP updates. Market order helpers mark known non-success MT5
+retcodes as `status="failed"` while keeping the normalized response for
+inspection.
 
 ## Order planning return contracts
 

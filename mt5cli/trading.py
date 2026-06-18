@@ -796,7 +796,6 @@ def place_market_order(
     if volume <= 0:
         msg = "volume must be positive."
         raise Mt5TradingError(msg)
-    ensure_symbol_selected(client, symbol)
     side = _normalize_order_side(order_side)
     tick = get_tick_snapshot(client, symbol)
     price = tick["ask"] if side == "BUY" else tick["bid"]
@@ -842,6 +841,7 @@ def place_market_order(
             "response": None,
             "dry_run": True,
         }
+    ensure_symbol_selected(client, symbol)
     response = client.order_send(request)
     response_dict = _snapshot_from_value(response, ())
     retcode = _optional_int(response_dict.get("retcode"))

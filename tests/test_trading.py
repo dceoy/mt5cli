@@ -1142,7 +1142,7 @@ class TestVolumeAndExecution:
     def test_place_market_order_dry_run_does_not_send(self) -> None:
         """Test dry-run market orders return a request without sending."""
         client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.symbol_info_as_dict.return_value = {"visible": False}
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
 
         result = place_market_order(
@@ -1156,6 +1156,7 @@ class TestVolumeAndExecution:
         assert result["status"] == "dry_run"
         assert _request_from_result(result)["type"] == client.mt5.ORDER_TYPE_BUY
         client.order_send.assert_not_called()
+        client.symbol_select.assert_not_called()
 
     def test_place_market_order_supports_limits(self) -> None:
         """Test optional SL/TP values are included in the request."""
@@ -1342,6 +1343,7 @@ class TestVolumeAndExecution:
     def test_update_sltp_filters_and_dry_runs(self) -> None:
         """Test SL/TP updates filter positions and do not send in dry-run mode."""
         client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": False}
         client.positions_get_as_df.return_value = pd.DataFrame(
             [
                 {
@@ -1374,6 +1376,34 @@ class TestVolumeAndExecution:
         assert len(result) == 1
         _assert_close(_request_from_result(result[0])["sl"], 1.1)
         _assert_close(_request_from_result(result[0])["tp"], 1.3)
+        client.order_send.assert_not_called()
+        client.symbol_select.assert_not_called()
+
+    def test_update_sltp_selects_hidden_symbol_for_live_send(self) -> None:
+        """Test live SL/TP updates ensure hidden symbols are selected first."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = True
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10009, "comment": "updated"}],
+        )
+
+        update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        client.order_send.assert_called_once()
 
     def test_update_sltp_sends_and_normalizes_response(self) -> None:
         """Test live SL/TP updates send requests and normalize responses."""
@@ -1458,11 +1488,10 @@ class TestVolumeAndExecution:
 
         mock_client.shutdown.assert_called_once()
 
-    def test_place_market_order_selects_hidden_symbol(self) -> None:
-        """Test market orders ensure hidden symbols are selected first."""
+    def test_place_market_order_dry_run_skips_hidden_symbol_selection(self) -> None:
+        """Test dry-run market orders do not mutate Market Watch visibility."""
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {"visible": False}
-        client.symbol_select.return_value = True
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
 
         place_market_order(
@@ -1473,7 +1502,28 @@ class TestVolumeAndExecution:
             dry_run=True,
         )
 
+        client.symbol_select.assert_not_called()
+        client.order_send.assert_not_called()
+
+    def test_place_market_order_selects_hidden_symbol_for_live_send(self) -> None:
+        """Test live market orders ensure hidden symbols are selected first."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = True
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10009, "comment": "done"}],
+        )
+
+        place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
         client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        client.order_send.assert_called_once()
 
     def test_update_sltp_marks_failed_retcode(self) -> None:
         """Test SL/TP updates normalize failed broker retcodes."""

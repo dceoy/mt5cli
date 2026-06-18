@@ -106,11 +106,11 @@ strategy entries, exits, Kelly sizing, or signal logic.
 
 Order helpers validate broker stop-level distance in `determine_order_limits()` and
 raise `Mt5TradingError` when computed SL/TP prices are too close to the entry
-quote. `place_market_order()` and live SL/TP updates call
+quote. Live `place_market_order()` and SL/TP updates call
 `ensure_symbol_selected()` so hidden symbols are added to Market Watch before
 sending requests. Failed broker retcodes are returned as `status="failed"` with
 normalized `request` / `response` details; `dry_run=True` never calls
-`order_send()`.
+`ensure_symbol_selected()` or `order_send()`.
 
 ### Errors and MT5 type re-exports
 
