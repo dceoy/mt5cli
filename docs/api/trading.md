@@ -90,12 +90,17 @@ sell-only exposure, and `None` for no positions or mixed long/short exposure.
 
 SL/TP ratios for `determine_order_limits()` must satisfy `0 <= ratio < 1`; `0`
 omits that level. SL/TP prices are rounded with symbol `digits` metadata when
-available and must satisfy broker `trade_stops_level` distance constraints;
-violations raise `Mt5TradingError`. `unit_margin_ratio` and
-`preserved_margin_ratio` for `calculate_margin_and_volume()` accept
-`0 <= ratio <= 1`; `unit_margin_ratio=0` requests one minimum valid unit when the
-post-reserve margin can afford it. Negative `margin_free` is clamped to `0.0`
-before sizing. Execution helpers return normalized `OrderExecutionResult`
+available. `determine_order_limits()` pre-validates computed SL/TP prices against
+available `trade_stops_level * point` metadata when present; violations raise
+`Mt5TradingError`. This is a planning helper only: it does not guarantee broker
+acceptance because live validation can still depend on price movement, bid/ask
+side, freeze levels, and server-side rules, and it does not validate
+`trade_freeze_level`. When symbol metadata cannot be loaded, protective prices
+still round with `digits=8` and stop-level validation is skipped.
+`unit_margin_ratio` and `preserved_margin_ratio` for `calculate_margin_and_volume()`
+accept `0 <= ratio <= 1`; `unit_margin_ratio=0` requests one minimum valid unit
+when the post-reserve margin can afford it. Negative `margin_free` is clamped to
+`0.0` before sizing. Execution helpers return normalized `OrderExecutionResult`
 dictionaries containing the request, response, status, retcode, and `dry_run`
 flag; `dry_run=True` never sends an order or mutates Market Watch visibility.
 `ensure_symbol_selected()` adds hidden symbols to Market Watch before live order

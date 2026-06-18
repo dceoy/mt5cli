@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from math import floor, isfinite
+from numbers import Integral
 from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 import pandas as pd
@@ -336,7 +337,11 @@ def _resolve_mt5_constant(
 
 
 def _optional_int(value: object) -> int | None:
-    return value if isinstance(value, int) else None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Integral):
+        return int(value)
+    return None
 
 
 def _optional_str(value: object) -> str | None:
@@ -366,7 +371,10 @@ def _success_retcodes(mt5: object) -> frozenset[int]:
 def _order_status_from_retcode(mt5: object, retcode: object) -> ExecutionStatus:
     if retcode is None:
         return "executed"
-    if isinstance(retcode, int) and retcode not in _success_retcodes(mt5):
+    normalized = _optional_int(retcode)
+    if normalized is None:
+        return "executed"
+    if normalized not in _success_retcodes(mt5):
         return "failed"
     return "executed"
 
@@ -715,7 +723,8 @@ def determine_order_limits(
         Omitted protective levels are returned as ``None``.
 
     Raises:
-        Mt5TradingError: If required tick data is invalid.
+        Mt5TradingError: If required tick data is invalid or computed SL/TP
+            prices violate available ``trade_stops_level`` pre-validation.
     """
     stop_loss_ratio = stop_loss_limit_ratio or 0.0
     take_profit_ratio = take_profit_limit_ratio or 0.0
@@ -728,7 +737,10 @@ def determine_order_limits(
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
     entry = float(entry_value)
-    symbol_info = get_symbol_snapshot(client, symbol)
+    try:
+        symbol_info = get_symbol_snapshot(client, symbol)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        symbol_info = {}
     try:
         digits = int(symbol_info.get("digits") or 8)
     except (TypeError, ValueError):
