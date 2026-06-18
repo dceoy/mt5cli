@@ -271,6 +271,10 @@ timestamp normalization in downstream apps.</p>
 <td>Single connected client: fetch <code>count + 1</code>, drop forming bar</td>
 </tr>
 <tr>
+<td><code>fetch_latest_closed_rates_for_trading_client</code></td>
+<td>Closed bars from an active <code>Mt5TradingClient</code> session</td>
+</tr>
+<tr>
 <td><code>collect_latest_closed_rates_for_accounts</code></td>
 <td>Multi-account closed bars with optional retry wrapper</td>
 </tr>
@@ -362,6 +366,10 @@ strategy entries, exits, Kelly sizing, or signal logic.</p>
 <tr>
 <td><code>calculate_margin_and_volume</code>, <code>calculate_volume_by_margin</code>, <code>calculate_new_position_margin_ratio</code></td>
 <td>Margin budget and volume sizing</td>
+</tr>
+<tr>
+<td><code>normalize_order_volume</code>, <code>estimate_order_margin</code>, <code>calculate_positions_margin</code></td>
+<td>Broker volume normalization and margin totals</td>
 </tr>
 <tr>
 <td><code>determine_order_limits</code></td>

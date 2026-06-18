@@ -8217,9 +8217,10 @@ failure is re-raised once <code>retry_count</code> is exhausted.</p>
 </code></pre></div>
 <h3 id="latest-closed-rate-bars">Latest closed rate bars<a class="headerlink" href="#latest-closed-rate-bars" title="Permanent link">&para;</a></h3>
 <p>MetaTrader 5 <code>start_pos=0</code> includes the still-forming current bar as the last
-row. <code>fetch_latest_closed_rates()</code> handles one connected client; multi-account
-helpers fetch <code>count + 1</code> bars, drop that row with <code>drop_forming_rate_bar()</code>,
-and validate each series is non-empty. Returned frames are ordered
+row. <code>fetch_latest_closed_rates()</code> handles one connected <code>Mt5CliClient</code>; use
+<code>fetch_latest_closed_rates_for_trading_client()</code> from an active
+<code>Mt5TradingClient</code> session. Multi-account helpers fetch <code>count + 1</code> bars, drop
+that row with <code>drop_forming_rate_bar()</code>, and validate each series is non-empty. Returned frames are ordered
 oldest-to-newest and may contain fewer than <code>count</code> rows only when MT5 returns
 fewer closed bars.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
