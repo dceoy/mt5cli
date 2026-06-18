@@ -1580,7 +1580,7 @@ class TestVolumeAndExecution:
         mock_client.shutdown.assert_called_once()
 
     def test_place_market_order_selects_hidden_symbol_for_live_send(self) -> None:
-        """Test live market orders ensure hidden symbols are selected first."""
+        """Test live market orders select hidden symbols before reading ticks."""
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {"visible": False}
         client.symbol_select.return_value = True
@@ -1588,6 +1588,18 @@ class TestVolumeAndExecution:
         client.order_send.return_value = pd.DataFrame(
             [{"retcode": 10009, "comment": "done"}],
         )
+        call_order: list[str] = []
+
+        def _record_select(*_args: object, **_kwargs: object) -> bool:
+            call_order.append("symbol_select")
+            return True
+
+        def _record_tick(*_args: object, **_kwargs: object) -> dict[str, float]:
+            call_order.append("tick")
+            return {"ask": 1.2, "bid": 1.1}
+
+        client.symbol_select.side_effect = _record_select
+        client.symbol_info_tick_as_dict.side_effect = _record_tick
 
         place_market_order(
             client,
@@ -1596,6 +1608,43 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
+        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        client.symbol_info_tick_as_dict.assert_called_once()
+        client.order_send.assert_called_once()
+        assert call_order == ["symbol_select", "tick"]
+
+    def test_place_market_order_reads_ticks_after_hidden_symbol_selection(self) -> None:
+        """Test live orders can read ticks only after hidden symbols are selected."""
+        client = _mock_trade_client()
+        selected = {"value": False}
+
+        def _symbol_info_side_effect(**_kwargs: object) -> dict[str, bool]:
+            return {"visible": selected["value"]}
+
+        def _select_symbol(*_args: object, **_kwargs: object) -> bool:
+            selected["value"] = True
+            return True
+
+        def _tick_side_effect(**_kwargs: object) -> dict[str, float | None]:
+            if not selected["value"]:
+                return {"ask": None, "bid": None}
+            return {"ask": 1.2, "bid": 1.1}
+
+        client.symbol_info_as_dict.side_effect = _symbol_info_side_effect
+        client.symbol_select.side_effect = _select_symbol
+        client.symbol_info_tick_as_dict.side_effect = _tick_side_effect
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10009, "comment": "done"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["status"] == "executed"
         client.symbol_select.assert_called_once_with("EURUSD", enable=True)
         client.order_send.assert_called_once()
 
