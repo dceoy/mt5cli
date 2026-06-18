@@ -2358,8 +2358,34 @@ class TestFetchLatestClosedRatesForTradingClient:
         assert len(result) == 2
         assert result["close"].tolist() == [1.0, 1.1]
 
+    def test_accepts_unnamed_datetime_index(self) -> None:
+        """Test unnamed DatetimeIndex values are exposed as a time column."""
+        client = MagicMock()
+        frame = pd.DataFrame(
+            {"close": [1.0, 1.1, 1.2]},
+            index=pd.to_datetime(
+                [
+                    "2024-01-01T00:00:00Z",
+                    "2024-01-01T00:01:00Z",
+                    "2024-01-01T00:02:00Z",
+                ],
+                utc=True,
+            ),
+        )
+        client.fetch_latest_rates_as_df.return_value = frame
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert "time" in result.columns
+        assert len(result) == 2
+
     def test_accepts_named_non_time_index(self) -> None:
-        """Test non-time named indexes are reset before validation."""
+        """Test non-time named indexes are left unchanged before validation."""
         client = MagicMock()
         frame = pd.DataFrame(
             {

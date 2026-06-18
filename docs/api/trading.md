@@ -68,7 +68,9 @@ volume = normalize_order_volume(
     volume_max=symbol["volume_max"],
     volume_step=symbol["volume_step"],
 )
-buy_margin = estimate_order_margin(client, "EURUSD", "BUY", volume)
+buy_margin = (
+    estimate_order_margin(client, "EURUSD", "BUY", volume) if volume > 0 else 0.0
+)
 open_margin = calculate_positions_margin(client, symbols=["EURUSD"])
 closed_bars = fetch_latest_closed_rates_for_trading_client(
     client,
@@ -105,6 +107,12 @@ closed = close_open_positions(client, symbols="EURUSD", dry_run=True)
 sell-only exposure, and `None` for no positions or mixed long/short exposure.
 `calculate_spread_ratio()` uses `(ask - bid) / ((ask + bid) / 2)` and raises
 `Mt5TradingError` when bid or ask is missing or non-positive.
+`normalize_order_volume()` returns `0.0` for invalid constraints or
+sub-minimum requests; check the result before calling `estimate_order_margin()`,
+which requires positive volume. `calculate_positions_margin()` silently skips
+rows with missing symbols, non-positive volumes, or unsupported position types,
+but propagates `Mt5TradingError` from `estimate_order_margin()` when a valid row
+encounters invalid tick data or margin results from the broker.
 
 SL/TP ratios for `determine_order_limits()` must satisfy `0 <= ratio < 1`; `0`
 omits that level. SL/TP prices are rounded with symbol `digits` metadata when

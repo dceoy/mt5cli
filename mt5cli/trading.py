@@ -579,7 +579,10 @@ def _ensure_rate_time_column(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty or "time" in frame.columns:
         return frame
     if frame.index.name == "time" or isinstance(frame.index, pd.DatetimeIndex):
-        return frame.reset_index()
+        normalized = frame.reset_index()
+        if "time" not in normalized.columns and not normalized.empty:
+            normalized = normalized.rename(columns={normalized.columns[0]: "time"})
+        return normalized
     return frame
 
 
