@@ -304,7 +304,9 @@ def normalize_order_volume(
         return 0.0
     steps = floor(((capped - volume_min) / volume_step) + 1e-12)
     normalized = volume_min + max(0, steps) * volume_step
-    return round(normalized, 10) if normalized >= volume_min else 0.0
+    if volume_max > 0:
+        normalized = min(normalized, volume_max)
+    return round(normalized, 10)
 
 
 def _position_side_from_order_side(side: str) -> PositionSide:
@@ -578,8 +580,6 @@ def _ensure_rate_time_column(frame: pd.DataFrame) -> pd.DataFrame:
         return frame
     if frame.index.name == "time" or isinstance(frame.index, pd.DatetimeIndex):
         return frame.reset_index()
-    if frame.index.name is not None:
-        return frame.reset_index()
     return frame
 
 
@@ -636,7 +636,7 @@ def calculate_positions_margin(
         frame = frame[frame["symbol"].isin(list(symbols))]
     if frame.empty:
         return 0.0
-    total = 0.0
+    grouped_volumes: dict[tuple[str, OrderSide], float] = {}
     for _, row in frame.iterrows():
         symbol = row.get("symbol")
         if not isinstance(symbol, str) or not symbol:
@@ -647,7 +647,11 @@ def calculate_positions_margin(
         order_side = _order_side_from_position_type(client, row.get("type"))
         if order_side is None:
             continue
-        total += estimate_order_margin(client, symbol, order_side, float(volume))
+        key = (symbol, order_side)
+        grouped_volumes[key] = grouped_volumes.get(key, 0.0) + float(volume)
+    total = 0.0
+    for (symbol, order_side), volume in grouped_volumes.items():
+        total += estimate_order_margin(client, symbol, order_side, volume)
     return total
 
 

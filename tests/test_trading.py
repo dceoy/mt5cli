@@ -864,6 +864,18 @@ class TestNormalizeOrderVolume:
             2.5,
         )
 
+    def test_reapplies_volume_max_after_step_normalization(self) -> None:
+        """Test post-step normalization cannot exceed volume_max."""
+        _assert_close(
+            normalize_order_volume(
+                0.5,
+                volume_min=0.1,
+                volume_max=0.34,
+                volume_step=0.12,
+            ),
+            0.34,
+        )
+
 
 class TestEstimateOrderMargin:
     """Tests for estimate_order_margin."""
@@ -920,6 +932,25 @@ class TestEstimateOrderMargin:
         """Test missing tick prices raise Mt5TradingError."""
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1000}
+
+        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_non_positive_tick_price(self) -> None:
+        """Test non-positive tick prices raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 0.0, "bid": 1.1000}
+
+        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_non_finite_tick_price(self) -> None:
+        """Test non-finite tick prices raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {
+            "ask": float("inf"),
+            "bid": 1.1000,
+        }
 
         with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)
@@ -988,6 +1019,28 @@ class TestCalculatePositionsMargin:
         margin = calculate_positions_margin(client)
 
         _assert_close(margin, 37.3)
+
+    def test_groups_positions_by_symbol_and_side(self) -> None:
+        """Test repeated symbol/side pairs use one margin call with summed volume."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                {"symbol": "EURUSD", "type": 0, "volume": 0.2},
+            ],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = 37.5
+
+        margin = calculate_positions_margin(client)
+
+        _assert_close(margin, 37.5)
+        client.order_calc_margin.assert_called_once()
+        args = client.order_calc_margin.call_args[0]
+        assert args[0] == 10
+        assert args[1] == "EURUSD"
+        _assert_close(args[2], 0.3)
+        _assert_close(args[3], 1.1010)
 
     def test_sums_multiple_symbols(self) -> None:
         """Test positions across symbols are all included."""
