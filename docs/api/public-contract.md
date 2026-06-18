@@ -71,7 +71,7 @@ timestamp normalization in downstream apps.
 | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `collect_history`                                                                                                             | One-shot date-range export into SQLite                               |
 | `update_history`, `update_history_with_config`                                                                                | Incremental append from `MAX(time)` cursors                          |
-| `ThrottledHistoryUpdater`                                                                                                     | Minimum interval between successful incremental updates              |
+| `ThrottledHistoryUpdater`                                                                                                     | Minimum interval between successful incremental updates; optional `update_backend` injection |
 | `resolve_history_datasets`, `resolve_history_timeframes`, `resolve_history_tick_flags`                                        | History pipeline configuration                                       |
 | `build_rate_view_name`, `resolve_rate_table_name`, `resolve_rate_view_name`, `resolve_rate_view_names`, `resolve_rate_tables` | Map symbols/timeframes to mt5cli-managed table or view names         |
 | `RateTarget`, `build_rate_targets`                                                                                            | Neutral `(symbol, timeframe)` series descriptors                     |

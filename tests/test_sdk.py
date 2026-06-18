@@ -2100,3 +2100,123 @@ class TestThrottledHistoryUpdater:
         assert updater.update(MagicMock(), []) is False
         update.assert_not_called()
         assert updater.last_update_monotonic is None
+
+    def test_default_update_backend_is_update_history(self) -> None:
+        """Test the default backend resolves to update_history."""
+        updater = ThrottledHistoryUpdater(output="history.db")
+        assert updater.update_backend is update_history
+
+    def test_custom_update_backend_receives_expected_kwargs(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test a custom backend receives the same keyword arguments as update_history."""
+        backend = mocker.Mock()
+        client = MagicMock()
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            datasets={Dataset.rates},
+            timeframes=["M1", "H1"],
+            flags="INFO",
+            lookback_hours=12.0,
+            with_views=True,
+            include_account_events=False,
+            update_backend=backend,
+        )
+
+        updater.update(client, ["EURUSD", "GBPUSD"])
+
+        backend.assert_called_once_with(
+            client=client,
+            output="history.db",
+            symbols=["EURUSD", "GBPUSD"],
+            datasets={Dataset.rates},
+            timeframes=["M1", "H1"],
+            flags="INFO",
+            lookback_hours=12.0,
+            with_views=True,
+            include_account_events=False,
+        )
+
+    def test_throttled_calls_do_not_invoke_custom_backend(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test throttled update cycles skip the injected backend."""
+        backend = mocker.Mock()
+        monotonic = mocker.patch("mt5cli.sdk.time.monotonic")
+        monotonic.side_effect = [100.0, 105.0, 200.0, 200.0]
+        client = MagicMock()
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            interval_seconds=60,
+            update_backend=backend,
+        )
+
+        assert updater.update(client, ["EURUSD"]) is True
+        assert updater.update(client, ["EURUSD"]) is False
+        assert updater.update(client, ["EURUSD"]) is True
+        assert backend.call_count == 2
+
+    def test_successful_custom_backend_advances_throttle(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test a successful custom backend updates _last_update_monotonic."""
+        backend = mocker.Mock()
+        monotonic = mocker.patch("mt5cli.sdk.time.monotonic", return_value=42.0)
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            update_backend=backend,
+        )
+
+        assert updater.update(MagicMock(), ["EURUSD"]) is True
+        assert updater.last_update_monotonic == 42.0
+        monotonic.assert_called_once()
+
+    def test_failed_custom_backend_does_not_advance_throttle(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test a failing custom backend leaves _last_update_monotonic unchanged."""
+        backend = mocker.Mock(side_effect=Mt5RuntimeError("boom"))
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            update_backend=backend,
+        )
+
+        with pytest.raises(Mt5RuntimeError, match="boom"):
+            updater.update(MagicMock(), ["EURUSD"])
+
+        assert updater.last_update_monotonic is None
+
+    def test_custom_backend_suppresses_recoverable_errors_when_requested(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test suppress_errors swallows recoverable custom backend errors."""
+        backend = mocker.Mock(side_effect=Mt5RuntimeError("boom"))
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            suppress_errors=True,
+            update_backend=backend,
+        )
+
+        assert updater.update(MagicMock(), ["EURUSD"]) is False
+        assert updater.last_update_monotonic is None
+
+    def test_custom_backend_propagates_errors_when_not_suppressed(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test recoverable custom backend errors propagate by default."""
+        backend = mocker.Mock(side_effect=Mt5RuntimeError("boom"))
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            update_backend=backend,
+        )
+
+        with pytest.raises(Mt5RuntimeError, match="boom"):
+            updater.update(MagicMock(), ["EURUSD"])
+
+        assert updater.last_update_monotonic is None
