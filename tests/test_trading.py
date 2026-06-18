@@ -13,6 +13,9 @@ from pytest_mock import MockerFixture  # noqa: TC002
 
 from mt5cli.sdk import build_config
 from mt5cli.trading import (
+    MarginVolume,
+    OrderExecutionResult,
+    OrderLimits,
     calculate_margin_and_volume,
     calculate_new_position_margin_ratio,
     calculate_spread_ratio,
@@ -21,6 +24,7 @@ from mt5cli.trading import (
     create_trading_client,
     detect_position_side,
     determine_order_limits,
+    ensure_symbol_selected,
     get_account_snapshot,
     get_positions_frame,
     get_symbol_snapshot,
@@ -51,8 +55,8 @@ def _assert_close(actual: object, expected: float) -> None:
     assert abs(float(cast("float", actual)) - expected) < 1e-9
 
 
-def _request_from_result(result: dict[str, object]) -> dict[str, object]:
-    return cast("dict[str, object]", result["request"])
+def _request_from_result(result: OrderExecutionResult) -> dict[str, object]:  # noqa: FURB118
+    return result["request"]
 
 
 class TestDetectPositionSide:
@@ -249,7 +253,7 @@ class TestDetermineOrderLimits:
         """Test long stop loss and take profit are placed below/above entry."""
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.symbol_info_as_dict.side_effect = AttributeError("missing")
+        client.symbol_info_as_dict.return_value = {}
 
         result = determine_order_limits(
             client,
@@ -269,7 +273,7 @@ class TestDetermineOrderLimits:
         """Test short stop loss and take profit are placed above/below entry."""
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.symbol_info_as_dict.side_effect = AttributeError("missing")
+        client.symbol_info_as_dict.return_value = {}
 
         result = determine_order_limits(
             client,
@@ -348,7 +352,7 @@ class TestDetermineOrderLimits:
         """Test order limit rounding falls back when symbol metadata is missing."""
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.234567891, "bid": 1.0}
-        client.symbol_info_as_dict.side_effect = AttributeError("missing")
+        client.symbol_info_as_dict.return_value = {"digits": "invalid"}
 
         result = determine_order_limits(
             client,
@@ -384,6 +388,184 @@ class TestDetermineOrderLimits:
 
         with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
             determine_order_limits(client, "EURUSD", "long")
+
+    def test_rejects_stop_loss_inside_broker_stop_level(self) -> None:
+        """Test stop-loss prices closer than trade_stops_level raise Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": 0.99}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 100,
+            "point": 0.0001,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Stop loss for 'EURUSD'"):
+            determine_order_limits(
+                client,
+                "EURUSD",
+                "long",
+                stop_loss_limit_ratio=0.0001,
+            )
+
+    def test_allows_protective_levels_beyond_broker_stop_level(self) -> None:
+        """Test SL/TP beyond trade_stops_level pass validation."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": 0.99}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 10,
+            "point": 0.0001,
+        }
+
+        result = determine_order_limits(
+            client,
+            "EURUSD",
+            "long",
+            stop_loss_limit_ratio=0.05,
+            take_profit_limit_ratio=0.05,
+        )
+
+        _assert_close(result["stop_loss"], 0.95)
+        _assert_close(result["take_profit"], 1.05)
+
+    def test_rejects_take_profit_inside_broker_stop_level(self) -> None:
+        """Test long take-profit inside trade_stops_level raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": 0.99}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 100,
+            "point": 0.0001,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Take profit for 'EURUSD'"):
+            determine_order_limits(
+                client,
+                "EURUSD",
+                "long",
+                take_profit_limit_ratio=0.0001,
+            )
+
+    def test_rejects_short_stop_loss_inside_broker_stop_level(self) -> None:
+        """Test short stop-loss inside trade_stops_level raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.01, "bid": 1.0}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 100,
+            "point": 0.0001,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Stop loss for 'EURUSD'"):
+            determine_order_limits(
+                client,
+                "EURUSD",
+                "short",
+                stop_loss_limit_ratio=0.0001,
+            )
+
+    def test_rejects_short_take_profit_inside_broker_stop_level(self) -> None:
+        """Test short take-profit inside trade_stops_level raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.01, "bid": 1.0}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 100,
+            "point": 0.0001,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Take profit for 'EURUSD'"):
+            determine_order_limits(
+                client,
+                "EURUSD",
+                "short",
+                take_profit_limit_ratio=0.0001,
+            )
+
+    def test_allows_short_protective_levels_beyond_broker_stop_level(self) -> None:
+        """Test short SL/TP beyond trade_stops_level pass validation."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.01, "bid": 1.0}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 10,
+            "point": 0.0001,
+        }
+
+        result = determine_order_limits(
+            client,
+            "EURUSD",
+            "short",
+            stop_loss_limit_ratio=0.05,
+            take_profit_limit_ratio=0.05,
+        )
+
+        _assert_close(result["stop_loss"], 1.05)
+        _assert_close(result["take_profit"], 0.95)
+
+    def test_ignores_non_positive_broker_stop_level(self) -> None:
+        """Test zero trade_stops_level skips stop-distance validation."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": 0.99}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 0,
+            "point": 0.0001,
+        }
+
+        result = determine_order_limits(
+            client,
+            "EURUSD",
+            "long",
+            stop_loss_limit_ratio=0.0001,
+            take_profit_limit_ratio=0.0001,
+        )
+
+        assert result["stop_loss"] is not None
+        assert result["take_profit"] is not None
+
+    """Tests for ensure_symbol_selected."""
+
+    def test_skips_selection_when_symbol_is_visible(self) -> None:
+        """Test visible symbols do not call symbol_select."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+
+        ensure_symbol_selected(client, "EURUSD")
+
+        client.symbol_select.assert_not_called()
+
+    def test_selects_hidden_symbol_before_trading(self) -> None:
+        """Test hidden symbols are selected in Market Watch."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = True
+
+        ensure_symbol_selected(client, "EURUSD")
+
+        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+
+    def test_raises_when_symbol_selection_fails(self) -> None:
+        """Test failed symbol selection raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = False
+        client.last_error.return_value = (1, "not found")
+
+        with pytest.raises(Mt5TradingError, match="Failed to select symbol 'EURUSD'"):
+            ensure_symbol_selected(client, "EURUSD")
+
+    def test_raises_when_symbol_select_is_unavailable(self) -> None:
+        """Test missing symbol_select raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        del client.symbol_select
+
+        with pytest.raises(
+            Mt5TradingError,
+            match="missing required method: symbol_select",
+        ):
+            ensure_symbol_selected(client, "EURUSD")
 
 
 class TestMt5TradingSession:
@@ -624,6 +806,23 @@ class TestVolumeAndExecution:
             ),
             0.0,
         )
+
+    def test_calculate_volume_by_margin_never_returns_nonzero_below_volume_min(
+        self,
+    ) -> None:
+        """Test non-zero affordable volume is never below volume_min."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        client.order_calc_margin.return_value = 10.0
+
+        volume = calculate_volume_by_margin(client, "EURUSD", 35.0, "BUY")
+
+        assert abs(volume) < 1e-9 or volume >= 0.1
 
     def test_calculate_volume_by_margin_returns_zero_without_margin(self) -> None:
         """Test non-positive available margin returns zero before MT5 calls."""
@@ -943,6 +1142,7 @@ class TestVolumeAndExecution:
     def test_place_market_order_dry_run_does_not_send(self) -> None:
         """Test dry-run market orders return a request without sending."""
         client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
 
         result = place_market_order(
@@ -1257,6 +1457,80 @@ class TestVolumeAndExecution:
             pass
 
         mock_client.shutdown.assert_called_once()
+
+    def test_place_market_order_selects_hidden_symbol(self) -> None:
+        """Test market orders ensure hidden symbols are selected first."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = True
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+            dry_run=True,
+        )
+
+        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+
+    def test_update_sltp_marks_failed_retcode(self) -> None:
+        """Test SL/TP updates normalize failed broker retcodes."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10013, "comment": "invalid stops"}],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        assert result[0]["status"] == "failed"
+        assert result[0]["retcode"] == 10013
+
+    def test_trading_typed_dict_exports(self) -> None:
+        """Test order-planning TypedDict contracts are importable."""
+        margin: MarginVolume = {
+            "margin_free": 1.0,
+            "available_margin": 1.0,
+            "trade_margin": 0.5,
+            "buy_volume": 0.1,
+            "sell_volume": 0.1,
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+        limits: OrderLimits = {
+            "entry": 1.0,
+            "stop_loss": 0.9,
+            "take_profit": 1.1,
+        }
+        execution: OrderExecutionResult = {
+            "status": "dry_run",
+            "symbol": "EURUSD",
+            "order_side": "BUY",
+            "volume": 0.1,
+            "retcode": None,
+            "comment": None,
+            "request": {"action": 20},
+            "response": None,
+            "dry_run": True,
+        }
+        _assert_close(margin["buy_volume"], 0.1)
+        _assert_close(limits["entry"], 1.0)
+        assert execution["status"] == "dry_run"
 
     def test_shuts_down_when_body_raises(self, mocker: MockerFixture) -> None:
         """Test shutdown is called when the context body raises."""

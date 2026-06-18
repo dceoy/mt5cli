@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_type_hints
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -21,17 +21,23 @@ from mt5cli import (
     AccountSpec,
     DataKind,
     Dataset,
+    ExecutionStatus,
+    MarginVolume,
     MT5Client,
     Mt5CliError,
     Mt5ConnectionError,
     Mt5OperationError,
     Mt5SchemaError,
+    OrderExecutionResult,
+    OrderLimits,
     RateTarget,
     build_config,
     build_rate_targets,
+    calculate_margin_and_volume,
     call_with_normalized_errors,
     detect_format,
     drop_forming_rate_bar,
+    ensure_symbol_selected,
     ensure_utc,
     export_dataframe,
     export_dataframe_to_sqlite,
@@ -47,6 +53,7 @@ from mt5cli import (
     normalize_symbol,
     normalize_symbols,
     parse_date_range,
+    place_market_order,
     recent_window,
     resolve_account_spec,
     resolve_account_specs,
@@ -653,6 +660,18 @@ class TestStableSdkContract:
             mock_client.initialize_and_login_mt5.assert_called_once()
 
         mock_client.shutdown.assert_called_once()
+
+    def test_trading_order_helpers_importable_from_package_root(self) -> None:
+        """Order planning helpers resolve through the stable package surface."""
+        assert callable(calculate_margin_and_volume)
+        assert callable(ensure_symbol_selected)
+        assert callable(place_market_order)
+        margin_hints = get_type_hints(MarginVolume)
+        limits_hints = get_type_hints(OrderLimits)
+        execution_hints = get_type_hints(OrderExecutionResult)
+        assert margin_hints["buy_volume"] is float
+        assert limits_hints["stop_loss"] == float | None
+        assert execution_hints["status"] == ExecutionStatus
 
     def test_mt5_trading_session_shuts_down_on_exception(
         self,

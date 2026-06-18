@@ -38,17 +38,17 @@ Credential resolution is generic: any environment variable name may appear insid
 Module-level helpers open a transient connection per call. Prefer `mt5_session`
 or `MT5Client` when making many requests in one process.
 
-| Area                 | Symbols                                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------------------------- |
-| Rates                | `copy_rates_from`, `copy_rates_from_pos`, `copy_rates_range`, `latest_rates`, `collect_latest_rates` |
-| Ticks                | `copy_ticks_from`, `copy_ticks_range`, `recent_ticks`                                                |
-| Account / terminal   | `account_info`, `terminal_info`, `mt5_version`, `last_error`, `mt5_summary`, `mt5_summary_as_df`     |
+| Area               | Symbols                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------- |
+| Rates              | `copy_rates_from`, `copy_rates_from_pos`, `copy_rates_range`, `latest_rates`, `collect_latest_rates` |
+| Ticks              | `copy_ticks_from`, `copy_ticks_range`, `recent_ticks`                                                |
+| Account / terminal | `account_info`, `terminal_info`, `mt5_version`, `last_error`, `mt5_summary`, `mt5_summary_as_df`     |
 
 Use `mt5_version` for MetaTrader 5 terminal version data. The name `version` at
 the package root refers to `importlib.metadata.version` (package metadata), not
 the MT5 SDK helper.
-| Symbols / market     | `symbols`, `symbol_info`, `symbol_info_tick`, `market_book`, `minimum_margins`                       |
-| Trading state (read) | `orders`, `positions`, `history_orders`, `history_deals`, `recent_history_deals`                     |
+| Symbols / market | `symbols`, `symbol_info`, `symbol_info_tick`, `market_book`, `minimum_margins` |
+| Trading state (read) | `orders`, `positions`, `history_orders`, `history_deals`, `recent_history_deals` |
 
 ### Closed-bar rate helpers
 
@@ -97,10 +97,20 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `calculate_spread_ratio`                                                                           | Relative bid-ask spread                       |
 | `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio` | Margin budget and volume sizing               |
 | `determine_order_limits`                                                                           | SL/TP price levels from ratios                |
+| `ensure_symbol_selected`                                                                           | Select/verify Market Watch visibility         |
 | `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`                     | Order execution helpers (`dry_run` supported) |
-| `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`                                   | Typed enums for order helpers                 |
+| `MarginVolume`, `OrderLimits`, `OrderExecutionResult`                                              | Typed return contracts for order helpers      |
+| `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`, `ExecutionStatus`                | Typed enums for order helpers                 |
 
 `MT5Client.order_send()` and CLI `order-send --yes` are live execution paths.
+
+Order helpers validate broker stop-level distance in `determine_order_limits()` and
+raise `Mt5TradingError` when computed SL/TP prices are too close to the entry
+quote. `place_market_order()` and live SL/TP updates call
+`ensure_symbol_selected()` so hidden symbols are added to Market Watch before
+sending requests. Failed broker retcodes are returned as `status="failed"` with
+normalized `request` / `response` details; `dry_run=True` never calls
+`order_send()`.
 
 ### Errors and MT5 type re-exports
 
