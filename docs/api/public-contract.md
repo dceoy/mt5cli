@@ -42,7 +42,11 @@ or `MT5Client` when making many requests in one process.
 | -------------------- | ---------------------------------------------------------------------------------------------------- |
 | Rates                | `copy_rates_from`, `copy_rates_from_pos`, `copy_rates_range`, `latest_rates`, `collect_latest_rates` |
 | Ticks                | `copy_ticks_from`, `copy_ticks_range`, `recent_ticks`                                                |
-| Account / terminal   | `account_info`, `terminal_info`, `version`, `last_error`, `mt5_summary`, `mt5_summary_as_df`         |
+| Account / terminal   | `account_info`, `terminal_info`, `mt5_version`, `last_error`, `mt5_summary`, `mt5_summary_as_df`     |
+
+Use `mt5_version` for MetaTrader 5 terminal version data. The name `version` at
+the package root refers to `importlib.metadata.version` (package metadata), not
+the MT5 SDK helper.
 | Symbols / market     | `symbols`, `symbol_info`, `symbol_info_tick`, `market_book`, `minimum_margins`                       |
 | Trading state (read) | `orders`, `positions`, `history_orders`, `history_deals`, `recent_history_deals`                     |
 

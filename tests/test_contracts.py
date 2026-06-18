@@ -533,7 +533,6 @@ class TestStableSdkContract:
 
     def test_stable_exports_are_subset_of_all(self) -> None:
         """Every stable export is also listed in the package __all__."""
-        assert STABLE_SDK_EXPORTS.issubset(set(mt5cli.__all__))
         missing = sorted(STABLE_SDK_EXPORTS - set(mt5cli.__all__))
         assert not missing, f"STABLE_SDK_EXPORTS missing from __all__: {missing}"
 
@@ -655,16 +654,22 @@ class TestStableSdkContract:
 
         mock_client.shutdown.assert_called_once()
 
-    def test_mt5_session_yields_public_client_from_package_root(
+    def test_mt5_trading_session_shuts_down_on_exception(
         self,
         mocker: MockerFixture,
     ) -> None:
-        """Read-only mt5_session yields MT5Client from the stable surface."""
-        connected = mocker.MagicMock()
-        context = mocker.MagicMock()
-        context.__enter__.return_value = connected
-        context.__exit__.return_value = False
-        mocker.patch("mt5cli.client.connected_client", return_value=context)
+        """Trading session helper shuts down even when the body raises."""
+        mock_client = MagicMock()
+        mocker.patch(
+            "mt5cli.trading.Mt5TradingClient",
+            return_value=mock_client,
+        )
 
-        with mt5_session(build_config(login=123)) as client:
-            assert isinstance(client, MT5Client)
+        message = "strategy error"
+        with (
+            pytest.raises(RuntimeError, match=message),
+            mt5_trading_session(login=12345, server="Broker-Demo"),
+        ):
+            raise RuntimeError(message)
+
+        mock_client.shutdown.assert_called_once()
