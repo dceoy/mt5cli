@@ -1110,7 +1110,9 @@ class ThrottledHistoryUpdater:
         self.include_account_events = include_account_events
         self.interval_seconds = interval_seconds
         self.suppress_errors = suppress_errors
-        self.update_backend = update_backend or update_history
+        self.update_backend = (
+            update_history if update_backend is None else update_backend
+        )
         self._last_update_monotonic: float | None = None
 
     @property

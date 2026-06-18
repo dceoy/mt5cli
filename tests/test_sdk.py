@@ -2106,6 +2106,37 @@ class TestThrottledHistoryUpdater:
         updater = ThrottledHistoryUpdater(output="history.db")
         assert updater.update_backend is update_history
 
+    def test_falsy_callable_update_backend_is_preserved(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test only None selects the default backend, not falsy callables."""
+
+        class FalsyCallable:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def __bool__(self) -> bool:
+                return False
+
+            def __call__(self, **kwargs: object) -> None:
+                self.calls.append(kwargs)
+
+        falsy_backend = FalsyCallable()
+        default_backend = mocker.patch("mt5cli.sdk.update_history")
+        updater = ThrottledHistoryUpdater(
+            output="history.db",
+            update_backend=falsy_backend,
+        )
+
+        assert updater.update_backend is falsy_backend
+        client = MagicMock()
+        assert updater.update(client, ["EURUSD"]) is True
+        assert len(falsy_backend.calls) == 1
+        assert falsy_backend.calls[0]["client"] is client
+        assert falsy_backend.calls[0]["symbols"] == ["EURUSD"]
+        default_backend.assert_not_called()
+
     def test_custom_update_backend_receives_expected_kwargs(
         self,
         mocker: MockerFixture,
