@@ -19,6 +19,7 @@ from mt5cli.trading import (
     OrderLimits,
     calculate_margin_and_volume,
     calculate_new_position_margin_ratio,
+    calculate_positions_margin,
     calculate_spread_ratio,
     calculate_volume_by_margin,
     close_open_positions,
@@ -26,11 +27,14 @@ from mt5cli.trading import (
     detect_position_side,
     determine_order_limits,
     ensure_symbol_selected,
+    estimate_order_margin,
+    fetch_latest_closed_rates_for_trading_client,
     get_account_snapshot,
     get_positions_frame,
     get_symbol_snapshot,
     get_tick_snapshot,
     mt5_trading_session,
+    normalize_order_volume,
     place_market_order,
     update_sltp_for_open_positions,
 )
@@ -771,6 +775,474 @@ class TestSnapshotsAndState:
 
         with pytest.raises(Mt5TradingError):
             calculate_spread_ratio(client, "EURUSD")
+
+
+class TestNormalizeOrderVolume:
+    """Tests for normalize_order_volume."""
+
+    def test_returns_exact_minimum_volume(self) -> None:
+        """Test exact volume_min is returned unchanged."""
+        _assert_close(
+            normalize_order_volume(
+                0.1,
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.1,
+        )
+
+    def test_floors_to_step_between_boundaries(self) -> None:
+        """Test volume between steps floors down to the nearest valid step."""
+        _assert_close(
+            normalize_order_volume(
+                0.25,
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.2,
+        )
+
+    def test_clamps_to_volume_max(self) -> None:
+        """Test positive volume_max caps the normalized result."""
+        _assert_close(
+            normalize_order_volume(
+                0.9,
+                volume_min=0.1,
+                volume_max=0.5,
+                volume_step=0.1,
+            ),
+            0.5,
+        )
+
+    def test_returns_zero_below_volume_min(self) -> None:
+        """Test sub-minimum requests return zero volume."""
+        _assert_close(
+            normalize_order_volume(
+                0.05,
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.0,
+        )
+
+    def test_returns_zero_for_invalid_volume_min(self) -> None:
+        """Test non-positive volume_min returns zero volume."""
+        _assert_close(
+            normalize_order_volume(
+                1.0,
+                volume_min=0.0,
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.0,
+        )
+
+    def test_returns_zero_for_invalid_volume_step(self) -> None:
+        """Test non-positive volume_step returns zero volume."""
+        _assert_close(
+            normalize_order_volume(
+                1.0,
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=0.0,
+            ),
+            0.0,
+        )
+
+    def test_treats_non_positive_volume_max_as_no_cap(self) -> None:
+        """Test volume_max <= 0 disables the maximum cap."""
+        _assert_close(
+            normalize_order_volume(
+                2.5,
+                volume_min=0.1,
+                volume_max=0.0,
+                volume_step=0.1,
+            ),
+            2.5,
+        )
+
+    def test_reapplies_volume_max_after_step_normalization(self) -> None:
+        """Test post-step normalization cannot exceed volume_max."""
+        _assert_close(
+            normalize_order_volume(
+                0.5,
+                volume_min=0.1,
+                volume_max=0.34,
+                volume_step=0.12,
+            ),
+            0.34,
+        )
+
+    def test_returns_zero_for_non_finite_volume(self) -> None:
+        """Test NaN or infinite requested volume returns zero."""
+        _assert_close(
+            normalize_order_volume(
+                float("nan"),
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.0,
+        )
+        _assert_close(
+            normalize_order_volume(
+                float("inf"),
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.0,
+        )
+
+    def test_returns_zero_for_non_finite_constraints(self) -> None:
+        """Test NaN or infinite volume_min/volume_step returns zero."""
+        _assert_close(
+            normalize_order_volume(
+                1.0,
+                volume_min=float("nan"),
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.0,
+        )
+        _assert_close(
+            normalize_order_volume(
+                1.0,
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=float("inf"),
+            ),
+            0.0,
+        )
+
+    def test_treats_non_finite_volume_max_as_no_cap(self) -> None:
+        """Test non-finite volume_max disables the maximum cap."""
+        _assert_close(
+            normalize_order_volume(
+                2.5,
+                volume_min=0.1,
+                volume_max=float("nan"),
+                volume_step=0.1,
+            ),
+            2.5,
+        )
+
+
+class TestEstimateOrderMargin:
+    """Tests for estimate_order_margin."""
+
+    def test_estimates_buy_margin_at_ask(self) -> None:
+        """Test buy margin uses ask price and buy order type."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = 12.5
+
+        margin = estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+        _assert_close(margin, 12.5)
+        client.order_calc_margin.assert_called_once_with(10, "EURUSD", 0.1, 1.1010)
+
+    def test_estimates_sell_margin_at_bid(self) -> None:
+        """Test sell margin uses bid price and sell order type."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = 12.4
+
+        margin = estimate_order_margin(client, "EURUSD", "SELL", 0.1)
+
+        _assert_close(margin, 12.4)
+        client.order_calc_margin.assert_called_once_with(11, "EURUSD", 0.1, 1.1000)
+
+    def test_accepts_long_and_short_aliases(self) -> None:
+        """Test long/short aliases normalize to buy/sell pricing."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.side_effect = [12.5, 12.4]
+
+        estimate_order_margin(client, "EURUSD", "long", 0.1)
+        estimate_order_margin(client, "EURUSD", "short", 0.1)
+
+        client.order_calc_margin.assert_any_call(10, "EURUSD", 0.1, 1.1010)
+        client.order_calc_margin.assert_any_call(11, "EURUSD", 0.1, 1.1000)
+
+    def test_rejects_invalid_side(self) -> None:
+        """Test unsupported order side raises ValueError."""
+        client = _mock_trade_client()
+
+        with pytest.raises(ValueError, match="Unsupported order side"):
+            estimate_order_margin(client, "EURUSD", "HOLD", 0.1)
+
+    def test_rejects_non_positive_volume(self) -> None:
+        """Test non-positive volume raises Mt5TradingError."""
+        client = _mock_trade_client()
+
+        with pytest.raises(Mt5TradingError, match="positive finite number"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.0)
+
+    def test_rejects_nan_volume(self) -> None:
+        """Test NaN volume raises Mt5TradingError without broker calls."""
+        client = _mock_trade_client()
+
+        with pytest.raises(Mt5TradingError, match="positive finite number"):
+            estimate_order_margin(client, "EURUSD", "BUY", float("nan"))
+
+        client.symbol_info_tick_as_dict.assert_not_called()
+        client.order_calc_margin.assert_not_called()
+
+    def test_rejects_infinite_volume(self) -> None:
+        """Test infinite volume raises Mt5TradingError without broker calls."""
+        client = _mock_trade_client()
+
+        with pytest.raises(Mt5TradingError, match="positive finite number"):
+            estimate_order_margin(client, "EURUSD", "BUY", float("inf"))
+
+        client.symbol_info_tick_as_dict.assert_not_called()
+        client.order_calc_margin.assert_not_called()
+
+    def test_rejects_missing_tick_prices(self) -> None:
+        """Test missing tick prices raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1000}
+
+        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_non_positive_tick_price(self) -> None:
+        """Test non-positive tick prices raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 0.0, "bid": 1.1000}
+
+        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_non_finite_tick_price(self) -> None:
+        """Test non-finite tick prices raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {
+            "ask": float("inf"),
+            "bid": 1.1000,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_invalid_margin_result(self) -> None:
+        """Test non-positive margin estimates raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = 0.0
+
+        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_non_finite_margin_result(self) -> None:
+        """Test non-finite margin estimates raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = float("inf")
+
+        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_none_margin_result(self) -> None:
+        """Test None margin results raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = None
+
+        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_non_numeric_margin_result(self) -> None:
+        """Test non-numeric margin results raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = "invalid"
+
+        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+
+class TestCalculatePositionsMargin:
+    """Tests for calculate_positions_margin."""
+
+    def test_returns_zero_for_empty_positions(self) -> None:
+        """Test empty positions return zero total margin."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame()
+
+        _assert_close(calculate_positions_margin(client), 0.0)
+
+    def test_filters_by_symbols(self) -> None:
+        """Test optional symbol filter limits summed positions."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                {"symbol": "USDJPY", "type": 1, "volume": 0.2},
+            ],
+        )
+        client.symbol_info_tick_as_dict.side_effect = [
+            {"ask": 1.1010, "bid": 1.1000},
+            {"ask": 110.0, "bid": 109.0},
+        ]
+        client.order_calc_margin.side_effect = [12.5, 20.0]
+
+        margin = calculate_positions_margin(client, symbols=["EURUSD"])
+
+        _assert_close(margin, 12.5)
+        assert client.order_calc_margin.call_count == 1
+
+    def test_sums_mixed_buy_and_sell_positions(self) -> None:
+        """Test mixed buy/sell exposure sums each side independently."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                {"symbol": "EURUSD", "type": 1, "volume": 0.2},
+            ],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.side_effect = [12.5, 24.8]
+
+        margin = calculate_positions_margin(client)
+
+        _assert_close(margin, 37.3)
+
+    def test_groups_positions_by_symbol_and_side(self) -> None:
+        """Test repeated symbol/side pairs use one margin call with summed volume."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                {"symbol": "EURUSD", "type": 0, "volume": 0.2},
+            ],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = 37.5
+
+        margin = calculate_positions_margin(client)
+
+        _assert_close(margin, 37.5)
+        client.order_calc_margin.assert_called_once()
+        args = client.order_calc_margin.call_args[0]
+        assert args[0] == 10
+        assert args[1] == "EURUSD"
+        _assert_close(args[2], 0.3)
+        _assert_close(args[3], 1.1010)
+
+    def test_sums_multiple_symbols(self) -> None:
+        """Test positions across symbols are all included."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                {"symbol": "GBPUSD", "type": 1, "volume": 0.3},
+            ],
+        )
+        client.symbol_info_tick_as_dict.side_effect = [
+            {"ask": 1.1010, "bid": 1.1000},
+            {"ask": 1.3010, "bid": 1.3000},
+        ]
+        client.order_calc_margin.side_effect = [12.5, 30.0]
+
+        margin = calculate_positions_margin(client)
+
+        _assert_close(margin, 42.5)
+
+    def test_propagates_invalid_tick_or_margin_errors(self) -> None:
+        """Test invalid tick or margin data raises Mt5TradingError."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"symbol": "EURUSD", "type": 0, "volume": 0.1}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1000}
+
+        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+            calculate_positions_margin(client)
+
+    def test_skips_rows_with_invalid_symbol_volume_or_type(self) -> None:
+        """Test malformed position rows are ignored when summing margin."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "", "type": 0, "volume": 0.1},
+                {"symbol": "EURUSD", "type": 0, "volume": 0.0},
+                {"symbol": "EURUSD", "type": 2, "volume": 0.1},
+                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+            ],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = 12.5
+
+        margin = calculate_positions_margin(client)
+
+        _assert_close(margin, 12.5)
+        client.order_calc_margin.assert_called_once()
+
+    def test_skips_rows_with_non_finite_volume(self) -> None:
+        """Test NaN and infinite position volumes are ignored."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "EURUSD", "type": 0, "volume": float("nan")},
+                {"symbol": "EURUSD", "type": 0, "volume": float("inf")},
+                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+            ],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = 12.5
+
+        margin = calculate_positions_margin(client)
+
+        _assert_close(margin, 12.5)
+        client.order_calc_margin.assert_called_once()
+
+    def test_returns_zero_when_all_volumes_are_non_finite(self) -> None:
+        """Test all-invalid non-finite volumes return zero without broker calls."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "EURUSD", "type": 0, "volume": float("nan")},
+                {"symbol": "EURUSD", "type": 1, "volume": float("inf")},
+            ],
+        )
+
+        _assert_close(calculate_positions_margin(client), 0.0)
+        client.order_calc_margin.assert_not_called()
+        client.symbol_info_tick_as_dict.assert_not_called()
+
+    def test_returns_zero_when_symbol_filter_matches_nothing(self) -> None:
+        """Test filtered symbol lists with no matches return zero."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"symbol": "EURUSD", "type": 0, "volume": 0.1}],
+        )
+
+        _assert_close(calculate_positions_margin(client, symbols=["GBPUSD"]), 0.0)
+        client.order_calc_margin.assert_not_called()
+
+    def test_returns_zero_for_empty_positions_with_symbol_filter(self) -> None:
+        """Test empty positions with a symbol filter return zero."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame()
+
+        _assert_close(calculate_positions_margin(client, symbols=["EURUSD"]), 0.0)
+
+    def test_returns_zero_for_positions_without_symbol_column_with_symbol_filter(
+        self,
+    ) -> None:
+        """Test positions missing a symbol column return zero when filtered."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"type": 0, "volume": 0.1}],
+        )
+
+        _assert_close(calculate_positions_margin(client, symbols=["EURUSD"]), 0.0)
+        client.order_calc_margin.assert_not_called()
 
 
 class TestVolumeAndExecution:
@@ -1928,3 +2400,230 @@ class TestVolumeAndExecution:
             raise RuntimeError(body_error)
 
         mock_client.shutdown.assert_called_once()
+
+
+class TestFetchLatestClosedRatesForTradingClient:
+    """Tests for fetch_latest_closed_rates_for_trading_client."""
+
+    def test_fetches_extra_bar_and_drops_forming_row(self) -> None:
+        """Test trading-client helper hides the forming bar."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
+            {
+                "time": [1, 2, 3],
+                "close": [1.0, 1.1, 1.2],
+            },
+        )
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        client.fetch_latest_rates_as_df.assert_called_once_with("EURUSD", "M1", 3)
+        assert list(result["close"]) == [1.0, 1.1]
+        assert list(result["time"]) == [1, 2]
+
+    def test_falls_back_to_copy_rates_from_pos_as_df(self) -> None:
+        """Test legacy trading clients without fetch helper still work."""
+        client = MagicMock(spec=["copy_rates_from_pos_as_df", "mt5"])
+        del client.fetch_latest_rates_as_df
+        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
+            {
+                "time": [1, 2, 3],
+                "close": [1.0, 1.1, 1.2],
+            },
+        )
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        client.copy_rates_from_pos_as_df.assert_called_once_with(
+            symbol="EURUSD",
+            timeframe=1,
+            start_pos=0,
+            count=3,
+        )
+        assert list(result["close"]) == [1.0, 1.1]
+
+    def test_accepts_numeric_epoch_timestamps(self) -> None:
+        """Test numeric epoch timestamps are preserved in output."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
+            {
+                "time": [1700000000, 1700000060, 1700000120],
+                "close": [1.0, 1.1, 1.2],
+            },
+        )
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert list(result["time"]) == [1700000000, 1700000060]
+
+    def test_accepts_timezone_aware_timestamps_from_index(self) -> None:
+        """Test timezone-aware timestamps in the index are exposed as a column."""
+        client = MagicMock()
+        frame = pd.DataFrame(
+            {
+                "close": [1.0, 1.1, 1.2],
+            },
+            index=pd.to_datetime(
+                [
+                    "2024-01-01T00:00:00Z",
+                    "2024-01-01T00:01:00Z",
+                    "2024-01-01T00:02:00Z",
+                ],
+                utc=True,
+            ),
+        )
+        frame.index.name = "time"
+        client.fetch_latest_rates_as_df.return_value = frame
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert "time" in result.columns
+        assert len(result) == 2
+        assert result["close"].tolist() == [1.0, 1.1]
+
+    def test_accepts_unnamed_datetime_index(self) -> None:
+        """Test unnamed DatetimeIndex values are exposed as a time column."""
+        client = MagicMock()
+        frame = pd.DataFrame(
+            {"close": [1.0, 1.1, 1.2]},
+            index=pd.to_datetime(
+                [
+                    "2024-01-01T00:00:00Z",
+                    "2024-01-01T00:01:00Z",
+                    "2024-01-01T00:02:00Z",
+                ],
+                utc=True,
+            ),
+        )
+        client.fetch_latest_rates_as_df.return_value = frame
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert "time" in result.columns
+        assert len(result) == 2
+
+    def test_accepts_named_non_time_index(self) -> None:
+        """Test non-time named indexes are left unchanged before validation."""
+        client = MagicMock()
+        frame = pd.DataFrame(
+            {
+                "close": [1.0, 1.1, 1.2],
+                "bar_id": [1, 2, 3],
+            },
+        ).set_index("bar_id")
+        client.fetch_latest_rates_as_df.return_value = frame
+
+        with pytest.raises(ValueError, match="missing a time column"):
+            fetch_latest_closed_rates_for_trading_client(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=2,
+            )
+
+    def test_raises_when_trading_client_cannot_fetch_rates(self) -> None:
+        """Test missing rate-fetch methods raise Mt5TradingError."""
+        client = MagicMock(spec=[])
+
+        with pytest.raises(Mt5TradingError, match="cannot fetch rate data"):
+            fetch_latest_closed_rates_for_trading_client(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=1,
+            )
+
+    def test_raises_when_time_column_is_missing(self) -> None:
+        """Test malformed rate data without time raises ValueError."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
+            {"close": [1.0, 1.1, 1.2]},
+        )
+
+        with pytest.raises(ValueError, match="missing a time column"):
+            fetch_latest_closed_rates_for_trading_client(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=2,
+            )
+
+    def test_raises_when_no_closed_bars_are_available(self) -> None:
+        """Test empty closed-bar results raise an actionable ValueError."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
+            {"time": [1], "close": [1.0]},
+        )
+
+        with pytest.raises(ValueError, match="Rate data is empty"):
+            fetch_latest_closed_rates_for_trading_client(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=1,
+            )
+
+    def test_raises_when_fetch_returns_none(self) -> None:
+        """Test None fetch results raise a malformed rate data error."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = None
+
+        with pytest.raises(ValueError, match="Malformed rate data"):
+            fetch_latest_closed_rates_for_trading_client(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=2,
+            )
+
+    def test_raises_when_fetch_returns_non_dataframe(self) -> None:
+        """Test non-DataFrame fetch results raise a malformed rate data error."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = [{"time": 1, "close": 1.0}]
+
+        with pytest.raises(ValueError, match="Malformed rate data"):
+            fetch_latest_closed_rates_for_trading_client(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=2,
+            )
+
+    def test_rejects_non_positive_count_before_fetching(self) -> None:
+        """Test invalid count values fail before calling MT5."""
+        client = MagicMock()
+
+        with pytest.raises(ValueError, match="count must be positive"):
+            fetch_latest_closed_rates_for_trading_client(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=0,
+            )
+
+        client.fetch_latest_rates_as_df.assert_not_called()

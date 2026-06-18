@@ -40,15 +40,19 @@ betting logic, or scheduling code in downstream applications.
 
 ```python
 from mt5cli import (
+    calculate_positions_margin,
     calculate_spread_ratio,
     calculate_margin_and_volume,
     close_open_positions,
     detect_position_side,
     determine_order_limits,
+    estimate_order_margin,
+    fetch_latest_closed_rates_for_trading_client,
     get_account_snapshot,
     get_positions_frame,
     get_symbol_snapshot,
     get_tick_snapshot,
+    normalize_order_volume,
     place_market_order,
 )
 
@@ -58,6 +62,22 @@ tick = get_tick_snapshot(client, "EURUSD")
 positions = get_positions_frame(client, "EURUSD")
 side = detect_position_side(client, "EURUSD")
 spread_ratio = calculate_spread_ratio(client, "EURUSD")
+volume = normalize_order_volume(
+    0.15,
+    volume_min=symbol["volume_min"],
+    volume_max=symbol["volume_max"],
+    volume_step=symbol["volume_step"],
+)
+buy_margin = (
+    estimate_order_margin(client, "EURUSD", "BUY", volume) if volume > 0 else 0.0
+)
+open_margin = calculate_positions_margin(client, symbols=["EURUSD"])
+closed_bars = fetch_latest_closed_rates_for_trading_client(
+    client,
+    symbol="EURUSD",
+    granularity="M1",
+    count=100,
+)
 sizing = calculate_margin_and_volume(
     client,
     "EURUSD",
@@ -87,6 +107,12 @@ closed = close_open_positions(client, symbols="EURUSD", dry_run=True)
 sell-only exposure, and `None` for no positions or mixed long/short exposure.
 `calculate_spread_ratio()` uses `(ask - bid) / ((ask + bid) / 2)` and raises
 `Mt5TradingError` when bid or ask is missing or non-positive.
+`normalize_order_volume()` returns `0.0` for invalid constraints or
+sub-minimum requests; check the result before calling `estimate_order_margin()`,
+which requires a positive finite volume. `calculate_positions_margin()` silently
+skips rows with missing symbols, non-positive volumes, non-finite volumes, or
+unsupported position types, but propagates `Mt5TradingError` from `estimate_order_margin()` when a valid row
+encounters invalid tick data or margin results from the broker.
 
 SL/TP ratios for `determine_order_limits()` must satisfy `0 <= ratio < 1`; `0`
 omits that level. SL/TP prices are rounded with symbol `digits` metadata when
@@ -153,6 +179,9 @@ through the stable package root without embedding entry/exit policy.
 | Manual terminal spawn/kill around trading code           | `mt5_trading_session()`                         |
 | Local position-side detection                            | `detect_position_side()`                        |
 | Local margin/volume sizing                               | `calculate_margin_and_volume()`                 |
+| Local broker volume step normalization                   | `normalize_order_volume()`                      |
+| Local order or position margin estimation                | `estimate_order_margin()`, `calculate_positions_margin()` |
+| Local closed-bar fetch from a trading session            | `fetch_latest_closed_rates_for_trading_client()` |
 | Local SL/TP price derivation                             | `determine_order_limits()`                      |
 | Throttled SQLite history loop with ad-hoc error handling | `ThrottledHistoryUpdater(suppress_errors=True)` |
 
