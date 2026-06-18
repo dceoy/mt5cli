@@ -1365,10 +1365,10 @@ class TestVolumeAndExecution:
         )
 
         assert result["retcode"] is None
-        assert result["status"] == "executed"
+        assert result["status"] == "failed"
 
-    def test_place_market_order_treats_string_retcode_as_executed(self) -> None:
-        """Test non-integer retcodes do not normalize to failed status."""
+    def test_place_market_order_marks_failed_string_retcode(self) -> None:
+        """Test digit-string failure retcodes normalize to failed status."""
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
         client.order_send.return_value = pd.DataFrame(
@@ -1382,8 +1382,102 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
+        assert result["retcode"] == 10013
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_failed_whitespace_string_retcode(self) -> None:
+        """Test whitespace-padded digit-string retcodes normalize to failed status."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": " 10013 ", "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] == 10013
+        assert result["status"] == "failed"
+
+    @pytest.mark.parametrize("retcode", ["+10013", "-10013"])
+    def test_place_market_order_marks_signed_string_retcode_as_failed(
+        self,
+        retcode: str,
+    ) -> None:
+        """Test signed digit-string failure retcodes normalize to failed status."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": retcode, "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] == 10013 if retcode.startswith("+") else -10013
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_malformed_retcode_as_failed(self) -> None:
+        """Test malformed non-None retcodes are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": "invalid", "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
         assert result["retcode"] is None
-        assert result["status"] == "executed"
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_empty_string_retcode_as_failed(self) -> None:
+        """Test empty string retcodes are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": "   ", "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] is None
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_object_retcode_as_failed(self) -> None:
+        """Test unsupported retcode object types are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": object(), "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] is None
+        assert result["status"] == "failed"
 
     def test_close_open_positions_filters_and_dry_runs(self) -> None:
         """Test close helper filters positions and builds opposite orders."""
@@ -1698,8 +1792,8 @@ class TestVolumeAndExecution:
         assert result[0]["status"] == "failed"
         assert result[0]["retcode"] == 10013
 
-    def test_update_sltp_treats_string_retcode_as_executed(self) -> None:
-        """Test non-integer SL/TP retcodes do not normalize to failed status."""
+    def test_update_sltp_marks_failed_string_retcode(self) -> None:
+        """Test digit-string failure retcodes normalize to failed SL/TP status."""
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {"visible": True}
         client.positions_get_as_df.return_value = pd.DataFrame(
@@ -1720,8 +1814,33 @@ class TestVolumeAndExecution:
 
         result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
 
+        assert result[0]["retcode"] == 10013
+        assert result[0]["status"] == "failed"
+
+    def test_update_sltp_marks_malformed_retcode_as_failed(self) -> None:
+        """Test malformed non-None SL/TP retcodes are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": "invalid", "comment": "invalid stops"}],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
         assert result[0]["retcode"] is None
-        assert result[0]["status"] == "executed"
+        assert result[0]["status"] == "failed"
 
     def test_trading_typed_dict_exports(self) -> None:
         """Test order-planning TypedDict contracts are importable."""

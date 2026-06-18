@@ -111,9 +111,9 @@ symbol metadata as a pre-check only; it does not guarantee live order acceptance
 after price movement and does not inspect `trade_freeze_level`. Live
 `place_market_order()` and SL/TP updates call
 `ensure_symbol_selected()` so hidden symbols are added to Market Watch before
-sending requests. Failed broker retcodes are returned as `status="failed"` with
-normalized `request` / `response` details; `dry_run=True` never calls
-`ensure_symbol_selected()` or `order_send()`.
+sending requests. Failed, malformed, or unknown broker retcodes are fail-closed
+and returned as `status="failed"` with normalized `request` / `response` details;
+`dry_run=True` never calls `ensure_symbol_selected()` or `order_send()`.
 
 ### Errors and MT5 type re-exports
 

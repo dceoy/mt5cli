@@ -104,9 +104,9 @@ when the post-reserve margin can afford it. Negative `margin_free` is clamped to
 dictionaries containing the request, response, status, retcode, and `dry_run`
 flag; `dry_run=True` never sends an order or mutates Market Watch visibility.
 `ensure_symbol_selected()` adds hidden symbols to Market Watch before live order
-placement and SL/TP updates. Market order helpers mark known non-success MT5
-retcodes as `status="failed"` while keeping the normalized response for
-inspection.
+placement and SL/TP updates. Failed, malformed, or unknown broker retcodes are
+fail-closed and returned as `status="failed"` while keeping the normalized
+response for inspection.
 
 ## Order planning return contracts
 

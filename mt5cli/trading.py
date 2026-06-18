@@ -336,11 +336,26 @@ def _resolve_mt5_constant(
         raise Mt5TradingError(msg) from exc
 
 
+def _parse_digit_string(value: str) -> int | None:
+    text = value.strip()
+    if not text:
+        return None
+    sign = 1
+    if text[0] == "+":
+        text = text[1:].strip()
+    elif text[0] == "-":
+        sign = -1
+        text = text[1:].strip()
+    return sign * int(text) if text.isdigit() else None
+
+
 def _optional_int(value: object) -> int | None:
-    if isinstance(value, bool):
+    if value is None or isinstance(value, bool):
         return None
     if isinstance(value, Integral):
         return int(value)
+    if isinstance(value, str):
+        return _parse_digit_string(value)
     return None
 
 
@@ -373,7 +388,7 @@ def _order_status_from_retcode(mt5: object, retcode: object) -> ExecutionStatus:
         return "executed"
     normalized = _optional_int(retcode)
     if normalized is None:
-        return "executed"
+        return "failed"
     if normalized not in _success_retcodes(mt5):
         return "failed"
     return "executed"
@@ -857,9 +872,10 @@ def place_market_order(
         }
     response = client.order_send(request)
     response_dict = _snapshot_from_value(response, ())
-    retcode = _optional_int(response_dict.get("retcode"))
+    raw_retcode = response_dict.get("retcode")
+    retcode = _optional_int(raw_retcode)
     return {
-        "status": _order_status_from_retcode(client.mt5, retcode),
+        "status": _order_status_from_retcode(client.mt5, raw_retcode),
         "symbol": symbol,
         "order_side": side,
         "volume": volume,
