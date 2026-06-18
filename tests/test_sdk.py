@@ -2110,7 +2110,7 @@ class TestThrottledHistoryUpdater:
         self,
         mocker: MockerFixture,
     ) -> None:
-        """Test a custom backend receives the same keyword arguments as update_history."""
+        """Test a custom backend receives update_history keyword arguments."""
         backend = mocker.Mock()
         client = MagicMock()
         updater = ThrottledHistoryUpdater(
@@ -2171,7 +2171,7 @@ class TestThrottledHistoryUpdater:
         )
 
         assert updater.update(MagicMock(), ["EURUSD"]) is True
-        assert updater.last_update_monotonic == 42.0
+        assert updater.last_update_monotonic is monotonic.return_value
         monotonic.assert_called_once()
 
     def test_failed_custom_backend_does_not_advance_throttle(
