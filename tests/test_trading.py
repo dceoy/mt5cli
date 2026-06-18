@@ -1422,7 +1422,26 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
-        assert result["retcode"] == 10013 if retcode.startswith("+") else -10013
+        expected = 10013 if retcode.startswith("+") else -10013
+        assert result["retcode"] == expected
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_missing_retcode_as_failed(self) -> None:
+        """Test live responses without retcode are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"comment": "missing retcode"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] is None
         assert result["status"] == "failed"
 
     def test_place_market_order_marks_malformed_retcode_as_failed(self) -> None:
@@ -1835,6 +1854,31 @@ class TestVolumeAndExecution:
         )
         client.order_send.return_value = pd.DataFrame(
             [{"retcode": "invalid", "comment": "invalid stops"}],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        assert result[0]["retcode"] is None
+        assert result[0]["status"] == "failed"
+
+    def test_update_sltp_marks_missing_retcode_as_failed(self) -> None:
+        """Test live SL/TP responses without retcode are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"comment": "missing retcode"}],
         )
 
         result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)

@@ -384,8 +384,6 @@ def _success_retcodes(mt5: object) -> frozenset[int]:
 
 
 def _order_status_from_retcode(mt5: object, retcode: object) -> ExecutionStatus:
-    if retcode is None:
-        return "executed"
     normalized = _optional_int(retcode)
     if normalized is None:
         return "failed"
