@@ -1225,6 +1225,25 @@ class TestCalculatePositionsMargin:
         _assert_close(calculate_positions_margin(client, symbols=["GBPUSD"]), 0.0)
         client.order_calc_margin.assert_not_called()
 
+    def test_returns_zero_for_empty_positions_with_symbol_filter(self) -> None:
+        """Test empty positions with a symbol filter return zero."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame()
+
+        _assert_close(calculate_positions_margin(client, symbols=["EURUSD"]), 0.0)
+
+    def test_returns_zero_for_positions_without_symbol_column_with_symbol_filter(
+        self,
+    ) -> None:
+        """Test positions missing a symbol column return zero when filtered."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"type": 0, "volume": 0.1}],
+        )
+
+        _assert_close(calculate_positions_margin(client, symbols=["EURUSD"]), 0.0)
+        client.order_calc_margin.assert_not_called()
+
 
 class TestVolumeAndExecution:
     """Tests for order planning and execution helpers."""

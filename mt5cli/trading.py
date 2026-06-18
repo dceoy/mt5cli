@@ -655,6 +655,8 @@ def calculate_positions_margin(
         Total estimated margin, or ``0.0`` when no matching positions exist.
     """
     frame = get_positions_frame(client)
+    if frame.empty or "symbol" not in frame.columns:
+        return 0.0
     if symbols is not None:
         frame = frame[frame["symbol"].isin(list(symbols))]
     if frame.empty:
