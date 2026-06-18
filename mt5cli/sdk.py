@@ -42,6 +42,8 @@ from .utils import coerce_login as _coerce_login
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
+    UpdateHistoryBackend = Callable[..., None]
+
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
@@ -1044,10 +1046,16 @@ def update_history_with_config(  # noqa: PLR0913
 class ThrottledHistoryUpdater:
     """Throttled incremental SQLite history updater for long-running apps.
 
-    Wraps :func:`update_history` with a minimum interval between successful
-    updates, so a tight application loop can call :meth:`update` every
-    iteration without re-fetching MT5 history more often than desired. Timing
-    uses a monotonic clock, so it is unaffected by wall-clock changes.
+    Wraps :func:`update_history` (or a custom ``update_backend``) with a minimum
+    interval between successful updates, so a tight application loop can call
+    :meth:`update` every iteration without re-fetching MT5 history more often
+    than desired. Timing uses a monotonic clock, so it is unaffected by
+    wall-clock changes.
+
+    Downstream applications may pass ``update_backend`` to substitute the
+    default :func:`update_history` implementation—for example to add
+    application-specific logging, metrics, or test doubles—without monkey-
+    patching ``mt5cli.sdk.update_history``.
     """
 
     def __init__(
@@ -1062,6 +1070,7 @@ class ThrottledHistoryUpdater:
         include_account_events: bool = True,
         interval_seconds: float = 0.0,
         suppress_errors: bool = False,
+        update_backend: UpdateHistoryBackend | None = None,
     ) -> None:
         """Initialize the throttled updater.
 
@@ -1085,6 +1094,12 @@ class ThrottledHistoryUpdater:
                 the throttle. Other ``AttributeError`` / ``TypeError`` values
                 always propagate. When False (default), recoverable errors
                 propagate so callers control logging.
+            update_backend: Callable invoked instead of :func:`update_history`
+                when :meth:`update` runs. Receives the same keyword arguments as
+                :func:`update_history` (``client``, ``output``, ``symbols``,
+                ``datasets``, ``timeframes``, ``flags``, ``lookback_hours``,
+                ``with_views``, ``include_account_events``). Defaults to
+                :func:`update_history`.
         """
         self.output = output
         self.datasets = datasets
@@ -1095,6 +1110,9 @@ class ThrottledHistoryUpdater:
         self.include_account_events = include_account_events
         self.interval_seconds = interval_seconds
         self.suppress_errors = suppress_errors
+        self.update_backend = (
+            update_history if update_backend is None else update_backend
+        )
         self._last_update_monotonic: float | None = None
 
     @property
@@ -1145,7 +1163,7 @@ class ThrottledHistoryUpdater:
                 lookback_hours=self.lookback_hours,
                 date_to=None,
             )
-            update_history(
+            self.update_backend(
                 client=client,
                 output=self.output,
                 symbols=symbols,

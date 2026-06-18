@@ -67,16 +67,16 @@ timestamp normalization in downstream apps.
 
 ### SQLite history collection and rate loading
 
-| Symbol                                                                                                                        | Role                                                                 |
-| ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `collect_history`                                                                                                             | One-shot date-range export into SQLite                               |
-| `update_history`, `update_history_with_config`                                                                                | Incremental append from `MAX(time)` cursors                          |
-| `ThrottledHistoryUpdater`                                                                                                     | Minimum interval between successful incremental updates              |
-| `resolve_history_datasets`, `resolve_history_timeframes`, `resolve_history_tick_flags`                                        | History pipeline configuration                                       |
-| `build_rate_view_name`, `resolve_rate_table_name`, `resolve_rate_view_name`, `resolve_rate_view_names`, `resolve_rate_tables` | Map symbols/timeframes to mt5cli-managed table or view names         |
-| `RateTarget`, `build_rate_targets`                                                                                            | Neutral `(symbol, timeframe)` series descriptors                     |
-| `load_rate_data`, `load_rate_data_from_connection`                                                                            | Load one table/view into a time-indexed DataFrame                    |
-| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity`                                                             | Load one or many series; fail clearly when managed views are missing |
+| Symbol                                                                                                                        | Role                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `collect_history`                                                                                                             | One-shot date-range export into SQLite                                                       |
+| `update_history`, `update_history_with_config`                                                                                | Incremental append from `MAX(time)` cursors                                                  |
+| `ThrottledHistoryUpdater`                                                                                                     | Minimum interval between successful incremental updates; optional `update_backend` injection |
+| `resolve_history_datasets`, `resolve_history_timeframes`, `resolve_history_tick_flags`                                        | History pipeline configuration                                                               |
+| `build_rate_view_name`, `resolve_rate_table_name`, `resolve_rate_view_name`, `resolve_rate_view_names`, `resolve_rate_tables` | Map symbols/timeframes to mt5cli-managed table or view names                                 |
+| `RateTarget`, `build_rate_targets`                                                                                            | Neutral `(symbol, timeframe)` series descriptors                                             |
+| `load_rate_data`, `load_rate_data_from_connection`                                                                            | Load one table/view into a time-indexed DataFrame                                            |
+| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity`                                                             | Load one or many series; fail clearly when managed views are missing                         |
 
 Pass `require_existing=True` to rate view resolution helpers when downstream
 code must fail instead of receiving a best-guess view name. Multi-series loaders
