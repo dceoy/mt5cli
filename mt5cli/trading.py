@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from math import floor, isfinite
-from typing import TYPE_CHECKING, Literal, cast
+from numbers import Integral
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 import pandas as pd
 from pdmt5 import Mt5Config, Mt5TradingClient, Mt5TradingError
@@ -19,6 +20,44 @@ PositionSide = Literal["long", "short"]
 OrderSide = Literal["BUY", "SELL"]
 OrderFillingMode = Literal["IOC", "FOK", "RETURN"]
 OrderTimeMode = Literal["GTC", "DAY", "SPECIFIED", "SPECIFIED_DAY"]
+ExecutionStatus = Literal["executed", "dry_run", "skipped", "failed"]
+
+
+class MarginVolume(TypedDict):
+    """Affordable volume bounds derived from account margin and symbol constraints."""
+
+    margin_free: float
+    available_margin: float
+    trade_margin: float
+    buy_volume: float
+    sell_volume: float
+    volume_min: float
+    volume_max: float
+    volume_step: float
+
+
+class OrderLimits(TypedDict):
+    """Protective order prices derived from current quotes and ratio parameters."""
+
+    entry: float
+    stop_loss: float | None
+    take_profit: float | None
+
+
+class OrderExecutionResult(TypedDict):
+    """Normalized result from market-order and position-management helpers."""
+
+    status: ExecutionStatus
+    symbol: str
+    order_side: OrderSide
+    volume: float
+    retcode: int | None
+    comment: str | None
+    request: dict[str, object]
+    response: dict[str, object] | None
+    dry_run: bool
+
+
 _ORDER_FILLING_MODES: frozenset[str] = frozenset({"IOC", "FOK", "RETURN"})
 _ORDER_TIME_MODES: frozenset[str] = frozenset({
     "GTC",
@@ -76,7 +115,11 @@ POSITION_COLUMNS = (
 
 __all__ = [
     "POSITION_COLUMNS",
+    "ExecutionStatus",
+    "MarginVolume",
+    "OrderExecutionResult",
     "OrderFillingMode",
+    "OrderLimits",
     "OrderSide",
     "OrderTimeMode",
     "PositionSide",
@@ -88,6 +131,7 @@ __all__ = [
     "create_trading_client",
     "detect_position_side",
     "determine_order_limits",
+    "ensure_symbol_selected",
     "get_account_snapshot",
     "get_positions_frame",
     "get_symbol_snapshot",
@@ -96,6 +140,91 @@ __all__ = [
     "place_market_order",
     "update_sltp_for_open_positions",
 ]
+
+
+def _minimum_stop_distance(
+    symbol_info: dict[str, float | int | str | bool | None],
+) -> float:
+    """Return the minimum SL/TP distance in price units from broker stop level."""
+    stops_level = symbol_info.get("trade_stops_level")
+    point = symbol_info.get("point")
+    if not isinstance(stops_level, int | float) or not isinstance(point, int | float):
+        return 0.0
+    level = float(stops_level)
+    pt = float(point)
+    if level <= 0 or pt <= 0:
+        return 0.0
+    return level * pt
+
+
+def _validate_protective_prices(
+    *,
+    symbol: str,
+    side: PositionSide,
+    entry: float,
+    stop_loss: float | None,
+    take_profit: float | None,
+    min_distance: float,
+) -> None:
+    """Validate SL/TP distances against broker stop-level constraints.
+
+    Raises:
+        Mt5TradingError: When a protective price is closer than ``min_distance``.
+    """
+    if min_distance <= 0:
+        return
+    if side == "long":
+        if stop_loss is not None and (entry - stop_loss) < min_distance:
+            msg = (
+                f"Stop loss for {symbol!r} violates broker stop level "
+                f"(minimum distance {min_distance})."
+            )
+            raise Mt5TradingError(msg)
+        if take_profit is not None and (take_profit - entry) < min_distance:
+            msg = (
+                f"Take profit for {symbol!r} violates broker stop level "
+                f"(minimum distance {min_distance})."
+            )
+            raise Mt5TradingError(msg)
+        return
+    if stop_loss is not None and (stop_loss - entry) < min_distance:
+        msg = (
+            f"Stop loss for {symbol!r} violates broker stop level "
+            f"(minimum distance {min_distance})."
+        )
+        raise Mt5TradingError(msg)
+    if take_profit is not None and (entry - take_profit) < min_distance:
+        msg = (
+            f"Take profit for {symbol!r} violates broker stop level "
+            f"(minimum distance {min_distance})."
+        )
+        raise Mt5TradingError(msg)
+
+
+def ensure_symbol_selected(client: Mt5TradingClient, symbol: str) -> None:
+    """Ensure a symbol is visible in Market Watch before sending orders.
+
+    Args:
+        client: Connected ``Mt5TradingClient`` instance.
+        symbol: Symbol to select.
+
+    Raises:
+        Mt5TradingError: If the symbol cannot be selected in Market Watch or
+            ``symbol_select`` is unavailable on the client.
+    """
+    snapshot = get_symbol_snapshot(client, symbol)
+    if snapshot.get("visible"):
+        return
+    select = getattr(client, "symbol_select", None)
+    if not callable(select):
+        msg = "MT5 client is missing required method: symbol_select"
+        raise Mt5TradingError(msg)
+    if select(symbol, enable=True):
+        return
+    last_error = getattr(client, "last_error", None)
+    detail = f" ({last_error()})" if callable(last_error) else ""
+    msg = f"Failed to select symbol {symbol!r} in Market Watch{detail}."
+    raise Mt5TradingError(msg)
 
 
 def _require_unit_ratio(value: float, name: str) -> None:
@@ -207,6 +336,33 @@ def _resolve_mt5_constant(
         raise Mt5TradingError(msg) from exc
 
 
+def _parse_digit_string(value: str) -> int | None:
+    text = value.strip()
+    if not text:
+        return None
+    sign = 1
+    if text[0] == "+":
+        text = text[1:].strip()
+    elif text[0] == "-":
+        sign = -1
+        text = text[1:].strip()
+    return sign * int(text) if text.isdigit() else None
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, Integral):
+        return int(value)
+    if isinstance(value, str):
+        return _parse_digit_string(value)
+    return None
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def _optional_price(value: object) -> float | None:
     if value is None:
         return None
@@ -227,10 +383,11 @@ def _success_retcodes(mt5: object) -> frozenset[int]:
     return frozenset(values) or _SUCCESS_RETCODE_FALLBACKS
 
 
-def _order_status_from_retcode(mt5: object, retcode: object) -> str:
-    if retcode is None:
-        return "executed"
-    if isinstance(retcode, int) and retcode not in _success_retcodes(mt5):
+def _order_status_from_retcode(mt5: object, retcode: object) -> ExecutionStatus:
+    normalized = _optional_int(retcode)
+    if normalized is None:
+        return "failed"
+    if normalized not in _success_retcodes(mt5):
         return "failed"
     return "executed"
 
@@ -431,7 +588,7 @@ def calculate_margin_and_volume(
     symbol: str,
     unit_margin_ratio: float,
     preserved_margin_ratio: float,
-) -> dict[str, float]:
+) -> MarginVolume:
     """Calculate tradable margin and volumes from account free margin.
 
     Applies ``preserved_margin_ratio`` to keep a reserve off ``margin_free``,
@@ -561,7 +718,7 @@ def determine_order_limits(
     side: PositionSide | str,
     stop_loss_limit_ratio: float | None = None,
     take_profit_limit_ratio: float | None = None,
-) -> dict[str, float | None]:
+) -> OrderLimits:
     """Derive entry and protective order prices from current market quotes.
 
     Args:
@@ -579,7 +736,8 @@ def determine_order_limits(
         Omitted protective levels are returned as ``None``.
 
     Raises:
-        Mt5TradingError: If required tick data is invalid.
+        Mt5TradingError: If required tick data is invalid or computed SL/TP
+            prices violate available ``trade_stops_level`` pre-validation.
     """
     stop_loss_ratio = stop_loss_limit_ratio or 0.0
     take_profit_ratio = take_profit_limit_ratio or 0.0
@@ -593,9 +751,14 @@ def determine_order_limits(
         raise Mt5TradingError(msg)
     entry = float(entry_value)
     try:
-        digits = int(get_symbol_snapshot(client, symbol).get("digits") or 8)
-    except AttributeError:
+        symbol_info = get_symbol_snapshot(client, symbol)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        symbol_info = {}
+    try:
+        digits = int(symbol_info.get("digits") or 8)
+    except (TypeError, ValueError):
         digits = 8
+    min_distance = _minimum_stop_distance(symbol_info)
 
     stop_loss: float | None = None
     if stop_loss_ratio > 0:
@@ -612,6 +775,15 @@ def determine_order_limits(
         else:
             take_profit = entry * (1.0 - take_profit_ratio)
         take_profit = round(take_profit, digits)
+
+    _validate_protective_prices(
+        symbol=symbol,
+        side=normalized_side,
+        entry=entry,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        min_distance=min_distance,
+    )
 
     return {
         "entry": entry,
@@ -632,7 +804,7 @@ def place_market_order(
     tp: float | None = None,
     position: int | None = None,
     dry_run: bool = False,
-) -> dict[str, object]:
+) -> OrderExecutionResult:
     """Place one normalized market order or return a dry-run result.
 
     ``pdmt5.Mt5TradingClient.order_send()`` raises only when MT5 returns no
@@ -650,6 +822,8 @@ def place_market_order(
         msg = "volume must be positive."
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
+    if not dry_run:
+        ensure_symbol_selected(client, symbol)
     tick = get_tick_snapshot(client, symbol)
     price = tick["ask"] if side == "BUY" else tick["bid"]
     if not isinstance(price, int | float) or price <= 0:
@@ -690,21 +864,22 @@ def place_market_order(
             "volume": volume,
             "retcode": None,
             "comment": None,
-            "request": request,
+            "request": cast("dict[str, object]", request),
             "response": None,
             "dry_run": True,
         }
     response = client.order_send(request)
     response_dict = _snapshot_from_value(response, ())
-    retcode = response_dict.get("retcode")
+    raw_retcode = response_dict.get("retcode")
+    retcode = _optional_int(raw_retcode)
     return {
-        "status": _order_status_from_retcode(client.mt5, retcode),
+        "status": _order_status_from_retcode(client.mt5, raw_retcode),
         "symbol": symbol,
         "order_side": side,
         "volume": volume,
         "retcode": retcode,
-        "comment": response_dict.get("comment"),
-        "request": request,
+        "comment": _optional_str(response_dict.get("comment")),
+        "request": cast("dict[str, object]", request),
         "response": response_dict,
         "dry_run": False,
     }
@@ -731,7 +906,7 @@ def close_open_positions(
     symbols: str | list[str] | None = None,
     tickets: list[int] | None = None,
     dry_run: bool = False,
-) -> list[dict[str, object]]:
+) -> list[OrderExecutionResult]:
     """Close matching open positions.
 
     Returns:
@@ -742,7 +917,7 @@ def close_open_positions(
         symbols=symbols,
         tickets=tickets,
     )
-    results: list[dict[str, object]] = []
+    results: list[OrderExecutionResult] = []
     for row in positions.to_dict("records"):
         pos_type = row["type"]
         side: OrderSide = "SELL" if pos_type == client.mt5.POSITION_TYPE_BUY else "BUY"
@@ -766,7 +941,7 @@ def update_sltp_for_open_positions(
     stop_loss: float | None = None,
     take_profit: float | None = None,
     dry_run: bool = False,
-) -> list[dict[str, object]]:
+) -> list[OrderExecutionResult]:
     """Update SL/TP for matching open positions.
 
     Returns:
@@ -777,7 +952,7 @@ def update_sltp_for_open_positions(
         symbols=symbol,
         tickets=tickets,
     )
-    results: list[dict[str, object]] = []
+    results: list[OrderExecutionResult] = []
     for row in positions.to_dict("records"):
         request = {
             "action": client.mt5.TRADE_ACTION_SLTP,
@@ -792,21 +967,29 @@ def update_sltp_for_open_positions(
             request["tp"] = tp
         if dry_run:
             response = None
-            status = "dry_run"
+            status: ExecutionStatus = "dry_run"
         else:
+            ensure_symbol_selected(client, str(row["symbol"]))
             response = _snapshot_from_value(client.order_send(request), ())
-            status = "executed"
+            status = _order_status_from_retcode(
+                client.mt5,
+                response.get("retcode"),
+            )
         results.append(
             {
                 "status": status,
-                "symbol": row["symbol"],
+                "symbol": str(row["symbol"]),
                 "order_side": "BUY"
                 if row["type"] == client.mt5.POSITION_TYPE_BUY
                 else "SELL",
-                "volume": row["volume"],
-                "retcode": None if response is None else response.get("retcode"),
-                "comment": None if response is None else response.get("comment"),
-                "request": request,
+                "volume": float(row["volume"]),
+                "retcode": None
+                if response is None
+                else _optional_int(response.get("retcode")),
+                "comment": None
+                if response is None
+                else _optional_str(response.get("comment")),
+                "request": cast("dict[str, object]", request),
                 "response": response,
                 "dry_run": dry_run,
             },

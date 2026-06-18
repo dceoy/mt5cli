@@ -2,10 +2,15 @@
 
 This section documents the mt5cli public Python API and CLI modules.
 
+Start with the [Public API Contract](public-contract.md) for the stable
+downstream SDK surface, CLI boundary, internal modules, and out-of-scope strategy
+responsibilities.
+
 ## Public API layers
 
 | Module                                    | Purpose                                                                   |
 | ----------------------------------------- | ------------------------------------------------------------------------- |
+| [Public API Contract](public-contract.md) | Stable downstream SDK exports, CLI boundary, and out-of-scope items       |
 | [Client](client.md)                       | `MT5Client` session abstraction for data access and order primitives      |
 | [Schemas](schemas.md)                     | Canonical DataFrame contracts and normalization helpers                   |
 | [Storage](storage.md)                     | CSV/JSON/Parquet/SQLite export and history collection helpers             |
@@ -30,7 +35,10 @@ flowchart TD
     SDK --> PDMT5["pdmt5.Mt5DataClient"]
 ```
 
-Downstream packages should depend on the package root exports (`MT5Client`, `DataKind`, `normalize_dataframe`, `export_dataframe`, `collect_history`, etc.) rather than private modules.
+Downstream packages should depend on the package root exports documented in the
+[Public API Contract](public-contract.md) (`MT5Client`,
+`DataKind`, `normalize_dataframe`, `collect_history`, `load_rate_data`,
+`resolve_rate_view_name`, etc.) rather than private modules.
 
 `MT5Client.order_send()` is a live execution primitive that can place real trades. mt5cli exposes minimal execution helpers only; strategy logic, signals, backtests, and optimization remain out of scope and must be implemented downstream with explicit execution gating.
 

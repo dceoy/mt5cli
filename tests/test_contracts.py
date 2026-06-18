@@ -2,43 +2,66 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_type_hints
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 from pdmt5 import Mt5RuntimeError, Mt5TradingError
 from pytest_mock import MockerFixture  # noqa: TC002
 
+import mt5cli
 from mt5cli import (
     DEDUP_KEYS,
     REQUIRED_COLUMNS,
+    STABLE_SDK_EXPORTS,
     TIME_COLUMNS,
+    AccountSpec,
     DataKind,
     Dataset,
+    ExecutionStatus,
+    MarginVolume,
     MT5Client,
     Mt5CliError,
     Mt5ConnectionError,
     Mt5OperationError,
     Mt5SchemaError,
+    OrderExecutionResult,
+    OrderLimits,
+    RateTarget,
     build_config,
+    build_rate_targets,
+    calculate_margin_and_volume,
     call_with_normalized_errors,
     detect_format,
+    drop_forming_rate_bar,
+    ensure_symbol_selected,
     ensure_utc,
     export_dataframe,
     export_dataframe_to_sqlite,
+    fetch_latest_closed_rates,
     granularity_name,
     is_recoverable_mt5_error,
+    load_rate_data,
+    load_rate_series_from_sqlite,
     mt5_session,
+    mt5_trading_session,
     normalize_dataframe,
     normalize_mt5_exception,
     normalize_symbol,
     normalize_symbols,
     parse_date_range,
+    place_market_order,
     recent_window,
+    resolve_account_spec,
+    resolve_account_specs,
+    resolve_rate_view_name,
     schema_columns,
     validate_schema,
 )
+from mt5cli.history import create_rate_compatibility_views
 from mt5cli.retry import retry_with_backoff
 from mt5cli.schemas import ensure_utc_columns, normalize_time_columns
 
@@ -510,3 +533,162 @@ def test_storage_export_round_trip_sqlite(tmp_path: Path) -> None:
     with __import__("sqlite3").connect(output) as conn:
         count = conn.execute("SELECT COUNT(*) FROM rates").fetchone()[0]
     assert count == 1
+
+
+class TestStableSdkContract:
+    """Tests for the documented stable downstream SDK contract."""
+
+    def test_stable_exports_are_subset_of_all(self) -> None:
+        """Every stable export is also listed in the package __all__."""
+        missing = sorted(STABLE_SDK_EXPORTS - set(mt5cli.__all__))
+        assert not missing, f"STABLE_SDK_EXPORTS missing from __all__: {missing}"
+
+    @pytest.mark.parametrize("name", sorted(STABLE_SDK_EXPORTS))
+    def test_stable_exports_are_importable_from_package_root(self, name: str) -> None:
+        """Stable SDK names resolve through ``from mt5cli import ...``."""
+        assert hasattr(mt5cli, name), f"{name!r} missing from mt5cli package root"
+
+    def test_drop_forming_rate_bar_from_package_root(self) -> None:
+        """Closed-bar trimming is available from the stable package surface."""
+        frame = pd.DataFrame({"time": [1, 2, 3], "close": [1.0, 1.1, 1.2]})
+        closed = drop_forming_rate_bar(frame)
+        assert list(closed["close"]) == [1.0, 1.1]
+        assert len(closed) == 2
+
+    def test_fetch_latest_closed_rates_from_package_root(self) -> None:
+        """Single-client closed-bar helper drops the forming row."""
+        client = MagicMock()
+        client.latest_rates.return_value = pd.DataFrame(
+            {"time": [1, 2, 3], "close": [1.0, 1.1, 1.2]},
+        )
+
+        result = fetch_latest_closed_rates(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        client.latest_rates.assert_called_once_with("EURUSD", "M1", 3, start_pos=0)
+        assert list(result["close"]) == [1.0, 1.1]
+
+    def test_resolve_rate_view_name_from_package_root(self, tmp_path: Path) -> None:
+        """Rate view resolution is importable and honors require_existing."""
+        db_path = tmp_path / "rates.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            create_rate_compatibility_views(conn)
+
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
+        missing = tmp_path / "missing.db"
+        with pytest.raises(ValueError, match="SQLite database not found"):
+            resolve_rate_view_name(missing, "EURUSD", "M1", require_existing=True)
+
+    def test_load_rate_data_from_package_root(self, tmp_path: Path) -> None:
+        """SQLite rate loading normalizes timestamps through the stable API."""
+        db_path = tmp_path / "view.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                'CREATE VIEW "rate_EURUSD__1" AS'
+                " SELECT '2024-01-01T00:00:00+00:00' AS time, 1.1 AS close",
+            )
+
+        frame = load_rate_data(db_path, "rate_EURUSD__1")
+        assert frame.index.name == "time"
+        assert abs(float(frame.iloc[0]["close"]) - 1.1) < 1e-9
+
+    def test_load_rate_series_from_sqlite_requires_managed_views(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Multi-series loading fails clearly when managed views are absent."""
+        db_path = tmp_path / "empty-views.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+
+        targets = build_rate_targets(["EURUSD"], ["M1"])
+        with pytest.raises(ValueError, match="No rate compatibility view exists"):
+            load_rate_series_from_sqlite(db_path, targets, count=10)
+
+        assert targets == [RateTarget(symbol="EURUSD", timeframe=1)]
+
+    def test_resolve_account_spec_from_package_root(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Account credential resolution uses generic ${ENV_VAR} placeholders."""
+        monkeypatch.setenv("APP_MT5_LOGIN", "555")
+        monkeypatch.setenv("APP_MT5_PASSWORD", "secret")
+        account = AccountSpec(
+            symbols=["EURUSD"],
+            login="${APP_MT5_LOGIN}",
+            password="${APP_MT5_PASSWORD}",
+            server="Broker-Demo",
+        )
+
+        resolved = resolve_account_spec(account, timeout=3000)
+        assert resolved.login == "555"
+        assert resolved.password == "secret"  # noqa: S105
+        assert resolved.timeout == 3000
+
+        batch = resolve_account_specs([account], server="Override")
+        assert batch[0].server == "Override"
+
+    def test_mt5_trading_session_lifecycle_from_package_root(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Trading session helper initializes and always shuts down."""
+        mock_client = MagicMock()
+        mocker.patch(
+            "mt5cli.trading.Mt5TradingClient",
+            return_value=mock_client,
+        )
+
+        with mt5_trading_session(login=12345, server="Broker-Demo") as client:
+            assert client is mock_client
+            mock_client.initialize_and_login_mt5.assert_called_once()
+
+        mock_client.shutdown.assert_called_once()
+
+    def test_trading_order_helpers_importable_from_package_root(self) -> None:
+        """Order planning helpers resolve through the stable package surface."""
+        assert callable(calculate_margin_and_volume)
+        assert callable(ensure_symbol_selected)
+        assert callable(place_market_order)
+        margin_hints = get_type_hints(MarginVolume)
+        limits_hints = get_type_hints(OrderLimits)
+        execution_hints = get_type_hints(OrderExecutionResult)
+        assert margin_hints["buy_volume"] is float
+        assert limits_hints["stop_loss"] == float | None
+        assert execution_hints["status"] == ExecutionStatus
+
+    def test_mt5_trading_session_shuts_down_on_exception(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Trading session helper shuts down even when the body raises."""
+        mock_client = MagicMock()
+        mocker.patch(
+            "mt5cli.trading.Mt5TradingClient",
+            return_value=mock_client,
+        )
+
+        message = "strategy error"
+        with (
+            pytest.raises(RuntimeError, match=message),
+            mt5_trading_session(login=12345, server="Broker-Demo"),
+        ):
+            raise RuntimeError(message)
+
+        mock_client.shutdown.assert_called_once()

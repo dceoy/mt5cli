@@ -4,6 +4,8 @@
 
 Generic MT5 data and execution infrastructure for Python applications. Export from the CLI or import a small, stable Python API in downstream packages.
 
+The [Public API Contract](docs/api/public-contract.md) lists stable SDK exports (`mt5cli.STABLE_SDK_EXPORTS`), CLI commands, internal helpers, and responsibilities that remain out of scope (strategy logic, backtests, optimization).
+
 Built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data handler for MetaTrader 5.
 
 ## Architecture
@@ -227,7 +229,7 @@ update_history_with_config(
 - **`collect-history`**: explicit date-range export into SQLite.
 - **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`.
 - **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
-- **Rate compatibility views**: mt5cli manages all `rate_*` views. Naming is `rate_<symbol>__<timeframe>` when a symbol has one timeframe, otherwise `rate_<symbol>__<granularity>_<timeframe>` (for example `rate_EURUSD__M1_1`). Stale `rate_*` views are dropped and recreated when rates change for offline tools such as mteor optimize.
+- **Rate compatibility views**: mt5cli manages all `rate_*` views. Naming is `rate_<symbol>__<timeframe>` when a symbol has one timeframe, otherwise `rate_<symbol>__<granularity>_<timeframe>` (for example `rate_EURUSD__M1_1`). Stale `rate_*` views are dropped and recreated when rates change for offline downstream tools.
 - **Rate view resolution**: use `resolve_rate_view_name()` / `resolve_rate_view_names()` to map symbols and granularities to existing SQLite compatibility views without creating databases. Both accept `None` (or a missing path) and return deterministic default names unless `require_existing=True`.
 - **Rate view loading**: use `load_rate_data()` / `load_rate_data_from_connection()` to load a SQLite rate table or view into a `DatetimeIndex` DataFrame.
 - **Multi-series rate loading**: use `build_rate_targets()` to build neutral `RateTarget(symbol, timeframe)` pairs, `resolve_rate_tables()` to map them to table/view names (pass `require_existing=True` for strict resolution), and `load_rate_series_from_sqlite()` to load them into a mapping keyed by `(symbol, integer timeframe)`. The loader requires existing managed views unless `explicit_tables` is supplied, and rejects duplicate `(symbol, timeframe)` targets.
@@ -260,12 +262,12 @@ eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 - Windows OS (MetaTrader 5 requirement)
 - MetaTrader 5 platform installed
 
-### Migration note for mteor
+### Migration note for downstream trading apps
 
 Replace local MT5 lifecycle and trading helper code with mt5cli imports:
 
 ```python
-# Before (local mteor helpers)
+# Before (local application helpers)
 # with local_mt5_trading_session(config) as client:
 #     side = local_detect_position_side(client, symbol)
 #     sizing = local_calculate_margin_and_volume(client, symbol, unit_ratio, preserved_ratio)

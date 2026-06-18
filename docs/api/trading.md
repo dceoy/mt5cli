@@ -90,18 +90,65 @@ sell-only exposure, and `None` for no positions or mixed long/short exposure.
 
 SL/TP ratios for `determine_order_limits()` must satisfy `0 <= ratio < 1`; `0`
 omits that level. SL/TP prices are rounded with symbol `digits` metadata when
-available. `unit_margin_ratio` and `preserved_margin_ratio` for
-`calculate_margin_and_volume()` accept `0 <= ratio <= 1`; `unit_margin_ratio=0`
-requests one minimum valid unit when the post-reserve margin can afford it.
-Negative `margin_free` is clamped to `0.0` before sizing. Execution helpers
-return normalized dictionaries containing the request, response, status,
-retcode, and `dry_run` flag; `dry_run=True` never sends an order. Market order
-helpers mark known non-success MT5 retcodes as `status="failed"` while keeping
-the normalized response for inspection.
+available. `determine_order_limits()` pre-validates computed SL/TP prices against
+available `trade_stops_level * point` metadata when present; violations raise
+`Mt5TradingError`. This is a planning helper only: it does not guarantee broker
+acceptance because live validation can still depend on price movement, bid/ask
+side, freeze levels, and server-side rules, and it does not validate
+`trade_freeze_level`. When symbol metadata cannot be loaded, protective prices
+still round with `digits=8` and stop-level validation is skipped.
+`unit_margin_ratio` and `preserved_margin_ratio` for `calculate_margin_and_volume()`
+accept `0 <= ratio <= 1`; `unit_margin_ratio=0` requests one minimum valid unit
+when the post-reserve margin can afford it. Negative `margin_free` is clamped to
+`0.0` before sizing. Execution helpers return normalized `OrderExecutionResult`
+dictionaries containing the request, response, status, retcode, and `dry_run`
+flag; `dry_run=True` never sends an order or mutates Market Watch visibility.
+`ensure_symbol_selected()` adds hidden symbols to Market Watch before live order
+placement and SL/TP updates. Failed, malformed, or unknown broker retcodes are
+fail-closed and returned as `status="failed"` while keeping the normalized
+response for inspection.
 
-## Migration from mteor-local helpers
+## Order planning return contracts
 
-| mteor-local concern                                      | mt5cli replacement                              |
+```python
+from mt5cli import MarginVolume, OrderLimits, OrderExecutionResult
+
+sizing: MarginVolume = calculate_margin_and_volume(
+    client,
+    "EURUSD",
+    unit_margin_ratio=0.5,
+    preserved_margin_ratio=0.2,
+)
+limits: OrderLimits = determine_order_limits(
+    client,
+    "EURUSD",
+    side="long",
+    stop_loss_limit_ratio=0.01,
+    take_profit_limit_ratio=0.02,
+)
+preview: OrderExecutionResult = place_market_order(
+    client,
+    symbol="EURUSD",
+    volume=sizing["buy_volume"],
+    order_side="BUY",
+    sl=limits["stop_loss"],
+    tp=limits["take_profit"],
+    dry_run=True,
+)
+updates: list[OrderExecutionResult] = update_sltp_for_open_positions(
+    client,
+    symbol="EURUSD",
+    stop_loss=limits["stop_loss"],
+    dry_run=True,
+)
+```
+
+Closes issue #33: strategy-neutral order planning and execution helpers exposed
+through the stable package root without embedding entry/exit policy.
+
+## Migration from application-local helpers
+
+| Application-local concern                                | mt5cli replacement                              |
 | -------------------------------------------------------- | ----------------------------------------------- |
 | Manual terminal spawn/kill around trading code           | `mt5_trading_session()`                         |
 | Local position-side detection                            | `detect_position_side()`                        |

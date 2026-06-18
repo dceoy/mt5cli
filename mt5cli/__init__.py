@@ -1,10 +1,17 @@
-"""mt5cli: Generic MT5 data and execution infrastructure for Python applications."""
+"""mt5cli: Generic MT5 data and execution infrastructure for Python applications.
+
+Downstream packages should import from this module (``from mt5cli import ...``)
+rather than private submodule helpers. See ``docs/api/public-contract.md`` for
+the stable SDK contract, CLI surface, internal modules, and out-of-scope
+strategy responsibilities.
+"""
 
 from importlib.metadata import version
 
 from pdmt5 import Mt5Config, Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
 
 from .client import MT5Client, build_config, mt5_session
+from .contract import STABLE_SDK_EXPORTS
 from .converters import (
     ensure_utc,
     granularity_name,
@@ -101,7 +108,11 @@ from .storage import (
 )
 from .trading import (
     POSITION_COLUMNS,
+    ExecutionStatus,
+    MarginVolume,
+    OrderExecutionResult,
     OrderFillingMode,
+    OrderLimits,
     OrderSide,
     OrderTimeMode,
     PositionSide,
@@ -113,6 +124,7 @@ from .trading import (
     create_trading_client,
     detect_position_side,
     determine_order_limits,
+    ensure_symbol_selected,
     get_account_snapshot,
     get_positions_frame,
     get_symbol_snapshot,
@@ -136,14 +148,17 @@ __all__ = [
     "KNOWN_MT5_TIME_COLUMNS",
     "POSITION_COLUMNS",
     "REQUIRED_COLUMNS",
+    "STABLE_SDK_EXPORTS",
     "TICK_FLAG_MAP",
     "TIMEFRAME_MAP",
     "TIME_COLUMNS",
     "AccountSpec",
     "DataKind",
     "Dataset",
+    "ExecutionStatus",
     "IfExists",
     "MT5Client",
+    "MarginVolume",
     "Mt5CliClient",
     "Mt5CliError",
     "Mt5Config",
@@ -153,7 +168,9 @@ __all__ = [
     "Mt5SchemaError",
     "Mt5TradingClient",
     "Mt5TradingError",
+    "OrderExecutionResult",
     "OrderFillingMode",
+    "OrderLimits",
     "OrderSide",
     "OrderTimeMode",
     "PositionSide",
@@ -185,6 +202,7 @@ __all__ = [
     "detect_position_side",
     "determine_order_limits",
     "drop_forming_rate_bar",
+    "ensure_symbol_selected",
     "ensure_utc",
     "export_dataframe",
     "export_dataframe_to_sqlite",

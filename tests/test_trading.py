@@ -8,11 +8,15 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
+from numpy import int64 as np_int64
 from pdmt5 import Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 from mt5cli.sdk import build_config
 from mt5cli.trading import (
+    MarginVolume,
+    OrderExecutionResult,
+    OrderLimits,
     calculate_margin_and_volume,
     calculate_new_position_margin_ratio,
     calculate_spread_ratio,
@@ -21,6 +25,7 @@ from mt5cli.trading import (
     create_trading_client,
     detect_position_side,
     determine_order_limits,
+    ensure_symbol_selected,
     get_account_snapshot,
     get_positions_frame,
     get_symbol_snapshot,
@@ -51,8 +56,8 @@ def _assert_close(actual: object, expected: float) -> None:
     assert abs(float(cast("float", actual)) - expected) < 1e-9
 
 
-def _request_from_result(result: dict[str, object]) -> dict[str, object]:
-    return cast("dict[str, object]", result["request"])
+def _request_from_result(result: OrderExecutionResult) -> dict[str, object]:  # noqa: FURB118
+    return result["request"]
 
 
 class TestDetectPositionSide:
@@ -249,7 +254,7 @@ class TestDetermineOrderLimits:
         """Test long stop loss and take profit are placed below/above entry."""
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.symbol_info_as_dict.side_effect = AttributeError("missing")
+        client.symbol_info_as_dict.return_value = {}
 
         result = determine_order_limits(
             client,
@@ -269,7 +274,7 @@ class TestDetermineOrderLimits:
         """Test short stop loss and take profit are placed above/below entry."""
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.symbol_info_as_dict.side_effect = AttributeError("missing")
+        client.symbol_info_as_dict.return_value = {}
 
         result = determine_order_limits(
             client,
@@ -348,6 +353,22 @@ class TestDetermineOrderLimits:
         """Test order limit rounding falls back when symbol metadata is missing."""
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.234567891, "bid": 1.0}
+        client.symbol_info_as_dict.return_value = {"digits": "invalid"}
+
+        result = determine_order_limits(
+            client,
+            "EURUSD",
+            "long",
+            stop_loss_limit_ratio=0.01,
+            take_profit_limit_ratio=0.01,
+        )
+
+        _assert_close(result["stop_loss"], 1.22222221)
+
+    def test_uses_default_digits_when_symbol_lookup_raises(self) -> None:
+        """Test order limits fall back when symbol metadata lookup fails."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.234567891, "bid": 1.0}
         client.symbol_info_as_dict.side_effect = AttributeError("missing")
 
         result = determine_order_limits(
@@ -384,6 +405,204 @@ class TestDetermineOrderLimits:
 
         with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
             determine_order_limits(client, "EURUSD", "long")
+
+    def test_rejects_stop_loss_inside_broker_stop_level(self) -> None:
+        """Test stop-loss prices closer than trade_stops_level raise Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": 0.99}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 100,
+            "point": 0.0001,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Stop loss for 'EURUSD'"):
+            determine_order_limits(
+                client,
+                "EURUSD",
+                "long",
+                stop_loss_limit_ratio=0.0001,
+            )
+
+    def test_accepts_stop_loss_exactly_at_minimum_stop_distance(self) -> None:
+        """Test protective levels exactly at trade_stops_level distance pass."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": 0.99}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 100,
+            "point": 0.0001,
+        }
+
+        result = determine_order_limits(
+            client,
+            "EURUSD",
+            "long",
+            stop_loss_limit_ratio=0.01,
+            take_profit_limit_ratio=0.0,
+        )
+
+        _assert_close(result["stop_loss"], 0.99)
+
+    def test_allows_protective_levels_beyond_broker_stop_level(self) -> None:
+        """Test SL/TP beyond trade_stops_level pass validation."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": 0.99}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 10,
+            "point": 0.0001,
+        }
+
+        result = determine_order_limits(
+            client,
+            "EURUSD",
+            "long",
+            stop_loss_limit_ratio=0.05,
+            take_profit_limit_ratio=0.05,
+        )
+
+        _assert_close(result["stop_loss"], 0.95)
+        _assert_close(result["take_profit"], 1.05)
+
+    def test_rejects_take_profit_inside_broker_stop_level(self) -> None:
+        """Test long take-profit inside trade_stops_level raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": 0.99}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 100,
+            "point": 0.0001,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Take profit for 'EURUSD'"):
+            determine_order_limits(
+                client,
+                "EURUSD",
+                "long",
+                take_profit_limit_ratio=0.0001,
+            )
+
+    def test_rejects_short_stop_loss_inside_broker_stop_level(self) -> None:
+        """Test short stop-loss inside trade_stops_level raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.01, "bid": 1.0}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 100,
+            "point": 0.0001,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Stop loss for 'EURUSD'"):
+            determine_order_limits(
+                client,
+                "EURUSD",
+                "short",
+                stop_loss_limit_ratio=0.0001,
+            )
+
+    def test_rejects_short_take_profit_inside_broker_stop_level(self) -> None:
+        """Test short take-profit inside trade_stops_level raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.01, "bid": 1.0}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 100,
+            "point": 0.0001,
+        }
+
+        with pytest.raises(Mt5TradingError, match="Take profit for 'EURUSD'"):
+            determine_order_limits(
+                client,
+                "EURUSD",
+                "short",
+                take_profit_limit_ratio=0.0001,
+            )
+
+    def test_allows_short_protective_levels_beyond_broker_stop_level(self) -> None:
+        """Test short SL/TP beyond trade_stops_level pass validation."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.01, "bid": 1.0}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 10,
+            "point": 0.0001,
+        }
+
+        result = determine_order_limits(
+            client,
+            "EURUSD",
+            "short",
+            stop_loss_limit_ratio=0.05,
+            take_profit_limit_ratio=0.05,
+        )
+
+        _assert_close(result["stop_loss"], 1.05)
+        _assert_close(result["take_profit"], 0.95)
+
+    def test_ignores_non_positive_broker_stop_level(self) -> None:
+        """Test zero trade_stops_level skips stop-distance validation."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": 0.99}
+        client.symbol_info_as_dict.return_value = {
+            "digits": 2,
+            "trade_stops_level": 0,
+            "point": 0.0001,
+        }
+
+        result = determine_order_limits(
+            client,
+            "EURUSD",
+            "long",
+            stop_loss_limit_ratio=0.0001,
+            take_profit_limit_ratio=0.0001,
+        )
+
+        assert result["stop_loss"] is not None
+        assert result["take_profit"] is not None
+
+    """Tests for ensure_symbol_selected."""
+
+    def test_skips_selection_when_symbol_is_visible(self) -> None:
+        """Test visible symbols do not call symbol_select."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+
+        ensure_symbol_selected(client, "EURUSD")
+
+        client.symbol_select.assert_not_called()
+
+    def test_selects_hidden_symbol_before_trading(self) -> None:
+        """Test hidden symbols are selected in Market Watch."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = True
+
+        ensure_symbol_selected(client, "EURUSD")
+
+        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+
+    def test_raises_when_symbol_selection_fails(self) -> None:
+        """Test failed symbol selection raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = False
+        client.last_error.return_value = (1, "not found")
+
+        with pytest.raises(Mt5TradingError, match="Failed to select symbol 'EURUSD'"):
+            ensure_symbol_selected(client, "EURUSD")
+
+    def test_raises_when_symbol_select_is_unavailable(self) -> None:
+        """Test missing symbol_select raises Mt5TradingError."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        del client.symbol_select
+
+        with pytest.raises(
+            Mt5TradingError,
+            match="missing required method: symbol_select",
+        ):
+            ensure_symbol_selected(client, "EURUSD")
 
 
 class TestMt5TradingSession:
@@ -624,6 +843,23 @@ class TestVolumeAndExecution:
             ),
             0.0,
         )
+
+    def test_calculate_volume_by_margin_never_returns_nonzero_below_volume_min(
+        self,
+    ) -> None:
+        """Test non-zero affordable volume is never below volume_min."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        client.order_calc_margin.return_value = 10.0
+
+        volume = calculate_volume_by_margin(client, "EURUSD", 35.0, "BUY")
+
+        assert abs(volume) < 1e-9 or volume >= 0.1
 
     def test_calculate_volume_by_margin_returns_zero_without_margin(self) -> None:
         """Test non-positive available margin returns zero before MT5 calls."""
@@ -943,6 +1179,7 @@ class TestVolumeAndExecution:
     def test_place_market_order_dry_run_does_not_send(self) -> None:
         """Test dry-run market orders return a request without sending."""
         client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": False}
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
 
         result = place_market_order(
@@ -956,6 +1193,7 @@ class TestVolumeAndExecution:
         assert result["status"] == "dry_run"
         assert _request_from_result(result)["type"] == client.mt5.ORDER_TYPE_BUY
         client.order_send.assert_not_called()
+        client.symbol_select.assert_not_called()
 
     def test_place_market_order_supports_limits(self) -> None:
         """Test optional SL/TP values are included in the request."""
@@ -1093,6 +1331,173 @@ class TestVolumeAndExecution:
         assert result["status"] == "failed"
         assert result["retcode"] == 10013
 
+    def test_place_market_order_marks_failed_numpy_retcode(self) -> None:
+        """Test numpy integer retcodes normalize to failed status."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": np_int64(10013), "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["status"] == "failed"
+        assert result["retcode"] == 10013
+
+    def test_place_market_order_rejects_bool_retcode(self) -> None:
+        """Test bool retcodes are not treated as integer broker codes."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": True, "comment": "weird"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] is None
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_failed_string_retcode(self) -> None:
+        """Test digit-string failure retcodes normalize to failed status."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": "10013", "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] == 10013
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_failed_whitespace_string_retcode(self) -> None:
+        """Test whitespace-padded digit-string retcodes normalize to failed status."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": " 10013 ", "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] == 10013
+        assert result["status"] == "failed"
+
+    @pytest.mark.parametrize("retcode", ["+10013", "-10013"])
+    def test_place_market_order_marks_signed_string_retcode_as_failed(
+        self,
+        retcode: str,
+    ) -> None:
+        """Test signed digit-string failure retcodes normalize to failed status."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": retcode, "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        expected = 10013 if retcode.startswith("+") else -10013
+        assert result["retcode"] == expected
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_missing_retcode_as_failed(self) -> None:
+        """Test live responses without retcode are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"comment": "missing retcode"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] is None
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_malformed_retcode_as_failed(self) -> None:
+        """Test malformed non-None retcodes are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": "invalid", "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] is None
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_empty_string_retcode_as_failed(self) -> None:
+        """Test empty string retcodes are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": "   ", "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] is None
+        assert result["status"] == "failed"
+
+    def test_place_market_order_marks_object_retcode_as_failed(self) -> None:
+        """Test unsupported retcode object types are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": object(), "comment": "invalid request"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["retcode"] is None
+        assert result["status"] == "failed"
+
     def test_close_open_positions_filters_and_dry_runs(self) -> None:
         """Test close helper filters positions and builds opposite orders."""
         client = _mock_trade_client()
@@ -1142,6 +1547,7 @@ class TestVolumeAndExecution:
     def test_update_sltp_filters_and_dry_runs(self) -> None:
         """Test SL/TP updates filter positions and do not send in dry-run mode."""
         client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": False}
         client.positions_get_as_df.return_value = pd.DataFrame(
             [
                 {
@@ -1174,6 +1580,34 @@ class TestVolumeAndExecution:
         assert len(result) == 1
         _assert_close(_request_from_result(result[0])["sl"], 1.1)
         _assert_close(_request_from_result(result[0])["tp"], 1.3)
+        client.order_send.assert_not_called()
+        client.symbol_select.assert_not_called()
+
+    def test_update_sltp_selects_hidden_symbol_for_live_send(self) -> None:
+        """Test live SL/TP updates ensure hidden symbols are selected first."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = True
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10009, "comment": "updated"}],
+        )
+
+        update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        client.order_send.assert_called_once()
 
     def test_update_sltp_sends_and_normalizes_response(self) -> None:
         """Test live SL/TP updates send requests and normalize responses."""
@@ -1257,6 +1691,232 @@ class TestVolumeAndExecution:
             pass
 
         mock_client.shutdown.assert_called_once()
+
+    def test_place_market_order_selects_hidden_symbol_for_live_send(self) -> None:
+        """Test live market orders select hidden symbols before reading ticks."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = True
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10009, "comment": "done"}],
+        )
+        call_order: list[str] = []
+
+        def _record_select(*_args: object, **_kwargs: object) -> bool:
+            call_order.append("symbol_select")
+            return True
+
+        def _record_tick(*_args: object, **_kwargs: object) -> dict[str, float]:
+            call_order.append("tick")
+            return {"ask": 1.2, "bid": 1.1}
+
+        client.symbol_select.side_effect = _record_select
+        client.symbol_info_tick_as_dict.side_effect = _record_tick
+
+        place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        client.symbol_info_tick_as_dict.assert_called_once()
+        client.order_send.assert_called_once()
+        assert call_order == ["symbol_select", "tick"]
+
+    def test_place_market_order_reads_ticks_after_hidden_symbol_selection(self) -> None:
+        """Test live orders can read ticks only after hidden symbols are selected."""
+        client = _mock_trade_client()
+        selected = {"value": False}
+
+        def _symbol_info_side_effect(**_kwargs: object) -> dict[str, bool]:
+            return {"visible": selected["value"]}
+
+        def _select_symbol(*_args: object, **_kwargs: object) -> bool:
+            selected["value"] = True
+            return True
+
+        def _tick_side_effect(**_kwargs: object) -> dict[str, float | None]:
+            if not selected["value"]:
+                return {"ask": None, "bid": None}
+            return {"ask": 1.2, "bid": 1.1}
+
+        client.symbol_info_as_dict.side_effect = _symbol_info_side_effect
+        client.symbol_select.side_effect = _select_symbol
+        client.symbol_info_tick_as_dict.side_effect = _tick_side_effect
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10009, "comment": "done"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["status"] == "executed"
+        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        client.order_send.assert_called_once()
+
+    def test_update_sltp_marks_failed_retcode(self) -> None:
+        """Test SL/TP updates normalize failed broker retcodes."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10013, "comment": "invalid stops"}],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        assert result[0]["status"] == "failed"
+        assert result[0]["retcode"] == 10013
+
+    def test_update_sltp_marks_failed_numpy_retcode(self) -> None:
+        """Test numpy integer retcodes normalize to failed SL/TP status."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": np_int64(10013), "comment": "invalid stops"}],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        assert result[0]["status"] == "failed"
+        assert result[0]["retcode"] == 10013
+
+    def test_update_sltp_marks_failed_string_retcode(self) -> None:
+        """Test digit-string failure retcodes normalize to failed SL/TP status."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": "10013", "comment": "invalid stops"}],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        assert result[0]["retcode"] == 10013
+        assert result[0]["status"] == "failed"
+
+    def test_update_sltp_marks_malformed_retcode_as_failed(self) -> None:
+        """Test malformed non-None SL/TP retcodes are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": "invalid", "comment": "invalid stops"}],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        assert result[0]["retcode"] is None
+        assert result[0]["status"] == "failed"
+
+    def test_update_sltp_marks_missing_retcode_as_failed(self) -> None:
+        """Test live SL/TP responses without retcode are fail-closed."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.return_value = pd.DataFrame(
+            [{"comment": "missing retcode"}],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        assert result[0]["retcode"] is None
+        assert result[0]["status"] == "failed"
+
+    def test_trading_typed_dict_exports(self) -> None:
+        """Test order-planning TypedDict contracts are importable."""
+        margin: MarginVolume = {
+            "margin_free": 1.0,
+            "available_margin": 1.0,
+            "trade_margin": 0.5,
+            "buy_volume": 0.1,
+            "sell_volume": 0.1,
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+        limits: OrderLimits = {
+            "entry": 1.0,
+            "stop_loss": 0.9,
+            "take_profit": 1.1,
+        }
+        execution: OrderExecutionResult = {
+            "status": "dry_run",
+            "symbol": "EURUSD",
+            "order_side": "BUY",
+            "volume": 0.1,
+            "retcode": None,
+            "comment": None,
+            "request": {"action": 20},
+            "response": None,
+            "dry_run": True,
+        }
+        _assert_close(margin["buy_volume"], 0.1)
+        _assert_close(limits["entry"], 1.0)
+        assert execution["status"] == "dry_run"
 
     def test_shuts_down_when_body_raises(self, mocker: MockerFixture) -> None:
         """Test shutdown is called when the context body raises."""
