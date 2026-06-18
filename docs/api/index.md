@@ -35,8 +35,8 @@ flowchart TD
     SDK --> PDMT5["pdmt5.Mt5DataClient"]
 ```
 
-Downstream packages should depend on the package root exports documented in
-[docs/api/public-contract.md](docs/api/public-contract.md) (`MT5Client`,
+Downstream packages should depend on the package root exports documented in the
+[Public API Contract](public-contract.md) (`MT5Client`,
 `DataKind`, `normalize_dataframe`, `collect_history`, `load_rate_data`,
 `resolve_rate_view_name`, etc.) rather than private modules.
 
