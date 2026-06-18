@@ -876,6 +876,60 @@ class TestNormalizeOrderVolume:
             0.34,
         )
 
+    def test_returns_zero_for_non_finite_volume(self) -> None:
+        """Test NaN or infinite requested volume returns zero."""
+        _assert_close(
+            normalize_order_volume(
+                float("nan"),
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.0,
+        )
+        _assert_close(
+            normalize_order_volume(
+                float("inf"),
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.0,
+        )
+
+    def test_returns_zero_for_non_finite_constraints(self) -> None:
+        """Test NaN or infinite volume_min/volume_step returns zero."""
+        _assert_close(
+            normalize_order_volume(
+                1.0,
+                volume_min=float("nan"),
+                volume_max=1.0,
+                volume_step=0.1,
+            ),
+            0.0,
+        )
+        _assert_close(
+            normalize_order_volume(
+                1.0,
+                volume_min=0.1,
+                volume_max=1.0,
+                volume_step=float("inf"),
+            ),
+            0.0,
+        )
+
+    def test_treats_non_finite_volume_max_as_no_cap(self) -> None:
+        """Test non-finite volume_max disables the maximum cap."""
+        _assert_close(
+            normalize_order_volume(
+                2.5,
+                volume_min=0.1,
+                volume_max=float("nan"),
+                volume_step=0.1,
+            ),
+            2.5,
+        )
+
 
 class TestEstimateOrderMargin:
     """Tests for estimate_order_margin."""
@@ -969,6 +1023,24 @@ class TestEstimateOrderMargin:
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
         client.order_calc_margin.return_value = float("inf")
+
+        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_none_margin_result(self) -> None:
+        """Test None margin results raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = None
+
+        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
+            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+
+    def test_rejects_non_numeric_margin_result(self) -> None:
+        """Test non-numeric margin results raise Mt5TradingError."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = "invalid"
 
         with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)
@@ -2443,6 +2515,32 @@ class TestFetchLatestClosedRatesForTradingClient:
                 symbol="EURUSD",
                 granularity="M1",
                 count=1,
+            )
+
+    def test_raises_when_fetch_returns_none(self) -> None:
+        """Test None fetch results raise a malformed rate data error."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = None
+
+        with pytest.raises(ValueError, match="Malformed rate data"):
+            fetch_latest_closed_rates_for_trading_client(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=2,
+            )
+
+    def test_raises_when_fetch_returns_non_dataframe(self) -> None:
+        """Test non-DataFrame fetch results raise a malformed rate data error."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = [{"time": 1, "close": 1.0}]
+
+        with pytest.raises(ValueError, match="Malformed rate data"):
+            fetch_latest_closed_rates_for_trading_client(
+                client,
+                symbol="EURUSD",
+                granularity="M1",
+                count=2,
             )
 
     def test_rejects_non_positive_count_before_fetching(self) -> None:

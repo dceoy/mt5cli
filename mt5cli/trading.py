@@ -282,6 +282,16 @@ def _normalize_order_side(side: str) -> OrderSide:
     raise ValueError(msg)
 
 
+def _is_finite_number(value: object) -> bool:
+    return isinstance(value, int | float) and isfinite(value)
+
+
+def _is_positive_finite_number(value: object) -> bool:
+    if not _is_finite_number(value):
+        return False
+    return float(cast("float | int", value)) > 0
+
+
 def normalize_order_volume(
     volume: float,
     *,
@@ -293,18 +303,23 @@ def normalize_order_volume(
 
     Returns:
         Volume floored to the nearest valid broker step from ``volume_min``,
-        capped at ``volume_max`` when positive, and rounded deterministically.
-        Returns ``0.0`` when constraints are invalid or the capped request is
-        below ``volume_min``.
+        capped at ``volume_max`` when finite and positive, and rounded
+        deterministically. Returns ``0.0`` when inputs or constraints are
+        invalid, non-finite, or the capped request is below ``volume_min``.
     """
-    if volume_min <= 0 or volume_step <= 0:
+    if not _is_finite_number(volume):
         return 0.0
-    capped = min(volume, volume_max) if volume_max > 0 else volume
+    if not _is_positive_finite_number(volume_min):
+        return 0.0
+    if not _is_positive_finite_number(volume_step):
+        return 0.0
+    has_volume_cap = _is_positive_finite_number(volume_max)
+    capped = min(volume, volume_max) if has_volume_cap else volume
     if capped < volume_min:
         return 0.0
     steps = floor(((capped - volume_min) / volume_step) + 1e-12)
     normalized = volume_min + max(0, steps) * volume_step
-    if volume_max > 0:
+    if has_volume_cap:
         normalized = min(normalized, volume_max)
     return round(normalized, 10)
 
@@ -612,7 +627,12 @@ def estimate_order_margin(
     order_type = (
         client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
     )
-    margin = float(client.order_calc_margin(order_type, symbol, volume, float(price)))
+    raw_margin = client.order_calc_margin(order_type, symbol, volume, float(price))
+    try:
+        margin = float(raw_margin)
+    except (TypeError, ValueError) as exc:
+        msg = f"Margin estimate is invalid for {symbol!r}."
+        raise Mt5TradingError(msg) from exc
     if margin <= 0 or not isfinite(margin):
         msg = f"Margin estimate is invalid for {symbol!r}."
         raise Mt5TradingError(msg)
@@ -1146,24 +1166,25 @@ def fetch_latest_closed_rates_for_trading_client(
         raise ValueError(msg)
     fetch_method = getattr(client, "fetch_latest_rates_as_df", None)
     if callable(fetch_method):
-        frame = cast(
-            "pd.DataFrame",
-            fetch_method(symbol, granularity, count + 1),
-        )
+        fetched = fetch_method(symbol, granularity, count + 1)
     else:
         copy_method = getattr(client, "copy_rates_from_pos_as_df", None)
         if not callable(copy_method):
             msg = "MT5 trading client cannot fetch rate data."
             raise Mt5TradingError(msg)
-        frame = cast(
-            "pd.DataFrame",
-            copy_method(
-                symbol=symbol,
-                timeframe=parse_timeframe(granularity),
-                start_pos=0,
-                count=count + 1,
-            ),
+        fetched = copy_method(
+            symbol=symbol,
+            timeframe=parse_timeframe(granularity),
+            start_pos=0,
+            count=count + 1,
         )
+    if not isinstance(fetched, pd.DataFrame):
+        msg = (
+            f"Malformed rate data for {symbol!r} at granularity {granularity!r}: "
+            "expected a DataFrame."
+        )
+        raise ValueError(msg)  # noqa: TRY004
+    frame = fetched
     frame = _ensure_rate_time_column(frame)
     if "time" not in frame.columns:
         msg = f"Rate data is missing a time column for {symbol!r}."
