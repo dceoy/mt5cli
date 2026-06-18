@@ -615,8 +615,8 @@ def estimate_order_margin(
     Raises:
         Mt5TradingError: If volume, tick data, or margin estimation is invalid.
     """
-    if volume <= 0:
-        msg = "Volume must be positive to estimate order margin."
+    if not _is_positive_finite_number(volume):
+        msg = "Volume must be a positive finite number to estimate order margin."
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
     tick = get_tick_snapshot(client, symbol)
@@ -665,13 +665,14 @@ def calculate_positions_margin(
         if not isinstance(symbol, str) or not symbol:
             continue
         volume = row.get("volume")
-        if not isinstance(volume, int | float) or volume <= 0:
+        if not _is_positive_finite_number(volume):
             continue
         order_side = _order_side_from_position_type(client, row.get("type"))
         if order_side is None:
             continue
         key = (symbol, order_side)
-        grouped_volumes[key] = grouped_volumes.get(key, 0.0) + float(volume)
+        finite_volume = float(cast("float | int", volume))
+        grouped_volumes[key] = grouped_volumes.get(key, 0.0) + finite_volume
     total = 0.0
     for (symbol, order_side), volume in grouped_volumes.items():
         total += estimate_order_margin(client, symbol, order_side, volume)

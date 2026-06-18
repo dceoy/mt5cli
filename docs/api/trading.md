@@ -109,9 +109,9 @@ sell-only exposure, and `None` for no positions or mixed long/short exposure.
 `Mt5TradingError` when bid or ask is missing or non-positive.
 `normalize_order_volume()` returns `0.0` for invalid constraints or
 sub-minimum requests; check the result before calling `estimate_order_margin()`,
-which requires positive volume. `calculate_positions_margin()` silently skips
-rows with missing symbols, non-positive volumes, or unsupported position types,
-but propagates `Mt5TradingError` from `estimate_order_margin()` when a valid row
+which requires a positive finite volume. `calculate_positions_margin()` silently
+skips rows with missing symbols, non-positive volumes, non-finite volumes, or
+unsupported position types, but propagates `Mt5TradingError` from `estimate_order_margin()` when a valid row
 encounters invalid tick data or margin results from the broker.
 
 SL/TP ratios for `determine_order_limits()` must satisfy `0 <= ratio < 1`; `0`

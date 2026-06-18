@@ -979,8 +979,28 @@ class TestEstimateOrderMargin:
         """Test non-positive volume raises Mt5TradingError."""
         client = _mock_trade_client()
 
-        with pytest.raises(Mt5TradingError, match="Volume must be positive"):
+        with pytest.raises(Mt5TradingError, match="positive finite number"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.0)
+
+    def test_rejects_nan_volume(self) -> None:
+        """Test NaN volume raises Mt5TradingError without broker calls."""
+        client = _mock_trade_client()
+
+        with pytest.raises(Mt5TradingError, match="positive finite number"):
+            estimate_order_margin(client, "EURUSD", "BUY", float("nan"))
+
+        client.symbol_info_tick_as_dict.assert_not_called()
+        client.order_calc_margin.assert_not_called()
+
+    def test_rejects_infinite_volume(self) -> None:
+        """Test infinite volume raises Mt5TradingError without broker calls."""
+        client = _mock_trade_client()
+
+        with pytest.raises(Mt5TradingError, match="positive finite number"):
+            estimate_order_margin(client, "EURUSD", "BUY", float("inf"))
+
+        client.symbol_info_tick_as_dict.assert_not_called()
+        client.order_calc_margin.assert_not_called()
 
     def test_rejects_missing_tick_prices(self) -> None:
         """Test missing tick prices raise Mt5TradingError."""
@@ -1162,6 +1182,38 @@ class TestCalculatePositionsMargin:
 
         _assert_close(margin, 12.5)
         client.order_calc_margin.assert_called_once()
+
+    def test_skips_rows_with_non_finite_volume(self) -> None:
+        """Test NaN and infinite position volumes are ignored."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "EURUSD", "type": 0, "volume": float("nan")},
+                {"symbol": "EURUSD", "type": 0, "volume": float("inf")},
+                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+            ],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
+        client.order_calc_margin.return_value = 12.5
+
+        margin = calculate_positions_margin(client)
+
+        _assert_close(margin, 12.5)
+        client.order_calc_margin.assert_called_once()
+
+    def test_returns_zero_when_all_volumes_are_non_finite(self) -> None:
+        """Test all-invalid non-finite volumes return zero without broker calls."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"symbol": "EURUSD", "type": 0, "volume": float("nan")},
+                {"symbol": "EURUSD", "type": 1, "volume": float("inf")},
+            ],
+        )
+
+        _assert_close(calculate_positions_margin(client), 0.0)
+        client.order_calc_margin.assert_not_called()
+        client.symbol_info_tick_as_dict.assert_not_called()
 
     def test_returns_zero_when_symbol_filter_matches_nothing(self) -> None:
         """Test filtered symbol lists with no matches return zero."""
