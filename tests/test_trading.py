@@ -2701,6 +2701,67 @@ class TestFetchLatestClosedRatesIndexed:
         assert str(result.index.tz) == "UTC"
         assert result.index[0].year == 2023
 
+    @pytest.mark.parametrize(
+        "timestamps",
+        [
+            [1700000000, 1700003600],
+            [1700000000.0, 1700003600.0],
+        ],
+        ids=["integers", "floats"],
+    )
+    def test_converts_object_numeric_epoch_seconds_to_utc_datetime_index(
+        self, mocker: MockerFixture, timestamps: list[int] | list[float]
+    ) -> None:
+        """Test object-dtype Python numbers are interpreted as epoch seconds."""
+        frame = pd.DataFrame(
+            {
+                "time": pd.Series(timestamps, dtype=object),
+                "close": [1.1, 1.2],
+            },
+        )
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=frame,
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            MagicMock(), symbol="EURUSD", granularity="M1", count=2
+        )
+
+        assert list(result.index) == list(
+            pd.to_datetime(timestamps, unit="s", utc=True)
+        )
+
+    def test_parses_mixed_datetime_like_strings(self, mocker: MockerFixture) -> None:
+        """Test object-dtype datetime strings retain datetime-like parsing."""
+        timestamps = ["2024-01-01T00:00:00Z", "2024-01-01T01:00:00+01:00"]
+        frame = pd.DataFrame({"time": timestamps, "close": [1.1, 1.2]})
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=frame,
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            MagicMock(), symbol="EURUSD", granularity="M1", count=2
+        )
+
+        assert list(result.index) == list(pd.to_datetime(timestamps, utc=True))
+
+    def test_does_not_treat_bool_as_epoch_seconds(self, mocker: MockerFixture) -> None:
+        """Test bool timestamps do not enter the numeric epoch-seconds path."""
+        frame = pd.DataFrame(
+            {"time": pd.Series([True, False], dtype=object), "close": [1.1, 1.2]},
+        )
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=frame,
+        )
+
+        with pytest.raises(ValueError, match="invalid or unparseable time data"):
+            fetch_latest_closed_rates_indexed(
+                MagicMock(), symbol="EURUSD", granularity="M1", count=2
+            )
+
     def test_converts_naive_datetime_to_utc_datetime_index(
         self, mocker: MockerFixture
     ) -> None:

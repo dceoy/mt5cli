@@ -1206,8 +1206,8 @@ def fetch_latest_closed_rates_for_trading_client(
 def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
     """Convert a rate time series to a UTC-aware DatetimeIndex.
 
-    Handles MT5 epoch seconds (integer or float dtype after concat/NA upcast),
-    timezone-naive datetime-like values, and timezone-aware datetime-like values.
+    Handles MT5 epoch seconds (including object-dtype Python numbers), timezone-
+    naive datetime-like values, and timezone-aware datetime-like values.
 
     Returns:
         UTC-aware DatetimeIndex.
@@ -1217,7 +1217,21 @@ def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
     """
     try:
         arr = series.to_numpy()
-        if pd.api.types.is_numeric_dtype(series):
+        non_null = series.dropna()
+        object_numbers = (
+            pd.api.types.is_object_dtype(series)
+            and non_null.map(
+                lambda value: (
+                    isinstance(value, int | float) and not isinstance(value, bool)
+                ),
+            ).all()
+        )
+        numeric_dtype = pd.api.types.is_numeric_dtype(
+            series
+        ) and not pd.api.types.is_bool_dtype(
+            series,
+        )
+        if numeric_dtype or object_numbers:
             idx = pd.to_datetime(arr, unit="s", utc=True)
         else:
             idx = pd.to_datetime(arr, utc=True)
