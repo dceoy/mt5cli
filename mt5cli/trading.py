@@ -830,7 +830,9 @@ def calculate_volume_by_margin(
     """Calculate max normalized volume affordable for one side.
 
     Returns:
-        Affordable volume rounded down to symbol volume constraints.
+        Largest stepped volume whose actual margin (from ``order_calc_margin``)
+        fits within ``available_margin``, rounded down to symbol volume
+        constraints; ``0.0`` when no affordable step exists.
 
     Raises:
         Mt5TradingError: If symbol volume constraints or tick data are invalid.
@@ -845,8 +847,7 @@ def calculate_volume_by_margin(
         msg = f"Invalid volume constraints for {symbol!r}."
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
-    tick = get_tick_snapshot(client, symbol)
-    price = tick["ask"] if side == "BUY" else tick["bid"]
+    price = get_tick_snapshot(client, symbol)["ask" if side == "BUY" else "bid"]
     if not isinstance(price, int | float) or price <= 0:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
@@ -856,11 +857,38 @@ def calculate_volume_by_margin(
     min_margin = float(client.order_calc_margin(order_type, symbol, volume_min, price))
     if min_margin <= 0 or min_margin > available_margin:
         return 0.0
-    raw_volume = available_margin / min_margin * volume_min
-    capped = min(raw_volume, volume_max) if volume_max > 0 else raw_volume
-    steps = floor(((capped - volume_min) / volume_step) + 1e-12)
-    normalized = volume_min + max(0, steps) * volume_step
-    return round(normalized, 10) if normalized >= volume_min else 0.0
+    lo = 0
+    hi = int(
+        max(
+            0,
+            floor(
+                (
+                    (
+                        min(available_margin / min_margin * volume_min, volume_max)
+                        if volume_max > 0
+                        else available_margin / min_margin * volume_min
+                    )
+                    - volume_min
+                )
+                / volume_step
+                + 1e-12
+            ),
+        )
+    )
+    best = -1
+
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        normalized = round(volume_min + mid * volume_step, 10)
+        actual = float(client.order_calc_margin(order_type, symbol, normalized, price))
+
+        if actual > 0 and actual <= available_margin:
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    return round(volume_min + best * volume_step, 10) if best >= 0 else 0.0
 
 
 def determine_order_limits(
