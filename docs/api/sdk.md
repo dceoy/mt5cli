@@ -89,7 +89,9 @@ resolved = resolve_account_specs(accounts, server="Broker-Demo")
 Pass `allow_whole_dollar_env=True` to also expand strings whose **entire value**
 is a bare `$ENV_NAME` identifier (no braces). This opt-in covers
 `substitute_env_placeholders()`, `resolve_account_spec()`,
-`resolve_account_specs()`, and `build_config()`. Partial strings such as
+`resolve_account_specs()`, and `build_config()`. Note: `build_config` cannot
+expand `login` because that parameter is `int | None`; use
+`resolve_account_spec` for a string `login` placeholder. Partial strings such as
 `"plan$pass"`, `"abc$ENV"`, or `"$ENV-suffix"` are never expanded — only an
 exact `$IDENTIFIER` whole-string match qualifies. The default is `False` to
 preserve backward compatibility.

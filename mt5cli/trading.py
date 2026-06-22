@@ -1206,8 +1206,8 @@ def fetch_latest_closed_rates_for_trading_client(
 def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
     """Convert a rate time series to a UTC-aware DatetimeIndex.
 
-    Handles MT5 epoch seconds (integer dtype), timezone-naive datetime-like
-    values, and timezone-aware datetime-like values.
+    Handles MT5 epoch seconds (integer or float dtype after concat/NA upcast),
+    timezone-naive datetime-like values, and timezone-aware datetime-like values.
 
     Returns:
         UTC-aware DatetimeIndex.
@@ -1216,9 +1216,10 @@ def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
         ValueError: If the time data is invalid or unparseable.
     """
     try:
-        if pd.api.types.is_integer_dtype(series):
-            return pd.DatetimeIndex(pd.to_datetime(series, unit="s", utc=True))
-        return pd.DatetimeIndex(pd.to_datetime(series, utc=True))
+        arr = series.to_numpy()
+        if pd.api.types.is_numeric_dtype(series):
+            return pd.to_datetime(arr, unit="s", utc=True)
+        return pd.to_datetime(arr, utc=True)
     except Exception as exc:
         msg = f"Rate data for {symbol!r} has invalid or unparseable time data."
         raise ValueError(msg) from exc

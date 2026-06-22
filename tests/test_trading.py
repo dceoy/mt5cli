@@ -2677,6 +2677,30 @@ class TestFetchLatestClosedRatesIndexed:
         assert "time" not in result.columns
         assert list(result["close"]) == [1.1, 1.2]
 
+    def test_converts_float_epoch_seconds_to_utc_datetime_index(
+        self, mocker: MockerFixture
+    ) -> None:
+        """Test float64 epoch second timestamps (after concat/NA upcast) become UTC."""
+        frame = pd.DataFrame(
+            {"time": [1700000000.0, 1700003600.0], "close": [1.1, 1.2]},
+        )
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=frame,
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            MagicMock(),
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert isinstance(result.index, pd.DatetimeIndex)
+        assert result.index.tz is not None
+        assert str(result.index.tz) == "UTC"
+        assert result.index[0].year == 2023
+
     def test_converts_naive_datetime_to_utc_datetime_index(
         self, mocker: MockerFixture
     ) -> None:
