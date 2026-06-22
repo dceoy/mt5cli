@@ -2787,6 +2787,23 @@ class TestFetchLatestClosedRatesIndexed:
                 count=1,
             )
 
+    def test_raises_on_nat_time_column(self, mocker: MockerFixture) -> None:
+        """Test NaT in the time column raises ValueError instead of silently passing."""
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=pd.DataFrame(
+                {"time": [1700000000, None], "close": [1.1, 1.2]},
+            ),
+        )
+
+        with pytest.raises(ValueError, match=r"missing.*NaT.*timestamp"):
+            fetch_latest_closed_rates_indexed(
+                MagicMock(),
+                symbol="EURUSD",
+                granularity="M1",
+                count=2,
+            )
+
     def test_drops_time_column_and_sets_index(self, mocker: MockerFixture) -> None:
         """Test the returned DataFrame has the DatetimeIndex and no time column."""
         frame = pd.DataFrame(

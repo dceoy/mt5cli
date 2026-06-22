@@ -1213,16 +1213,21 @@ def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
         UTC-aware DatetimeIndex.
 
     Raises:
-        ValueError: If the time data is invalid or unparseable.
+        ValueError: If the time data is invalid, unparseable, or contains NaT.
     """
     try:
         arr = series.to_numpy()
         if pd.api.types.is_numeric_dtype(series):
-            return pd.to_datetime(arr, unit="s", utc=True)
-        return pd.to_datetime(arr, utc=True)
+            idx = pd.to_datetime(arr, unit="s", utc=True)
+        else:
+            idx = pd.to_datetime(arr, utc=True)
     except Exception as exc:
         msg = f"Rate data for {symbol!r} has invalid or unparseable time data."
         raise ValueError(msg) from exc
+    if any(idx.isna()):
+        msg = f"Rate data for {symbol!r} contains missing (NaT) timestamp values."
+        raise ValueError(msg)
+    return idx
 
 
 def fetch_latest_closed_rates_indexed(
