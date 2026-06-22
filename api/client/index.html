@@ -248,28 +248,7 @@ responsibility of downstream applications.</p>
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>mt5cli/sdk.py</code></summary>
-                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-385">385</a></span>
-<span class="normal"><a href="#__codelineno-0-386">386</a></span>
-<span class="normal"><a href="#__codelineno-0-387">387</a></span>
-<span class="normal"><a href="#__codelineno-0-388">388</a></span>
-<span class="normal"><a href="#__codelineno-0-389">389</a></span>
-<span class="normal"><a href="#__codelineno-0-390">390</a></span>
-<span class="normal"><a href="#__codelineno-0-391">391</a></span>
-<span class="normal"><a href="#__codelineno-0-392">392</a></span>
-<span class="normal"><a href="#__codelineno-0-393">393</a></span>
-<span class="normal"><a href="#__codelineno-0-394">394</a></span>
-<span class="normal"><a href="#__codelineno-0-395">395</a></span>
-<span class="normal"><a href="#__codelineno-0-396">396</a></span>
-<span class="normal"><a href="#__codelineno-0-397">397</a></span>
-<span class="normal"><a href="#__codelineno-0-398">398</a></span>
-<span class="normal"><a href="#__codelineno-0-399">399</a></span>
-<span class="normal"><a href="#__codelineno-0-400">400</a></span>
-<span class="normal"><a href="#__codelineno-0-401">401</a></span>
-<span class="normal"><a href="#__codelineno-0-402">402</a></span>
-<span class="normal"><a href="#__codelineno-0-403">403</a></span>
-<span class="normal"><a href="#__codelineno-0-404">404</a></span>
-<span class="normal"><a href="#__codelineno-0-405">405</a></span>
-<span class="normal"><a href="#__codelineno-0-406">406</a></span>
+                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-406">406</a></span>
 <span class="normal"><a href="#__codelineno-0-407">407</a></span>
 <span class="normal"><a href="#__codelineno-0-408">408</a></span>
 <span class="normal"><a href="#__codelineno-0-409">409</a></span>
@@ -283,42 +262,63 @@ responsibility of downstream applications.</p>
 <span class="normal"><a href="#__codelineno-0-417">417</a></span>
 <span class="normal"><a href="#__codelineno-0-418">418</a></span>
 <span class="normal"><a href="#__codelineno-0-419">419</a></span>
-<span class="normal"><a href="#__codelineno-0-420">420</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-385" name="__codelineno-0-385"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-<a id="__codelineno-0-386" name="__codelineno-0-386"></a>    <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-387" name="__codelineno-0-387"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-388" name="__codelineno-0-388"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-389" name="__codelineno-0-389"></a>    <span class="n">login</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-390" name="__codelineno-0-390"></a>    <span class="n">password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-391" name="__codelineno-0-391"></a>    <span class="n">server</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-392" name="__codelineno-0-392"></a>    <span class="n">timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-393" name="__codelineno-0-393"></a>    <span class="n">retry_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
-<a id="__codelineno-0-394" name="__codelineno-0-394"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Mt5Config</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-395" name="__codelineno-0-395"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">Mt5DataClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-396" name="__codelineno-0-396"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-397" name="__codelineno-0-397"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the SDK client.</span>
-<a id="__codelineno-0-398" name="__codelineno-0-398"></a>
-<a id="__codelineno-0-399" name="__codelineno-0-399"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-400" name="__codelineno-0-400"></a><span class="sd">        path: Path to MetaTrader5 terminal EXE file.</span>
-<a id="__codelineno-0-401" name="__codelineno-0-401"></a><span class="sd">        login: Trading account login.</span>
-<a id="__codelineno-0-402" name="__codelineno-0-402"></a><span class="sd">        password: Trading account password.</span>
-<a id="__codelineno-0-403" name="__codelineno-0-403"></a><span class="sd">        server: Trading server name.</span>
-<a id="__codelineno-0-404" name="__codelineno-0-404"></a><span class="sd">        timeout: Connection timeout in milliseconds.</span>
-<a id="__codelineno-0-405" name="__codelineno-0-405"></a><span class="sd">        retry_count: Number of MT5 initialization retries for sessions</span>
-<a id="__codelineno-0-406" name="__codelineno-0-406"></a><span class="sd">            opened by this client.</span>
-<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="sd">        config: Optional pre-built ``Mt5Config`` (overrides other args).</span>
-<a id="__codelineno-0-408" name="__codelineno-0-408"></a><span class="sd">        client: Optional already-connected ``Mt5DataClient``. Injected</span>
-<a id="__codelineno-0-409" name="__codelineno-0-409"></a><span class="sd">            clients are reused as-is and are not initialized or shut down.</span>
-<a id="__codelineno-0-410" name="__codelineno-0-410"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-411" name="__codelineno-0-411"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_config</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="n">build_config</span><span class="p">(</span>
-<a id="__codelineno-0-412" name="__codelineno-0-412"></a>        <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
-<a id="__codelineno-0-413" name="__codelineno-0-413"></a>        <span class="n">login</span><span class="o">=</span><span class="n">login</span><span class="p">,</span>
-<a id="__codelineno-0-414" name="__codelineno-0-414"></a>        <span class="n">password</span><span class="o">=</span><span class="n">password</span><span class="p">,</span>
-<a id="__codelineno-0-415" name="__codelineno-0-415"></a>        <span class="n">server</span><span class="o">=</span><span class="n">server</span><span class="p">,</span>
-<a id="__codelineno-0-416" name="__codelineno-0-416"></a>        <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
-<a id="__codelineno-0-417" name="__codelineno-0-417"></a>    <span class="p">)</span>
-<a id="__codelineno-0-418" name="__codelineno-0-418"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_retry_count</span> <span class="o">=</span> <span class="n">retry_count</span>
-<a id="__codelineno-0-419" name="__codelineno-0-419"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-420" name="__codelineno-0-420"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_owns_client</span> <span class="o">=</span> <span class="n">client</span> <span class="ow">is</span> <span class="kc">None</span>
+<span class="normal"><a href="#__codelineno-0-420">420</a></span>
+<span class="normal"><a href="#__codelineno-0-421">421</a></span>
+<span class="normal"><a href="#__codelineno-0-422">422</a></span>
+<span class="normal"><a href="#__codelineno-0-423">423</a></span>
+<span class="normal"><a href="#__codelineno-0-424">424</a></span>
+<span class="normal"><a href="#__codelineno-0-425">425</a></span>
+<span class="normal"><a href="#__codelineno-0-426">426</a></span>
+<span class="normal"><a href="#__codelineno-0-427">427</a></span>
+<span class="normal"><a href="#__codelineno-0-428">428</a></span>
+<span class="normal"><a href="#__codelineno-0-429">429</a></span>
+<span class="normal"><a href="#__codelineno-0-430">430</a></span>
+<span class="normal"><a href="#__codelineno-0-431">431</a></span>
+<span class="normal"><a href="#__codelineno-0-432">432</a></span>
+<span class="normal"><a href="#__codelineno-0-433">433</a></span>
+<span class="normal"><a href="#__codelineno-0-434">434</a></span>
+<span class="normal"><a href="#__codelineno-0-435">435</a></span>
+<span class="normal"><a href="#__codelineno-0-436">436</a></span>
+<span class="normal"><a href="#__codelineno-0-437">437</a></span>
+<span class="normal"><a href="#__codelineno-0-438">438</a></span>
+<span class="normal"><a href="#__codelineno-0-439">439</a></span>
+<span class="normal"><a href="#__codelineno-0-440">440</a></span>
+<span class="normal"><a href="#__codelineno-0-441">441</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-406" name="__codelineno-0-406"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<a id="__codelineno-0-407" name="__codelineno-0-407"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-408" name="__codelineno-0-408"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-409" name="__codelineno-0-409"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-410" name="__codelineno-0-410"></a>    <span class="n">login</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-411" name="__codelineno-0-411"></a>    <span class="n">password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-412" name="__codelineno-0-412"></a>    <span class="n">server</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-413" name="__codelineno-0-413"></a>    <span class="n">timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-414" name="__codelineno-0-414"></a>    <span class="n">retry_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+<a id="__codelineno-0-415" name="__codelineno-0-415"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Mt5Config</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-416" name="__codelineno-0-416"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">Mt5DataClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-417" name="__codelineno-0-417"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-418" name="__codelineno-0-418"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the SDK client.</span>
+<a id="__codelineno-0-419" name="__codelineno-0-419"></a>
+<a id="__codelineno-0-420" name="__codelineno-0-420"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-421" name="__codelineno-0-421"></a><span class="sd">        path: Path to MetaTrader5 terminal EXE file.</span>
+<a id="__codelineno-0-422" name="__codelineno-0-422"></a><span class="sd">        login: Trading account login.</span>
+<a id="__codelineno-0-423" name="__codelineno-0-423"></a><span class="sd">        password: Trading account password.</span>
+<a id="__codelineno-0-424" name="__codelineno-0-424"></a><span class="sd">        server: Trading server name.</span>
+<a id="__codelineno-0-425" name="__codelineno-0-425"></a><span class="sd">        timeout: Connection timeout in milliseconds.</span>
+<a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="sd">        retry_count: Number of MT5 initialization retries for sessions</span>
+<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">            opened by this client.</span>
+<a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="sd">        config: Optional pre-built ``Mt5Config`` (overrides other args).</span>
+<a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">        client: Optional already-connected ``Mt5DataClient``. Injected</span>
+<a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">            clients are reused as-is and are not initialized or shut down.</span>
+<a id="__codelineno-0-431" name="__codelineno-0-431"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-432" name="__codelineno-0-432"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_config</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="n">build_config</span><span class="p">(</span>
+<a id="__codelineno-0-433" name="__codelineno-0-433"></a>        <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
+<a id="__codelineno-0-434" name="__codelineno-0-434"></a>        <span class="n">login</span><span class="o">=</span><span class="n">login</span><span class="p">,</span>
+<a id="__codelineno-0-435" name="__codelineno-0-435"></a>        <span class="n">password</span><span class="o">=</span><span class="n">password</span><span class="p">,</span>
+<a id="__codelineno-0-436" name="__codelineno-0-436"></a>        <span class="n">server</span><span class="o">=</span><span class="n">server</span><span class="p">,</span>
+<a id="__codelineno-0-437" name="__codelineno-0-437"></a>        <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
+<a id="__codelineno-0-438" name="__codelineno-0-438"></a>    <span class="p">)</span>
+<a id="__codelineno-0-439" name="__codelineno-0-439"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_retry_count</span> <span class="o">=</span> <span class="n">retry_count</span>
+<a id="__codelineno-0-440" name="__codelineno-0-440"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-441" name="__codelineno-0-441"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_owns_client</span> <span class="o">=</span> <span class="n">client</span> <span class="ow">is</span> <span class="kc">None</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -642,12 +642,127 @@ not implement strategy logic, signal generation, or trade sizing.</p>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">password</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">server</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">timeout</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pdmt5.Mt5Config">Mt5Config</span></span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">allow_whole_dollar_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pdmt5.Mt5Config">Mt5Config</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>Build an <code>Mt5Config</code> from optional connection parameters.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>path</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional terminal executable path.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>login</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional trading account login.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>password</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional trading account password.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>server</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional trading server name.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>timeout</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional connection timeout in milliseconds.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>allow_whole_dollar_env</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>When <code>True</code>, string parameters that are
+exactly <code>$ENV_NAME</code> are expanded from the environment. Applies
+to <code>path</code>, <code>password</code>, and <code>server</code>. Default <code>False</code>
+preserves existing behavior.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
 
     <p><span class="doc-section-title">Returns:</span></p>
@@ -694,26 +809,68 @@ not implement strategy logic, signal generation, or trade sizing.</p>
 <span class="normal"><a href="#__codelineno-0-321">321</a></span>
 <span class="normal"><a href="#__codelineno-0-322">322</a></span>
 <span class="normal"><a href="#__codelineno-0-323">323</a></span>
-<span class="normal"><a href="#__codelineno-0-324">324</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-305" name="__codelineno-0-305"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_config</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-324">324</a></span>
+<span class="normal"><a href="#__codelineno-0-325">325</a></span>
+<span class="normal"><a href="#__codelineno-0-326">326</a></span>
+<span class="normal"><a href="#__codelineno-0-327">327</a></span>
+<span class="normal"><a href="#__codelineno-0-328">328</a></span>
+<span class="normal"><a href="#__codelineno-0-329">329</a></span>
+<span class="normal"><a href="#__codelineno-0-330">330</a></span>
+<span class="normal"><a href="#__codelineno-0-331">331</a></span>
+<span class="normal"><a href="#__codelineno-0-332">332</a></span>
+<span class="normal"><a href="#__codelineno-0-333">333</a></span>
+<span class="normal"><a href="#__codelineno-0-334">334</a></span>
+<span class="normal"><a href="#__codelineno-0-335">335</a></span>
+<span class="normal"><a href="#__codelineno-0-336">336</a></span>
+<span class="normal"><a href="#__codelineno-0-337">337</a></span>
+<span class="normal"><a href="#__codelineno-0-338">338</a></span>
+<span class="normal"><a href="#__codelineno-0-339">339</a></span>
+<span class="normal"><a href="#__codelineno-0-340">340</a></span>
+<span class="normal"><a href="#__codelineno-0-341">341</a></span>
+<span class="normal"><a href="#__codelineno-0-342">342</a></span>
+<span class="normal"><a href="#__codelineno-0-343">343</a></span>
+<span class="normal"><a href="#__codelineno-0-344">344</a></span>
+<span class="normal"><a href="#__codelineno-0-345">345</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-305" name="__codelineno-0-305"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_config</span><span class="p">(</span>
 <a id="__codelineno-0-306" name="__codelineno-0-306"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-307" name="__codelineno-0-307"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-308" name="__codelineno-0-308"></a>    <span class="n">login</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-309" name="__codelineno-0-309"></a>    <span class="n">password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-310" name="__codelineno-0-310"></a>    <span class="n">server</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-311" name="__codelineno-0-311"></a>    <span class="n">timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-312" name="__codelineno-0-312"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mt5Config</span><span class="p">:</span>
-<a id="__codelineno-0-313" name="__codelineno-0-313"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build an ``Mt5Config`` from optional connection parameters.</span>
-<a id="__codelineno-0-314" name="__codelineno-0-314"></a>
-<a id="__codelineno-0-315" name="__codelineno-0-315"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-316" name="__codelineno-0-316"></a><span class="sd">        Configured ``Mt5Config`` instance.</span>
-<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-318" name="__codelineno-0-318"></a>    <span class="k">return</span> <span class="n">Mt5Config</span><span class="p">(</span>
-<a id="__codelineno-0-319" name="__codelineno-0-319"></a>        <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
-<a id="__codelineno-0-320" name="__codelineno-0-320"></a>        <span class="n">login</span><span class="o">=</span><span class="n">login</span><span class="p">,</span>
-<a id="__codelineno-0-321" name="__codelineno-0-321"></a>        <span class="n">password</span><span class="o">=</span><span class="n">password</span><span class="p">,</span>
-<a id="__codelineno-0-322" name="__codelineno-0-322"></a>        <span class="n">server</span><span class="o">=</span><span class="n">server</span><span class="p">,</span>
-<a id="__codelineno-0-323" name="__codelineno-0-323"></a>        <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
-<a id="__codelineno-0-324" name="__codelineno-0-324"></a>    <span class="p">)</span>
+<a id="__codelineno-0-312" name="__codelineno-0-312"></a>    <span class="n">allow_whole_dollar_env</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-313" name="__codelineno-0-313"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mt5Config</span><span class="p">:</span>
+<a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build an ``Mt5Config`` from optional connection parameters.</span>
+<a id="__codelineno-0-315" name="__codelineno-0-315"></a>
+<a id="__codelineno-0-316" name="__codelineno-0-316"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">        path: Optional terminal executable path.</span>
+<a id="__codelineno-0-318" name="__codelineno-0-318"></a><span class="sd">        login: Optional trading account login.</span>
+<a id="__codelineno-0-319" name="__codelineno-0-319"></a><span class="sd">        password: Optional trading account password.</span>
+<a id="__codelineno-0-320" name="__codelineno-0-320"></a><span class="sd">        server: Optional trading server name.</span>
+<a id="__codelineno-0-321" name="__codelineno-0-321"></a><span class="sd">        timeout: Optional connection timeout in milliseconds.</span>
+<a id="__codelineno-0-322" name="__codelineno-0-322"></a><span class="sd">        allow_whole_dollar_env: When ``True``, string parameters that are</span>
+<a id="__codelineno-0-323" name="__codelineno-0-323"></a><span class="sd">            exactly ``$ENV_NAME`` are expanded from the environment. Applies</span>
+<a id="__codelineno-0-324" name="__codelineno-0-324"></a><span class="sd">            to ``path``, ``password``, and ``server``. Default ``False``</span>
+<a id="__codelineno-0-325" name="__codelineno-0-325"></a><span class="sd">            preserves existing behavior.</span>
+<a id="__codelineno-0-326" name="__codelineno-0-326"></a>
+<a id="__codelineno-0-327" name="__codelineno-0-327"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-328" name="__codelineno-0-328"></a><span class="sd">        Configured ``Mt5Config`` instance.</span>
+<a id="__codelineno-0-329" name="__codelineno-0-329"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-330" name="__codelineno-0-330"></a>    <span class="k">if</span> <span class="n">allow_whole_dollar_env</span><span class="p">:</span>
+<a id="__codelineno-0-331" name="__codelineno-0-331"></a>        <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-332" name="__codelineno-0-332"></a>            <span class="n">path</span> <span class="o">=</span> <span class="n">substitute_env_placeholders</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">allow_whole_dollar_env</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-333" name="__codelineno-0-333"></a>        <span class="k">if</span> <span class="n">password</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-334" name="__codelineno-0-334"></a>            <span class="n">password</span> <span class="o">=</span> <span class="n">substitute_env_placeholders</span><span class="p">(</span>
+<a id="__codelineno-0-335" name="__codelineno-0-335"></a>                <span class="n">password</span><span class="p">,</span> <span class="n">allow_whole_dollar_env</span><span class="o">=</span><span class="kc">True</span>
+<a id="__codelineno-0-336" name="__codelineno-0-336"></a>            <span class="p">)</span>
+<a id="__codelineno-0-337" name="__codelineno-0-337"></a>        <span class="k">if</span> <span class="n">server</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-338" name="__codelineno-0-338"></a>            <span class="n">server</span> <span class="o">=</span> <span class="n">substitute_env_placeholders</span><span class="p">(</span><span class="n">server</span><span class="p">,</span> <span class="n">allow_whole_dollar_env</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a>    <span class="k">return</span> <span class="n">Mt5Config</span><span class="p">(</span>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a>        <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a>        <span class="n">login</span><span class="o">=</span><span class="n">login</span><span class="p">,</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a>        <span class="n">password</span><span class="o">=</span><span class="n">password</span><span class="p">,</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a>        <span class="n">server</span><span class="o">=</span><span class="n">server</span><span class="p">,</span>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a>        <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
+<a id="__codelineno-0-345" name="__codelineno-0-345"></a>    <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

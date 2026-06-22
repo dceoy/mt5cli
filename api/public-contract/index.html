@@ -203,17 +203,23 @@ alias for new code.</p>
 </tr>
 <tr>
 <td><code>resolve_account_spec</code>, <code>resolve_account_specs</code></td>
-<td>Merge overrides and expand <code>${ENV_VAR}</code> placeholders</td>
+<td>Merge overrides and expand <code>${ENV_VAR}</code> placeholders; opt-in <code>allow_whole_dollar_env</code> for bare <code>$NAME</code></td>
 </tr>
 <tr>
 <td><code>substitute_env_placeholders</code></td>
-<td>Replace <code>${NAME}</code> substrings from the environment</td>
+<td>Replace <code>${NAME}</code> substrings from the environment; opt-in <code>allow_whole_dollar_env</code> for whole-value <code>$NAME</code></td>
 </tr>
 </tbody>
 </table>
 <p>Credential resolution is generic: any environment variable name may appear inside
 <code>${...}</code>. mt5cli does not hard-code application-specific keys such as
 <code>mt5_login</code> or <code>mt5_exe</code>.</p>
+<p>Pass <code>allow_whole_dollar_env=True</code> to <code>substitute_env_placeholders()</code>,
+<code>resolve_account_spec()</code>, <code>resolve_account_specs()</code>, and <code>build_config()</code> to
+additionally expand strings whose entire value is a bare <code>$ENV_NAME</code> identifier.
+Partial strings such as <code>"plan$pass"</code>, <code>"abc$ENV"</code>, or <code>"$ENV-suffix"</code> are
+<strong>never</strong> expanded — only an exact <code>$IDENTIFIER</code> whole-string match qualifies.
+Default is <code>False</code> to preserve backward compatibility.</p>
 <h3 id="read-only-mt5-data-access">Read-only MT5 data access<a class="headerlink" href="#read-only-mt5-data-access" title="Permanent link">&para;</a></h3>
 <p>Module-level helpers open a transient connection per call. Prefer <code>mt5_session</code>
 or <code>MT5Client</code> when making many requests in one process.</p>
@@ -272,7 +278,11 @@ timestamp normalization in downstream apps.</p>
 </tr>
 <tr>
 <td><code>fetch_latest_closed_rates_for_trading_client</code></td>
-<td>Closed bars from an active <code>Mt5TradingClient</code> session</td>
+<td>Closed bars from an active <code>Mt5TradingClient</code> session; returns RangeIndex</td>
+</tr>
+<tr>
+<td><code>fetch_latest_closed_rates_indexed</code></td>
+<td>Same as above but returns a UTC <code>DatetimeIndex</code> named <code>"time"</code> (no time column)</td>
 </tr>
 <tr>
 <td><code>collect_latest_closed_rates_for_accounts</code></td>
