@@ -1375,7 +1375,7 @@ class TestVolumeAndExecution:
         with pytest.raises(Mt5TradingError):
             calculate_volume_by_margin(client, "EURUSD", 100.0, "SELL")
 
-    def test_calculate_volume_by_margin_steps_down_when_normalized_margin_exceeds_budget(
+    def test_calculate_volume_by_margin_steps_down_when_margin_exceeds_budget(
         self,
     ) -> None:
         """Tiered margin: normalized volume over budget steps down one lot."""
@@ -1386,8 +1386,8 @@ class TestVolumeAndExecution:
             "volume_step": 0.1,
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        # First call (volume_min=0.1): affordable. Second call (normalized=0.5): over budget.
-        # Third call (normalized=0.4): affordable.
+        # Call 1 (volume_min=0.1): affordable.
+        # Call 2 (normalized=0.5): over budget. Call 3 (0.4): affordable.
         client.order_calc_margin.side_effect = [25.0, 150.0, 100.0]
 
         result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
@@ -1405,7 +1405,8 @@ class TestVolumeAndExecution:
             "volume_step": 0.1,
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        # First call (volume_min): affordable. Re-verify at 0.2 and 0.1: both over budget.
+        # Call 1 (volume_min): affordable.
+        # Re-verify at 0.2 and 0.1: both over budget.
         client.order_calc_margin.side_effect = [10.0, 150.0, 150.0]
 
         result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
