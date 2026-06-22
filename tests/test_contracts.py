@@ -44,6 +44,7 @@ from mt5cli import (
     export_dataframe_to_sqlite,
     fetch_latest_closed_rates,
     fetch_latest_closed_rates_for_trading_client,
+    fetch_latest_closed_rates_indexed,
     granularity_name,
     is_recoverable_mt5_error,
     load_rate_data,
@@ -734,3 +735,32 @@ class TestStableSdkContract:
             raise RuntimeError(message)
 
         mock_client.shutdown.assert_called_once()
+
+    def test_fetch_latest_closed_rates_indexed_from_package_root(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Indexed closed-bar helper returns a UTC DatetimeIndex named 'time'."""
+        client = MagicMock()
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=pd.DataFrame(
+                {
+                    "time": [1704067200, 1704153600, 1704240000],
+                    "close": [1.0, 1.1, 1.2],
+                },
+            ),
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert isinstance(result.index, pd.DatetimeIndex)
+        assert result.index.name == "time"
+        assert result.index.tz is not None
+        assert "time" not in result.columns
+        assert "close" in result.columns

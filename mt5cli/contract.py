@@ -56,6 +56,7 @@ STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "export_dataframe_to_sqlite",
     "fetch_latest_closed_rates",
     "fetch_latest_closed_rates_for_trading_client",
+    "fetch_latest_closed_rates_indexed",
     "get_account_snapshot",
     "get_positions_frame",
     "get_symbol_snapshot",
