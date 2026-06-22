@@ -859,8 +859,13 @@ def calculate_volume_by_margin(
     raw_volume = available_margin / min_margin * volume_min
     capped = min(raw_volume, volume_max) if volume_max > 0 else raw_volume
     steps = floor(((capped - volume_min) / volume_step) + 1e-12)
-    normalized = volume_min + max(0, steps) * volume_step
-    return round(normalized, 10) if normalized >= volume_min else 0.0
+    normalized = round(volume_min + max(0, steps) * volume_step, 10)
+    while normalized >= volume_min:
+        actual = float(client.order_calc_margin(order_type, symbol, normalized, price))
+        if actual <= available_margin:
+            return normalized
+        normalized = round(normalized - volume_step, 10)
+    return 0.0
 
 
 def determine_order_limits(

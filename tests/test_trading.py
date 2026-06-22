@@ -1375,6 +1375,43 @@ class TestVolumeAndExecution:
         with pytest.raises(Mt5TradingError):
             calculate_volume_by_margin(client, "EURUSD", 100.0, "SELL")
 
+    def test_calculate_volume_by_margin_steps_down_when_normalized_margin_exceeds_budget(
+        self,
+    ) -> None:
+        """Tiered margin: normalized volume over budget steps down one lot."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 1.0,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        # First call (volume_min=0.1): affordable. Second call (normalized=0.5): over budget.
+        # Third call (normalized=0.4): affordable.
+        client.order_calc_margin.side_effect = [25.0, 150.0, 100.0]
+
+        result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
+
+        _assert_close(result, 0.4)
+
+    def test_calculate_volume_by_margin_returns_zero_when_all_steps_unaffordable(
+        self,
+    ) -> None:
+        """If all stepped-down volumes exceed budget, returns zero."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.1,
+            "volume_max": 0.2,
+            "volume_step": 0.1,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        # First call (volume_min): affordable. Re-verify at 0.2 and 0.1: both over budget.
+        client.order_calc_margin.side_effect = [10.0, 150.0, 150.0]
+
+        result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
+
+        _assert_close(result, 0.0)
+
     def test_calculate_margin_and_volume_without_native_helper(self) -> None:
         """Test margin helper uses module volume calculation when needed."""
 
@@ -1401,7 +1438,7 @@ class TestVolumeAndExecution:
             ) -> float:
                 assert order_type in {10, 11}
                 assert symbol == "EURUSD"
-                _assert_close(volume, 0.1)
+                assert volume > 0
                 _assert_close(price, 100.0)
                 return 10.0
 
