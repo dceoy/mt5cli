@@ -124,7 +124,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"mt5cli/history.py" = ["TC003"]
 "tests/**/*.py" = [
   "DOC201",   # Missing return documentation
   "DOC501",   # Raised exception missing from docstring
