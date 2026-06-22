@@ -1439,7 +1439,7 @@ class TestVolumeAndExecution:
             ) -> float:
                 assert order_type in {10, 11}
                 assert symbol == "EURUSD"
-                assert volume > 0
+                assert 0.1 <= volume <= 1.0
                 _assert_close(price, 100.0)
                 return 10.0
 

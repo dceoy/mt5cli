@@ -830,7 +830,9 @@ def calculate_volume_by_margin(
     """Calculate max normalized volume affordable for one side.
 
     Returns:
-        Affordable volume rounded down to symbol volume constraints.
+        Largest stepped volume whose actual margin (from ``order_calc_margin``)
+        fits within ``available_margin``, rounded down to symbol volume
+        constraints; ``0.0`` when no affordable step exists.
 
     Raises:
         Mt5TradingError: If symbol volume constraints or tick data are invalid.
@@ -857,14 +859,18 @@ def calculate_volume_by_margin(
     if min_margin <= 0 or min_margin > available_margin:
         return 0.0
     raw_volume = available_margin / min_margin * volume_min
-    capped = min(raw_volume, volume_max) if volume_max > 0 else raw_volume
-    steps = floor(((capped - volume_min) / volume_step) + 1e-12)
-    normalized = round(volume_min + max(0, steps) * volume_step, 10)
-    while normalized >= volume_min:
+    steps = floor(
+        ((min(raw_volume, volume_max) if volume_max > 0 else raw_volume) - volume_min)
+        / volume_step
+        + 1e-12
+    )
+    step_index = int(max(0, steps))
+    while step_index >= 0:
+        normalized = round(volume_min + step_index * volume_step, 10)
         actual = float(client.order_calc_margin(order_type, symbol, normalized, price))
-        if actual <= available_margin:
+        if actual > 0 and actual <= available_margin:
             return normalized
-        normalized = round(normalized - volume_step, 10)
+        step_index -= 1
     return 0.0
 
 
