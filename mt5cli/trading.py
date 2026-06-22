@@ -847,8 +847,7 @@ def calculate_volume_by_margin(
         msg = f"Invalid volume constraints for {symbol!r}."
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
-    tick = get_tick_snapshot(client, symbol)
-    price = tick["ask"] if side == "BUY" else tick["bid"]
+    price = get_tick_snapshot(client, symbol)["ask" if side == "BUY" else "bid"]
     if not isinstance(price, int | float) or price <= 0:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
@@ -858,20 +857,38 @@ def calculate_volume_by_margin(
     min_margin = float(client.order_calc_margin(order_type, symbol, volume_min, price))
     if min_margin <= 0 or min_margin > available_margin:
         return 0.0
-    raw_volume = available_margin / min_margin * volume_min
-    steps = floor(
-        ((min(raw_volume, volume_max) if volume_max > 0 else raw_volume) - volume_min)
-        / volume_step
-        + 1e-12
+    lo = 0
+    hi = int(
+        max(
+            0,
+            floor(
+                (
+                    (
+                        min(available_margin / min_margin * volume_min, volume_max)
+                        if volume_max > 0
+                        else available_margin / min_margin * volume_min
+                    )
+                    - volume_min
+                )
+                / volume_step
+                + 1e-12
+            ),
+        )
     )
-    step_index = int(max(0, steps))
-    while step_index >= 0:
-        normalized = round(volume_min + step_index * volume_step, 10)
+    best = -1
+
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        normalized = round(volume_min + mid * volume_step, 10)
         actual = float(client.order_calc_margin(order_type, symbol, normalized, price))
+
         if actual > 0 and actual <= available_margin:
-            return normalized
-        step_index -= 1
-    return 0.0
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    return round(volume_min + best * volume_step, 10) if best >= 0 else 0.0
 
 
 def determine_order_limits(

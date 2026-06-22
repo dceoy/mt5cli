@@ -1378,7 +1378,7 @@ class TestVolumeAndExecution:
     def test_calculate_volume_by_margin_steps_down_when_margin_exceeds_budget(
         self,
     ) -> None:
-        """Tiered margin: normalized volume over budget steps down one lot."""
+        """Tiered margin: binary search returns the largest affordable step."""
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {
             "volume_min": 0.1,
@@ -1386,9 +1386,9 @@ class TestVolumeAndExecution:
             "volume_step": 0.1,
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        # Call 1 (volume_min=0.1): affordable.
-        # Call 2 (normalized=0.5): over budget. Call 3 (0.4): affordable.
-        client.order_calc_margin.side_effect = [25.0, 150.0, 100.0]
+        # min_margin (0.1): 25.0 -> hi=4.
+        # Search: mid=2 (0.3)->75<=130, mid=3 (0.4)->100<=130, mid=4 (0.5)->150>130.
+        client.order_calc_margin.side_effect = [25.0, 75.0, 100.0, 150.0]
 
         result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
 
@@ -1397,21 +1397,44 @@ class TestVolumeAndExecution:
     def test_calculate_volume_by_margin_returns_zero_when_all_steps_unaffordable(
         self,
     ) -> None:
-        """If all stepped-down volumes exceed budget, returns zero."""
+        """If all binary-search probes exceed budget, returns zero."""
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {
             "volume_min": 0.1,
-            "volume_max": 0.2,
+            "volume_max": 0.5,
             "volume_step": 0.1,
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        # Call 1 (volume_min): affordable.
-        # Re-verify at 0.2 and 0.1: both over budget.
+        # min_margin (0.1): 10.0 -> hi=4.
+        # Search: mid=2 (0.3)->150>130->hi=1, mid=0 (0.1)->150>130->hi=-1.
         client.order_calc_margin.side_effect = [10.0, 150.0, 150.0]
 
         result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
 
         _assert_close(result, 0.0)
+
+    def test_calculate_volume_by_margin_binary_search_is_bounded(self) -> None:
+        """Binary search finds the largest affordable volume in O(log n) MT5 calls."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "volume_min": 0.01,
+            "volume_max": 1000.0,
+            "volume_step": 0.01,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        # Steps 0-50000 cost 0.001 (affordable); steps 50001+ cost 2000.0 (not).
+        # Total range: 99999 steps. Linear scan: ~50000 calls; binary search: ~17.
+        affordable_step = 50000
+
+        def _margin(_ot: int, _sym: str, volume: float, _px: float) -> float:
+            step = round((volume - 0.01) / 0.01)
+            return 0.001 if step <= affordable_step else 2000.0
+
+        client.order_calc_margin.side_effect = _margin
+        result = calculate_volume_by_margin(client, "EURUSD", 200.0, "BUY")
+
+        _assert_close(result, 500.01)  # 0.01 + 50000 * 0.01
+        assert client.order_calc_margin.call_count <= 25
 
     def test_calculate_margin_and_volume_without_native_helper(self) -> None:
         """Test margin helper uses module volume calculation when needed."""
