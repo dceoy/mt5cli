@@ -29,6 +29,7 @@ from mt5cli.trading import (
     ensure_symbol_selected,
     estimate_order_margin,
     fetch_latest_closed_rates_for_trading_client,
+    fetch_latest_closed_rates_indexed,
     get_account_snapshot,
     get_positions_frame,
     get_symbol_snapshot,
@@ -2627,3 +2628,163 @@ class TestFetchLatestClosedRatesForTradingClient:
             )
 
         client.fetch_latest_rates_as_df.assert_not_called()
+
+    def test_returns_range_index_and_time_column_for_backward_compat(self) -> None:
+        """Test original helper returns RangeIndex with a time column."""
+        client = MagicMock()
+        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
+            {"time": [1700000000, 1700003600, 1700007200], "close": [1.1, 1.2, 1.3]},
+        )
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert isinstance(result.index, pd.RangeIndex)
+        assert "time" in result.columns
+        assert len(result) == 2
+
+
+class TestFetchLatestClosedRatesIndexed:
+    """Tests for fetch_latest_closed_rates_indexed."""
+
+    def test_converts_epoch_seconds_to_utc_datetime_index(
+        self, mocker: MockerFixture
+    ) -> None:
+        """Test integer epoch second timestamps become a UTC DatetimeIndex."""
+        frame = pd.DataFrame(
+            {"time": [1700000000, 1700003600], "close": [1.1, 1.2]},
+        )
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=frame,
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            MagicMock(),
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert isinstance(result.index, pd.DatetimeIndex)
+        assert result.index.name == "time"
+        assert result.index.tz is not None
+        assert str(result.index.tz) == "UTC"
+        assert "time" not in result.columns
+        assert list(result["close"]) == [1.1, 1.2]
+
+    def test_converts_naive_datetime_to_utc_datetime_index(
+        self, mocker: MockerFixture
+    ) -> None:
+        """Test timezone-naive datetime values are localized to UTC."""
+        from datetime import datetime  # noqa: PLC0415
+
+        frame = pd.DataFrame(
+            {
+                "time": [datetime(2024, 1, 1, 0, 0), datetime(2024, 1, 1, 1, 0)],  # noqa: DTZ001
+                "close": [1.1, 1.2],
+            },
+        )
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=frame,
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            MagicMock(),
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert isinstance(result.index, pd.DatetimeIndex)
+        assert result.index.tz is not None
+        assert str(result.index.tz) == "UTC"
+        assert result.index[0].year == 2024
+
+    def test_converts_aware_datetime_to_utc(self, mocker: MockerFixture) -> None:
+        """Test timezone-aware datetime values are converted to UTC."""
+        from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+
+        tz_plus5 = timezone(timedelta(hours=5))
+        frame = pd.DataFrame(
+            {
+                "time": [datetime(2024, 1, 1, 5, 0, tzinfo=tz_plus5)],
+                "close": [1.1],
+            },
+        )
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=frame,
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            MagicMock(),
+            symbol="EURUSD",
+            granularity="M1",
+            count=1,
+        )
+
+        assert isinstance(result.index, pd.DatetimeIndex)
+        assert str(result.index.tz) == "UTC"
+        assert result.index[0].hour == 0
+
+    def test_raises_on_missing_time_column(self, mocker: MockerFixture) -> None:
+        """Test missing time column after the underlying fetch raises ValueError."""
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=pd.DataFrame({"close": [1.1]}),
+        )
+
+        with pytest.raises(ValueError, match="missing a time column"):
+            fetch_latest_closed_rates_indexed(
+                MagicMock(),
+                symbol="EURUSD",
+                granularity="M1",
+                count=1,
+            )
+
+    def test_raises_on_unparseable_time_column(self, mocker: MockerFixture) -> None:
+        """Test unparseable time data raises a clear ValueError."""
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=pd.DataFrame({"time": ["not-a-date"], "close": [1.1]}),
+        )
+
+        with pytest.raises(ValueError, match="invalid or unparseable time data"):
+            fetch_latest_closed_rates_indexed(
+                MagicMock(),
+                symbol="EURUSD",
+                granularity="M1",
+                count=1,
+            )
+
+    def test_drops_time_column_and_sets_index(self, mocker: MockerFixture) -> None:
+        """Test the returned DataFrame has the DatetimeIndex and no time column."""
+        frame = pd.DataFrame(
+            {
+                "time": [1700000000, 1700003600],
+                "open": [1.0, 1.1],
+                "close": [1.1, 1.2],
+            },
+        )
+        mocker.patch(
+            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
+            return_value=frame,
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            MagicMock(),
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert "time" not in result.columns
+        assert "open" in result.columns
+        assert "close" in result.columns
+        assert isinstance(result.index, pd.DatetimeIndex)

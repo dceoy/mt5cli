@@ -1777,6 +1777,80 @@ class TestSubstituteEnvPlaceholders:
         with pytest.raises(ValueError, match="'MT5_MISSING' is not set"):
             substitute_env_placeholders("${MT5_MISSING}")
 
+    def test_whole_dollar_not_substituted_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test $ENV_NAME is not expanded without allow_whole_dollar_env=True."""
+        monkeypatch.setenv("MT5_PASSWORD", "secret")
+
+        assert substitute_env_placeholders("$MT5_PASSWORD") == "$MT5_PASSWORD"
+
+    def test_whole_dollar_substituted_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test $ENV_NAME is expanded when allow_whole_dollar_env=True."""
+        monkeypatch.setenv("MT5_PASSWORD", "secret")
+
+        result = substitute_env_placeholders(
+            "$MT5_PASSWORD", allow_whole_dollar_env=True
+        )
+
+        assert result == "secret"
+
+    def test_whole_dollar_missing_variable_raises_value_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test missing $ENV_NAME raises ValueError when opt-in is enabled."""
+        monkeypatch.delenv("MT5_MISSING", raising=False)
+
+        with pytest.raises(ValueError, match="'MT5_MISSING' is not set"):
+            substitute_env_placeholders("$MT5_MISSING", allow_whole_dollar_env=True)
+
+    def test_partial_dollar_not_expanded_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test $ENV embedded in a larger string is not expanded."""
+        monkeypatch.setenv("pass", "secret")
+        monkeypatch.setenv("ENV", "val")
+
+        assert (
+            substitute_env_placeholders("plan$pass", allow_whole_dollar_env=True)
+            == "plan$pass"
+        )
+        assert (
+            substitute_env_placeholders("abc$ENV", allow_whole_dollar_env=True)
+            == "abc$ENV"
+        )
+
+    def test_dollar_with_suffix_not_expanded_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test $ENV-suffix is not expanded (not a whole-value placeholder)."""
+        monkeypatch.setenv("ENV", "val")
+
+        assert (
+            substitute_env_placeholders("$ENV-suffix", allow_whole_dollar_env=True)
+            == "$ENV-suffix"
+        )
+
+    def test_brace_format_works_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test ${ENV_VAR} substitution still works when allow_whole_dollar_env=True."""
+        monkeypatch.setenv("MT5_LOGIN", "12345")
+
+        result = substitute_env_placeholders(
+            "${MT5_LOGIN}", allow_whole_dollar_env=True
+        )
+
+        assert result == "12345"
+
 
 class TestResolveAccountSpec:
     """Tests for resolve_account_spec and resolve_account_specs."""
@@ -1862,6 +1936,117 @@ class TestResolveAccountSpec:
 
         assert [a.server for a in resolved] == ["Shared", "Fixed"]
         assert all(a.timeout == 1000 for a in resolved)
+
+    def test_resolve_account_spec_with_whole_dollar_env(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Account spec expands $ENV_NAME when allow_whole_dollar_env=True."""
+        monkeypatch.setenv("MT5_PASSWORD", "secret")
+        account = AccountSpec(symbols=["EURUSD"], password="$MT5_PASSWORD")
+
+        resolved = resolve_account_spec(account, allow_whole_dollar_env=True)
+
+        assert resolved.password == "secret"  # noqa: S105
+
+    def test_resolve_account_spec_whole_dollar_not_expanded_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test resolve_account_spec leaves $ENV_NAME literal by default."""
+        monkeypatch.setenv("MT5_PASSWORD", "secret")
+        account = AccountSpec(symbols=["EURUSD"], password="$MT5_PASSWORD")
+
+        resolved = resolve_account_spec(account)
+
+        assert resolved.password == "$MT5_PASSWORD"  # noqa: S105
+
+    def test_resolve_account_specs_with_whole_dollar_env(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test resolve_account_specs threads allow_whole_dollar_env to each account."""
+        monkeypatch.setenv("MT5_SERVER", "Broker-Demo")
+        accounts = [
+            AccountSpec(symbols=["EURUSD"], server="$MT5_SERVER"),
+            AccountSpec(symbols=["GBPUSD"], server="Fixed"),
+        ]
+
+        resolved = resolve_account_specs(accounts, allow_whole_dollar_env=True)
+
+        assert resolved[0].server == "Broker-Demo"
+        assert resolved[1].server == "Fixed"
+
+    def test_resolve_account_spec_whole_dollar_login(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test $ENV_NAME login string is expanded when allow_whole_dollar_env=True."""
+        monkeypatch.setenv("MT5_LOGIN", "12345")
+        account = AccountSpec(symbols=["EURUSD"], login="$MT5_LOGIN")
+
+        resolved = resolve_account_spec(account, allow_whole_dollar_env=True)
+
+        assert resolved.login == "12345"
+
+
+class TestBuildConfigWholeDollarEnv:
+    """Tests for build_config with allow_whole_dollar_env."""
+
+    def test_build_config_substitutes_server_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """build_config expands $ENV_NAME server when allow_whole_dollar_env=True."""
+        monkeypatch.setenv("MT5_SERVER", "Broker-Demo")
+
+        config = build_config(server="$MT5_SERVER", allow_whole_dollar_env=True)
+
+        assert config.server == "Broker-Demo"
+
+    def test_build_config_substitutes_password_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """build_config expands $ENV_NAME password when allow_whole_dollar_env=True."""
+        monkeypatch.setenv("MT5_PASSWORD", "secret")
+
+        config = build_config(password="$MT5_PASSWORD", allow_whole_dollar_env=True)
+
+        assert config.password == "secret"  # noqa: S105
+
+    def test_build_config_substitutes_path_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test build_config expands $ENV_NAME path when allow_whole_dollar_env=True."""
+        monkeypatch.setenv("MT5_PATH", "/opt/mt5/terminal64.exe")
+
+        config = build_config(path="$MT5_PATH", allow_whole_dollar_env=True)
+
+        assert config.path == "/opt/mt5/terminal64.exe"
+
+    def test_build_config_leaves_dollar_literal_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test build_config does not substitute $ENV without opt-in."""
+        monkeypatch.setenv("MT5_SERVER", "Broker-Demo")
+
+        config = build_config(server="$MT5_SERVER")
+
+        assert config.server == "$MT5_SERVER"
+
+    def test_build_config_none_params_not_substituted(
+        self,
+        monkeypatch: pytest.MonkeyPatch,  # noqa: ARG002
+    ) -> None:
+        """Test build_config with None params does not raise even with opt-in."""
+        config = build_config(allow_whole_dollar_env=True)
+
+        assert config.server is None
+        assert config.password is None
+        assert config.path is None
 
 
 class TestThrottledHistoryUpdater:

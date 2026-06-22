@@ -26,12 +26,19 @@ alias for new code.
 | `mt5_session`                                   | Context manager: initialize, login, yield client, shutdown       |
 | `create_trading_client`, `mt5_trading_session`  | Trading-capable `pdmt5.Mt5TradingClient` lifecycle               |
 | `AccountSpec`                                   | Generic account group: symbols plus optional credentials         |
-| `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders             |
-| `substitute_env_placeholders`                   | Replace `${NAME}` substrings from the environment                |
+| `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME` |
+| `substitute_env_placeholders`                   | Replace `${NAME}` substrings from the environment; opt-in `allow_whole_dollar_env` for whole-value `$NAME` |
 
 Credential resolution is generic: any environment variable name may appear inside
 `${...}`. mt5cli does not hard-code application-specific keys such as
 `mt5_login` or `mt5_exe`.
+
+Pass `allow_whole_dollar_env=True` to `substitute_env_placeholders()`,
+`resolve_account_spec()`, `resolve_account_specs()`, and `build_config()` to
+additionally expand strings whose entire value is a bare `$ENV_NAME` identifier.
+Partial strings such as `"plan$pass"`, `"abc$ENV"`, or `"$ENV-suffix"` are
+**never** expanded — only an exact `$IDENTIFIER` whole-string match qualifies.
+Default is `False` to preserve backward compatibility.
 
 ### Read-only MT5 data access
 
@@ -56,15 +63,16 @@ MetaTrader 5 returns the still-forming bar as the last row when
 `start_pos=0`. Use these helpers instead of reimplementing bar trimming or
 timestamp normalization in downstream apps.
 
-| Symbol                                           | Role                                                         |
-| ------------------------------------------------ | ------------------------------------------------------------ |
-| `drop_forming_rate_bar`                          | Remove the last row from chronologically ordered rate data   |
-| `fetch_latest_closed_rates`                      | Single connected client: fetch `count + 1`, drop forming bar |
-| `fetch_latest_closed_rates_for_trading_client`   | Closed bars from an active `Mt5TradingClient` session        |
-| `collect_latest_closed_rates_for_accounts`       | Multi-account closed bars with optional retry wrapper        |
-| `collect_latest_closed_rates_by_granularity`     | Same data keyed by `(symbol, granularity_name)`              |
-| `collect_latest_rates_for_accounts`              | Latest bars including the forming bar when `start_pos=0`     |
-| `collect_latest_rates_for_accounts_with_retries` | Bounded exponential backoff for transient MT5 errors         |
+| Symbol                                           | Role                                                                           |
+| ------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `drop_forming_rate_bar`                          | Remove the last row from chronologically ordered rate data                     |
+| `fetch_latest_closed_rates`                      | Single connected client: fetch `count + 1`, drop forming bar                  |
+| `fetch_latest_closed_rates_for_trading_client`   | Closed bars from an active `Mt5TradingClient` session; returns RangeIndex      |
+| `fetch_latest_closed_rates_indexed`              | Same as above but returns a UTC `DatetimeIndex` named `"time"` (no time column) |
+| `collect_latest_closed_rates_for_accounts`       | Multi-account closed bars with optional retry wrapper                          |
+| `collect_latest_closed_rates_by_granularity`     | Same data keyed by `(symbol, granularity_name)`                                |
+| `collect_latest_rates_for_accounts`              | Latest bars including the forming bar when `start_pos=0`                       |
+| `collect_latest_rates_for_accounts_with_retries` | Bounded exponential backoff for transient MT5 errors                           |
 
 ### SQLite history collection and rate loading
 

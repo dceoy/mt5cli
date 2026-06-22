@@ -86,6 +86,26 @@ resolved = resolve_account_specs(accounts, server="Broker-Demo")
 # resolved[0].login == "12345", resolved[0].server == "Broker-Demo"
 ```
 
+Pass `allow_whole_dollar_env=True` to also expand strings whose **entire value**
+is a bare `$ENV_NAME` identifier (no braces). This opt-in covers
+`substitute_env_placeholders()`, `resolve_account_spec()`,
+`resolve_account_specs()`, and `build_config()`. Partial strings such as
+`"plan$pass"`, `"abc$ENV"`, or `"$ENV-suffix"` are never expanded — only an
+exact `$IDENTIFIER` whole-string match qualifies. The default is `False` to
+preserve backward compatibility.
+
+```python
+import os
+
+from mt5cli import AccountSpec, resolve_account_specs
+
+os.environ["MT5_PASSWORD"] = "secret"
+accounts = [AccountSpec(symbols=["EURUSD"], password="$MT5_PASSWORD")]
+
+resolved = resolve_account_specs(accounts, allow_whole_dollar_env=True)
+# resolved[0].password == "secret"
+```
+
 ### Throttled incremental history updates
 
 `ThrottledHistoryUpdater` wraps `update_history()` with a minimum interval

@@ -309,12 +309,33 @@ def build_config(
     password: str | None = None,
     server: str | None = None,
     timeout: int | None = None,
+    allow_whole_dollar_env: bool = False,
 ) -> Mt5Config:
     """Build an ``Mt5Config`` from optional connection parameters.
+
+    Args:
+        path: Optional terminal executable path.
+        login: Optional trading account login.
+        password: Optional trading account password.
+        server: Optional trading server name.
+        timeout: Optional connection timeout in milliseconds.
+        allow_whole_dollar_env: When ``True``, string parameters that are
+            exactly ``$ENV_NAME`` are expanded from the environment. Applies
+            to ``path``, ``password``, and ``server``. Default ``False``
+            preserves existing behavior.
 
     Returns:
         Configured ``Mt5Config`` instance.
     """
+    if allow_whole_dollar_env:
+        if path is not None:
+            path = substitute_env_placeholders(path, allow_whole_dollar_env=True)
+        if password is not None:
+            password = substitute_env_placeholders(
+                password, allow_whole_dollar_env=True
+            )
+        if server is not None:
+            server = substitute_env_placeholders(server, allow_whole_dollar_env=True)
     return Mt5Config(
         path=path,
         login=login,
@@ -1376,13 +1397,22 @@ class AccountSpec:
 
 
 _ENV_PLACEHOLDER_PATTERN = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}")
+_WHOLE_DOLLAR_PATTERN = re.compile(r"^\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
 
 
-def substitute_env_placeholders(value: str) -> str:
+def substitute_env_placeholders(
+    value: str,
+    *,
+    allow_whole_dollar_env: bool = False,
+) -> str:
     """Replace ``${ENV_VAR}`` placeholders in a string with environment values.
 
     Args:
         value: String that may contain one or more ``${ENV_VAR}`` placeholders.
+        allow_whole_dollar_env: When ``True``, a string that is exactly
+            ``$ENV_NAME`` (the whole value and nothing else) is also expanded
+            from the environment. Partial occurrences such as ``"plan$pass"``
+            or ``"$ENV-suffix"`` are left unchanged.
 
     Returns:
         The string with every placeholder replaced by its environment value.
@@ -1390,6 +1420,14 @@ def substitute_env_placeholders(value: str) -> str:
     Raises:
         ValueError: If a referenced environment variable is not set.
     """
+    if allow_whole_dollar_env:
+        m = _WHOLE_DOLLAR_PATTERN.match(value)
+        if m:
+            name = m.group("name")
+            if name not in os.environ:
+                msg = f"Environment variable {name!r} is not set."
+                raise ValueError(msg)
+            return os.environ[name]
     parts: list[str] = []
     last_end = 0
     for match in _ENV_PLACEHOLDER_PATTERN.finditer(value):
@@ -1404,7 +1442,12 @@ def substitute_env_placeholders(value: str) -> str:
     return "".join(parts)
 
 
-def _resolve_field(override: str | None, account_value: str | None) -> str | None:
+def _resolve_field(
+    override: str | None,
+    account_value: str | None,
+    *,
+    allow_whole_dollar_env: bool = False,
+) -> str | None:
     """Resolve a string field from an override or account value with env subst.
 
     Returns:
@@ -1414,12 +1457,16 @@ def _resolve_field(override: str | None, account_value: str | None) -> str | Non
     value = override if override is not None else account_value
     if value is None:
         return None
-    return substitute_env_placeholders(value)
+    return substitute_env_placeholders(
+        value, allow_whole_dollar_env=allow_whole_dollar_env
+    )
 
 
 def _resolve_login(
     override: int | str | None,
     account_login: int | str | None,
+    *,
+    allow_whole_dollar_env: bool = False,
 ) -> int | str | None:
     """Resolve a login from an override or account value with env substitution.
 
@@ -1431,10 +1478,14 @@ def _resolve_login(
     if override is not None:
         if isinstance(override, int):
             return override
-        return substitute_env_placeholders(override)
+        return substitute_env_placeholders(
+            override, allow_whole_dollar_env=allow_whole_dollar_env
+        )
     if account_login is None or isinstance(account_login, int):
         return account_login
-    return substitute_env_placeholders(account_login)
+    return substitute_env_placeholders(
+        account_login, allow_whole_dollar_env=allow_whole_dollar_env
+    )
 
 
 def resolve_account_spec(
@@ -1445,6 +1496,7 @@ def resolve_account_spec(
     server: str | None = None,
     path: str | None = None,
     timeout: int | None = None,
+    allow_whole_dollar_env: bool = False,
 ) -> AccountSpec:
     """Resolve an account's credentials from overrides and ``${ENV_VAR}`` values.
 
@@ -1460,6 +1512,9 @@ def resolve_account_spec(
         server: Optional explicit server override.
         path: Optional explicit terminal path override.
         timeout: Optional explicit connection timeout override.
+        allow_whole_dollar_env: When ``True``, string fields that are exactly
+            ``$ENV_NAME`` are also expanded from the environment. Default
+            ``False`` preserves existing behavior.
 
     Returns:
         A new :class:`AccountSpec` with resolved credentials and the original
@@ -1469,10 +1524,18 @@ def resolve_account_spec(
     """
     return AccountSpec(
         symbols=account.symbols,
-        login=_resolve_login(login, account.login),
-        password=_resolve_field(password, account.password),
-        server=_resolve_field(server, account.server),
-        path=_resolve_field(path, account.path),
+        login=_resolve_login(
+            login, account.login, allow_whole_dollar_env=allow_whole_dollar_env
+        ),
+        password=_resolve_field(
+            password, account.password, allow_whole_dollar_env=allow_whole_dollar_env
+        ),
+        server=_resolve_field(
+            server, account.server, allow_whole_dollar_env=allow_whole_dollar_env
+        ),
+        path=_resolve_field(
+            path, account.path, allow_whole_dollar_env=allow_whole_dollar_env
+        ),
         timeout=timeout if timeout is not None else account.timeout,
     )
 
@@ -1485,6 +1548,7 @@ def resolve_account_specs(
     server: str | None = None,
     path: str | None = None,
     timeout: int | None = None,
+    allow_whole_dollar_env: bool = False,
 ) -> list[AccountSpec]:
     """Resolve credentials for multiple accounts.
 
@@ -1498,6 +1562,9 @@ def resolve_account_specs(
         server: Optional explicit server override applied to each account.
         path: Optional explicit terminal path override applied to each account.
         timeout: Optional explicit timeout override applied to each account.
+        allow_whole_dollar_env: When ``True``, string fields that are exactly
+            ``$ENV_NAME`` are also expanded from the environment. Default
+            ``False`` preserves existing behavior.
 
     Returns:
         Resolved account specifications in the original order. Raises
@@ -1512,6 +1579,7 @@ def resolve_account_specs(
             server=server,
             path=path,
             timeout=timeout,
+            allow_whole_dollar_env=allow_whole_dollar_env,
         )
         for account in accounts
     ]

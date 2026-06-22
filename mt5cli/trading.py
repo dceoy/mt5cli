@@ -137,6 +137,7 @@ __all__ = [
     "ensure_symbol_selected",
     "estimate_order_margin",
     "fetch_latest_closed_rates_for_trading_client",
+    "fetch_latest_closed_rates_indexed",
     "get_account_snapshot",
     "get_positions_frame",
     "get_symbol_snapshot",
@@ -1200,6 +1201,74 @@ def fetch_latest_closed_rates_for_trading_client(
         )
         raise ValueError(msg)
     return closed.tail(count).reset_index(drop=True)
+
+
+def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
+    """Convert a rate time series to a UTC-aware DatetimeIndex.
+
+    Handles MT5 epoch seconds (integer dtype), timezone-naive datetime-like
+    values, and timezone-aware datetime-like values.
+
+    Returns:
+        UTC-aware DatetimeIndex.
+
+    Raises:
+        ValueError: If the time data is invalid or unparseable.
+    """
+    try:
+        if pd.api.types.is_integer_dtype(series):
+            return pd.DatetimeIndex(pd.to_datetime(series, unit="s", utc=True))
+        return pd.DatetimeIndex(pd.to_datetime(series, utc=True))
+    except Exception as exc:
+        msg = f"Rate data for {symbol!r} has invalid or unparseable time data."
+        raise ValueError(msg) from exc
+
+
+def fetch_latest_closed_rates_indexed(
+    client: Mt5TradingClient,
+    *,
+    symbol: str,
+    granularity: str,
+    count: int,
+) -> pd.DataFrame:
+    """Fetch the latest closed bars with a UTC DatetimeIndex from a trading client.
+
+    Internally reuses :func:`fetch_latest_closed_rates_for_trading_client` for
+    closed-bar detection and validation, then converts the ``time`` column to a
+    UTC-aware :class:`~pandas.DatetimeIndex` named ``"time"`` and drops the
+    original column. Intended for downstream time-series consumers that require
+    a datetime index rather than a ``time`` column.
+
+    Args:
+        client: Connected trading client with rate-fetch capability.
+        symbol: Symbol name.
+        granularity: Timeframe string (for example ``"M1"``, ``"H1"``).
+        count: Maximum number of closed bars to return.
+
+    Returns:
+        Up to ``count`` closed bars ordered oldest to newest, with a
+        UTC-aware ``DatetimeIndex`` named ``"time"``. The original ``time``
+        column is dropped.
+
+    Raises:
+        ValueError: If ``count`` is not positive, rate data is empty or
+            malformed, the ``time`` column is missing, or timestamp data
+            is invalid or unparseable.
+    """
+    frame = fetch_latest_closed_rates_for_trading_client(
+        client,
+        symbol=symbol,
+        granularity=granularity,
+        count=count,
+    )
+    if "time" not in frame.columns:
+        msg = f"Rate data is missing a time column for {symbol!r}."
+        raise ValueError(msg)
+    idx = _rate_time_to_utc(frame["time"], symbol)
+    idx.name = "time"
+    result = frame.drop(columns=["time"])
+    result.index = idx
+    return result
 
 
 @contextmanager
