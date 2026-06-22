@@ -19,14 +19,14 @@ alias for new code.
 
 ### Session lifecycle and configuration
 
-| Symbol                                          | Role                                                             |
-| ----------------------------------------------- | ---------------------------------------------------------------- |
-| `MT5Client`, `Mt5CliClient`                     | Read-only data client with optional `order_check` / `order_send` |
-| `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields                   |
-| `mt5_session`                                   | Context manager: initialize, login, yield client, shutdown       |
-| `create_trading_client`, `mt5_trading_session`  | Trading-capable `pdmt5.Mt5TradingClient` lifecycle               |
-| `AccountSpec`                                   | Generic account group: symbols plus optional credentials         |
-| `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME` |
+| Symbol                                          | Role                                                                                                       |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `MT5Client`, `Mt5CliClient`                     | Read-only data client with optional `order_check` / `order_send`                                           |
+| `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields                                                             |
+| `mt5_session`                                   | Context manager: initialize, login, yield client, shutdown                                                 |
+| `create_trading_client`, `mt5_trading_session`  | Trading-capable `pdmt5.Mt5TradingClient` lifecycle                                                         |
+| `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                   |
+| `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`     |
 | `substitute_env_placeholders`                   | Replace `${NAME}` substrings from the environment; opt-in `allow_whole_dollar_env` for whole-value `$NAME` |
 
 Credential resolution is generic: any environment variable name may appear inside
@@ -63,16 +63,16 @@ MetaTrader 5 returns the still-forming bar as the last row when
 `start_pos=0`. Use these helpers instead of reimplementing bar trimming or
 timestamp normalization in downstream apps.
 
-| Symbol                                           | Role                                                                           |
-| ------------------------------------------------ | ------------------------------------------------------------------------------ |
-| `drop_forming_rate_bar`                          | Remove the last row from chronologically ordered rate data                     |
-| `fetch_latest_closed_rates`                      | Single connected client: fetch `count + 1`, drop forming bar                  |
-| `fetch_latest_closed_rates_for_trading_client`   | Closed bars from an active `Mt5TradingClient` session; returns RangeIndex      |
+| Symbol                                           | Role                                                                            |
+| ------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `drop_forming_rate_bar`                          | Remove the last row from chronologically ordered rate data                      |
+| `fetch_latest_closed_rates`                      | Single connected client: fetch `count + 1`, drop forming bar                    |
+| `fetch_latest_closed_rates_for_trading_client`   | Closed bars from an active `Mt5TradingClient` session; returns RangeIndex       |
 | `fetch_latest_closed_rates_indexed`              | Same as above but returns a UTC `DatetimeIndex` named `"time"` (no time column) |
-| `collect_latest_closed_rates_for_accounts`       | Multi-account closed bars with optional retry wrapper                          |
-| `collect_latest_closed_rates_by_granularity`     | Same data keyed by `(symbol, granularity_name)`                                |
-| `collect_latest_rates_for_accounts`              | Latest bars including the forming bar when `start_pos=0`                       |
-| `collect_latest_rates_for_accounts_with_retries` | Bounded exponential backoff for transient MT5 errors                           |
+| `collect_latest_closed_rates_for_accounts`       | Multi-account closed bars with optional retry wrapper                           |
+| `collect_latest_closed_rates_by_granularity`     | Same data keyed by `(symbol, granularity_name)`                                 |
+| `collect_latest_rates_for_accounts`              | Latest bars including the forming bar when `start_pos=0`                        |
+| `collect_latest_rates_for_accounts_with_retries` | Bounded exponential backoff for transient MT5 errors                            |
 
 ### SQLite history collection and rate loading
 
@@ -105,7 +105,7 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `detect_position_side`                                                                             | Net long / short / flat from open positions   |
 | `calculate_spread_ratio`                                                                           | Relative bid-ask spread                       |
 | `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio` | Margin budget and volume sizing               |
-| `normalize_order_volume`, `estimate_order_margin`, `calculate_positions_margin`                      | Broker volume normalization and margin totals |
+| `normalize_order_volume`, `estimate_order_margin`, `calculate_positions_margin`                    | Broker volume normalization and margin totals |
 | `determine_order_limits`                                                                           | SL/TP price levels from ratios                |
 | `ensure_symbol_selected`                                                                           | Select/verify Market Watch visibility         |
 | `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`                     | Order execution helpers (`dry_run` supported) |

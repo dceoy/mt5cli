@@ -183,16 +183,16 @@ through the stable package root without embedding entry/exit policy.
 
 ## Migration from application-local helpers
 
-| Application-local concern                                | mt5cli replacement                              |
-| -------------------------------------------------------- | ----------------------------------------------- |
-| Manual terminal spawn/kill around trading code           | `mt5_trading_session()`                         |
-| Local position-side detection                            | `detect_position_side()`                        |
-| Local margin/volume sizing                               | `calculate_margin_and_volume()`                 |
-| Local broker volume step normalization                   | `normalize_order_volume()`                      |
-| Local order or position margin estimation                | `estimate_order_margin()`, `calculate_positions_margin()` |
+| Application-local concern                                | mt5cli replacement                                                                      |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Manual terminal spawn/kill around trading code           | `mt5_trading_session()`                                                                 |
+| Local position-side detection                            | `detect_position_side()`                                                                |
+| Local margin/volume sizing                               | `calculate_margin_and_volume()`                                                         |
+| Local broker volume step normalization                   | `normalize_order_volume()`                                                              |
+| Local order or position margin estimation                | `estimate_order_margin()`, `calculate_positions_margin()`                               |
 | Local closed-bar fetch from a trading session            | `fetch_latest_closed_rates_for_trading_client()`, `fetch_latest_closed_rates_indexed()` |
-| Local SL/TP price derivation                             | `determine_order_limits()`                      |
-| Throttled SQLite history loop with ad-hoc error handling | `ThrottledHistoryUpdater(suppress_errors=True)` |
+| Local SL/TP price derivation                             | `determine_order_limits()`                                                              |
+| Throttled SQLite history loop with ad-hoc error handling | `ThrottledHistoryUpdater(suppress_errors=True)`                                         |
 
 Keep read-only data collection on `mt5_session()` / `Mt5CliClient`; use
 `mt5_trading_session()` only where order placement or trading calculations are
