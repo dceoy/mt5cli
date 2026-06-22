@@ -3258,7 +3258,9 @@ is invalid or unparseable.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/trading.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1247">1247</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1245">1245</a></span>
+<span class="normal"><a href="#__codelineno-0-1246">1246</a></span>
+<span class="normal"><a href="#__codelineno-0-1247">1247</a></span>
 <span class="normal"><a href="#__codelineno-0-1248">1248</a></span>
 <span class="normal"><a href="#__codelineno-0-1249">1249</a></span>
 <span class="normal"><a href="#__codelineno-0-1250">1250</a></span>
@@ -3300,53 +3302,51 @@ is invalid or unparseable.</p>
 <span class="normal"><a href="#__codelineno-0-1286">1286</a></span>
 <span class="normal"><a href="#__codelineno-0-1287">1287</a></span>
 <span class="normal"><a href="#__codelineno-0-1288">1288</a></span>
-<span class="normal"><a href="#__codelineno-0-1289">1289</a></span>
-<span class="normal"><a href="#__codelineno-0-1290">1290</a></span>
-<span class="normal"><a href="#__codelineno-0-1291">1291</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1247" name="__codelineno-0-1247"></a><span class="k">def</span><span class="w"> </span><span class="nf">fetch_latest_closed_rates_indexed</span><span class="p">(</span>
-<a id="__codelineno-0-1248" name="__codelineno-0-1248"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">Mt5TradingClient</span><span class="p">,</span>
-<a id="__codelineno-0-1249" name="__codelineno-0-1249"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-1250" name="__codelineno-0-1250"></a>    <span class="n">symbol</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-0-1251" name="__codelineno-0-1251"></a>    <span class="n">granularity</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-0-1252" name="__codelineno-0-1252"></a>    <span class="n">count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-1253" name="__codelineno-0-1253"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
-<a id="__codelineno-0-1254" name="__codelineno-0-1254"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Fetch the latest closed bars with a UTC DatetimeIndex from a trading client.</span>
-<a id="__codelineno-0-1255" name="__codelineno-0-1255"></a>
-<a id="__codelineno-0-1256" name="__codelineno-0-1256"></a><span class="sd">    Internally reuses :func:`fetch_latest_closed_rates_for_trading_client` for</span>
-<a id="__codelineno-0-1257" name="__codelineno-0-1257"></a><span class="sd">    closed-bar detection and validation, then converts the ``time`` column to a</span>
-<a id="__codelineno-0-1258" name="__codelineno-0-1258"></a><span class="sd">    UTC-aware :class:`~pandas.DatetimeIndex` named ``&quot;time&quot;`` and drops the</span>
-<a id="__codelineno-0-1259" name="__codelineno-0-1259"></a><span class="sd">    original column. Intended for downstream time-series consumers that require</span>
-<a id="__codelineno-0-1260" name="__codelineno-0-1260"></a><span class="sd">    a datetime index rather than a ``time`` column.</span>
-<a id="__codelineno-0-1261" name="__codelineno-0-1261"></a>
-<a id="__codelineno-0-1262" name="__codelineno-0-1262"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1263" name="__codelineno-0-1263"></a><span class="sd">        client: Connected trading client with rate-fetch capability.</span>
-<a id="__codelineno-0-1264" name="__codelineno-0-1264"></a><span class="sd">        symbol: Symbol name.</span>
-<a id="__codelineno-0-1265" name="__codelineno-0-1265"></a><span class="sd">        granularity: Timeframe string (for example ``&quot;M1&quot;``, ``&quot;H1&quot;``).</span>
-<a id="__codelineno-0-1266" name="__codelineno-0-1266"></a><span class="sd">        count: Maximum number of closed bars to return.</span>
-<a id="__codelineno-0-1267" name="__codelineno-0-1267"></a>
-<a id="__codelineno-0-1268" name="__codelineno-0-1268"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1269" name="__codelineno-0-1269"></a><span class="sd">        Up to ``count`` closed bars ordered oldest to newest, with a</span>
-<a id="__codelineno-0-1270" name="__codelineno-0-1270"></a><span class="sd">        UTC-aware ``DatetimeIndex`` named ``&quot;time&quot;``. The original ``time``</span>
-<a id="__codelineno-0-1271" name="__codelineno-0-1271"></a><span class="sd">        column is dropped.</span>
-<a id="__codelineno-0-1272" name="__codelineno-0-1272"></a>
-<a id="__codelineno-0-1273" name="__codelineno-0-1273"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-1274" name="__codelineno-0-1274"></a><span class="sd">        ValueError: If ``count`` is not positive, rate data is empty or</span>
-<a id="__codelineno-0-1275" name="__codelineno-0-1275"></a><span class="sd">            malformed, the ``time`` column is missing, or timestamp data</span>
-<a id="__codelineno-0-1276" name="__codelineno-0-1276"></a><span class="sd">            is invalid or unparseable.</span>
-<a id="__codelineno-0-1277" name="__codelineno-0-1277"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1278" name="__codelineno-0-1278"></a>    <span class="n">frame</span> <span class="o">=</span> <span class="n">fetch_latest_closed_rates_for_trading_client</span><span class="p">(</span>
-<a id="__codelineno-0-1279" name="__codelineno-0-1279"></a>        <span class="n">client</span><span class="p">,</span>
-<a id="__codelineno-0-1280" name="__codelineno-0-1280"></a>        <span class="n">symbol</span><span class="o">=</span><span class="n">symbol</span><span class="p">,</span>
-<a id="__codelineno-0-1281" name="__codelineno-0-1281"></a>        <span class="n">granularity</span><span class="o">=</span><span class="n">granularity</span><span class="p">,</span>
-<a id="__codelineno-0-1282" name="__codelineno-0-1282"></a>        <span class="n">count</span><span class="o">=</span><span class="n">count</span><span class="p">,</span>
-<a id="__codelineno-0-1283" name="__codelineno-0-1283"></a>    <span class="p">)</span>
-<a id="__codelineno-0-1284" name="__codelineno-0-1284"></a>    <span class="k">if</span> <span class="s2">&quot;time&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">frame</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-<a id="__codelineno-0-1285" name="__codelineno-0-1285"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Rate data is missing a time column for </span><span class="si">{</span><span class="n">symbol</span><span class="si">!r}</span><span class="s2">.&quot;</span>
-<a id="__codelineno-0-1286" name="__codelineno-0-1286"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
-<a id="__codelineno-0-1287" name="__codelineno-0-1287"></a>    <span class="n">idx</span> <span class="o">=</span> <span class="n">_rate_time_to_utc</span><span class="p">(</span><span class="n">frame</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">],</span> <span class="n">symbol</span><span class="p">)</span>
-<a id="__codelineno-0-1288" name="__codelineno-0-1288"></a>    <span class="n">idx</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;time&quot;</span>
-<a id="__codelineno-0-1289" name="__codelineno-0-1289"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">])</span>
-<a id="__codelineno-0-1290" name="__codelineno-0-1290"></a>    <span class="n">result</span><span class="o">.</span><span class="n">index</span> <span class="o">=</span> <span class="n">idx</span>
-<a id="__codelineno-0-1291" name="__codelineno-0-1291"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-1289">1289</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1245" name="__codelineno-0-1245"></a><span class="k">def</span><span class="w"> </span><span class="nf">fetch_latest_closed_rates_indexed</span><span class="p">(</span>
+<a id="__codelineno-0-1246" name="__codelineno-0-1246"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">Mt5TradingClient</span><span class="p">,</span>
+<a id="__codelineno-0-1247" name="__codelineno-0-1247"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-1248" name="__codelineno-0-1248"></a>    <span class="n">symbol</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-1249" name="__codelineno-0-1249"></a>    <span class="n">granularity</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-1250" name="__codelineno-0-1250"></a>    <span class="n">count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-1251" name="__codelineno-0-1251"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<a id="__codelineno-0-1252" name="__codelineno-0-1252"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Fetch the latest closed bars with a UTC DatetimeIndex from a trading client.</span>
+<a id="__codelineno-0-1253" name="__codelineno-0-1253"></a>
+<a id="__codelineno-0-1254" name="__codelineno-0-1254"></a><span class="sd">    Internally reuses :func:`fetch_latest_closed_rates_for_trading_client` for</span>
+<a id="__codelineno-0-1255" name="__codelineno-0-1255"></a><span class="sd">    closed-bar detection and validation, then converts the ``time`` column to a</span>
+<a id="__codelineno-0-1256" name="__codelineno-0-1256"></a><span class="sd">    UTC-aware :class:`~pandas.DatetimeIndex` named ``&quot;time&quot;`` and drops the</span>
+<a id="__codelineno-0-1257" name="__codelineno-0-1257"></a><span class="sd">    original column. Intended for downstream time-series consumers that require</span>
+<a id="__codelineno-0-1258" name="__codelineno-0-1258"></a><span class="sd">    a datetime index rather than a ``time`` column.</span>
+<a id="__codelineno-0-1259" name="__codelineno-0-1259"></a>
+<a id="__codelineno-0-1260" name="__codelineno-0-1260"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1261" name="__codelineno-0-1261"></a><span class="sd">        client: Connected trading client with rate-fetch capability.</span>
+<a id="__codelineno-0-1262" name="__codelineno-0-1262"></a><span class="sd">        symbol: Symbol name.</span>
+<a id="__codelineno-0-1263" name="__codelineno-0-1263"></a><span class="sd">        granularity: Timeframe string (for example ``&quot;M1&quot;``, ``&quot;H1&quot;``).</span>
+<a id="__codelineno-0-1264" name="__codelineno-0-1264"></a><span class="sd">        count: Maximum number of closed bars to return.</span>
+<a id="__codelineno-0-1265" name="__codelineno-0-1265"></a>
+<a id="__codelineno-0-1266" name="__codelineno-0-1266"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1267" name="__codelineno-0-1267"></a><span class="sd">        Up to ``count`` closed bars ordered oldest to newest, with a</span>
+<a id="__codelineno-0-1268" name="__codelineno-0-1268"></a><span class="sd">        UTC-aware ``DatetimeIndex`` named ``&quot;time&quot;``. The original ``time``</span>
+<a id="__codelineno-0-1269" name="__codelineno-0-1269"></a><span class="sd">        column is dropped.</span>
+<a id="__codelineno-0-1270" name="__codelineno-0-1270"></a>
+<a id="__codelineno-0-1271" name="__codelineno-0-1271"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-1272" name="__codelineno-0-1272"></a><span class="sd">        ValueError: If ``count`` is not positive, rate data is empty or</span>
+<a id="__codelineno-0-1273" name="__codelineno-0-1273"></a><span class="sd">            malformed, the ``time`` column is missing, or timestamp data</span>
+<a id="__codelineno-0-1274" name="__codelineno-0-1274"></a><span class="sd">            is invalid or unparseable.</span>
+<a id="__codelineno-0-1275" name="__codelineno-0-1275"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1276" name="__codelineno-0-1276"></a>    <span class="n">frame</span> <span class="o">=</span> <span class="n">fetch_latest_closed_rates_for_trading_client</span><span class="p">(</span>
+<a id="__codelineno-0-1277" name="__codelineno-0-1277"></a>        <span class="n">client</span><span class="p">,</span>
+<a id="__codelineno-0-1278" name="__codelineno-0-1278"></a>        <span class="n">symbol</span><span class="o">=</span><span class="n">symbol</span><span class="p">,</span>
+<a id="__codelineno-0-1279" name="__codelineno-0-1279"></a>        <span class="n">granularity</span><span class="o">=</span><span class="n">granularity</span><span class="p">,</span>
+<a id="__codelineno-0-1280" name="__codelineno-0-1280"></a>        <span class="n">count</span><span class="o">=</span><span class="n">count</span><span class="p">,</span>
+<a id="__codelineno-0-1281" name="__codelineno-0-1281"></a>    <span class="p">)</span>
+<a id="__codelineno-0-1282" name="__codelineno-0-1282"></a>    <span class="k">if</span> <span class="s2">&quot;time&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">frame</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+<a id="__codelineno-0-1283" name="__codelineno-0-1283"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Rate data is missing a time column for </span><span class="si">{</span><span class="n">symbol</span><span class="si">!r}</span><span class="s2">.&quot;</span>
+<a id="__codelineno-0-1284" name="__codelineno-0-1284"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<a id="__codelineno-0-1285" name="__codelineno-0-1285"></a>    <span class="n">idx</span> <span class="o">=</span> <span class="n">_rate_time_to_utc</span><span class="p">(</span><span class="n">frame</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">],</span> <span class="n">symbol</span><span class="p">)</span>
+<a id="__codelineno-0-1286" name="__codelineno-0-1286"></a>    <span class="n">idx</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;time&quot;</span>
+<a id="__codelineno-0-1287" name="__codelineno-0-1287"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">])</span>
+<a id="__codelineno-0-1288" name="__codelineno-0-1288"></a>    <span class="n">result</span><span class="o">.</span><span class="n">index</span> <span class="o">=</span> <span class="n">idx</span>
+<a id="__codelineno-0-1289" name="__codelineno-0-1289"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -3718,7 +3718,9 @@ attaches to a running terminal.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/trading.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1294">1294</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1292">1292</a></span>
+<span class="normal"><a href="#__codelineno-0-1293">1293</a></span>
+<span class="normal"><a href="#__codelineno-0-1294">1294</a></span>
 <span class="normal"><a href="#__codelineno-0-1295">1295</a></span>
 <span class="normal"><a href="#__codelineno-0-1296">1296</a></span>
 <span class="normal"><a href="#__codelineno-0-1297">1297</a></span>
@@ -3760,53 +3762,51 @@ attaches to a running terminal.</p>
 <span class="normal"><a href="#__codelineno-0-1333">1333</a></span>
 <span class="normal"><a href="#__codelineno-0-1334">1334</a></span>
 <span class="normal"><a href="#__codelineno-0-1335">1335</a></span>
-<span class="normal"><a href="#__codelineno-0-1336">1336</a></span>
-<span class="normal"><a href="#__codelineno-0-1337">1337</a></span>
-<span class="normal"><a href="#__codelineno-0-1338">1338</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1294" name="__codelineno-0-1294"></a><span class="nd">@contextmanager</span>
-<a id="__codelineno-0-1295" name="__codelineno-0-1295"></a><span class="k">def</span><span class="w"> </span><span class="nf">mt5_trading_session</span><span class="p">(</span>
-<a id="__codelineno-0-1296" name="__codelineno-0-1296"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Mt5Config</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1297" name="__codelineno-0-1297"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-1298" name="__codelineno-0-1298"></a>    <span class="n">login</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1299" name="__codelineno-0-1299"></a>    <span class="n">password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1300" name="__codelineno-0-1300"></a>    <span class="n">server</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1301" name="__codelineno-0-1301"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1302" name="__codelineno-0-1302"></a>    <span class="n">timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1303" name="__codelineno-0-1303"></a>    <span class="n">retry_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-1304" name="__codelineno-0-1304"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Mt5TradingClient</span><span class="p">]:</span>
-<a id="__codelineno-0-1305" name="__codelineno-0-1305"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open a trading-capable MT5 session and always shut down safely.</span>
-<a id="__codelineno-0-1306" name="__codelineno-0-1306"></a>
-<a id="__codelineno-0-1307" name="__codelineno-0-1307"></a><span class="sd">    Launches the MetaTrader 5 terminal using ``Mt5Config.path`` when set,</span>
-<a id="__codelineno-0-1308" name="__codelineno-0-1308"></a><span class="sd">    initializes and logs in via ``initialize_and_login_mt5()``, yields a</span>
-<a id="__codelineno-0-1309" name="__codelineno-0-1309"></a><span class="sd">    connected :class:`~pdmt5.Mt5TradingClient`, and calls ``shutdown()`` on</span>
-<a id="__codelineno-0-1310" name="__codelineno-0-1310"></a><span class="sd">    exit even when an error is raised inside the context.</span>
-<a id="__codelineno-0-1311" name="__codelineno-0-1311"></a>
-<a id="__codelineno-0-1312" name="__codelineno-0-1312"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1313" name="__codelineno-0-1313"></a><span class="sd">        config: MT5 connection configuration. Defaults to an empty config that</span>
-<a id="__codelineno-0-1314" name="__codelineno-0-1314"></a><span class="sd">            attaches to a running terminal.</span>
-<a id="__codelineno-0-1315" name="__codelineno-0-1315"></a><span class="sd">        login: Optional trading account login.</span>
-<a id="__codelineno-0-1316" name="__codelineno-0-1316"></a><span class="sd">        password: Optional trading account password.</span>
-<a id="__codelineno-0-1317" name="__codelineno-0-1317"></a><span class="sd">        server: Optional trading server name.</span>
-<a id="__codelineno-0-1318" name="__codelineno-0-1318"></a><span class="sd">        path: Optional terminal executable path.</span>
-<a id="__codelineno-0-1319" name="__codelineno-0-1319"></a><span class="sd">        timeout: Optional connection timeout in milliseconds.</span>
-<a id="__codelineno-0-1320" name="__codelineno-0-1320"></a><span class="sd">        retry_count: Number of initialization retries passed to</span>
-<a id="__codelineno-0-1321" name="__codelineno-0-1321"></a><span class="sd">            ``Mt5TradingClient``.</span>
-<a id="__codelineno-0-1322" name="__codelineno-0-1322"></a>
-<a id="__codelineno-0-1323" name="__codelineno-0-1323"></a><span class="sd">    Yields:</span>
-<a id="__codelineno-0-1324" name="__codelineno-0-1324"></a><span class="sd">        Connected ``Mt5TradingClient`` bound to the session.</span>
-<a id="__codelineno-0-1325" name="__codelineno-0-1325"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1326" name="__codelineno-0-1326"></a>    <span class="n">client</span> <span class="o">=</span> <span class="n">create_trading_client</span><span class="p">(</span>
-<a id="__codelineno-0-1327" name="__codelineno-0-1327"></a>        <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span>
-<a id="__codelineno-0-1328" name="__codelineno-0-1328"></a>        <span class="n">login</span><span class="o">=</span><span class="n">login</span><span class="p">,</span>
-<a id="__codelineno-0-1329" name="__codelineno-0-1329"></a>        <span class="n">password</span><span class="o">=</span><span class="n">password</span><span class="p">,</span>
-<a id="__codelineno-0-1330" name="__codelineno-0-1330"></a>        <span class="n">server</span><span class="o">=</span><span class="n">server</span><span class="p">,</span>
-<a id="__codelineno-0-1331" name="__codelineno-0-1331"></a>        <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
-<a id="__codelineno-0-1332" name="__codelineno-0-1332"></a>        <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
-<a id="__codelineno-0-1333" name="__codelineno-0-1333"></a>        <span class="n">retry_count</span><span class="o">=</span><span class="n">retry_count</span><span class="p">,</span>
-<a id="__codelineno-0-1334" name="__codelineno-0-1334"></a>    <span class="p">)</span>
-<a id="__codelineno-0-1335" name="__codelineno-0-1335"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1336" name="__codelineno-0-1336"></a>        <span class="k">yield</span> <span class="n">client</span>
-<a id="__codelineno-0-1337" name="__codelineno-0-1337"></a>    <span class="k">finally</span><span class="p">:</span>
-<a id="__codelineno-0-1338" name="__codelineno-0-1338"></a>        <span class="n">client</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
+<span class="normal"><a href="#__codelineno-0-1336">1336</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1292" name="__codelineno-0-1292"></a><span class="nd">@contextmanager</span>
+<a id="__codelineno-0-1293" name="__codelineno-0-1293"></a><span class="k">def</span><span class="w"> </span><span class="nf">mt5_trading_session</span><span class="p">(</span>
+<a id="__codelineno-0-1294" name="__codelineno-0-1294"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Mt5Config</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1295" name="__codelineno-0-1295"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-1296" name="__codelineno-0-1296"></a>    <span class="n">login</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1297" name="__codelineno-0-1297"></a>    <span class="n">password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1298" name="__codelineno-0-1298"></a>    <span class="n">server</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1299" name="__codelineno-0-1299"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1300" name="__codelineno-0-1300"></a>    <span class="n">timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1301" name="__codelineno-0-1301"></a>    <span class="n">retry_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-1302" name="__codelineno-0-1302"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Mt5TradingClient</span><span class="p">]:</span>
+<a id="__codelineno-0-1303" name="__codelineno-0-1303"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open a trading-capable MT5 session and always shut down safely.</span>
+<a id="__codelineno-0-1304" name="__codelineno-0-1304"></a>
+<a id="__codelineno-0-1305" name="__codelineno-0-1305"></a><span class="sd">    Launches the MetaTrader 5 terminal using ``Mt5Config.path`` when set,</span>
+<a id="__codelineno-0-1306" name="__codelineno-0-1306"></a><span class="sd">    initializes and logs in via ``initialize_and_login_mt5()``, yields a</span>
+<a id="__codelineno-0-1307" name="__codelineno-0-1307"></a><span class="sd">    connected :class:`~pdmt5.Mt5TradingClient`, and calls ``shutdown()`` on</span>
+<a id="__codelineno-0-1308" name="__codelineno-0-1308"></a><span class="sd">    exit even when an error is raised inside the context.</span>
+<a id="__codelineno-0-1309" name="__codelineno-0-1309"></a>
+<a id="__codelineno-0-1310" name="__codelineno-0-1310"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1311" name="__codelineno-0-1311"></a><span class="sd">        config: MT5 connection configuration. Defaults to an empty config that</span>
+<a id="__codelineno-0-1312" name="__codelineno-0-1312"></a><span class="sd">            attaches to a running terminal.</span>
+<a id="__codelineno-0-1313" name="__codelineno-0-1313"></a><span class="sd">        login: Optional trading account login.</span>
+<a id="__codelineno-0-1314" name="__codelineno-0-1314"></a><span class="sd">        password: Optional trading account password.</span>
+<a id="__codelineno-0-1315" name="__codelineno-0-1315"></a><span class="sd">        server: Optional trading server name.</span>
+<a id="__codelineno-0-1316" name="__codelineno-0-1316"></a><span class="sd">        path: Optional terminal executable path.</span>
+<a id="__codelineno-0-1317" name="__codelineno-0-1317"></a><span class="sd">        timeout: Optional connection timeout in milliseconds.</span>
+<a id="__codelineno-0-1318" name="__codelineno-0-1318"></a><span class="sd">        retry_count: Number of initialization retries passed to</span>
+<a id="__codelineno-0-1319" name="__codelineno-0-1319"></a><span class="sd">            ``Mt5TradingClient``.</span>
+<a id="__codelineno-0-1320" name="__codelineno-0-1320"></a>
+<a id="__codelineno-0-1321" name="__codelineno-0-1321"></a><span class="sd">    Yields:</span>
+<a id="__codelineno-0-1322" name="__codelineno-0-1322"></a><span class="sd">        Connected ``Mt5TradingClient`` bound to the session.</span>
+<a id="__codelineno-0-1323" name="__codelineno-0-1323"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1324" name="__codelineno-0-1324"></a>    <span class="n">client</span> <span class="o">=</span> <span class="n">create_trading_client</span><span class="p">(</span>
+<a id="__codelineno-0-1325" name="__codelineno-0-1325"></a>        <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span>
+<a id="__codelineno-0-1326" name="__codelineno-0-1326"></a>        <span class="n">login</span><span class="o">=</span><span class="n">login</span><span class="p">,</span>
+<a id="__codelineno-0-1327" name="__codelineno-0-1327"></a>        <span class="n">password</span><span class="o">=</span><span class="n">password</span><span class="p">,</span>
+<a id="__codelineno-0-1328" name="__codelineno-0-1328"></a>        <span class="n">server</span><span class="o">=</span><span class="n">server</span><span class="p">,</span>
+<a id="__codelineno-0-1329" name="__codelineno-0-1329"></a>        <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
+<a id="__codelineno-0-1330" name="__codelineno-0-1330"></a>        <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
+<a id="__codelineno-0-1331" name="__codelineno-0-1331"></a>        <span class="n">retry_count</span><span class="o">=</span><span class="n">retry_count</span><span class="p">,</span>
+<a id="__codelineno-0-1332" name="__codelineno-0-1332"></a>    <span class="p">)</span>
+<a id="__codelineno-0-1333" name="__codelineno-0-1333"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1334" name="__codelineno-0-1334"></a>        <span class="k">yield</span> <span class="n">client</span>
+<a id="__codelineno-0-1335" name="__codelineno-0-1335"></a>    <span class="k">finally</span><span class="p">:</span>
+<a id="__codelineno-0-1336" name="__codelineno-0-1336"></a>        <span class="n">client</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
