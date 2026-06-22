@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from math import floor, isfinite
-from numbers import Integral
+from numbers import Integral, Real
 from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 import pandas as pd
@@ -1221,9 +1221,7 @@ def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
         object_numbers = (
             pd.api.types.is_object_dtype(series)
             and non_null.map(
-                lambda value: (
-                    isinstance(value, int | float) and not isinstance(value, bool)
-                ),
+                lambda value: type(value) is not bool and isinstance(value, Real),
             ).all()
         )
         numeric_dtype = pd.api.types.is_numeric_dtype(

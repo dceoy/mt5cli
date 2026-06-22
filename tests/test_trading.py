@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
+from numpy import float64 as np_float64
 from numpy import int64 as np_int64
 from pdmt5 import Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
 from pytest_mock import MockerFixture  # noqa: TC002
@@ -2706,13 +2707,17 @@ class TestFetchLatestClosedRatesIndexed:
         [
             [1700000000, 1700003600],
             [1700000000.0, 1700003600.0],
+            [np_int64(1700000000), np_int64(1700003600)],
+            [np_float64(1700000000.0), np_float64(1700003600.0)],
         ],
-        ids=["integers", "floats"],
+        ids=["integers", "floats", "numpy-integers", "numpy-floats"],
     )
     def test_converts_object_numeric_epoch_seconds_to_utc_datetime_index(
-        self, mocker: MockerFixture, timestamps: list[int] | list[float]
+        self,
+        mocker: MockerFixture,
+        timestamps: list[int] | list[float] | list[np_int64] | list[np_float64],
     ) -> None:
-        """Test object-dtype Python numbers are interpreted as epoch seconds."""
+        """Test object-dtype real numbers are interpreted as epoch seconds."""
         frame = pd.DataFrame(
             {
                 "time": pd.Series(timestamps, dtype=object),
@@ -2729,7 +2734,7 @@ class TestFetchLatestClosedRatesIndexed:
         )
 
         assert list(result.index) == list(
-            pd.to_datetime(timestamps, unit="s", utc=True)
+            pd.to_datetime([1700000000, 1700003600], unit="s", utc=True)
         )
 
     def test_parses_mixed_datetime_like_strings(self, mocker: MockerFixture) -> None:
