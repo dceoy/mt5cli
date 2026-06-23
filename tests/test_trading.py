@@ -2434,6 +2434,25 @@ class TestVolumeAndExecution:
 
         assert result == {1: 1.188}
 
+    def test_calculate_trailing_stop_updates_buy_positions_ignore_invalid_ask(
+        self,
+    ) -> None:
+        """Test buy trailing stops do not require an ask price."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 0.0}
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        result = calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        )
+
+        assert result == {1: 1.188}
+
     def test_calculate_trailing_stop_updates_sell_positions(self) -> None:
         """Test sell trailing stops use ask and improve only downward."""
         client = _mock_trade_client()
@@ -2460,14 +2479,37 @@ class TestVolumeAndExecution:
 
         assert result == {3: 1.212}
 
-    def test_calculate_trailing_stop_updates_invalid_bid_or_ask(self) -> None:
-        """Test invalid tick prices fail safely without updates."""
+    def test_calculate_trailing_stop_updates_sell_positions_ignore_invalid_bid(
+        self,
+    ) -> None:
+        """Test sell trailing stops do not require a bid price."""
         client = _mock_trade_client()
         client.positions_get_as_df.return_value = pd.DataFrame(
-            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
+            [{"ticket": 3, "symbol": "EURUSD", "type": 1, "volume": 0.1, "sl": 1.3}],
         )
         client.symbol_info_tick_as_dict.return_value = {"bid": 0.0, "ask": 1.2}
         client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        result = calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        )
+
+        assert result == {3: 1.212}
+
+    def test_calculate_trailing_stop_updates_invalid_bid_or_ask(self) -> None:
+        """Test invalid side-specific tick prices fail safely without updates."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0},
+                {"ticket": 2, "symbol": "EURUSD", "type": 1, "volume": 0.1, "sl": 1.3},
+            ],
+        )
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        client.symbol_info_tick_as_dict.return_value = {"bid": 0.0, "ask": None}
 
         assert (
             calculate_trailing_stop_updates(
@@ -2477,6 +2519,33 @@ class TestVolumeAndExecution:
             )
             == {}
         )
+
+    def test_calculate_trailing_stop_updates_mixed_positions_skip_invalid_side(
+        self,
+    ) -> None:
+        """Test one invalid side price does not block the valid side."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0},
+                {"ticket": 2, "symbol": "EURUSD", "type": 1, "volume": 0.1, "sl": 1.3},
+            ],
+        )
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 0.0}
+        assert calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        ) == {1: 1.188}
+
+        client.symbol_info_tick_as_dict.return_value = {"bid": None, "ask": 1.2}
+        assert calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        ) == {2: 1.212}
 
     def test_calculate_trailing_stop_updates_invalid_symbol_digits(self) -> None:
         """Test invalid symbol metadata fails safely without updates."""

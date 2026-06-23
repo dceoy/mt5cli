@@ -1309,6 +1309,29 @@ def _current_stop_loss(value: object) -> float | None:
     return _optional_price(value)
 
 
+def _trailing_stop_loss(
+    client: Mt5TradingClient,
+    *,
+    position_type: object,
+    current_sl: float | None,
+    bid: float | None,
+    ask: float | None,
+    digits: int,
+    trailing_stop_ratio: float,
+) -> float | None:
+    next_sl: float | None = None
+    if position_type == client.mt5.POSITION_TYPE_BUY:
+        if bid is not None:
+            next_sl = round(bid * (1.0 - trailing_stop_ratio), digits)
+            if current_sl is not None and current_sl >= next_sl:
+                next_sl = None
+    elif position_type == client.mt5.POSITION_TYPE_SELL and ask is not None:
+        next_sl = round(ask * (1.0 + trailing_stop_ratio), digits)
+        if current_sl is not None and current_sl <= next_sl:
+            next_sl = None
+    return next_sl
+
+
 def calculate_trailing_stop_updates(
     client: Mt5TradingClient,
     *,
@@ -1320,7 +1343,8 @@ def calculate_trailing_stop_updates(
     Buy positions trail from bid using ``bid * (1 - trailing_stop_ratio)``.
     Sell positions trail from ask using ``ask * (1 + trailing_stop_ratio)``.
     Existing stop losses are preserved when they are already more favorable.
-    Missing tick or symbol metadata returns an empty update map.
+    Missing symbol metadata returns an empty update map. Positions with a
+    missing side-specific tick price are skipped.
     """
     _require_protective_ratio(trailing_stop_ratio, "trailing_stop_ratio")
     positions = get_positions_frame(client, symbol=symbol)
@@ -1330,7 +1354,7 @@ def calculate_trailing_stop_updates(
     bid = extract_tick_price(tick, "bid")
     ask = extract_tick_price(tick, "ask")
     digits = _symbol_digits(client, symbol)
-    if bid is None or ask is None or digits is None:
+    if digits is None:
         return {}
 
     updates: dict[int, float] = {}
@@ -1338,17 +1362,16 @@ def calculate_trailing_stop_updates(
         ticket = _position_ticket(row.get("ticket"))
         if ticket is None:
             continue
-        position_type = row.get("type")
-        current_sl = _current_stop_loss(row.get("sl"))
-        if position_type == client.mt5.POSITION_TYPE_BUY:
-            next_sl = round(bid * (1.0 - trailing_stop_ratio), digits)
-            if current_sl is not None and current_sl >= next_sl:
-                continue
-        elif position_type == client.mt5.POSITION_TYPE_SELL:
-            next_sl = round(ask * (1.0 + trailing_stop_ratio), digits)
-            if current_sl is not None and current_sl <= next_sl:
-                continue
-        else:
+        next_sl = _trailing_stop_loss(
+            client,
+            position_type=row.get("type"),
+            current_sl=_current_stop_loss(row.get("sl")),
+            bid=bid,
+            ask=ask,
+            digits=digits,
+            trailing_stop_ratio=trailing_stop_ratio,
+        )
+        if next_sl is None:
             continue
         updates[ticket] = next_sl
     return updates
