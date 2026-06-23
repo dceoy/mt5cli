@@ -555,7 +555,7 @@ class TestStableSdkContract:
         assert not missing, f"STABLE_SDK_EXPORTS missing from __all__: {missing}"
 
     def test_public_export_tiers_are_disjoint_and_complete(self) -> None:
-        """Documented public tiers do not overlap and resolve to root exports."""
+        """Documented public tiers do not overlap and classify root exports."""
         assert PUBLIC_EXPORT_TIERS == {
             "stable": STABLE_SDK_EXPORTS,
             "secondary": SECONDARY_PUBLIC_EXPORTS,
@@ -565,8 +565,25 @@ class TestStableSdkContract:
         assert not (STABLE_SDK_EXPORTS & LEGACY_EXPORTS)
         assert not (SECONDARY_PUBLIC_EXPORTS & LEGACY_EXPORTS)
         tiered_exports = STABLE_SDK_EXPORTS | SECONDARY_PUBLIC_EXPORTS | LEGACY_EXPORTS
-        missing = sorted(tiered_exports - set(mt5cli.__all__))
-        assert not missing, f"Tiered exports missing from __all__: {missing}"
+        root_exports = set(mt5cli.__all__)
+
+        missing_from_root = sorted(tiered_exports - root_exports)
+        assert not missing_from_root, (
+            f"Tiered exports missing from __all__: {missing_from_root}"
+        )
+
+        tier_metadata_exports = {
+            "LEGACY_EXPORTS",
+            "PUBLIC_EXPORT_TIERS",
+            "SECONDARY_PUBLIC_EXPORTS",
+            "STABLE_SDK_EXPORTS",
+        }
+        unclassified_root_exports = sorted(
+            root_exports - tiered_exports - tier_metadata_exports,
+        )
+        assert not unclassified_root_exports, (
+            f"Root exports missing from public API tiers: {unclassified_root_exports}"
+        )
 
     @pytest.mark.parametrize("name", sorted(STABLE_SDK_EXPORTS))
     def test_stable_exports_are_importable_from_package_root(self, name: str) -> None:
