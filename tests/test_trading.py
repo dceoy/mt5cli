@@ -122,12 +122,14 @@ class TestDetectPositionSide:
 class TestCalculateMarginAndVolume:
     """Tests for calculate_margin_and_volume."""
 
-    def test_calculates_margin_budget_and_volumes(self) -> None:
+    def test_calculates_margin_budget_and_volumes(self, mocker: MockerFixture) -> None:
         """Test margin budget and buy/sell volumes are derived from ratios."""
         client = MagicMock()
         client.account_info_as_dict.return_value = {"margin_free": 1000.0}
-        client.calculate_volume_by_margin.side_effect = [0.3, 0.2]
         client.symbol_info_as_dict.side_effect = AttributeError("missing")
+        mock_calc_vol = mocker.patch(
+            "mt5cli.trading.calculate_volume_by_margin", side_effect=[0.3, 0.2]
+        )
 
         result = calculate_margin_and_volume(
             client,
@@ -146,8 +148,8 @@ class TestCalculateMarginAndVolume:
             "volume_max": 0.0,
             "volume_step": 0.0,
         }
-        client.calculate_volume_by_margin.assert_any_call("EURUSD", 400.0, "BUY")
-        client.calculate_volume_by_margin.assert_any_call("EURUSD", 400.0, "SELL")
+        mock_calc_vol.assert_any_call(client, "EURUSD", 400.0, "BUY")
+        mock_calc_vol.assert_any_call(client, "EURUSD", 400.0, "SELL")
 
     @pytest.mark.parametrize(
         ("account_dict", "expected_margin_free"),
@@ -165,7 +167,7 @@ class TestCalculateMarginAndVolume:
         """Test missing or zero margin_free yields zero trade margin."""
         client = MagicMock()
         client.account_info_as_dict.return_value = account_dict
-        client.calculate_volume_by_margin.return_value = 0.0
+        client.symbol_info_as_dict.side_effect = AttributeError("missing")
 
         result = calculate_margin_and_volume(
             client,
@@ -175,14 +177,15 @@ class TestCalculateMarginAndVolume:
         )
 
         assert result["margin_free"] == expected_margin_free
-        client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "BUY")
-        client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "SELL")
+        _assert_close(result["buy_volume"], 0.0)
+        _assert_close(result["sell_volume"], 0.0)
+        client.calculate_volume_by_margin.assert_not_called()
 
     def test_clamps_negative_margin_free_to_zero(self) -> None:
         """Test negative margin_free is clamped to zero before sizing."""
         client = MagicMock()
         client.account_info_as_dict.return_value = {"margin_free": -500.0}
-        client.calculate_volume_by_margin.return_value = 0.0
+        client.symbol_info_as_dict.side_effect = AttributeError("missing")
 
         result = calculate_margin_and_volume(
             client,
@@ -191,10 +194,10 @@ class TestCalculateMarginAndVolume:
             preserved_margin_ratio=0.2,
         )
 
-        expected_margin_free = 0.0
-        assert result["margin_free"] == expected_margin_free
-        client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "BUY")
-        client.calculate_volume_by_margin.assert_any_call("EURUSD", 0.0, "SELL")
+        _assert_close(result["margin_free"], 0.0)
+        _assert_close(result["buy_volume"], 0.0)
+        _assert_close(result["sell_volume"], 0.0)
+        client.calculate_volume_by_margin.assert_not_called()
 
     @pytest.mark.parametrize(
         ("unit_ratio", "preserved_ratio"),
@@ -1614,18 +1617,34 @@ class TestVolumeAndExecution:
                 preserved_margin_ratio=0.0,
             )
 
-    def test_calculate_margin_and_volume_positive_ratio_uses_existing_behavior(
+    def test_calculate_margin_and_volume_positive_ratio_avoids_oversized_native_volume(
         self,
     ) -> None:
-        """Test positive unit ratios keep proportional native sizing."""
+        """Regression: module path is used even when native helper is present.
+
+        The pdmt5 linear estimate (floor(40/10)*0.1 = 0.4) would overstate
+        affordable volume because order_calc_margin returns 45.0 for 0.4 lots,
+        exceeding the 40.0 budget.  The module's verified binary search returns
+        0.3 (margin=30.0), which is safe.
+        """
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"margin_free": 100.0}
-        client.calculate_volume_by_margin.side_effect = [0.4, 0.3]
         client.symbol_info_as_dict.return_value = {
             "volume_min": 0.1,
             "volume_max": 1.0,
             "volume_step": 0.1,
         }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        client.calculate_volume_by_margin.return_value = 0.4  # pdmt5 linear oversized
+
+        def _mock_calc_margin(
+            _order_type: int, _symbol: str, volume: float, _price: float
+        ) -> float:
+            if volume <= 0.3:
+                return round(volume * 100.0, 10)  # 0.1→10, 0.2→20, 0.3→30
+            return round(volume * 112.5, 10)  # 0.4→45 — exceeds 40.0 budget
+
+        client.order_calc_margin.side_effect = _mock_calc_margin
 
         result = calculate_margin_and_volume(
             client,
@@ -1635,30 +1654,25 @@ class TestVolumeAndExecution:
         )
 
         _assert_close(result["trade_margin"], 40.0)
-        _assert_close(result["buy_volume"], 0.4)
+        _assert_close(result["buy_volume"], 0.3)
         _assert_close(result["sell_volume"], 0.3)
-        client.calculate_volume_by_margin.assert_any_call("EURUSD", 40.0, "BUY")
-        client.calculate_volume_by_margin.assert_any_call("EURUSD", 40.0, "SELL")
+        client.calculate_volume_by_margin.assert_not_called()
 
-    def test_calculate_margin_and_volume_handles_missing_symbol_snapshot(
+    def test_calculate_margin_and_volume_positive_ratio_raises_on_missing_symbol_info(
         self,
     ) -> None:
-        """Test missing symbol metadata falls back to zero volume constraints."""
+        """Test missing symbol info propagates an error when ratio is positive."""
         client = MagicMock()
         client.account_info_as_dict.return_value = {"margin_free": 1000.0}
-        client.calculate_volume_by_margin.side_effect = [0.3, 0.2]
         client.symbol_info_as_dict.side_effect = AttributeError("missing")
 
-        result = calculate_margin_and_volume(
-            client,
-            "EURUSD",
-            unit_margin_ratio=0.5,
-            preserved_margin_ratio=0.2,
-        )
-
-        _assert_close(result["volume_min"], 0.0)
-        _assert_close(result["volume_max"], 0.0)
-        _assert_close(result["volume_step"], 0.0)
+        with pytest.raises(AttributeError):
+            calculate_margin_and_volume(
+                client,
+                "EURUSD",
+                unit_margin_ratio=0.5,
+                preserved_margin_ratio=0.2,
+            )
 
     def test_new_position_margin_ratio_adds_hypothetical_margin(self) -> None:
         """Test hypothetical order margin is added to account margin."""

@@ -780,28 +780,8 @@ def calculate_margin_and_volume(
             "SELL",
         )
     else:
-        native_calculate_volume = getattr(client, "calculate_volume_by_margin", None)
-        if callable(native_calculate_volume):
-            buy_volume = float(
-                cast(
-                    "float | int | str",
-                    native_calculate_volume(symbol, trade_margin, "BUY"),
-                ),
-            )
-            sell_volume = float(
-                cast(
-                    "float | int | str",
-                    native_calculate_volume(symbol, trade_margin, "SELL"),
-                ),
-            )
-        else:
-            buy_volume = calculate_volume_by_margin(client, symbol, trade_margin, "BUY")
-            sell_volume = calculate_volume_by_margin(
-                client,
-                symbol,
-                trade_margin,
-                "SELL",
-            )
+        buy_volume = calculate_volume_by_margin(client, symbol, trade_margin, "BUY")
+        sell_volume = calculate_volume_by_margin(client, symbol, trade_margin, "SELL")
     try:
         symbol_info = get_symbol_snapshot(client, symbol)
         volume_min = float(symbol_info.get("volume_min") or 0.0)
