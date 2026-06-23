@@ -133,7 +133,10 @@ __all__ = [
     "calculate_positions_margin",
     "calculate_positions_margin_by_symbol",
     "calculate_positions_margin_safe",
+    "calculate_projected_margin_ratio",
     "calculate_spread_ratio",
+    "calculate_symbol_group_margin_ratio",
+    "calculate_trailing_stop_updates",
     "calculate_volume_by_margin",
     "close_open_positions",
     "create_trading_client",
@@ -141,6 +144,7 @@ __all__ = [
     "determine_order_limits",
     "ensure_symbol_selected",
     "estimate_order_margin",
+    "extract_tick_price",
     "fetch_latest_closed_rates_for_trading_client",
     "fetch_latest_closed_rates_indexed",
     "get_account_snapshot",
@@ -151,6 +155,7 @@ __all__ = [
     "normalize_order_volume",
     "place_market_order",
     "update_sltp_for_open_positions",
+    "update_trailing_stop_loss_for_open_positions",
 ]
 
 
@@ -428,7 +433,7 @@ def _optional_price(value: object) -> float | None:
     return price
 
 
-def _valid_tick_price(tick: Mapping[str, object], key: str) -> float | None:
+def extract_tick_price(tick: Mapping[str, object], key: str) -> float | None:
     """Return a positive finite float from tick[key], or None if invalid.
 
     Accepts int, float, or numeric string values. Returns None when the key is
@@ -490,7 +495,7 @@ def _calculate_min_volume_if_affordable(
         msg = f"Invalid volume constraints for {symbol!r}."
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
-    price = _valid_tick_price(
+    price = extract_tick_price(
         get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
     )
     if price is None:
@@ -651,7 +656,7 @@ def estimate_order_margin(
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
     tick = get_tick_snapshot(client, symbol)
-    price = _valid_tick_price(tick, "ask" if side == "BUY" else "bid")
+    price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
     if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
@@ -785,8 +790,8 @@ def calculate_spread_ratio(client: Mt5TradingClient, symbol: str) -> float:
         Mt5TradingError: If bid or ask is unavailable.
     """
     tick = get_tick_snapshot(client, symbol)
-    bid = _valid_tick_price(tick, "bid")
-    ask = _valid_tick_price(tick, "ask")
+    bid = extract_tick_price(tick, "bid")
+    ask = extract_tick_price(tick, "ask")
     if bid is None or ask is None:
         msg = f"Tick bid/ask is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
@@ -813,7 +818,7 @@ def calculate_new_position_margin_ratio(
     margin = float(account.get("margin") or 0.0)
     if new_position_side is not None and new_position_volume > 0:
         side = _normalize_order_side(new_position_side)
-        price = _valid_tick_price(
+        price = extract_tick_price(
             get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
         )
         if price is None:
@@ -825,6 +830,102 @@ def calculate_new_position_margin_ratio(
         margin += float(
             client.order_calc_margin(order_type, symbol, new_position_volume, price),
         )
+    return margin / equity
+
+
+def _account_equity(client: Mt5TradingClient) -> float:
+    account = get_account_snapshot(client)
+    try:
+        equity = float(account.get("equity") or 0.0)
+    except (TypeError, ValueError) as exc:
+        msg = "Account equity must be positive to calculate margin ratio."
+        raise Mt5TradingError(msg) from exc
+    if equity <= 0 or not isfinite(equity):
+        msg = "Account equity must be positive to calculate margin ratio."
+        raise Mt5TradingError(msg)
+    return equity
+
+
+def calculate_projected_margin_ratio(
+    client: Mt5TradingClient,
+    *,
+    symbol: str,
+    new_position_side: OrderSide | None = None,
+    new_position_volume: float = 0.0,
+) -> float:
+    """Return estimated current plus optional new-position margin over equity.
+
+    Current exposure is estimated from open positions with
+    :func:`calculate_positions_margin`. Optional projected exposure is added via
+    :func:`estimate_order_margin`. Thresholds and guard actions are intentionally
+    left to downstream applications.
+
+    Account equity, position margin, and optional projected margin errors from
+    the composed MT5 helpers propagate to the caller.
+    """
+    equity = _account_equity(client)
+    margin = calculate_positions_margin(client, symbols=[symbol])
+    if new_position_side is not None and new_position_volume > 0:
+        margin += estimate_order_margin(
+            client,
+            symbol,
+            new_position_side,
+            new_position_volume,
+        )
+    return margin / equity
+
+
+def calculate_symbol_group_margin_ratio(
+    client: Mt5TradingClient,
+    *,
+    symbols: Sequence[str],
+    new_symbol: str | None = None,
+    new_position_side: OrderSide | None = None,
+    new_position_volume: float = 0.0,
+    suppress_errors: bool = True,
+) -> float:
+    """Return estimated symbol-group margin over account equity.
+
+    Per-symbol current exposure is summed with
+    :func:`calculate_positions_margin_by_symbol`. When ``new_symbol`` is inside
+    the input symbol group, optional projected order margin is added for that
+    symbol. Invalid equity always raises to fail closed.
+
+    Raises:
+        AttributeError: When symbol margin lookup or projected margin lookup
+            fails and ``suppress_errors`` is ``False``.
+        Mt5RuntimeError: When symbol margin lookup or projected margin lookup
+            fails and ``suppress_errors`` is ``False``.
+        Mt5TradingError: When account equity is invalid, or when symbol margin
+            lookup or projected margin lookup fails and ``suppress_errors`` is
+            ``False``.
+    """
+    equity = _account_equity(client)
+    unique_symbols = list(dict.fromkeys(symbols))
+    margin = sum(
+        calculate_positions_margin_by_symbol(
+            client,
+            symbols=unique_symbols,
+            suppress_errors=suppress_errors,
+        ).values(),
+        0.0,
+    )
+    if (
+        new_symbol in unique_symbols
+        and new_position_side is not None
+        and new_position_volume > 0
+    ):
+        try:
+            margin += estimate_order_margin(
+                client,
+                new_symbol,
+                new_position_side,
+                new_position_volume,
+            )
+        except (Mt5TradingError, Mt5RuntimeError, AttributeError):
+            if not suppress_errors:
+                raise
+            _logger.warning("Skipping projected margin for %r.", new_symbol)
     return margin / equity
 
 
@@ -921,7 +1022,7 @@ def calculate_volume_by_margin(
         msg = f"Invalid volume constraints for {symbol!r}."
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
-    price = _valid_tick_price(
+    price = extract_tick_price(
         get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
     )
     if price is None:
@@ -1001,7 +1102,7 @@ def determine_order_limits(
     normalized_side = _position_side_from_order_side(side)
     tick = get_tick_snapshot(client, symbol)
     entry_key = "ask" if normalized_side == "long" else "bid"
-    entry = _valid_tick_price(tick, entry_key)
+    entry = extract_tick_price(tick, entry_key)
     if entry is None:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
@@ -1080,7 +1181,7 @@ def place_market_order(
     if not dry_run:
         ensure_symbol_selected(client, symbol)
     tick = get_tick_snapshot(client, symbol)
-    price = _valid_tick_price(tick, "ask" if side == "BUY" else "bid")
+    price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
     if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
@@ -1185,6 +1286,99 @@ def close_open_positions(
             dry_run=dry_run,
         )
         results.append(result)
+    return results
+
+
+def _symbol_digits(client: Mt5TradingClient, symbol: str) -> int | None:
+    try:
+        digits = int(get_symbol_snapshot(client, symbol).get("digits") or 0)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return digits if digits >= 0 else None
+
+
+def _position_ticket(value: object) -> int | None:
+    ticket = _optional_int(value)
+    return ticket if ticket is not None and ticket > 0 else None
+
+
+def _current_stop_loss(value: object) -> float | None:
+    return _optional_price(value)
+
+
+def calculate_trailing_stop_updates(
+    client: Mt5TradingClient,
+    *,
+    symbol: str,
+    trailing_stop_ratio: float,
+) -> dict[int, float]:
+    """Return per-ticket trailing stop-loss updates for open symbol positions.
+
+    Buy positions trail from bid using ``bid * (1 - trailing_stop_ratio)``.
+    Sell positions trail from ask using ``ask * (1 + trailing_stop_ratio)``.
+    Existing stop losses are preserved when they are already more favorable.
+    Missing tick or symbol metadata returns an empty update map.
+    """
+    _require_protective_ratio(trailing_stop_ratio, "trailing_stop_ratio")
+    positions = get_positions_frame(client, symbol=symbol)
+    if positions.empty:
+        return {}
+    tick = get_tick_snapshot(client, symbol)
+    bid = extract_tick_price(tick, "bid")
+    ask = extract_tick_price(tick, "ask")
+    digits = _symbol_digits(client, symbol)
+    if bid is None or ask is None or digits is None:
+        return {}
+
+    updates: dict[int, float] = {}
+    for row in positions.to_dict("records"):
+        ticket = _position_ticket(row.get("ticket"))
+        if ticket is None:
+            continue
+        position_type = row.get("type")
+        current_sl = _current_stop_loss(row.get("sl"))
+        if position_type == client.mt5.POSITION_TYPE_BUY:
+            next_sl = round(bid * (1.0 - trailing_stop_ratio), digits)
+            if current_sl is not None and current_sl >= next_sl:
+                continue
+        elif position_type == client.mt5.POSITION_TYPE_SELL:
+            next_sl = round(ask * (1.0 + trailing_stop_ratio), digits)
+            if current_sl is not None and current_sl <= next_sl:
+                continue
+        else:
+            continue
+        updates[ticket] = next_sl
+    return updates
+
+
+def update_trailing_stop_loss_for_open_positions(
+    client: Mt5TradingClient,
+    *,
+    symbol: str,
+    trailing_stop_ratio: float,
+    dry_run: bool = False,
+) -> list[OrderExecutionResult]:
+    """Update open positions whose trailing stop loss should move favorably.
+
+    Returns:
+        Normalized execution results for positions that need an SL update.
+    """
+    updates = calculate_trailing_stop_updates(
+        client,
+        symbol=symbol,
+        trailing_stop_ratio=trailing_stop_ratio,
+    )
+    results: list[OrderExecutionResult] = []
+    for ticket, stop_loss in updates.items():
+        results.extend(
+            update_sltp_for_open_positions(
+                client,
+                symbol=symbol,
+                tickets=[ticket],
+                stop_loss=stop_loss,
+                dry_run=dry_run,
+            ),
+        )
     return results
 
 

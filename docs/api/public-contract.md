@@ -8,14 +8,26 @@ downstream app -> mt5cli -> pdmt5 -> MetaTrader 5
 ```
 
 Downstream packages should import from the package root (`from mt5cli import
-...`) and treat the symbols listed below as the stable SDK contract. CLI
-commands mirror the same behavior but are not importable Python APIs.
+...`) and use the public tier sets in `mt5cli.contract` to distinguish API
+stability. CLI commands mirror the same behavior but are not importable Python
+APIs.
+
+## Public API tiers
+
+mt5cli keeps existing root imports working, but classifies them by intended
+downstream use:
+
+| Tier                | Contract set               | Meaning                                                                                                                                     |
+| ------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stable core         | `STABLE_SDK_EXPORTS`       | Preferred SDK surface for downstream MT5 infrastructure adapters. Changes require a deliberate compatibility path.                          |
+| Secondary public    | `SECONDARY_PUBLIC_EXPORTS` | Public helpers for CLI/export/schema integrations and lower-level MT5 wrappers. Importable, but less central to the downstream trading SDK. |
+| Legacy / deprecated | `LEGACY_EXPORTS`           | Compatibility aliases retained for existing users. Prefer stable replacements in new code.                                                  |
 
 ## Stable downstream SDK API
 
 These names are exported from `mt5cli` and covered by the contract in
-`mt5cli.STABLE_SDK_EXPORTS` (defined in `mt5cli.contract`). Prefer `MT5Client` over the legacy `Mt5CliClient`
-alias for new code.
+`mt5cli.STABLE_SDK_EXPORTS` (defined in `mt5cli.contract`). Prefer `MT5Client`
+over the legacy `Mt5CliClient` alias for new code.
 
 ### Session lifecycle and configuration
 
@@ -99,20 +111,24 @@ diagrams.
 These helpers implement broker-facing calculations only. They do not encode
 strategy entries, exits, Kelly sizing, or signal logic.
 
-| Symbol                                                                                             | Role                                                        |
-| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `get_account_snapshot`, `get_symbol_snapshot`, `get_tick_snapshot`, `get_positions_frame`          | Normalized account/symbol/tick/position views               |
-| `detect_position_side`                                                                             | Net long / short / flat from open positions                 |
-| `calculate_spread_ratio`                                                                           | Relative bid-ask spread                                     |
-| `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio` | Margin budget and volume sizing                             |
-| `normalize_order_volume`, `estimate_order_margin`, `calculate_positions_margin`                    | Broker volume normalization and margin totals               |
-| `calculate_positions_margin_by_symbol`                                                             | Per-symbol margin map (resilient, first-seen order)         |
-| `calculate_positions_margin_safe`                                                                  | Summed total margin across symbols (failed symbols skipped) |
-| `determine_order_limits`                                                                           | SL/TP price levels from ratios                              |
-| `ensure_symbol_selected`                                                                           | Select/verify Market Watch visibility                       |
-| `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`                     | Order execution helpers (`dry_run` supported)               |
-| `MarginVolume`, `OrderLimits`, `OrderExecutionResult`                                              | Typed return contracts for order helpers                    |
-| `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`, `ExecutionStatus`                | Typed enums for order helpers                               |
+| Symbol                                                                                                                         | Role                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `get_account_snapshot`, `get_symbol_snapshot`, `get_tick_snapshot`, `get_positions_frame`                                      | Normalized account/symbol/tick/position views               |
+| `extract_tick_price`                                                                                                           | Positive finite bid/ask extraction from tick mappings       |
+| `detect_position_side`                                                                                                         | Net long / short / flat from open positions                 |
+| `calculate_spread_ratio`                                                                                                       | Relative bid-ask spread                                     |
+| `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio`                             | Margin budget and volume sizing                             |
+| `normalize_order_volume`, `estimate_order_margin`, `calculate_positions_margin`                                                | Broker volume normalization and margin totals               |
+| `calculate_positions_margin_by_symbol`                                                                                         | Per-symbol margin map (resilient, first-seen order)         |
+| `calculate_positions_margin_safe`                                                                                              | Summed total margin across symbols (failed symbols skipped) |
+| `calculate_projected_margin_ratio`                                                                                             | Estimated symbol margin/equity after optional new exposure  |
+| `calculate_symbol_group_margin_ratio`                                                                                          | Estimated symbol-group margin/equity with optional exposure |
+| `determine_order_limits`                                                                                                       | SL/TP price levels from ratios                              |
+| `calculate_trailing_stop_updates`                                                                                              | Per-ticket generic trailing stop-loss update plan           |
+| `ensure_symbol_selected`                                                                                                       | Select/verify Market Watch visibility                       |
+| `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`, `update_trailing_stop_loss_for_open_positions` | Order execution helpers (`dry_run` supported)               |
+| `MarginVolume`, `OrderLimits`, `OrderExecutionResult`                                                                          | Typed return contracts for order helpers                    |
+| `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`, `ExecutionStatus`                                            | Typed enums for order helpers                               |
 
 `MT5Client.order_send()` and CLI `order-send --yes` are live execution paths.
 
@@ -135,13 +151,20 @@ and returned as `status="failed"` with normalized `request` / `response` details
 | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error` | Error normalization and retry classification    |
 | `Mt5Config`, `Mt5RuntimeError`, `Mt5TradingClient`, `Mt5TradingError`                | Re-exported pdmt5 types for adapter convenience |
 
-### Additional public exports (secondary)
+### Secondary public exports
 
 The package root also exports schema, storage, and parsing helpers (for example
 `DataKind`, `Dataset`, `normalize_dataframe`, `export_dataframe`,
-`parse_timeframe`, `TIMEFRAME_MAP`). These are public but oriented toward export
+`parse_timeframe`, `TIMEFRAME_MAP`) plus low-level data wrappers such as
+`copy_rates_range`, `copy_ticks_range`, `account_info`, and `positions`. These
+are public and covered by `SECONDARY_PUBLIC_EXPORTS`, but oriented toward export
 pipelines and advanced integration. Prefer the stable symbols above for core
 infrastructure.
+
+### Legacy exports
+
+`Mt5CliClient` remains importable for backward compatibility and is listed in
+`LEGACY_EXPORTS`. New code should use `MT5Client`.
 
 ## CLI commands
 
@@ -190,7 +213,7 @@ their own adapter layer.
 
 ## Contract verification
 
-`tests/test_contracts.py` asserts that every name in `STABLE_SDK_EXPORTS` is
-importable from `mt5cli`, documents key closed-bar, rate-view, SQLite loading,
-account-resolution, and trading-session behaviors, and keeps the contract set
-aligned with `__all__`.
+`tests/test_contracts.py` asserts that every name in the stable, secondary, and
+legacy tier sets is importable from `mt5cli`, documents key closed-bar,
+rate-view, SQLite loading, account-resolution, and trading-session behaviors,
+and keeps the tier sets aligned with `__all__`.
