@@ -31,6 +31,8 @@ STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "calculate_margin_and_volume",
     "calculate_new_position_margin_ratio",
     "calculate_positions_margin",
+    "calculate_positions_margin_by_symbol",
+    "calculate_positions_margin_safe",
     "calculate_spread_ratio",
     "calculate_volume_by_margin",
     "call_with_normalized_errors",

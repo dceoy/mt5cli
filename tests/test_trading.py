@@ -18,9 +18,12 @@ from mt5cli.trading import (
     MarginVolume,
     OrderExecutionResult,
     OrderLimits,
+    _valid_tick_price,  # type: ignore[reportPrivateUsage]
     calculate_margin_and_volume,
     calculate_new_position_margin_ratio,
     calculate_positions_margin,
+    calculate_positions_margin_by_symbol,
+    calculate_positions_margin_safe,
     calculate_spread_ratio,
     calculate_volume_by_margin,
     close_open_positions,
@@ -2979,3 +2982,157 @@ class TestFetchLatestClosedRatesIndexed:
         assert "open" in result.columns
         assert "close" in result.columns
         assert isinstance(result.index, pd.DatetimeIndex)
+
+
+class TestValidTickPrice:
+    """Tests for the _valid_tick_price internal helper (#49)."""
+
+    def test_valid_positive_float(self) -> None:
+        """Returns a positive float value unchanged."""
+        _assert_close(_valid_tick_price({"bid": 1.1000}, "bid"), 1.1000)
+
+    def test_valid_positive_int(self) -> None:
+        """Accepts an integer value and returns it as float."""
+        result = _valid_tick_price({"bid": 2}, "bid")
+        _assert_close(result, 2.0)
+        assert isinstance(result, float)
+
+    def test_valid_numeric_string(self) -> None:
+        """Accepts a numeric string and returns the parsed float."""
+        _assert_close(_valid_tick_price({"bid": "1.5"}, "bid"), 1.5)
+
+    def test_missing_key(self) -> None:
+        """Returns None when the key is absent from the tick dict."""
+        assert _valid_tick_price({}, "bid") is None
+
+    def test_none_value(self) -> None:
+        """Returns None when the stored value is None."""
+        assert _valid_tick_price({"bid": None}, "bid") is None
+
+    def test_invalid_string(self) -> None:
+        """Returns None for a non-numeric string."""
+        assert _valid_tick_price({"bid": "not_a_number"}, "bid") is None
+
+    def test_nan(self) -> None:
+        """Returns None for a NaN float."""
+        assert _valid_tick_price({"bid": float("nan")}, "bid") is None
+
+    def test_positive_infinity(self) -> None:
+        """Returns None for positive infinity."""
+        assert _valid_tick_price({"bid": float("inf")}, "bid") is None
+
+    def test_negative_infinity(self) -> None:
+        """Returns None for negative infinity."""
+        assert _valid_tick_price({"bid": float("-inf")}, "bid") is None
+
+    def test_zero(self) -> None:
+        """Returns None for zero (not a valid price)."""
+        assert _valid_tick_price({"bid": 0.0}, "bid") is None
+
+    def test_negative_value(self) -> None:
+        """Returns None for a negative price."""
+        assert _valid_tick_price({"bid": -1.0}, "bid") is None
+
+    def test_unsupported_type(self) -> None:
+        """Returns None for unsupported value types such as list."""
+        assert _valid_tick_price({"bid": [1.0]}, "bid") is None
+
+
+class TestCalculatePositionsMarginBySymbol:
+    """Tests for calculate_positions_margin_by_symbol (#50)."""
+
+    def test_all_symbols_succeed(self, mocker: MockerFixture) -> None:
+        """Returns one entry per symbol when all margin calls succeed."""
+        client = _mock_trade_client()
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin",
+            side_effect=[12.5, 30.0],
+        )
+
+        result = calculate_positions_margin_by_symbol(
+            client, symbols=["EURUSD", "GBPUSD"]
+        )
+
+        assert result == {"EURUSD": 12.5, "GBPUSD": 30.0}
+
+    def test_one_symbol_fails_suppress_errors_true(self, mocker: MockerFixture) -> None:
+        """Skips the failing symbol and returns the successful one."""
+        client = _mock_trade_client()
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin",
+            side_effect=[Mt5TradingError("tick unavailable"), 30.0],
+        )
+
+        result = calculate_positions_margin_by_symbol(
+            client, symbols=["EURUSD", "GBPUSD"], suppress_errors=True
+        )
+
+        assert result == {"GBPUSD": 30.0}
+
+    def test_one_symbol_fails_suppress_errors_false(
+        self, mocker: MockerFixture
+    ) -> None:
+        """Re-raises the first failure when suppress_errors=False."""
+        client = _mock_trade_client()
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin",
+            side_effect=[Mt5TradingError("tick unavailable"), 30.0],
+        )
+
+        with pytest.raises(Mt5TradingError, match="tick unavailable"):
+            calculate_positions_margin_by_symbol(
+                client, symbols=["EURUSD", "GBPUSD"], suppress_errors=False
+            )
+
+    def test_all_symbols_fail_suppress_errors_true(self, mocker: MockerFixture) -> None:
+        """Returns an empty dict when all symbols fail with suppress_errors=True."""
+        client = _mock_trade_client()
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin",
+            side_effect=[Mt5TradingError("err1"), Mt5TradingError("err2")],
+        )
+
+        result = calculate_positions_margin_by_symbol(
+            client, symbols=["EURUSD", "GBPUSD"], suppress_errors=True
+        )
+
+        assert result == {}
+
+    def test_empty_symbol_list(self) -> None:
+        """Returns an empty dict for an empty input list."""
+        client = _mock_trade_client()
+        result = calculate_positions_margin_by_symbol(client, symbols=[])
+        assert result == {}
+
+    def test_duplicate_symbols_preserve_first_seen_order(
+        self, mocker: MockerFixture
+    ) -> None:
+        """Processes each unique symbol once in first-seen order."""
+        client = _mock_trade_client()
+        mock_calc = mocker.patch(
+            "mt5cli.trading.calculate_positions_margin",
+            return_value=12.5,
+        )
+
+        result = calculate_positions_margin_by_symbol(
+            client, symbols=["EURUSD", "GBPUSD", "EURUSD"]
+        )
+
+        assert list(result.keys()) == ["EURUSD", "GBPUSD"]
+        assert mock_calc.call_count == 2
+
+
+class TestCalculatePositionsMarginSafe:
+    """Tests for calculate_positions_margin_safe (#50)."""
+
+    def test_returns_summed_total(self, mocker: MockerFixture) -> None:
+        """Returns the sum of all per-symbol margins."""
+        client = _mock_trade_client()
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin",
+            side_effect=[12.5, 30.0],
+        )
+
+        total = calculate_positions_margin_safe(client, symbols=["EURUSD", "GBPUSD"])
+
+        _assert_close(total, 42.5)

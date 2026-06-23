@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from math import floor, isfinite
 from numbers import Integral, Real
 from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 import pandas as pd
-from pdmt5 import Mt5Config, Mt5TradingClient, Mt5TradingError
+from pdmt5 import Mt5Config, Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
 
 from .history import drop_forming_rate_bar
 from .sdk import build_config
@@ -16,7 +17,9 @@ from .utils import coerce_login as _coerce_login
 from .utils import parse_timeframe
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
+
+_logger = logging.getLogger(__name__)
 
 PositionSide = Literal["long", "short"]
 OrderSide = Literal["BUY", "SELL"]
@@ -128,6 +131,8 @@ __all__ = [
     "calculate_margin_and_volume",
     "calculate_new_position_margin_ratio",
     "calculate_positions_margin",
+    "calculate_positions_margin_by_symbol",
+    "calculate_positions_margin_safe",
     "calculate_spread_ratio",
     "calculate_volume_by_margin",
     "close_open_positions",
@@ -423,6 +428,30 @@ def _optional_price(value: object) -> float | None:
     return price
 
 
+def _valid_tick_price(tick: Mapping[str, object], key: str) -> float | None:
+    """Return a positive finite float from tick[key], or None if invalid.
+
+    Accepts int, float, or numeric string values. Returns None when the key is
+    missing, the value is None, non-numeric, NaN, infinite, zero, or negative.
+    Booleans are treated as non-numeric and return None.
+    """
+    value = tick.get(key)
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        price = float(value)
+    elif isinstance(value, str):
+        try:
+            price = float(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    if not isfinite(price) or price <= 0:
+        return None
+    return price
+
+
 def _success_retcodes(mt5: object) -> frozenset[int]:
     values = {
         value
@@ -461,9 +490,10 @@ def _calculate_min_volume_if_affordable(
         msg = f"Invalid volume constraints for {symbol!r}."
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
-    tick = get_tick_snapshot(client, symbol)
-    price = tick["ask"] if side == "BUY" else tick["bid"]
-    if not isinstance(price, int | float) or price <= 0:
+    price = _valid_tick_price(
+        get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
+    )
+    if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
     order_type = (
@@ -621,14 +651,14 @@ def estimate_order_margin(
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
     tick = get_tick_snapshot(client, symbol)
-    price = tick["ask"] if side == "BUY" else tick["bid"]
-    if not isinstance(price, int | float) or price <= 0 or not isfinite(price):
+    price = _valid_tick_price(tick, "ask" if side == "BUY" else "bid")
+    if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
     order_type = (
         client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
     )
-    raw_margin = client.order_calc_margin(order_type, symbol, volume, float(price))
+    raw_margin = client.order_calc_margin(order_type, symbol, volume, price)
     try:
         margin = float(raw_margin)
     except (TypeError, ValueError) as exc:
@@ -682,6 +712,72 @@ def calculate_positions_margin(
     return total
 
 
+def calculate_positions_margin_by_symbol(
+    client: Mt5TradingClient,
+    *,
+    symbols: Sequence[str],
+    suppress_errors: bool = True,
+) -> dict[str, float]:
+    """Return per-symbol estimated margin for open positions.
+
+    Computes margin for each unique input symbol independently using the strict
+    :func:`calculate_positions_margin` helper. Duplicates are deduplicated in
+    first-seen order.
+
+    Args:
+        client: Connected ``Mt5TradingClient`` instance.
+        symbols: Symbols to compute margin for.
+        suppress_errors: When ``True``, log and skip symbols that raise
+            ``Mt5TradingError``, ``Mt5RuntimeError``, or ``AttributeError``.
+            When ``False``, re-raise the first failure.
+
+    Returns:
+        Mapping of symbol to margin total in first-seen unique-symbol order.
+        Returns an empty dict when ``symbols`` is empty or all symbols fail
+        with ``suppress_errors=True``.
+
+    Raises:
+        Mt5TradingError: When a symbol raises ``Mt5TradingError`` and
+            ``suppress_errors=False``.
+        Mt5RuntimeError: When a symbol raises ``Mt5RuntimeError`` and
+            ``suppress_errors=False``.
+        AttributeError: When a symbol raises ``AttributeError`` and
+            ``suppress_errors=False``.
+    """
+    result: dict[str, float] = {}
+    for symbol in dict.fromkeys(symbols):
+        try:
+            result[symbol] = calculate_positions_margin(client, symbols=[symbol])
+        except (Mt5TradingError, Mt5RuntimeError, AttributeError) as exc:
+            if not suppress_errors:
+                raise
+            _logger.warning("Skipping margin for %r: %s", symbol, exc)
+    return result
+
+
+def calculate_positions_margin_safe(
+    client: Mt5TradingClient,
+    *,
+    symbols: Sequence[str],
+) -> float:
+    """Return the total estimated margin for open positions across symbols.
+
+    Internally calls :func:`calculate_positions_margin_by_symbol` with
+    ``suppress_errors=True``. Failed symbols are silently skipped.
+
+    Args:
+        client: Connected ``Mt5TradingClient`` instance.
+        symbols: Symbols to include.
+
+    Returns:
+        Sum of per-symbol margins; ``0.0`` when no symbols or all fail.
+    """
+    return sum(
+        calculate_positions_margin_by_symbol(client, symbols=symbols).values(),
+        0.0,
+    )
+
+
 def calculate_spread_ratio(client: Mt5TradingClient, symbol: str) -> float:
     """Return ``(ask - bid) / ((ask + bid) / 2)`` for the latest tick.
 
@@ -720,9 +816,10 @@ def calculate_new_position_margin_ratio(
     margin = float(account.get("margin") or 0.0)
     if new_position_side is not None and new_position_volume > 0:
         side = _normalize_order_side(new_position_side)
-        tick = get_tick_snapshot(client, symbol)
-        price = tick["ask"] if side == "BUY" else tick["bid"]
-        if not isinstance(price, int | float) or price <= 0:
+        price = _valid_tick_price(
+            get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
+        )
+        if price is None:
             msg = f"Tick price is unavailable for {symbol!r}."
             raise Mt5TradingError(msg)
         order_type = (
@@ -827,8 +924,10 @@ def calculate_volume_by_margin(
         msg = f"Invalid volume constraints for {symbol!r}."
         raise Mt5TradingError(msg)
     side = _normalize_order_side(order_side)
-    price = get_tick_snapshot(client, symbol)["ask" if side == "BUY" else "bid"]
-    if not isinstance(price, int | float) or price <= 0:
+    price = _valid_tick_price(
+        get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
+    )
+    if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
     order_type = (
@@ -984,8 +1083,8 @@ def place_market_order(
     if not dry_run:
         ensure_symbol_selected(client, symbol)
     tick = get_tick_snapshot(client, symbol)
-    price = tick["ask"] if side == "BUY" else tick["bid"]
-    if not isinstance(price, int | float) or price <= 0:
+    price = _valid_tick_price(tick, "ask" if side == "BUY" else "bid")
+    if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
     request = {
@@ -995,7 +1094,7 @@ def place_market_order(
         "type": (
             client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
         ),
-        "price": float(price),
+        "price": price,
         "type_filling": _resolve_mt5_constant(
             client.mt5,
             "ORDER_FILLING",
