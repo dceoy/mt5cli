@@ -26,6 +26,7 @@ STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "build_config",
     "build_rate_targets",
     "build_rate_view_name",
+    "calculate_account_projected_margin_ratio",
     "calculate_margin_and_volume",
     "calculate_new_position_margin_ratio",
     "calculate_projected_margin_ratio",

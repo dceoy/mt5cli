@@ -127,6 +127,7 @@ __all__ = [
     "OrderSide",
     "OrderTimeMode",
     "PositionSide",
+    "calculate_account_projected_margin_ratio",
     "calculate_margin_and_volume",
     "calculate_new_position_margin_ratio",
     "calculate_positions_margin",
@@ -843,6 +844,50 @@ def _account_equity(client: Mt5TradingClient) -> float:
         msg = "Account equity must be positive to calculate margin ratio."
         raise Mt5TradingError(msg)
     return equity
+
+
+def _required_account_number(
+    account: Mapping[str, object],
+    field: str,
+    *,
+    positive: bool,
+) -> float:
+    raw_value = account.get(field)
+    if isinstance(raw_value, bool) or not isinstance(raw_value, Real):
+        msg = f"Account {field} must be a finite number to calculate margin ratio."
+        raise Mt5TradingError(msg)
+    value = float(raw_value)
+    if not isfinite(value) or (positive and value <= 0) or (not positive and value < 0):
+        msg = f"Account {field} must be valid to calculate margin ratio."
+        raise Mt5TradingError(msg)
+    return value
+
+
+def calculate_account_projected_margin_ratio(
+    client: Mt5TradingClient,
+    *,
+    symbol: str | None = None,
+    new_position_side: OrderSide | None = None,
+    new_position_volume: float = 0.0,
+) -> float:
+    """Return account-wide current plus optional new-position margin over equity.
+
+    Current exposure comes from the broker account snapshot ``margin`` field so
+    unrelated open positions remain in the baseline. Optional projected
+    exposure is added via :func:`estimate_order_margin` only when a symbol, side,
+    and positive volume are all supplied.
+    """
+    account = get_account_snapshot(client)
+    equity = _required_account_number(account, "equity", positive=True)
+    margin = _required_account_number(account, "margin", positive=False)
+    if symbol is not None and new_position_side is not None and new_position_volume > 0:
+        margin += estimate_order_margin(
+            client,
+            symbol,
+            new_position_side,
+            new_position_volume,
+        )
+    return margin / equity
 
 
 def calculate_projected_margin_ratio(

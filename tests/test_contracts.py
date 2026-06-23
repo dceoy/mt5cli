@@ -37,6 +37,7 @@ from mt5cli import (
     RateTarget,
     build_config,
     build_rate_targets,
+    calculate_account_projected_margin_ratio,
     calculate_margin_and_volume,
     calculate_positions_margin,
     calculate_projected_margin_ratio,
@@ -684,6 +685,7 @@ class TestStableSdkContract:
         assert price is not None
         assert abs(price - 1.2) < 1e-9
         assert callable(calculate_trailing_stop_updates)
+        assert callable(calculate_account_projected_margin_ratio)
         assert callable(calculate_projected_margin_ratio)
         assert callable(calculate_symbol_group_margin_ratio)
 
