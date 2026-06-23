@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, get_type_hints
+from pathlib import Path
+from typing import get_type_hints
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -15,7 +17,9 @@ from pytest_mock import MockerFixture  # noqa: TC002
 import mt5cli
 from mt5cli import (
     DEDUP_KEYS,
+    PUBLIC_EXPORT_TIERS,
     REQUIRED_COLUMNS,
+    SECONDARY_PUBLIC_EXPORTS,
     STABLE_SDK_EXPORTS,
     TIME_COLUMNS,
     AccountSpec,
@@ -35,6 +39,9 @@ from mt5cli import (
     build_rate_targets,
     calculate_margin_and_volume,
     calculate_positions_margin,
+    calculate_projected_margin_ratio,
+    calculate_symbol_group_margin_ratio,
+    calculate_trailing_stop_updates,
     call_with_normalized_errors,
     detect_format,
     drop_forming_rate_bar,
@@ -42,6 +49,7 @@ from mt5cli import (
     ensure_utc,
     export_dataframe,
     export_dataframe_to_sqlite,
+    extract_tick_price,
     fetch_latest_closed_rates,
     fetch_latest_closed_rates_for_trading_client,
     fetch_latest_closed_rates_indexed,
@@ -68,9 +76,6 @@ from mt5cli import (
 from mt5cli.history import create_rate_compatibility_views
 from mt5cli.retry import retry_with_backoff
 from mt5cli.schemas import ensure_utc_columns, normalize_time_columns
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _sample_frame(kind: DataKind) -> pd.DataFrame:
@@ -547,9 +552,67 @@ class TestStableSdkContract:
         missing = sorted(STABLE_SDK_EXPORTS - set(mt5cli.__all__))
         assert not missing, f"STABLE_SDK_EXPORTS missing from __all__: {missing}"
 
+    def test_public_export_tiers_are_disjoint_and_complete(self) -> None:
+        """Documented public tiers do not overlap and classify root exports."""
+        assert PUBLIC_EXPORT_TIERS == {
+            "stable": STABLE_SDK_EXPORTS,
+            "secondary": SECONDARY_PUBLIC_EXPORTS,
+        }
+        assert not (STABLE_SDK_EXPORTS & SECONDARY_PUBLIC_EXPORTS)
+        tiered_exports = STABLE_SDK_EXPORTS | SECONDARY_PUBLIC_EXPORTS
+        root_exports = set(mt5cli.__all__)
+
+        missing_from_root = sorted(tiered_exports - root_exports)
+        assert not missing_from_root, (
+            f"Tiered exports missing from __all__: {missing_from_root}"
+        )
+
+        tier_metadata_exports = {
+            "PUBLIC_EXPORT_TIERS",
+            "SECONDARY_PUBLIC_EXPORTS",
+            "STABLE_SDK_EXPORTS",
+        }
+        unclassified_root_exports = sorted(
+            root_exports - tiered_exports - tier_metadata_exports,
+        )
+        assert not unclassified_root_exports, (
+            f"Root exports missing from public API tiers: {unclassified_root_exports}"
+        )
+
+    def test_stable_docs_do_not_document_nonstable_exports(self) -> None:
+        """Stable docs do not promote secondary root exports."""
+        docs_path = Path("docs/api/public-contract.md")
+        docs = docs_path.read_text(encoding="utf-8")
+        stable_section = docs.split("## Stable downstream SDK API", maxsplit=1)[
+            1
+        ].split(
+            "## Secondary public exports",
+            maxsplit=1,
+        )[0]
+        documented_symbols = set(
+            re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", stable_section)
+        )
+        nonstable_exports = SECONDARY_PUBLIC_EXPORTS
+
+        wrongly_stable = sorted(documented_symbols & nonstable_exports)
+        assert not wrongly_stable, (
+            f"Non-stable exports documented in stable section: {wrongly_stable}"
+        )
+
     @pytest.mark.parametrize("name", sorted(STABLE_SDK_EXPORTS))
     def test_stable_exports_are_importable_from_package_root(self, name: str) -> None:
         """Stable SDK names resolve through ``from mt5cli import ...``."""
+        assert hasattr(mt5cli, name), f"{name!r} missing from mt5cli package root"
+
+    @pytest.mark.parametrize(
+        "name",
+        sorted(SECONDARY_PUBLIC_EXPORTS),
+    )
+    def test_secondary_exports_are_importable(
+        self,
+        name: str,
+    ) -> None:
+        """Non-stable public names remain available from the package root."""
         assert hasattr(mt5cli, name), f"{name!r} missing from mt5cli package root"
 
     def test_drop_forming_rate_bar_from_package_root(self) -> None:
@@ -614,6 +677,15 @@ class TestStableSdkContract:
         client.positions_get_as_df.return_value = pd.DataFrame()
 
         assert calculate_positions_margin(client) == 0
+
+    def test_generic_trading_helpers_from_package_root(self) -> None:
+        """New generic trading helpers resolve through the stable surface."""
+        price = extract_tick_price({"bid": "1.2"}, "bid")
+        assert price is not None
+        assert abs(price - 1.2) < 1e-9
+        assert callable(calculate_trailing_stop_updates)
+        assert callable(calculate_projected_margin_ratio)
+        assert callable(calculate_symbol_group_margin_ratio)
 
     def test_resolve_rate_view_name_from_package_root(self, tmp_path: Path) -> None:
         """Rate view resolution is importable and honors require_existing."""

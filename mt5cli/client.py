@@ -24,9 +24,7 @@ class MT5Client(Mt5CliClient):
     """Public client for generic MT5 data access and order primitives.
 
     Extends the read-only SDK client with optional order check/send helpers and
-    exposes the same connection lifecycle as :class:`~mt5cli.sdk.Mt5CliClient`.
-    Downstream applications such as private trading packages should prefer this
-    type over the legacy ``Mt5CliClient`` name.
+    exposes the same connection lifecycle as :func:`mt5_session`.
 
     mt5cli intentionally exposes minimal execution primitives only. Trading
     decisions, signals, strategies, backtests, and optimization remain the

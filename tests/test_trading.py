@@ -19,13 +19,15 @@ from mt5cli.trading import (
     MarginVolume,
     OrderExecutionResult,
     OrderLimits,
-    _valid_tick_price,  # type: ignore[reportPrivateUsage]
     calculate_margin_and_volume,
     calculate_new_position_margin_ratio,
     calculate_positions_margin,
     calculate_positions_margin_by_symbol,
     calculate_positions_margin_safe,
+    calculate_projected_margin_ratio,
     calculate_spread_ratio,
+    calculate_symbol_group_margin_ratio,
+    calculate_trailing_stop_updates,
     calculate_volume_by_margin,
     close_open_positions,
     create_trading_client,
@@ -33,6 +35,7 @@ from mt5cli.trading import (
     determine_order_limits,
     ensure_symbol_selected,
     estimate_order_margin,
+    extract_tick_price,
     fetch_latest_closed_rates_for_trading_client,
     fetch_latest_closed_rates_indexed,
     get_account_snapshot,
@@ -43,6 +46,7 @@ from mt5cli.trading import (
     normalize_order_volume,
     place_market_order,
     update_sltp_for_open_positions,
+    update_trailing_stop_loss_for_open_positions,
 )
 
 
@@ -1831,6 +1835,197 @@ class TestVolumeAndExecution:
                 new_position_volume=0.1,
             )
 
+    def test_projected_margin_ratio_empty_positions(self) -> None:
+        """Test no current or projected exposure returns zero ratio."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        client.positions_get_as_df.return_value = pd.DataFrame()
+
+        _assert_close(calculate_projected_margin_ratio(client, symbol="EURUSD"), 0.0)
+
+    def test_projected_margin_ratio_current_exposure(self) -> None:
+        """Test current position margin is divided by account equity."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"symbol": "EURUSD", "type": 0, "volume": 0.2}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.101, "bid": 1.1}
+        client.order_calc_margin.return_value = 50.0
+
+        _assert_close(calculate_projected_margin_ratio(client, symbol="EURUSD"), 0.05)
+
+    def test_projected_margin_ratio_adds_buy_exposure(self) -> None:
+        """Test projected buy margin is added to current symbol exposure."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        client.positions_get_as_df.return_value = pd.DataFrame()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.101, "bid": 1.1}
+        client.order_calc_margin.return_value = 25.0
+
+        result = calculate_projected_margin_ratio(
+            client,
+            symbol="EURUSD",
+            new_position_side="BUY",
+            new_position_volume=0.1,
+        )
+
+        _assert_close(result, 0.025)
+        client.order_calc_margin.assert_called_once_with(10, "EURUSD", 0.1, 1.101)
+
+    def test_projected_margin_ratio_adds_sell_exposure(self) -> None:
+        """Test projected sell margin uses bid pricing."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        client.positions_get_as_df.return_value = pd.DataFrame()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.101, "bid": 1.1}
+        client.order_calc_margin.return_value = 24.0
+
+        result = calculate_projected_margin_ratio(
+            client,
+            symbol="EURUSD",
+            new_position_side="SELL",
+            new_position_volume=0.1,
+        )
+
+        _assert_close(result, 0.024)
+        client.order_calc_margin.assert_called_once_with(11, "EURUSD", 0.1, 1.1)
+
+    def test_symbol_group_margin_ratio_sums_group_exposure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test symbol-group exposure sums current per-symbol margins."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={"EURUSD": 25.0, "GBPUSD": 35.0},
+        )
+
+        result = calculate_symbol_group_margin_ratio(
+            client,
+            symbols=["EURUSD", "GBPUSD"],
+        )
+
+        _assert_close(result, 0.06)
+
+    def test_symbol_group_margin_ratio_adds_projected_group_exposure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test projected order margin is added when the symbol is in the group."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.101, "bid": 1.1}
+        client.order_calc_margin.return_value = 15.0
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={"EURUSD": 25.0},
+        )
+
+        result = calculate_symbol_group_margin_ratio(
+            client,
+            symbols=["EURUSD"],
+            new_symbol="EURUSD",
+            new_position_side="BUY",
+            new_position_volume=0.1,
+        )
+
+        _assert_close(result, 0.04)
+
+    def test_symbol_group_margin_ratio_suppresses_per_symbol_failures(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test suppressible per-symbol failures are skipped by the safe map."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin",
+            side_effect=[Mt5TradingError("bad tick"), 30.0],
+        )
+
+        result = calculate_symbol_group_margin_ratio(
+            client,
+            symbols=["EURUSD", "GBPUSD"],
+            suppress_errors=True,
+        )
+
+        _assert_close(result, 0.03)
+
+    def test_symbol_group_margin_ratio_rejects_invalid_equity(self) -> None:
+        """Test invalid equity fails closed for exposure helpers."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 0.0}
+
+        with pytest.raises(Mt5TradingError, match="Account equity"):
+            calculate_symbol_group_margin_ratio(client, symbols=["EURUSD"])
+
+    def test_projected_margin_ratio_rejects_nonnumeric_equity(self) -> None:
+        """Test nonnumeric equity fails closed for exposure helpers."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": "invalid"}
+
+        with pytest.raises(Mt5TradingError, match="Account equity"):
+            calculate_projected_margin_ratio(client, symbol="EURUSD")
+
+    def test_symbol_group_margin_ratio_suppresses_projected_failure(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test projected margin failures can be skipped for safe group reads."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={},
+        )
+        mocker.patch(
+            "mt5cli.trading.estimate_order_margin",
+            side_effect=Mt5TradingError("bad tick"),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            result = calculate_symbol_group_margin_ratio(
+                client,
+                symbols=["EURUSD"],
+                new_symbol="EURUSD",
+                new_position_side="BUY",
+                new_position_volume=0.1,
+                suppress_errors=True,
+            )
+
+        _assert_close(result, 0.0)
+        assert "Skipping projected margin" in caplog.text
+
+    def test_symbol_group_margin_ratio_reraises_projected_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test projected margin failures raise when suppression is disabled."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={},
+        )
+        mocker.patch(
+            "mt5cli.trading.estimate_order_margin",
+            side_effect=Mt5TradingError("bad tick"),
+        )
+
+        with pytest.raises(Mt5TradingError, match="bad tick"):
+            calculate_symbol_group_margin_ratio(
+                client,
+                symbols=["EURUSD"],
+                new_symbol="EURUSD",
+                new_position_side="BUY",
+                new_position_volume=0.1,
+                suppress_errors=False,
+            )
+
     def test_place_market_order_dry_run_does_not_send(self) -> None:
         """Test dry-run market orders return a request without sending."""
         client = _mock_trade_client()
@@ -2198,6 +2393,283 @@ class TestVolumeAndExecution:
         close_open_positions(client, tickets=[9])
 
         assert client.order_send.call_args.args[0]["position"] == 9
+
+    def test_calculate_trailing_stop_updates_no_positions(self) -> None:
+        """Test empty position sets produce no trailing updates."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame()
+
+        assert (
+            calculate_trailing_stop_updates(
+                client,
+                symbol="EURUSD",
+                trailing_stop_ratio=0.02,
+            )
+            == {}
+        )
+
+    def test_calculate_trailing_stop_updates_buy_positions(self) -> None:
+        """Test buy trailing stops use bid and improve only upward."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0},
+                {
+                    "ticket": 2,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.19,
+                },
+            ],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 1.201}
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        result = calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        )
+
+        assert result == {1: 1.188}
+
+    def test_calculate_trailing_stop_updates_buy_positions_ignore_invalid_ask(
+        self,
+    ) -> None:
+        """Test buy trailing stops do not require an ask price."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 0.0}
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        result = calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        )
+
+        assert result == {1: 1.188}
+
+    def test_calculate_trailing_stop_updates_sell_positions(self) -> None:
+        """Test sell trailing stops use ask and improve only downward."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"ticket": 3, "symbol": "EURUSD", "type": 1, "volume": 0.1, "sl": 1.3},
+                {
+                    "ticket": 4,
+                    "symbol": "EURUSD",
+                    "type": 1,
+                    "volume": 0.1,
+                    "sl": 1.21,
+                },
+            ],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.198, "ask": 1.2}
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        result = calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        )
+
+        assert result == {3: 1.212}
+
+    def test_calculate_trailing_stop_updates_sell_positions_ignore_invalid_bid(
+        self,
+    ) -> None:
+        """Test sell trailing stops do not require a bid price."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 3, "symbol": "EURUSD", "type": 1, "volume": 0.1, "sl": 1.3}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 0.0, "ask": 1.2}
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        result = calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        )
+
+        assert result == {3: 1.212}
+
+    def test_calculate_trailing_stop_updates_invalid_bid_or_ask(self) -> None:
+        """Test invalid side-specific tick prices fail safely without updates."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0},
+                {"ticket": 2, "symbol": "EURUSD", "type": 1, "volume": 0.1, "sl": 1.3},
+            ],
+        )
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        client.symbol_info_tick_as_dict.return_value = {"bid": 0.0, "ask": None}
+
+        assert (
+            calculate_trailing_stop_updates(
+                client,
+                symbol="EURUSD",
+                trailing_stop_ratio=0.01,
+            )
+            == {}
+        )
+
+    def test_calculate_trailing_stop_updates_mixed_positions_skip_invalid_side(
+        self,
+    ) -> None:
+        """Test one invalid side price does not block the valid side."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0},
+                {"ticket": 2, "symbol": "EURUSD", "type": 1, "volume": 0.1, "sl": 1.3},
+            ],
+        )
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 0.0}
+        assert calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        ) == {1: 1.188}
+
+        client.symbol_info_tick_as_dict.return_value = {"bid": None, "ask": 1.2}
+        assert calculate_trailing_stop_updates(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        ) == {2: 1.212}
+
+    def test_calculate_trailing_stop_updates_invalid_symbol_digits(self) -> None:
+        """Test invalid symbol metadata fails safely without updates."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 1.201}
+        client.symbol_info_as_dict.return_value = {"digits": "bad"}
+
+        assert (
+            calculate_trailing_stop_updates(
+                client,
+                symbol="EURUSD",
+                trailing_stop_ratio=0.01,
+            )
+            == {}
+        )
+
+    def test_calculate_trailing_stop_updates_missing_symbol_digits(self) -> None:
+        """Test missing symbol digits fail safely without rounded updates."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 1.201}
+        client.symbol_info_as_dict.return_value = {}
+
+        assert (
+            calculate_trailing_stop_updates(
+                client,
+                symbol="EURUSD",
+                trailing_stop_ratio=0.01,
+            )
+            == {}
+        )
+
+        client.symbol_info_as_dict.return_value = {"digits": None}
+
+        assert (
+            calculate_trailing_stop_updates(
+                client,
+                symbol="EURUSD",
+                trailing_stop_ratio=0.01,
+            )
+            == {}
+        )
+
+    def test_calculate_trailing_stop_updates_skips_invalid_rows(self) -> None:
+        """Test invalid tickets and unknown position types are ignored."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": None,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                },
+                {
+                    "ticket": "5",
+                    "symbol": "EURUSD",
+                    "type": "unknown",
+                    "volume": 0.1,
+                    "sl": 1.0,
+                },
+            ],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 1.201}
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        assert (
+            calculate_trailing_stop_updates(
+                client,
+                symbol="EURUSD",
+                trailing_stop_ratio=0.01,
+            )
+            == {}
+        )
+
+    def test_update_trailing_stop_loss_dry_run(self) -> None:
+        """Test trailing-stop update wrapper supports dry-run requests."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 1.201}
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        result = update_trailing_stop_loss_for_open_positions(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+            dry_run=True,
+        )
+
+        assert len(result) == 1
+        assert result[0]["status"] == "dry_run"
+        _assert_close(_request_from_result(result[0])["sl"], 1.188)
+        client.order_send.assert_not_called()
+
+    def test_update_trailing_stop_loss_sends_changed_sl(self) -> None:
+        """Test trailing-stop wrapper sends normalized SL/TP updates."""
+        client = _mock_trade_client()
+        client.symbol_select.return_value = True
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 1.201}
+        client.symbol_info_as_dict.return_value = {"digits": 4, "visible": True}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10009, "comment": "updated"}],
+        )
+
+        result = update_trailing_stop_loss_for_open_positions(
+            client,
+            symbol="EURUSD",
+            trailing_stop_ratio=0.01,
+        )
+
+        assert result[0]["status"] == "executed"
+        _assert_close(_request_from_result(result[0])["sl"], 1.188)
+        client.order_send.assert_called_once()
 
     def test_update_sltp_filters_and_dry_runs(self) -> None:
         """Test SL/TP updates filter positions and do not send in dry-run mode."""
@@ -2609,32 +3081,6 @@ class TestFetchLatestClosedRatesForTradingClient:
         assert list(result["close"]) == [1.0, 1.1]
         assert list(result["time"]) == [1, 2]
 
-    def test_falls_back_to_copy_rates_from_pos_as_df(self) -> None:
-        """Test legacy trading clients without fetch helper still work."""
-        client = MagicMock(spec=["copy_rates_from_pos_as_df", "mt5"])
-        del client.fetch_latest_rates_as_df
-        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
-            {
-                "time": [1, 2, 3],
-                "close": [1.0, 1.1, 1.2],
-            },
-        )
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        client.copy_rates_from_pos_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            timeframe=1,
-            start_pos=0,
-            count=3,
-        )
-        assert list(result["close"]) == [1.0, 1.1]
-
     def test_accepts_numeric_epoch_timestamps(self) -> None:
         """Test numeric epoch timestamps are preserved in output."""
         client = MagicMock()
@@ -2810,24 +3256,6 @@ class TestFetchLatestClosedRatesForTradingClient:
             )
 
         client.fetch_latest_rates_as_df.assert_not_called()
-
-    def test_returns_range_index_and_time_column_for_backward_compat(self) -> None:
-        """Test original helper returns RangeIndex with a time column."""
-        client = MagicMock()
-        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
-            {"time": [1700000000, 1700003600, 1700007200], "close": [1.1, 1.2, 1.3]},
-        )
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert isinstance(result.index, pd.RangeIndex)
-        assert "time" in result.columns
-        assert len(result) == 2
 
 
 class TestFetchLatestClosedRatesIndexed:
@@ -3078,58 +3506,62 @@ class TestFetchLatestClosedRatesIndexed:
         assert isinstance(result.index, pd.DatetimeIndex)
 
 
-class TestValidTickPrice:
-    """Tests for the _valid_tick_price internal helper (#49)."""
+class TestExtractTickPrice:
+    """Tests for the public extract_tick_price helper."""
 
     def test_valid_positive_float(self) -> None:
         """Returns a positive float value unchanged."""
-        _assert_close(_valid_tick_price({"bid": 1.1000}, "bid"), 1.1000)
+        _assert_close(extract_tick_price({"bid": 1.1000}, "bid"), 1.1000)
 
     def test_valid_positive_int(self) -> None:
         """Accepts an integer value and returns it as float."""
-        result = _valid_tick_price({"bid": 2}, "bid")
+        result = extract_tick_price({"bid": 2}, "bid")
         _assert_close(result, 2.0)
         assert isinstance(result, float)
 
     def test_valid_numeric_string(self) -> None:
         """Accepts a numeric string and returns the parsed float."""
-        _assert_close(_valid_tick_price({"bid": "1.5"}, "bid"), 1.5)
+        _assert_close(extract_tick_price({"bid": "1.5"}, "bid"), 1.5)
 
     def test_missing_key(self) -> None:
         """Returns None when the key is absent from the tick dict."""
-        assert _valid_tick_price({}, "bid") is None
+        assert extract_tick_price({}, "bid") is None
 
     def test_none_value(self) -> None:
         """Returns None when the stored value is None."""
-        assert _valid_tick_price({"bid": None}, "bid") is None
+        assert extract_tick_price({"bid": None}, "bid") is None
+
+    def test_bool_value(self) -> None:
+        """Returns None for bool values even though bool is int-like."""
+        assert extract_tick_price({"bid": True}, "bid") is None
 
     def test_invalid_string(self) -> None:
         """Returns None for a non-numeric string."""
-        assert _valid_tick_price({"bid": "not_a_number"}, "bid") is None
+        assert extract_tick_price({"bid": "not_a_number"}, "bid") is None
 
     def test_nan(self) -> None:
         """Returns None for a NaN float."""
-        assert _valid_tick_price({"bid": float("nan")}, "bid") is None
+        assert extract_tick_price({"bid": float("nan")}, "bid") is None
 
     def test_positive_infinity(self) -> None:
         """Returns None for positive infinity."""
-        assert _valid_tick_price({"bid": float("inf")}, "bid") is None
+        assert extract_tick_price({"bid": float("inf")}, "bid") is None
 
     def test_negative_infinity(self) -> None:
         """Returns None for negative infinity."""
-        assert _valid_tick_price({"bid": float("-inf")}, "bid") is None
+        assert extract_tick_price({"bid": float("-inf")}, "bid") is None
 
     def test_zero(self) -> None:
         """Returns None for zero (not a valid price)."""
-        assert _valid_tick_price({"bid": 0.0}, "bid") is None
+        assert extract_tick_price({"bid": 0.0}, "bid") is None
 
     def test_negative_value(self) -> None:
         """Returns None for a negative price."""
-        assert _valid_tick_price({"bid": -1.0}, "bid") is None
+        assert extract_tick_price({"bid": -1.0}, "bid") is None
 
     def test_unsupported_type(self) -> None:
         """Returns None for unsupported value types such as list."""
-        assert _valid_tick_price({"bid": [1.0]}, "bid") is None
+        assert extract_tick_price({"bid": [1.0]}, "bid") is None
 
 
 class TestCalculatePositionsMarginBySymbol:

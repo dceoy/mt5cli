@@ -31,7 +31,7 @@ finally:
 `login` accepts `int`, numeric `str`, or an empty string; empty strings are
 treated as unset. `path`, `password`, `server`, and `timeout` are forwarded to
 `pdmt5.Mt5Config`, and omitted `timeout` values keep the lower-level default.
-The read-only `Mt5CliClient` / `mt5_session()` API is unchanged.
+Use `mt5_session()` / `MT5Client` for read-only data collection.
 
 ## State and order helpers
 
@@ -194,6 +194,6 @@ through the stable package root without embedding entry/exit policy.
 | Local SL/TP price derivation                             | `determine_order_limits()`                                                              |
 | Throttled SQLite history loop with ad-hoc error handling | `ThrottledHistoryUpdater(suppress_errors=True)`                                         |
 
-Keep read-only data collection on `mt5_session()` / `Mt5CliClient`; use
+Keep read-only data collection on `mt5_session()` / `MT5Client`; use
 `mt5_trading_session()` only where order placement or trading calculations are
 required.

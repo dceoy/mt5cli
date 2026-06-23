@@ -11,7 +11,11 @@ from importlib.metadata import version
 from pdmt5 import Mt5Config, Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
 
 from .client import MT5Client, build_config, mt5_session
-from .contract import STABLE_SDK_EXPORTS
+from .contract import (
+    PUBLIC_EXPORT_TIERS,
+    SECONDARY_PUBLIC_EXPORTS,
+    STABLE_SDK_EXPORTS,
+)
 from .converters import (
     ensure_utc,
     granularity_name,
@@ -59,7 +63,6 @@ from .schemas import (
 )
 from .sdk import (
     AccountSpec,
-    Mt5CliClient,
     ThrottledHistoryUpdater,
     account_info,
     collect_history,
@@ -121,7 +124,10 @@ from .trading import (
     calculate_positions_margin,
     calculate_positions_margin_by_symbol,
     calculate_positions_margin_safe,
+    calculate_projected_margin_ratio,
     calculate_spread_ratio,
+    calculate_symbol_group_margin_ratio,
+    calculate_trailing_stop_updates,
     calculate_volume_by_margin,
     close_open_positions,
     create_trading_client,
@@ -129,6 +135,7 @@ from .trading import (
     determine_order_limits,
     ensure_symbol_selected,
     estimate_order_margin,
+    extract_tick_price,
     fetch_latest_closed_rates_for_trading_client,
     fetch_latest_closed_rates_indexed,
     get_account_snapshot,
@@ -139,6 +146,7 @@ from .trading import (
     normalize_order_volume,
     place_market_order,
     update_sltp_for_open_positions,
+    update_trailing_stop_loss_for_open_positions,
 )
 from .utils import (
     TICK_FLAG_MAP,
@@ -154,7 +162,9 @@ __all__ = [
     "DEDUP_KEYS",
     "KNOWN_MT5_TIME_COLUMNS",
     "POSITION_COLUMNS",
+    "PUBLIC_EXPORT_TIERS",
     "REQUIRED_COLUMNS",
+    "SECONDARY_PUBLIC_EXPORTS",
     "STABLE_SDK_EXPORTS",
     "TICK_FLAG_MAP",
     "TIMEFRAME_MAP",
@@ -166,7 +176,6 @@ __all__ = [
     "IfExists",
     "MT5Client",
     "MarginVolume",
-    "Mt5CliClient",
     "Mt5CliError",
     "Mt5Config",
     "Mt5ConnectionError",
@@ -192,7 +201,10 @@ __all__ = [
     "calculate_positions_margin",
     "calculate_positions_margin_by_symbol",
     "calculate_positions_margin_safe",
+    "calculate_projected_margin_ratio",
     "calculate_spread_ratio",
+    "calculate_symbol_group_margin_ratio",
+    "calculate_trailing_stop_updates",
     "calculate_volume_by_margin",
     "call_with_normalized_errors",
     "close_open_positions",
@@ -217,6 +229,7 @@ __all__ = [
     "estimate_order_margin",
     "export_dataframe",
     "export_dataframe_to_sqlite",
+    "extract_tick_price",
     "fetch_latest_closed_rates",
     "fetch_latest_closed_rates_for_trading_client",
     "fetch_latest_closed_rates_indexed",
@@ -275,5 +288,6 @@ __all__ = [
     "update_history",
     "update_history_with_config",
     "update_sltp_for_open_positions",
+    "update_trailing_stop_loss_for_open_positions",
     "validate_schema",
 ]
