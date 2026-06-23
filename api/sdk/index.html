@@ -8499,7 +8499,7 @@ failure is re-raised once <code>retry_count</code> is exhausted.</p>
 </code></pre></div>
 <h3 id="latest-closed-rate-bars">Latest closed rate bars<a class="headerlink" href="#latest-closed-rate-bars" title="Permanent link">&para;</a></h3>
 <p>MetaTrader 5 <code>start_pos=0</code> includes the still-forming current bar as the last
-row. <code>fetch_latest_closed_rates()</code> handles one connected <code>Mt5CliClient</code>; use
+row. <code>fetch_latest_closed_rates()</code> handles one connected <code>MT5Client</code>; use
 <code>fetch_latest_closed_rates_for_trading_client()</code> from an active
 <code>Mt5TradingClient</code> session. Multi-account helpers fetch <code>count + 1</code> bars, drop
 that row with <code>drop_forming_rate_bar()</code>, and validate each series is non-empty. Returned frames are ordered
@@ -8618,8 +8618,8 @@ runs before any MT5 or SQLite calls, but when <code>suppress_errors=True</code> 
 resulting <code>ValueError</code> is suppressed along with other recoverable errors.</p>
 <h2 id="trading-capable-sessions">Trading-capable sessions<a class="headerlink" href="#trading-capable-sessions" title="Permanent link">&para;</a></h2>
 <p>For order placement and trading calculations, use the dedicated
-<a href="../trading/">Trading module</a>. The read-only <code>Mt5CliClient</code> and <code>mt5_session()</code>
-helpers in this module are unchanged.</p></div>
+<a href="../trading/">Trading module</a>. Use <code>mt5_session()</code> / <code>MT5Client</code> for read-only
+collection.</p></div>
             </div>
         </div>
 
