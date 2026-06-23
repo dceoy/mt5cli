@@ -31,7 +31,7 @@ rates = collect_latest_rates_for_accounts_with_retries(
 ### Latest closed rate bars
 
 MetaTrader 5 `start_pos=0` includes the still-forming current bar as the last
-row. `fetch_latest_closed_rates()` handles one connected `Mt5CliClient`; use
+row. `fetch_latest_closed_rates()` handles one connected `MT5Client`; use
 `fetch_latest_closed_rates_for_trading_client()` from an active
 `Mt5TradingClient` session. Multi-account helpers fetch `count + 1` bars, drop
 that row with `drop_forming_rate_bar()`, and validate each series is non-empty. Returned frames are ordered
@@ -170,5 +170,5 @@ resulting `ValueError` is suppressed along with other recoverable errors.
 ## Trading-capable sessions
 
 For order placement and trading calculations, use the dedicated
-[Trading module](trading.md). The read-only `Mt5CliClient` and `mt5_session()`
-helpers in this module are unchanged.
+[Trading module](trading.md). Use `mt5_session()` / `MT5Client` for read-only
+collection.

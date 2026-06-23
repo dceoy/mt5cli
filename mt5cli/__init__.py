@@ -12,7 +12,6 @@ from pdmt5 import Mt5Config, Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
 
 from .client import MT5Client, build_config, mt5_session
 from .contract import (
-    LEGACY_EXPORTS,
     PUBLIC_EXPORT_TIERS,
     SECONDARY_PUBLIC_EXPORTS,
     STABLE_SDK_EXPORTS,
@@ -64,7 +63,6 @@ from .schemas import (
 )
 from .sdk import (
     AccountSpec,
-    Mt5CliClient,
     ThrottledHistoryUpdater,
     account_info,
     collect_history,
@@ -163,7 +161,6 @@ __version__ = version(__package__) if __package__ else None
 __all__ = [
     "DEDUP_KEYS",
     "KNOWN_MT5_TIME_COLUMNS",
-    "LEGACY_EXPORTS",
     "POSITION_COLUMNS",
     "PUBLIC_EXPORT_TIERS",
     "REQUIRED_COLUMNS",
@@ -179,7 +176,6 @@ __all__ = [
     "IfExists",
     "MT5Client",
     "MarginVolume",
-    "Mt5CliClient",
     "Mt5CliError",
     "Mt5Config",
     "Mt5ConnectionError",

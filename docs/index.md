@@ -29,7 +29,7 @@ pip install mt5cli
 
 ## Python API for downstream packages
 
-Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives. `Mt5CliClient` remains available as a backward-compatible alias.
+Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives.
 
 ```python
 from datetime import UTC, datetime

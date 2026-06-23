@@ -136,18 +136,12 @@ SECONDARY_PUBLIC_EXPORTS: frozenset[str] = frozenset({
     "validate_schema",
 })
 
-LEGACY_EXPORTS: frozenset[str] = frozenset({
-    "Mt5CliClient",
-})
-
 PUBLIC_EXPORT_TIERS: dict[str, frozenset[str]] = {
     "stable": STABLE_SDK_EXPORTS,
     "secondary": SECONDARY_PUBLIC_EXPORTS,
-    "legacy": LEGACY_EXPORTS,
 }
 
 __all__ = [
-    "LEGACY_EXPORTS",
     "PUBLIC_EXPORT_TIERS",
     "SECONDARY_PUBLIC_EXPORTS",
     "STABLE_SDK_EXPORTS",

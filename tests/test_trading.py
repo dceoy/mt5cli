@@ -3081,32 +3081,6 @@ class TestFetchLatestClosedRatesForTradingClient:
         assert list(result["close"]) == [1.0, 1.1]
         assert list(result["time"]) == [1, 2]
 
-    def test_falls_back_to_copy_rates_from_pos_as_df(self) -> None:
-        """Test legacy trading clients without fetch helper still work."""
-        client = MagicMock(spec=["copy_rates_from_pos_as_df", "mt5"])
-        del client.fetch_latest_rates_as_df
-        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
-            {
-                "time": [1, 2, 3],
-                "close": [1.0, 1.1, 1.2],
-            },
-        )
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        client.copy_rates_from_pos_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            timeframe=1,
-            start_pos=0,
-            count=3,
-        )
-        assert list(result["close"]) == [1.0, 1.1]
-
     def test_accepts_numeric_epoch_timestamps(self) -> None:
         """Test numeric epoch timestamps are preserved in output."""
         client = MagicMock()
@@ -3282,24 +3256,6 @@ class TestFetchLatestClosedRatesForTradingClient:
             )
 
         client.fetch_latest_rates_as_df.assert_not_called()
-
-    def test_returns_range_index_and_time_column_for_backward_compat(self) -> None:
-        """Test original helper returns RangeIndex with a time column."""
-        client = MagicMock()
-        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
-            {"time": [1700000000, 1700003600, 1700007200], "close": [1.1, 1.2, 1.3]},
-        )
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert isinstance(result.index, pd.RangeIndex)
-        assert "time" in result.columns
-        assert len(result) == 2
 
 
 class TestFetchLatestClosedRatesIndexed:

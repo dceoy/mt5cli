@@ -14,14 +14,12 @@ APIs.
 
 ## Public API tiers
 
-mt5cli keeps existing root imports working, but classifies them by intended
-downstream use:
+mt5cli classifies package-root imports by intended downstream use:
 
-| Tier                | Contract set               | Meaning                                                                                                                                     |
-| ------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stable core         | `STABLE_SDK_EXPORTS`       | Preferred SDK surface for downstream MT5 infrastructure adapters. Changes require a deliberate compatibility path.                          |
-| Secondary public    | `SECONDARY_PUBLIC_EXPORTS` | Public helpers for CLI/export/schema integrations and lower-level MT5 wrappers. Importable, but less central to the downstream trading SDK. |
-| Legacy / deprecated | `LEGACY_EXPORTS`           | Compatibility aliases retained for existing users. Prefer stable replacements in new code.                                                  |
+| Tier             | Contract set               | Meaning                                                                                                                                     |
+| ---------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stable core      | `STABLE_SDK_EXPORTS`       | Preferred SDK surface for downstream MT5 infrastructure adapters. Changes require a deliberate compatibility path.                          |
+| Secondary public | `SECONDARY_PUBLIC_EXPORTS` | Public helpers for CLI/export/schema integrations and lower-level MT5 wrappers. Importable, but less central to the downstream trading SDK. |
 
 ## Stable downstream SDK API
 
@@ -170,12 +168,6 @@ the MT5 SDK helper.
 | MT5 parsing maps     | `granularity_name`, `parse_tick_flags`, `parse_timeframe`, `TICK_FLAG_MAP`, `TIMEFRAME_MAP`                   |
 | Trading data shapes  | `POSITION_COLUMNS`                                                                                            |
 
-## Legacy exports
-
-`Mt5CliClient` remains importable for backward compatibility and is listed in
-`LEGACY_EXPORTS`. It is a compatibility alias for existing users; new code
-should use `MT5Client`.
-
 ## CLI commands
 
 The Typer application in `mt5cli.cli` exposes file-export commands documented in
@@ -223,7 +215,7 @@ their own adapter layer.
 
 ## Contract verification
 
-`tests/test_contracts.py` asserts that every name in the stable, secondary, and
-legacy tier sets is importable from `mt5cli`, documents key closed-bar,
-rate-view, SQLite loading, account-resolution, and trading-session behaviors,
-and keeps the tier sets aligned with `__all__`.
+`tests/test_contracts.py` asserts that every name in the stable and secondary
+tier sets is importable from `mt5cli`, documents key closed-bar, rate-view,
+SQLite loading, account-resolution, and trading-session behaviors, and keeps the
+tier sets aligned with `__all__`.

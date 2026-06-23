@@ -17,7 +17,6 @@ from pytest_mock import MockerFixture  # noqa: TC002
 import mt5cli
 from mt5cli import (
     DEDUP_KEYS,
-    LEGACY_EXPORTS,
     PUBLIC_EXPORT_TIERS,
     REQUIRED_COLUMNS,
     SECONDARY_PUBLIC_EXPORTS,
@@ -558,12 +557,9 @@ class TestStableSdkContract:
         assert PUBLIC_EXPORT_TIERS == {
             "stable": STABLE_SDK_EXPORTS,
             "secondary": SECONDARY_PUBLIC_EXPORTS,
-            "legacy": LEGACY_EXPORTS,
         }
         assert not (STABLE_SDK_EXPORTS & SECONDARY_PUBLIC_EXPORTS)
-        assert not (STABLE_SDK_EXPORTS & LEGACY_EXPORTS)
-        assert not (SECONDARY_PUBLIC_EXPORTS & LEGACY_EXPORTS)
-        tiered_exports = STABLE_SDK_EXPORTS | SECONDARY_PUBLIC_EXPORTS | LEGACY_EXPORTS
+        tiered_exports = STABLE_SDK_EXPORTS | SECONDARY_PUBLIC_EXPORTS
         root_exports = set(mt5cli.__all__)
 
         missing_from_root = sorted(tiered_exports - root_exports)
@@ -572,7 +568,6 @@ class TestStableSdkContract:
         )
 
         tier_metadata_exports = {
-            "LEGACY_EXPORTS",
             "PUBLIC_EXPORT_TIERS",
             "SECONDARY_PUBLIC_EXPORTS",
             "STABLE_SDK_EXPORTS",
@@ -585,7 +580,7 @@ class TestStableSdkContract:
         )
 
     def test_stable_docs_do_not_document_nonstable_exports(self) -> None:
-        """Stable docs do not promote secondary or legacy root exports."""
+        """Stable docs do not promote secondary root exports."""
         docs_path = Path("docs/api/public-contract.md")
         docs = docs_path.read_text(encoding="utf-8")
         stable_section = docs.split("## Stable downstream SDK API", maxsplit=1)[
@@ -597,7 +592,7 @@ class TestStableSdkContract:
         documented_symbols = set(
             re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", stable_section)
         )
-        nonstable_exports = SECONDARY_PUBLIC_EXPORTS | LEGACY_EXPORTS
+        nonstable_exports = SECONDARY_PUBLIC_EXPORTS
 
         wrongly_stable = sorted(documented_symbols & nonstable_exports)
         assert not wrongly_stable, (
@@ -611,9 +606,9 @@ class TestStableSdkContract:
 
     @pytest.mark.parametrize(
         "name",
-        sorted(SECONDARY_PUBLIC_EXPORTS | LEGACY_EXPORTS),
+        sorted(SECONDARY_PUBLIC_EXPORTS),
     )
-    def test_secondary_and_legacy_exports_are_importable(
+    def test_secondary_exports_are_importable(
         self,
         name: str,
     ) -> None:

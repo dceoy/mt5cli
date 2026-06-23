@@ -31,7 +31,7 @@ pip install -U mt5cli MetaTrader5
 
 ## Python API (downstream packages)
 
-Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives. `Mt5CliClient` remains available as a backward-compatible alias.
+Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives.
 
 ```python
 from datetime import UTC, datetime
@@ -250,7 +250,7 @@ eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 
 - **Credential resolution**: use `resolve_account_spec()` / `resolve_account_specs()` to merge explicit override values over `AccountSpec` fields and expand `${ENV_VAR}` placeholders (via `substitute_env_placeholders()`), raising `ValueError` for missing variables. This keeps secrets out of plan/config files without coupling to any strategy code.
 - **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, `OSError`, and MT5 client capability errors for history API methods without advancing the throttle (other `AttributeError` / `TypeError` values always propagate). Pass `update_backend` to inject a custom history update callable (same keyword arguments as `update_history`) instead of monkey-patching `mt5cli.sdk.update_history`.
-- **Trading session helpers**: use `mt5_trading_session()` for a trading-capable `pdmt5.Mt5TradingClient` that initializes/logs in via `Mt5Config.path` and always shuts down safely. Pair with `detect_position_side()`, `calculate_margin_and_volume()`, and `determine_order_limits()` for generic position and sizing utilities. The read-only `mt5_session()` / `Mt5CliClient` SDK is unchanged.
+- **Trading session helpers**: use `mt5_trading_session()` for a trading-capable `pdmt5.Mt5TradingClient` that initializes/logs in via `Mt5Config.path` and always shuts down safely. Pair with `detect_position_side()`, `calculate_margin_and_volume()`, and `determine_order_limits()` for generic position and sizing utilities. Keep read-only collection on `mt5_session()` / `MT5Client`.
 - **Granularity-keyed rate loading**: `load_rate_series_by_granularity()` builds targets with `build_rate_targets()`, loads them with `load_rate_series_from_sqlite()`, and returns a mapping keyed by `(symbol | None, granularity_name)` such as `("EURUSD", "M1")` to reduce downstream boilerplate.
 - **MT5 session helper**: use the `mt5_session()` context manager to attach to (or, when `Mt5Config.path` is set, launch) an MT5 terminal, log in, and yield a connected `MT5Client` that shuts down on exit.
 - **SQLite export helpers**: use `export_dataframe_to_sqlite()` for append mode, optional index export, and post-write deduplication by key columns.
@@ -317,7 +317,7 @@ finally:
     client.shutdown()
 ```
 
-Read-only collectors can keep using `mt5_session()` and `MT5Client` (or the `Mt5CliClient` alias) without changes.
+Read-only collectors can keep using `mt5_session()` and `MT5Client`.
 
 ## Development
 
