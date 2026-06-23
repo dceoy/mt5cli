@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, get_type_hints
+from pathlib import Path
+from typing import get_type_hints
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -75,9 +77,6 @@ from mt5cli import (
 from mt5cli.history import create_rate_compatibility_views
 from mt5cli.retry import retry_with_backoff
 from mt5cli.schemas import ensure_utc_columns, normalize_time_columns
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _sample_frame(kind: DataKind) -> pd.DataFrame:
@@ -583,6 +582,26 @@ class TestStableSdkContract:
         )
         assert not unclassified_root_exports, (
             f"Root exports missing from public API tiers: {unclassified_root_exports}"
+        )
+
+    def test_stable_docs_do_not_document_nonstable_exports(self) -> None:
+        """Stable docs do not promote secondary or legacy root exports."""
+        docs_path = Path("docs/api/public-contract.md")
+        docs = docs_path.read_text(encoding="utf-8")
+        stable_section = docs.split("## Stable downstream SDK API", maxsplit=1)[
+            1
+        ].split(
+            "## Secondary public exports",
+            maxsplit=1,
+        )[0]
+        documented_symbols = set(
+            re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", stable_section)
+        )
+        nonstable_exports = SECONDARY_PUBLIC_EXPORTS | LEGACY_EXPORTS
+
+        wrongly_stable = sorted(documented_symbols & nonstable_exports)
+        assert not wrongly_stable, (
+            f"Non-stable exports documented in stable section: {wrongly_stable}"
         )
 
     @pytest.mark.parametrize("name", sorted(STABLE_SDK_EXPORTS))

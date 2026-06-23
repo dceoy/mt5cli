@@ -26,14 +26,13 @@ downstream use:
 ## Stable downstream SDK API
 
 These names are exported from `mt5cli` and covered by the contract in
-`mt5cli.STABLE_SDK_EXPORTS` (defined in `mt5cli.contract`). Prefer `MT5Client`
-over the legacy `Mt5CliClient` alias for new code.
+`mt5cli.STABLE_SDK_EXPORTS` (defined in `mt5cli.contract`).
 
 ### Session lifecycle and configuration
 
 | Symbol                                          | Role                                                                                                       |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `MT5Client`, `Mt5CliClient`                     | Read-only data client with optional `order_check` / `order_send`                                           |
+| `MT5Client`                                     | Read-only data client with optional `order_check` / `order_send`                                           |
 | `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields                                                             |
 | `mt5_session`                                   | Context manager: initialize, login, yield client, shutdown                                                 |
 | `create_trading_client`, `mt5_trading_session`  | Trading-capable `pdmt5.Mt5TradingClient` lifecycle                                                         |
@@ -52,23 +51,6 @@ Partial strings such as `"plan$pass"`, `"abc$ENV"`, or `"$ENV-suffix"` are
 **never** expanded — only an exact `$IDENTIFIER` whole-string match qualifies.
 Default is `False` to preserve backward compatibility.
 
-### Read-only MT5 data access
-
-Module-level helpers open a transient connection per call. Prefer `mt5_session`
-or `MT5Client` when making many requests in one process.
-
-| Area                 | Symbols                                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------------------------- |
-| Rates                | `copy_rates_from`, `copy_rates_from_pos`, `copy_rates_range`, `latest_rates`, `collect_latest_rates` |
-| Ticks                | `copy_ticks_from`, `copy_ticks_range`, `recent_ticks`                                                |
-| Account / terminal   | `account_info`, `terminal_info`, `mt5_version`, `last_error`, `mt5_summary`, `mt5_summary_as_df`     |
-| Symbols / market     | `symbols`, `symbol_info`, `symbol_info_tick`, `market_book`, `minimum_margins`                       |
-| Trading state (read) | `orders`, `positions`, `history_orders`, `history_deals`, `recent_history_deals`                     |
-
-Use `mt5_version` for MetaTrader 5 terminal version data. The name `version` at
-the package root refers to `importlib.metadata.version` (package metadata), not
-the MT5 SDK helper.
-
 ### Closed-bar rate helpers
 
 MetaTrader 5 returns the still-forming bar as the last row when
@@ -83,7 +65,6 @@ timestamp normalization in downstream apps.
 | `fetch_latest_closed_rates_indexed`              | Same as above but returns a UTC `DatetimeIndex` named `"time"` (no time column) |
 | `collect_latest_closed_rates_for_accounts`       | Multi-account closed bars with optional retry wrapper                           |
 | `collect_latest_closed_rates_by_granularity`     | Same data keyed by `(symbol, granularity_name)`                                 |
-| `collect_latest_rates_for_accounts`              | Latest bars including the forming bar when `start_pos=0`                        |
 | `collect_latest_rates_for_accounts_with_retries` | Bounded exponential backoff for transient MT5 errors                            |
 
 ### SQLite history collection and rate loading
@@ -151,20 +132,49 @@ and returned as `status="failed"` with normalized `request` / `response` details
 | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error` | Error normalization and retry classification    |
 | `Mt5Config`, `Mt5RuntimeError`, `Mt5TradingClient`, `Mt5TradingError`                | Re-exported pdmt5 types for adapter convenience |
 
-### Secondary public exports
+## Secondary public exports
 
-The package root also exports schema, storage, and parsing helpers (for example
-`DataKind`, `Dataset`, `normalize_dataframe`, `export_dataframe`,
-`parse_timeframe`, `TIMEFRAME_MAP`) plus low-level data wrappers such as
-`copy_rates_range`, `copy_ticks_range`, `account_info`, and `positions`. These
-are public and covered by `SECONDARY_PUBLIC_EXPORTS`, but oriented toward export
-pipelines and advanced integration. Prefer the stable symbols above for core
-infrastructure.
+These names remain importable from `mt5cli` and are covered by
+`SECONDARY_PUBLIC_EXPORTS`, but they are oriented toward CLI/export/schema
+integrations, parsing, and lower-level MT5 access rather than the stable core
+SDK surface. Prefer the stable symbols above for downstream infrastructure
+adapters.
 
-### Legacy exports
+### Read-only MT5 data wrappers
+
+Module-level helpers open a transient connection per call. Prefer `mt5_session`
+or `MT5Client` when making many requests in one process.
+
+| Area                 | Symbols                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------- |
+| Rates                | `copy_rates_from`, `copy_rates_from_pos`, `copy_rates_range`, `latest_rates`, `collect_latest_rates` |
+| Ticks                | `copy_ticks_from`, `copy_ticks_range`, `recent_ticks`                                                |
+| Account / terminal   | `account_info`, `terminal_info`, `mt5_version`, `last_error`, `mt5_summary`, `mt5_summary_as_df`     |
+| Symbols / market     | `symbols`, `symbol_info`, `symbol_info_tick`, `market_book`, `minimum_margins`                       |
+| Trading state (read) | `orders`, `positions`, `history_orders`, `history_deals`, `recent_history_deals`                     |
+| Multi-account rates  | `collect_latest_rates_for_accounts`                                                                  |
+
+Use `mt5_version` for MetaTrader 5 terminal version data. The name `version` at
+the package root refers to `importlib.metadata.version` (package metadata), not
+the MT5 SDK helper.
+
+### Schema, export, and parser helpers
+
+| Area                 | Symbols                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Dataset contracts    | `DataKind`, `Dataset`, `IfExists`, `DEDUP_KEYS`, `REQUIRED_COLUMNS`, `TIME_COLUMNS`, `KNOWN_MT5_TIME_COLUMNS` |
+| Schema normalization | `normalize_dataframe`, `normalize_time_columns`, `schema_columns`, `validate_schema`                          |
+| Export helpers       | `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                             |
+| Symbol parsing       | `normalize_symbol`, `normalize_symbols`                                                                       |
+| Time parsing         | `ensure_utc`, `parse_date_range`, `parse_datetime`, `recent_window`                                           |
+| MT5 parsing maps     | `granularity_name`, `parse_tick_flags`, `parse_timeframe`, `TICK_FLAG_MAP`, `TIMEFRAME_MAP`                   |
+| Trading data shapes  | `POSITION_COLUMNS`                                                                                            |
+
+## Legacy exports
 
 `Mt5CliClient` remains importable for backward compatibility and is listed in
-`LEGACY_EXPORTS`. New code should use `MT5Client`.
+`LEGACY_EXPORTS`. It is a compatibility alias for existing users; new code
+should use `MT5Client`.
 
 ## CLI commands
 
