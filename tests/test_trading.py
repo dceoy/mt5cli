@@ -427,6 +427,55 @@ class TestDetermineOrderLimits:
         with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
             determine_order_limits(client, "EURUSD", "long")
 
+    def test_accepts_numeric_string_entry(self) -> None:
+        """Test numeric string ask/bid values are accepted as entry prices."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {
+            "ask": "1.1010",
+            "bid": "1.1000",
+        }
+        client.symbol_info_as_dict.return_value = {"digits": 4}
+
+        result = determine_order_limits(client, "EURUSD", "long")
+
+        _assert_close(result["entry"], 1.1010)
+
+    @pytest.mark.parametrize(
+        ("side", "field", "bad_value"),
+        [
+            ("long", "ask", float("nan")),
+            ("long", "ask", float("inf")),
+            ("long", "ask", float("-inf")),
+            ("long", "ask", 0.0),
+            ("long", "ask", -1.0),
+            ("long", "ask", True),
+            ("long", "ask", False),
+            ("long", "ask", "invalid"),
+            ("short", "bid", float("nan")),
+            ("short", "bid", float("inf")),
+            ("short", "bid", float("-inf")),
+            ("short", "bid", 0.0),
+            ("short", "bid", -1.0),
+            ("short", "bid", True),
+            ("short", "bid", False),
+            ("short", "bid", "invalid"),
+        ],
+    )
+    def test_rejects_invalid_entry_tick_values(
+        self,
+        side: str,
+        field: str,
+        bad_value: object,
+    ) -> None:
+        """Test invalid entry tick values raise Mt5TradingError."""
+        tick: dict[str, object] = {"ask": 1.1, "bid": 1.0}
+        tick[field] = bad_value
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = tick
+
+        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+            determine_order_limits(client, "EURUSD", side)
+
     def test_rejects_stop_loss_inside_broker_stop_level(self) -> None:
         """Test stop-loss prices closer than trade_stops_level raise Mt5TradingError."""
         client = MagicMock()
@@ -791,6 +840,50 @@ class TestSnapshotsAndState:
         client.symbol_info_tick_as_dict.return_value = {"bid": 0.0, "ask": 1.0}
 
         with pytest.raises(Mt5TradingError):
+            calculate_spread_ratio(client, "EURUSD")
+
+    def test_calculate_spread_ratio_accepts_numeric_string_tick(self) -> None:
+        """Test numeric string bid/ask values are accepted."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"bid": "99.0", "ask": "101.0"}
+
+        _assert_close(calculate_spread_ratio(client, "EURUSD"), 0.02)
+
+    @pytest.mark.parametrize(
+        ("field", "bad_value"),
+        [
+            ("bid", None),
+            ("bid", float("nan")),
+            ("bid", float("inf")),
+            ("bid", float("-inf")),
+            ("bid", 0.0),
+            ("bid", -1.0),
+            ("bid", True),
+            ("bid", False),
+            ("bid", "invalid"),
+            ("ask", None),
+            ("ask", float("nan")),
+            ("ask", float("inf")),
+            ("ask", float("-inf")),
+            ("ask", 0.0),
+            ("ask", -1.0),
+            ("ask", True),
+            ("ask", False),
+            ("ask", "invalid"),
+        ],
+    )
+    def test_calculate_spread_ratio_rejects_invalid_tick_values(
+        self,
+        field: str,
+        bad_value: object,
+    ) -> None:
+        """Test invalid bid/ask values raise Mt5TradingError."""
+        tick: dict[str, object] = {"bid": 100.0, "ask": 100.0}
+        tick[field] = bad_value
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = tick
+
+        with pytest.raises(Mt5TradingError, match="Tick bid/ask is unavailable"):
             calculate_spread_ratio(client, "EURUSD")
 
 

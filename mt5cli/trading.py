@@ -782,18 +782,15 @@ def calculate_spread_ratio(client: Mt5TradingClient, symbol: str) -> float:
     """Return ``(ask - bid) / ((ask + bid) / 2)`` for the latest tick.
 
     Raises:
-        Mt5TradingError: If bid or ask is unavailable or non-positive.
+        Mt5TradingError: If bid or ask is unavailable.
     """
     tick = get_tick_snapshot(client, symbol)
-    bid = tick.get("bid")
-    ask = tick.get("ask")
-    if not isinstance(bid, int | float) or not isinstance(ask, int | float):
+    bid = _valid_tick_price(tick, "bid")
+    ask = _valid_tick_price(tick, "ask")
+    if bid is None or ask is None:
         msg = f"Tick bid/ask is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
-    if bid <= 0 or ask <= 0:
-        msg = f"Tick bid/ask must be positive for {symbol!r}."
-        raise Mt5TradingError(msg)
-    return (float(ask) - float(bid)) / ((float(ask) + float(bid)) / 2.0)
+    return (ask - bid) / ((ask + bid) / 2.0)
 
 
 def calculate_new_position_margin_ratio(
@@ -1003,11 +1000,11 @@ def determine_order_limits(
     _require_protective_ratio(take_profit_ratio, "take_profit_limit_ratio")
     normalized_side = _position_side_from_order_side(side)
     tick = get_tick_snapshot(client, symbol)
-    entry_value = tick["ask"] if normalized_side == "long" else tick["bid"]
-    if not isinstance(entry_value, int | float):
+    entry_key = "ask" if normalized_side == "long" else "bid"
+    entry = _valid_tick_price(tick, entry_key)
+    if entry is None:
         msg = f"Tick price is unavailable for {symbol!r}."
         raise Mt5TradingError(msg)
-    entry = float(entry_value)
     try:
         symbol_info = get_symbol_snapshot(client, symbol)
     except (AttributeError, KeyError, TypeError, ValueError):
