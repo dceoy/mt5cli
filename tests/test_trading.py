@@ -19,6 +19,7 @@ from mt5cli.trading import (
     MarginVolume,
     OrderExecutionResult,
     OrderLimits,
+    calculate_account_projected_margin_ratio,
     calculate_margin_and_volume,
     calculate_new_position_margin_ratio,
     calculate_positions_margin,
@@ -1890,6 +1891,142 @@ class TestVolumeAndExecution:
 
         _assert_close(result, 0.024)
         client.order_calc_margin.assert_called_once_with(11, "EURUSD", 0.1, 1.1)
+
+    @pytest.mark.parametrize(
+        ("account", "kwargs", "candidate_margin", "expected_ratio"),
+        [
+            ({"equity": 10_000.0, "margin": 4500.0}, {}, None, 0.45),
+            (
+                {"equity": 10_000.0, "margin": 4500.0},
+                {
+                    "symbol": "EURUSD",
+                    "new_position_side": "BUY",
+                    "new_position_volume": 0.1,
+                },
+                1000.0,
+                0.55,
+            ),
+            ({"equity": 10_000.0, "margin": 55.0}, {}, None, 0.0055),
+        ],
+    )
+    def test_account_projected_margin_ratio_uses_account_margin_baseline(
+        self,
+        account: dict[str, object],
+        kwargs: dict[str, object],
+        candidate_margin: float | None,
+        expected_ratio: float,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test account-wide exposure uses snapshot margin plus optional candidate."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = account
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"symbol": "GBPUSD", "type": 0, "volume": 2.0}],
+        )
+        mock_margin = mocker.patch(
+            "mt5cli.trading.estimate_order_margin",
+            return_value=candidate_margin,
+        )
+
+        result = calculate_account_projected_margin_ratio(client, **cast("Any", kwargs))
+
+        _assert_close(result, expected_ratio)
+        if candidate_margin is None:
+            mock_margin.assert_not_called()
+        else:
+            mock_margin.assert_called_once_with(client, "EURUSD", "BUY", 0.1)
+        client.positions_get_as_df.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("kwargs", "expected_ratio"),
+        [
+            ({"new_position_side": "BUY", "new_position_volume": 0.1}, 0.45),
+            ({"symbol": "EURUSD", "new_position_volume": 0.1}, 0.45),
+            ({"symbol": "EURUSD", "new_position_side": "BUY"}, 0.45),
+            (
+                {
+                    "symbol": "EURUSD",
+                    "new_position_side": "BUY",
+                    "new_position_volume": -0.1,
+                },
+                0.45,
+            ),
+        ],
+    )
+    def test_account_projected_margin_ratio_skips_incomplete_candidate(
+        self,
+        kwargs: dict[str, object],
+        expected_ratio: float,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test candidate margin is added only when symbol, side, and volume exist."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {
+            "equity": 10_000.0,
+            "margin": 4500.0,
+        }
+        mock_margin = mocker.patch("mt5cli.trading.estimate_order_margin")
+
+        result = calculate_account_projected_margin_ratio(client, **cast("Any", kwargs))
+
+        _assert_close(result, expected_ratio)
+        mock_margin.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("account", "match"),
+        [
+            ({"margin": 4500.0}, "Account equity"),
+            ({"equity": None, "margin": 4500.0}, "Account equity"),
+            ({"equity": "10000", "margin": 4500.0}, "Account equity"),
+            ({"equity": True, "margin": 4500.0}, "Account equity"),
+            ({"equity": float("nan"), "margin": 4500.0}, "Account equity"),
+            ({"equity": float("inf"), "margin": 4500.0}, "Account equity"),
+            ({"equity": 0.0, "margin": 4500.0}, "Account equity"),
+            ({"equity": -1.0, "margin": 4500.0}, "Account equity"),
+            ({"equity": 10_000.0}, "Account margin"),
+            ({"equity": 10_000.0, "margin": None}, "Account margin"),
+            ({"equity": 10_000.0, "margin": "4500"}, "Account margin"),
+            ({"equity": 10_000.0, "margin": True}, "Account margin"),
+            ({"equity": 10_000.0, "margin": False}, "Account margin"),
+            ({"equity": 10_000.0, "margin": float("nan")}, "Account margin"),
+            ({"equity": 10_000.0, "margin": float("inf")}, "Account margin"),
+            ({"equity": 10_000.0, "margin": -1.0}, "Account margin"),
+        ],
+    )
+    def test_account_projected_margin_ratio_rejects_invalid_snapshot_fields(
+        self,
+        account: dict[str, object],
+        match: str,
+    ) -> None:
+        """Test invalid account equity and margin fields fail closed."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = account
+
+        with pytest.raises(Mt5TradingError, match=match):
+            calculate_account_projected_margin_ratio(client)
+
+    def test_account_projected_margin_ratio_propagates_candidate_margin_error(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test candidate margin errors are not suppressed."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {
+            "equity": 10_000.0,
+            "margin": 4500.0,
+        }
+        mocker.patch(
+            "mt5cli.trading.estimate_order_margin",
+            side_effect=Mt5TradingError("bad tick"),
+        )
+
+        with pytest.raises(Mt5TradingError, match="bad tick"):
+            calculate_account_projected_margin_ratio(
+                client,
+                symbol="EURUSD",
+                new_position_side="BUY",
+                new_position_volume=0.1,
+            )
 
     def test_symbol_group_margin_ratio_sums_group_exposure(
         self,

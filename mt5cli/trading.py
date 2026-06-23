@@ -127,6 +127,7 @@ __all__ = [
     "OrderSide",
     "OrderTimeMode",
     "PositionSide",
+    "calculate_account_projected_margin_ratio",
     "calculate_margin_and_volume",
     "calculate_new_position_margin_ratio",
     "calculate_positions_margin",
@@ -834,15 +835,60 @@ def calculate_new_position_margin_ratio(
 
 def _account_equity(client: Mt5TradingClient) -> float:
     account = get_account_snapshot(client)
-    try:
-        equity = float(account.get("equity") or 0.0)
-    except (TypeError, ValueError) as exc:
-        msg = "Account equity must be positive to calculate margin ratio."
-        raise Mt5TradingError(msg) from exc
-    if equity <= 0 or not isfinite(equity):
-        msg = "Account equity must be positive to calculate margin ratio."
+    return _required_account_number(account, "equity", allow_zero=False)
+
+
+def _required_account_number(
+    account: Mapping[str, object],
+    field: str,
+    *,
+    allow_zero: bool,
+) -> float:
+    raw_value = account.get(field)
+    if isinstance(raw_value, bool) or not isinstance(raw_value, Real):
+        msg = f"Account {field} must be a finite number to calculate margin ratio."
         raise Mt5TradingError(msg)
-    return equity
+    value = float(raw_value)
+    if (
+        not isfinite(value)
+        or (not allow_zero and value <= 0)
+        or (allow_zero and value < 0)
+    ):
+        msg = (
+            f"Account {field} must be a non-negative finite number."
+            if allow_zero
+            else f"Account {field} must be a positive finite number."
+        )
+        raise Mt5TradingError(msg)
+    return value
+
+
+def calculate_account_projected_margin_ratio(
+    client: Mt5TradingClient,
+    *,
+    symbol: str | None = None,
+    new_position_side: OrderSide | None = None,
+    new_position_volume: float = 0.0,
+) -> float:
+    """Return account-wide current plus optional new-position margin over equity.
+
+    Current exposure comes from the broker account snapshot ``margin`` field so
+    unrelated open positions remain in the baseline. Optional projected
+    exposure is added via :func:`estimate_order_margin` only when a symbol, side,
+    and positive volume are all supplied.
+
+    """
+    account = get_account_snapshot(client)
+    equity = _required_account_number(account, "equity", allow_zero=False)
+    margin = _required_account_number(account, "margin", allow_zero=True)
+    if symbol is not None and new_position_side is not None and new_position_volume > 0:
+        margin += estimate_order_margin(
+            client,
+            symbol,
+            new_position_side,
+            new_position_volume,
+        )
+    return margin / equity
 
 
 def calculate_projected_margin_ratio(

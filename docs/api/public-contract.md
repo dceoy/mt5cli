@@ -90,24 +90,25 @@ diagrams.
 These helpers implement broker-facing calculations only. They do not encode
 strategy entries, exits, Kelly sizing, or signal logic.
 
-| Symbol                                                                                                                         | Role                                                        |
-| ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| `get_account_snapshot`, `get_symbol_snapshot`, `get_tick_snapshot`, `get_positions_frame`                                      | Normalized account/symbol/tick/position views               |
-| `extract_tick_price`                                                                                                           | Positive finite bid/ask extraction from tick mappings       |
-| `detect_position_side`                                                                                                         | Net long / short / flat from open positions                 |
-| `calculate_spread_ratio`                                                                                                       | Relative bid-ask spread                                     |
-| `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio`                             | Margin budget and volume sizing                             |
-| `normalize_order_volume`, `estimate_order_margin`, `calculate_positions_margin`                                                | Broker volume normalization and margin totals               |
-| `calculate_positions_margin_by_symbol`                                                                                         | Per-symbol margin map (resilient, first-seen order)         |
-| `calculate_positions_margin_safe`                                                                                              | Summed total margin across symbols (failed symbols skipped) |
-| `calculate_projected_margin_ratio`                                                                                             | Estimated symbol margin/equity after optional new exposure  |
-| `calculate_symbol_group_margin_ratio`                                                                                          | Estimated symbol-group margin/equity with optional exposure |
-| `determine_order_limits`                                                                                                       | SL/TP price levels from ratios                              |
-| `calculate_trailing_stop_updates`                                                                                              | Per-ticket generic trailing stop-loss update plan           |
-| `ensure_symbol_selected`                                                                                                       | Select/verify Market Watch visibility                       |
-| `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`, `update_trailing_stop_loss_for_open_positions` | Order execution helpers (`dry_run` supported)               |
-| `MarginVolume`, `OrderLimits`, `OrderExecutionResult`                                                                          | Typed return contracts for order helpers                    |
-| `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`, `ExecutionStatus`                                            | Typed enums for order helpers                               |
+| Symbol                                                                                                                         | Role                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `get_account_snapshot`, `get_symbol_snapshot`, `get_tick_snapshot`, `get_positions_frame`                                      | Normalized account/symbol/tick/position views                     |
+| `extract_tick_price`                                                                                                           | Positive finite bid/ask extraction from tick mappings             |
+| `detect_position_side`                                                                                                         | Net long / short / flat from open positions                       |
+| `calculate_spread_ratio`                                                                                                       | Relative bid-ask spread                                           |
+| `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio`                             | Margin budget and volume sizing                                   |
+| `normalize_order_volume`, `estimate_order_margin`, `calculate_positions_margin`                                                | Broker volume normalization and margin totals                     |
+| `calculate_positions_margin_by_symbol`                                                                                         | Per-symbol margin map (resilient, first-seen order)               |
+| `calculate_positions_margin_safe`                                                                                              | Summed total margin across symbols (failed symbols skipped)       |
+| `calculate_projected_margin_ratio`                                                                                             | Estimated symbol-scoped margin/equity after optional new exposure |
+| `calculate_account_projected_margin_ratio`                                                                                     | Account snapshot margin/equity after optional new exposure        |
+| `calculate_symbol_group_margin_ratio`                                                                                          | Estimated symbol-group margin/equity with optional exposure       |
+| `determine_order_limits`                                                                                                       | SL/TP price levels from ratios                                    |
+| `calculate_trailing_stop_updates`                                                                                              | Per-ticket generic trailing stop-loss update plan                 |
+| `ensure_symbol_selected`                                                                                                       | Select/verify Market Watch visibility                             |
+| `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`, `update_trailing_stop_loss_for_open_positions` | Order execution helpers (`dry_run` supported)                     |
+| `MarginVolume`, `OrderLimits`, `OrderExecutionResult`                                                                          | Typed return contracts for order helpers                          |
+| `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`, `ExecutionStatus`                                            | Typed enums for order helpers                                     |
 
 `MT5Client.order_send()` and CLI `order-send --yes` are live execution paths.
 
