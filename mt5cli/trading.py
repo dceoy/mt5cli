@@ -835,30 +835,30 @@ def calculate_new_position_margin_ratio(
 
 def _account_equity(client: Mt5TradingClient) -> float:
     account = get_account_snapshot(client)
-    try:
-        equity = float(account.get("equity") or 0.0)
-    except (TypeError, ValueError) as exc:
-        msg = "Account equity must be positive to calculate margin ratio."
-        raise Mt5TradingError(msg) from exc
-    if equity <= 0 or not isfinite(equity):
-        msg = "Account equity must be positive to calculate margin ratio."
-        raise Mt5TradingError(msg)
-    return equity
+    return _required_account_number(account, "equity", allow_zero=False)
 
 
 def _required_account_number(
     account: Mapping[str, object],
     field: str,
     *,
-    positive: bool,
+    allow_zero: bool,
 ) -> float:
     raw_value = account.get(field)
     if isinstance(raw_value, bool) or not isinstance(raw_value, Real):
         msg = f"Account {field} must be a finite number to calculate margin ratio."
         raise Mt5TradingError(msg)
     value = float(raw_value)
-    if not isfinite(value) or (positive and value <= 0) or (not positive and value < 0):
-        msg = f"Account {field} must be valid to calculate margin ratio."
+    if (
+        not isfinite(value)
+        or (not allow_zero and value <= 0)
+        or (allow_zero and value < 0)
+    ):
+        msg = (
+            f"Account {field} must be a non-negative finite number."
+            if allow_zero
+            else f"Account {field} must be a positive finite number."
+        )
         raise Mt5TradingError(msg)
     return value
 
@@ -876,17 +876,29 @@ def calculate_account_projected_margin_ratio(
     unrelated open positions remain in the baseline. Optional projected
     exposure is added via :func:`estimate_order_margin` only when a symbol, side,
     and positive volume are all supplied.
+
+    Raises:
+        Mt5TradingError: If equity is missing, non-numeric, non-finite, or
+            non-positive; or if margin is missing, non-numeric, non-finite,
+            or negative. Also propagated when projected margin estimation fails.
     """
-    account = get_account_snapshot(client)
-    equity = _required_account_number(account, "equity", positive=True)
-    margin = _required_account_number(account, "margin", positive=False)
-    if symbol is not None and new_position_side is not None and new_position_volume > 0:
-        margin += estimate_order_margin(
-            client,
-            symbol,
-            new_position_side,
-            new_position_volume,
-        )
+    try:
+        account = get_account_snapshot(client)
+        equity = _required_account_number(account, "equity", allow_zero=False)
+        margin = _required_account_number(account, "margin", allow_zero=True)
+        if (
+            symbol is not None
+            and new_position_side is not None
+            and new_position_volume > 0
+        ):
+            margin += estimate_order_margin(
+                client,
+                symbol,
+                new_position_side,
+                new_position_volume,
+            )
+    except Mt5TradingError as exc:
+        raise Mt5TradingError(str(exc)) from exc
     return margin / equity
 
 
