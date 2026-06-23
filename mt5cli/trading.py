@@ -877,28 +877,17 @@ def calculate_account_projected_margin_ratio(
     exposure is added via :func:`estimate_order_margin` only when a symbol, side,
     and positive volume are all supplied.
 
-    Raises:
-        Mt5TradingError: If equity is missing, non-numeric, non-finite, or
-            non-positive; or if margin is missing, non-numeric, non-finite,
-            or negative. Also propagated when projected margin estimation fails.
     """
-    try:
-        account = get_account_snapshot(client)
-        equity = _required_account_number(account, "equity", allow_zero=False)
-        margin = _required_account_number(account, "margin", allow_zero=True)
-        if (
-            symbol is not None
-            and new_position_side is not None
-            and new_position_volume > 0
-        ):
-            margin += estimate_order_margin(
-                client,
-                symbol,
-                new_position_side,
-                new_position_volume,
-            )
-    except Mt5TradingError as exc:
-        raise Mt5TradingError(str(exc)) from exc
+    account = get_account_snapshot(client)
+    equity = _required_account_number(account, "equity", allow_zero=False)
+    margin = _required_account_number(account, "margin", allow_zero=True)
+    if symbol is not None and new_position_side is not None and new_position_volume > 0:
+        margin += estimate_order_margin(
+            client,
+            symbol,
+            new_position_side,
+            new_position_volume,
+        )
     return margin / equity
 
 
