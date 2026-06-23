@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock
@@ -3135,7 +3136,7 @@ class TestCalculatePositionsMarginBySymbol:
     """Tests for calculate_positions_margin_by_symbol (#50)."""
 
     def test_all_symbols_succeed(self, mocker: MockerFixture) -> None:
-        """Returns one entry per symbol when all margin calls succeed."""
+        """Returns one entry per symbol in first-seen order when all calls succeed."""
         client = _mock_trade_client()
         mocker.patch(
             "mt5cli.trading.calculate_positions_margin",
@@ -3146,21 +3147,27 @@ class TestCalculatePositionsMarginBySymbol:
             client, symbols=["EURUSD", "GBPUSD"]
         )
 
-        assert result == {"EURUSD": 12.5, "GBPUSD": 30.0}
+        assert list(result.keys()) == ["EURUSD", "GBPUSD"]
+        _assert_close(result["EURUSD"], 12.5)
+        _assert_close(result["GBPUSD"], 30.0)
 
-    def test_one_symbol_fails_suppress_errors_true(self, mocker: MockerFixture) -> None:
-        """Skips the failing symbol and returns the successful one."""
+    def test_one_symbol_fails_suppress_errors_true(
+        self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Skips the failing symbol, emits a warning, and returns the successful one."""
         client = _mock_trade_client()
         mocker.patch(
             "mt5cli.trading.calculate_positions_margin",
             side_effect=[Mt5TradingError("tick unavailable"), 30.0],
         )
 
-        result = calculate_positions_margin_by_symbol(
-            client, symbols=["EURUSD", "GBPUSD"], suppress_errors=True
-        )
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            result = calculate_positions_margin_by_symbol(
+                client, symbols=["EURUSD", "GBPUSD"], suppress_errors=True
+            )
 
         assert result == {"GBPUSD": 30.0}
+        assert any("EURUSD" in record.message for record in caplog.records)
 
     def test_one_symbol_fails_suppress_errors_false(
         self, mocker: MockerFixture
@@ -3191,11 +3198,13 @@ class TestCalculatePositionsMarginBySymbol:
 
         assert result == {}
 
-    def test_empty_symbol_list(self) -> None:
-        """Returns an empty dict for an empty input list."""
+    def test_empty_symbol_list(self, mocker: MockerFixture) -> None:
+        """Returns an empty dict for an empty input list without any broker calls."""
         client = _mock_trade_client()
+        mock_calc = mocker.patch("mt5cli.trading.calculate_positions_margin")
         result = calculate_positions_margin_by_symbol(client, symbols=[])
         assert result == {}
+        mock_calc.assert_not_called()
 
     def test_duplicate_symbols_preserve_first_seen_order(
         self, mocker: MockerFixture
@@ -3229,3 +3238,33 @@ class TestCalculatePositionsMarginSafe:
         total = calculate_positions_margin_safe(client, symbols=["EURUSD", "GBPUSD"])
 
         _assert_close(total, 42.5)
+
+    def test_partial_failure_skips_and_sums(self, mocker: MockerFixture) -> None:
+        """Sums only successful margins when one symbol raises."""
+        client = _mock_trade_client()
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin",
+            side_effect=[Mt5TradingError("tick unavailable"), 30.0],
+        )
+
+        total = calculate_positions_margin_safe(client, symbols=["EURUSD", "GBPUSD"])
+
+        _assert_close(total, 30.0)
+
+    def test_all_symbols_fail_returns_zero(self, mocker: MockerFixture) -> None:
+        """Returns 0.0 when every symbol raises."""
+        client = _mock_trade_client()
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin",
+            side_effect=[Mt5TradingError("err1"), Mt5RuntimeError("err2")],
+        )
+
+        total = calculate_positions_margin_safe(client, symbols=["EURUSD", "GBPUSD"])
+
+        _assert_close(total, 0.0)
+
+    def test_empty_symbols_returns_zero(self) -> None:
+        """Returns 0.0 for an empty symbol list."""
+        client = _mock_trade_client()
+        total = calculate_positions_margin_safe(client, symbols=[])
+        _assert_close(total, 0.0)
