@@ -3183,7 +3183,7 @@ class TestCalculatePositionsMarginBySymbol:
     def test_one_symbol_fails_suppress_errors_false(
         self, mocker: MockerFixture, exc: Exception
     ) -> None:
-        """Re-raises the first failure for all three caught types when suppress_errors=False."""
+        """Re-raises the first failure for each caught exception type."""
         client = _mock_trade_client()
         mocker.patch(
             "mt5cli.trading.calculate_positions_margin",
