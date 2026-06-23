@@ -3167,19 +3167,30 @@ class TestCalculatePositionsMarginBySymbol:
             )
 
         assert result == {"GBPUSD": 30.0}
-        assert any("EURUSD" in record.message for record in caplog.records)
+        assert any(
+            "EURUSD" in record.getMessage() and record.levelno == logging.WARNING
+            for record in caplog.records
+        )
 
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            Mt5TradingError("trading error"),
+            Mt5RuntimeError("runtime error"),
+            AttributeError("missing attr"),
+        ],
+    )
     def test_one_symbol_fails_suppress_errors_false(
-        self, mocker: MockerFixture
+        self, mocker: MockerFixture, exc: Exception
     ) -> None:
-        """Re-raises the first failure when suppress_errors=False."""
+        """Re-raises the first failure (all three caught types) when suppress_errors=False."""
         client = _mock_trade_client()
         mocker.patch(
             "mt5cli.trading.calculate_positions_margin",
-            side_effect=[Mt5TradingError("tick unavailable"), 30.0],
+            side_effect=[exc, 30.0],
         )
 
-        with pytest.raises(Mt5TradingError, match="tick unavailable"):
+        with pytest.raises(type(exc)):
             calculate_positions_margin_by_symbol(
                 client, symbols=["EURUSD", "GBPUSD"], suppress_errors=False
             )
