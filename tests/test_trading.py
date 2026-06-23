@@ -163,11 +163,15 @@ class TestCalculateMarginAndVolume:
         self,
         account_dict: dict[str, float | None],
         expected_margin_free: float,
+        mocker: MockerFixture,
     ) -> None:
         """Test missing or zero margin_free yields zero trade margin."""
         client = MagicMock()
         client.account_info_as_dict.return_value = account_dict
         client.symbol_info_as_dict.side_effect = AttributeError("missing")
+        mock_calc_vol = mocker.patch(
+            "mt5cli.trading.calculate_volume_by_margin", return_value=0.0
+        )
 
         result = calculate_margin_and_volume(
             client,
@@ -179,13 +183,17 @@ class TestCalculateMarginAndVolume:
         assert result["margin_free"] == expected_margin_free
         _assert_close(result["buy_volume"], 0.0)
         _assert_close(result["sell_volume"], 0.0)
-        client.calculate_volume_by_margin.assert_not_called()
+        mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "BUY")
+        mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "SELL")
 
-    def test_clamps_negative_margin_free_to_zero(self) -> None:
+    def test_clamps_negative_margin_free_to_zero(self, mocker: MockerFixture) -> None:
         """Test negative margin_free is clamped to zero before sizing."""
         client = MagicMock()
         client.account_info_as_dict.return_value = {"margin_free": -500.0}
         client.symbol_info_as_dict.side_effect = AttributeError("missing")
+        mock_calc_vol = mocker.patch(
+            "mt5cli.trading.calculate_volume_by_margin", return_value=0.0
+        )
 
         result = calculate_margin_and_volume(
             client,
@@ -197,7 +205,8 @@ class TestCalculateMarginAndVolume:
         _assert_close(result["margin_free"], 0.0)
         _assert_close(result["buy_volume"], 0.0)
         _assert_close(result["sell_volume"], 0.0)
-        client.calculate_volume_by_margin.assert_not_called()
+        mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "BUY")
+        mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "SELL")
 
     @pytest.mark.parametrize(
         ("unit_ratio", "preserved_ratio"),
@@ -1666,7 +1675,7 @@ class TestVolumeAndExecution:
         client.account_info_as_dict.return_value = {"margin_free": 1000.0}
         client.symbol_info_as_dict.side_effect = AttributeError("missing")
 
-        with pytest.raises(AttributeError):
+        with pytest.raises(AttributeError, match="missing"):
             calculate_margin_and_volume(
                 client,
                 "EURUSD",
