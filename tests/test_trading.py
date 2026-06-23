@@ -2496,6 +2496,35 @@ class TestVolumeAndExecution:
             == {}
         )
 
+    def test_calculate_trailing_stop_updates_missing_symbol_digits(self) -> None:
+        """Test missing symbol digits fail safely without rounded updates."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 1.201}
+        client.symbol_info_as_dict.return_value = {}
+
+        assert (
+            calculate_trailing_stop_updates(
+                client,
+                symbol="EURUSD",
+                trailing_stop_ratio=0.01,
+            )
+            == {}
+        )
+
+        client.symbol_info_as_dict.return_value = {"digits": None}
+
+        assert (
+            calculate_trailing_stop_updates(
+                client,
+                symbol="EURUSD",
+                trailing_stop_ratio=0.01,
+            )
+            == {}
+        )
+
     def test_calculate_trailing_stop_updates_skips_invalid_rows(self) -> None:
         """Test invalid tickets and unknown position types are ignored."""
         client = _mock_trade_client()

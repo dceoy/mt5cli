@@ -1291,7 +1291,10 @@ def close_open_positions(
 
 def _symbol_digits(client: Mt5TradingClient, symbol: str) -> int | None:
     try:
-        digits = int(get_symbol_snapshot(client, symbol).get("digits") or 0)
+        raw_digits = get_symbol_snapshot(client, symbol).get("digits")
+        if raw_digits is None:
+            return None
+        digits = int(raw_digits)
     except (AttributeError, TypeError, ValueError):
         return None
     return digits if digits >= 0 else None
