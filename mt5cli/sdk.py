@@ -40,7 +40,7 @@ from .utils import (
 from .utils import coerce_login as _coerce_login
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Callable, Collection, Iterator, Sequence
 
     UpdateHistoryBackend = Callable[..., None]
 
@@ -142,6 +142,7 @@ __all__ = [
     "resolve_account_spec",
     "resolve_account_specs",
     "substitute_env_placeholders",
+    "substitute_mapping_values",
     "symbol_info",
     "symbol_info_tick",
     "symbols",
@@ -305,7 +306,7 @@ def _fetch_minimum_margins(client: Mt5DataClient, symbol: str) -> pd.DataFrame:
 def build_config(
     *,
     path: str | None = None,
-    login: int | None = None,
+    login: int | str | None = None,
     password: str | None = None,
     server: str | None = None,
     timeout: int | None = None,
@@ -315,14 +316,19 @@ def build_config(
 
     Args:
         path: Optional terminal executable path.
-        login: Optional trading account login.
+        login: Optional trading account login. Integers are preserved. String
+            values are coerced: empty or whitespace-only strings become
+            ``None``; numeric strings such as ``"12345"`` are converted to
+            ``int``; non-numeric strings raise ``ValueError``. When
+            ``allow_whole_dollar_env=True``, ``$ENV_NAME`` and
+            ``${ENV_NAME}`` placeholders are expanded before coercion.
         password: Optional trading account password.
         server: Optional trading server name.
         timeout: Optional connection timeout in milliseconds.
         allow_whole_dollar_env: When ``True``, string parameters that are
             exactly ``$ENV_NAME`` are expanded from the environment. Applies
-            to ``path``, ``password``, and ``server``. Default ``False``
-            preserves existing behavior.
+            to ``path``, ``login``, ``password``, and ``server``. Default
+            ``False`` preserves existing behavior.
 
     Returns:
         Configured ``Mt5Config`` instance.
@@ -330,6 +336,8 @@ def build_config(
     if allow_whole_dollar_env:
         if path is not None:
             path = substitute_env_placeholders(path, allow_whole_dollar_env=True)
+        if isinstance(login, str):
+            login = substitute_env_placeholders(login, allow_whole_dollar_env=True)
         if password is not None:
             password = substitute_env_placeholders(
                 password, allow_whole_dollar_env=True
@@ -338,7 +346,7 @@ def build_config(
             server = substitute_env_placeholders(server, allow_whole_dollar_env=True)
     return Mt5Config(
         path=path,
-        login=login,
+        login=_coerce_login(login),
         password=password,
         server=server,
         timeout=timeout,
@@ -1440,6 +1448,75 @@ def substitute_env_placeholders(
         last_end = match.end()
     parts.append(value[last_end:])
     return "".join(parts)
+
+
+def substitute_mapping_values(
+    data: object,
+    *,
+    keys: Collection[str],
+    allow_whole_dollar_env: bool = False,
+    blank_string_keys_as_none: Collection[str] = (),
+) -> object:
+    """Recursively substitute environment placeholders for selected mapping keys.
+
+    Traverses nested dicts and lists, expanding ``${ENV_VAR}`` (and
+    ``$ENV_NAME`` when ``allow_whole_dollar_env=True``) in string values
+    whose immediate parent dict key is in ``keys``.  Fields whose key is
+    not in ``keys`` are preserved exactly, including literal dollar signs.
+    Strings that are direct elements of a list are never substituted;
+    substitution only applies to strings that are immediate dict values.
+
+    This is a generic downstream config utility.  Key names such as
+    ``mt5_login`` or ``mt5_password`` must be supplied by the caller;
+    mt5cli does not hard-code any application-specific key names.
+    Callers are responsible for ensuring ``data`` has bounded nesting depth;
+    deeply nested or self-referential structures will hit Python's recursion
+    limit.
+
+    Args:
+        data: Arbitrarily nested dict/list/scalar value to process.
+        keys: Mapping keys whose string values receive placeholder
+            substitution.
+        allow_whole_dollar_env: When ``True``, a string that is exactly
+            ``$ENV_NAME`` (whole value) is also expanded from the
+            environment in addition to ``${ENV_NAME}`` placeholders.
+            Default ``False`` expands ``${ENV_NAME}`` only.
+        blank_string_keys_as_none: Mapping keys for which blank strings
+            (after any substitution) are normalised to ``None``.  A key
+            may appear in ``blank_string_keys_as_none`` without also
+            appearing in ``keys``.
+
+    Returns:
+        The processed value.  Dicts and lists are rebuilt into new
+        containers with selected string values substituted and
+        blank-normalised.  Scalar inputs (non-dict, non-list) are
+        returned as-is.
+    """
+    keys_set: frozenset[str] = frozenset(keys)
+    blank_keys_set: frozenset[str] = frozenset(blank_string_keys_as_none)
+
+    def _visit(node: object, current_key: str | None) -> object:
+        if isinstance(node, dict):
+            typed = cast("dict[object, object]", node)
+            return {
+                k: _visit(v, k if isinstance(k, str) else None)
+                for k, v in typed.items()
+            }
+        if isinstance(node, list):
+            typed_list = cast("list[object]", node)
+            return [_visit(item, None) for item in typed_list]
+        if not isinstance(node, str):
+            return node
+        text = node
+        if current_key in keys_set:
+            text = substitute_env_placeholders(
+                node, allow_whole_dollar_env=allow_whole_dollar_env
+            )
+        if current_key in blank_keys_set and not text.strip():
+            return None
+        return text
+
+    return _visit(data, None)
 
 
 def _resolve_field(

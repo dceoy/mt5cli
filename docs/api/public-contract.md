@@ -28,23 +28,25 @@ These names are exported from `mt5cli` and covered by the contract in
 
 ### Session lifecycle and configuration
 
-| Symbol                                          | Role                                                                                                       |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `MT5Client`                                     | Read-only data client with optional `order_check` / `order_send`                                           |
-| `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields                                                             |
-| `mt5_session`                                   | Context manager: initialize, login, yield client, shutdown                                                 |
-| `create_trading_client`, `mt5_trading_session`  | Trading-capable `pdmt5.Mt5TradingClient` lifecycle                                                         |
-| `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                   |
-| `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`     |
-| `substitute_env_placeholders`                   | Replace `${NAME}` substrings from the environment; opt-in `allow_whole_dollar_env` for whole-value `$NAME` |
+| Symbol                                          | Role                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MT5Client`                                     | Read-only data client with optional `order_check` / `order_send`                                                                                                                                                                                                                  |
+| `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True` |
+| `mt5_session`                                   | Context manager: initialize, login, yield client, shutdown                                                                                                                                                                                                                        |
+| `create_trading_client`, `mt5_trading_session`  | Trading-capable `pdmt5.Mt5TradingClient` lifecycle                                                                                                                                                                                                                                |
+| `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                          |
+| `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                            |
+| `substitute_env_placeholders`                   | Replace `${NAME}` substrings from the environment; opt-in `allow_whole_dollar_env` for whole-value `$NAME`                                                                                                                                                                        |
+| `substitute_mapping_values`                     | Recursively traverse a dict/list/scalar structure and substitute `${ENV_VAR}` placeholders for caller-selected mapping keys only; optionally normalise blank strings to `None` for a separate caller-selected key set; does not hard-code any application-specific key names      |
 
 Credential resolution is generic: any environment variable name may appear inside
 `${...}`. mt5cli does not hard-code application-specific keys such as
 `mt5_login` or `mt5_exe`.
 
 Pass `allow_whole_dollar_env=True` to `substitute_env_placeholders()`,
-`resolve_account_spec()`, `resolve_account_specs()`, and `build_config()` to
-additionally expand strings whose entire value is a bare `$ENV_NAME` identifier.
+`substitute_mapping_values()`, `resolve_account_spec()`, `resolve_account_specs()`,
+and `build_config()` to additionally expand strings whose entire value is a bare
+`$ENV_NAME` identifier.
 Partial strings such as `"plan$pass"`, `"abc$ENV"`, or `"$ENV-suffix"` are
 **never** expanded — only an exact `$IDENTIFIER` whole-string match qualifies.
 Default is `False` to preserve backward compatibility.
