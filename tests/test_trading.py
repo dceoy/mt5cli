@@ -75,6 +75,11 @@ def _request_from_result(result: OrderExecutionResult) -> dict[str, object]:  # 
     return result["request"]
 
 
+_MISSING_RETCODE: object = (
+    object()
+)  # Sentinel: parametrized retcode test has no "retcode" key
+
+
 class TestDetectPositionSide:
     """Tests for detect_position_side."""
 
@@ -992,44 +997,28 @@ class TestNormalizeOrderVolume:
             0.34,
         )
 
-    def test_returns_zero_for_non_finite_volume(self) -> None:
+    @pytest.mark.parametrize("volume", [float("nan"), float("inf")], ids=["nan", "inf"])
+    def test_returns_zero_for_non_finite_volume(self, volume: float) -> None:
         """Test NaN or infinite requested volume returns zero."""
         _assert_close(
             normalize_order_volume(
-                float("nan"),
-                volume_min=0.1,
-                volume_max=1.0,
-                volume_step=0.1,
-            ),
-            0.0,
-        )
-        _assert_close(
-            normalize_order_volume(
-                float("inf"),
-                volume_min=0.1,
-                volume_max=1.0,
-                volume_step=0.1,
+                volume, volume_min=0.1, volume_max=1.0, volume_step=0.1
             ),
             0.0,
         )
 
-    def test_returns_zero_for_non_finite_constraints(self) -> None:
+    @pytest.mark.parametrize(
+        ("volume_min", "volume_step"),
+        [(float("nan"), 0.1), (0.1, float("inf"))],
+        ids=["nan-min", "inf-step"],
+    )
+    def test_returns_zero_for_non_finite_constraints(
+        self, volume_min: float, volume_step: float
+    ) -> None:
         """Test NaN or infinite volume_min/volume_step returns zero."""
         _assert_close(
             normalize_order_volume(
-                1.0,
-                volume_min=float("nan"),
-                volume_max=1.0,
-                volume_step=0.1,
-            ),
-            0.0,
-        )
-        _assert_close(
-            normalize_order_volume(
-                1.0,
-                volume_min=0.1,
-                volume_max=1.0,
-                volume_step=float("inf"),
+                1.0, volume_min=volume_min, volume_max=1.0, volume_step=volume_step
             ),
             0.0,
         )
@@ -1098,22 +1087,13 @@ class TestEstimateOrderMargin:
         with pytest.raises(Mt5TradingError, match="positive finite number"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.0)
 
-    def test_rejects_nan_volume(self) -> None:
-        """Test NaN volume raises Mt5TradingError without broker calls."""
+    @pytest.mark.parametrize("volume", [float("nan"), float("inf")], ids=["nan", "inf"])
+    def test_rejects_non_finite_volume(self, volume: float) -> None:
+        """Test NaN or infinite volume raises Mt5TradingError without broker calls."""
         client = _mock_trade_client()
 
         with pytest.raises(Mt5TradingError, match="positive finite number"):
-            estimate_order_margin(client, "EURUSD", "BUY", float("nan"))
-
-        client.symbol_info_tick_as_dict.assert_not_called()
-        client.order_calc_margin.assert_not_called()
-
-    def test_rejects_infinite_volume(self) -> None:
-        """Test infinite volume raises Mt5TradingError without broker calls."""
-        client = _mock_trade_client()
-
-        with pytest.raises(Mt5TradingError, match="positive finite number"):
-            estimate_order_margin(client, "EURUSD", "BUY", float("inf"))
+            estimate_order_margin(client, "EURUSD", "BUY", volume)
 
         client.symbol_info_tick_as_dict.assert_not_called()
         client.order_calc_margin.assert_not_called()
@@ -1145,38 +1125,16 @@ class TestEstimateOrderMargin:
         with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)
 
-    def test_rejects_invalid_margin_result(self) -> None:
-        """Test non-positive margin estimates raise Mt5TradingError."""
+    @pytest.mark.parametrize(
+        "margin_value",
+        [0.0, float("inf"), None, "invalid"],
+        ids=["zero", "inf", "none", "string"],
+    )
+    def test_rejects_invalid_margin_result(self, margin_value: object) -> None:
+        """Test invalid margin estimates raise Mt5TradingError."""
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.return_value = 0.0
-
-        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
-            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
-
-    def test_rejects_non_finite_margin_result(self) -> None:
-        """Test non-finite margin estimates raise Mt5TradingError."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.return_value = float("inf")
-
-        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
-            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
-
-    def test_rejects_none_margin_result(self) -> None:
-        """Test None margin results raise Mt5TradingError."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.return_value = None
-
-        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
-            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
-
-    def test_rejects_non_numeric_margin_result(self) -> None:
-        """Test non-numeric margin results raise Mt5TradingError."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.return_value = "invalid"
+        client.order_calc_margin.return_value = margin_value
 
         with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)
@@ -2300,107 +2258,47 @@ class TestVolumeAndExecution:
         assert result["retcode"] == 10009
         client.order_send.assert_called_once()
 
-    def test_place_market_order_marks_failed_retcode(self) -> None:
-        """Test order_send responses with failed retcodes are normalized."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": 10013, "comment": "invalid request"}],
-        )
-
-        result = place_market_order(
-            client,
-            symbol="EURUSD",
-            volume=0.1,
-            order_side="BUY",
-        )
-
-        assert result["status"] == "failed"
-        assert result["retcode"] == 10013
-
-    def test_place_market_order_marks_failed_numpy_retcode(self) -> None:
-        """Test numpy integer retcodes normalize to failed status."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": np_int64(10013), "comment": "invalid request"}],
-        )
-
-        result = place_market_order(
-            client,
-            symbol="EURUSD",
-            volume=0.1,
-            order_side="BUY",
-        )
-
-        assert result["status"] == "failed"
-        assert result["retcode"] == 10013
-
-    def test_place_market_order_rejects_bool_retcode(self) -> None:
-        """Test bool retcodes are not treated as integer broker codes."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": True, "comment": "weird"}],
-        )
-
-        result = place_market_order(
-            client,
-            symbol="EURUSD",
-            volume=0.1,
-            order_side="BUY",
-        )
-
-        assert result["retcode"] is None
-        assert result["status"] == "failed"
-
-    def test_place_market_order_marks_failed_string_retcode(self) -> None:
-        """Test digit-string failure retcodes normalize to failed status."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": "10013", "comment": "invalid request"}],
-        )
-
-        result = place_market_order(
-            client,
-            symbol="EURUSD",
-            volume=0.1,
-            order_side="BUY",
-        )
-
-        assert result["retcode"] == 10013
-        assert result["status"] == "failed"
-
-    def test_place_market_order_marks_failed_whitespace_string_retcode(self) -> None:
-        """Test whitespace-padded digit-string retcodes normalize to failed status."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": " 10013 ", "comment": "invalid request"}],
-        )
-
-        result = place_market_order(
-            client,
-            symbol="EURUSD",
-            volume=0.1,
-            order_side="BUY",
-        )
-
-        assert result["retcode"] == 10013
-        assert result["status"] == "failed"
-
-    @pytest.mark.parametrize("retcode", ["+10013", "-10013"])
-    def test_place_market_order_marks_signed_string_retcode_as_failed(
+    @pytest.mark.parametrize(
+        ("raw_retcode", "expected_retcode"),
+        [
+            (10013, 10013),
+            (np_int64(10013), 10013),
+            ("10013", 10013),
+            (" 10013 ", 10013),
+            ("+10013", 10013),
+            ("-10013", -10013),
+            (True, None),
+            ("invalid", None),
+            ("   ", None),
+            (object(), None),
+            (_MISSING_RETCODE, None),
+        ],
+        ids=[
+            "int",
+            "np-int",
+            "str",
+            "str-padded",
+            "str-plus",
+            "str-minus",
+            "bool",
+            "malformed",
+            "empty-str",
+            "object",
+            "missing-key",
+        ],
+    )
+    def test_place_market_order_normalizes_failed_retcode(
         self,
-        retcode: str,
+        raw_retcode: object,
+        expected_retcode: int | None,
     ) -> None:
-        """Test signed digit-string failure retcodes normalize to failed status."""
+        """Test failed or malformed retcodes from order_send normalize correctly."""
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": retcode, "comment": "invalid request"}],
-        )
+        response: dict[str, object] = {"comment": "x"}
+        if raw_retcode is not _MISSING_RETCODE:
+            response["retcode"] = raw_retcode
+        client.order_send.return_value = pd.DataFrame([response])
 
         result = place_market_order(
             client,
@@ -2409,80 +2307,7 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
-        expected = 10013 if retcode.startswith("+") else -10013
-        assert result["retcode"] == expected
-        assert result["status"] == "failed"
-
-    def test_place_market_order_marks_missing_retcode_as_failed(self) -> None:
-        """Test live responses without retcode are fail-closed."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"comment": "missing retcode"}],
-        )
-
-        result = place_market_order(
-            client,
-            symbol="EURUSD",
-            volume=0.1,
-            order_side="BUY",
-        )
-
-        assert result["retcode"] is None
-        assert result["status"] == "failed"
-
-    def test_place_market_order_marks_malformed_retcode_as_failed(self) -> None:
-        """Test malformed non-None retcodes are fail-closed."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": "invalid", "comment": "invalid request"}],
-        )
-
-        result = place_market_order(
-            client,
-            symbol="EURUSD",
-            volume=0.1,
-            order_side="BUY",
-        )
-
-        assert result["retcode"] is None
-        assert result["status"] == "failed"
-
-    def test_place_market_order_marks_empty_string_retcode_as_failed(self) -> None:
-        """Test empty string retcodes are fail-closed."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": "   ", "comment": "invalid request"}],
-        )
-
-        result = place_market_order(
-            client,
-            symbol="EURUSD",
-            volume=0.1,
-            order_side="BUY",
-        )
-
-        assert result["retcode"] is None
-        assert result["status"] == "failed"
-
-    def test_place_market_order_marks_object_retcode_as_failed(self) -> None:
-        """Test unsupported retcode object types are fail-closed."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": object(), "comment": "invalid request"}],
-        )
-
-        result = place_market_order(
-            client,
-            symbol="EURUSD",
-            volume=0.1,
-            order_side="BUY",
-        )
-
-        assert result["retcode"] is None
+        assert result["retcode"] == expected_retcode
         assert result["status"] == "failed"
 
     def test_close_open_positions_filters_and_dry_runs(self) -> None:
@@ -2702,25 +2527,22 @@ class TestVolumeAndExecution:
             == {}
         )
 
-    def test_calculate_trailing_stop_updates_missing_symbol_digits(self) -> None:
-        """Test missing symbol digits fail safely without rounded updates."""
+    @pytest.mark.parametrize(
+        "symbol_info",
+        [{}, {"digits": None}],
+        ids=["missing", "none"],
+    )
+    def test_calculate_trailing_stop_updates_missing_symbol_digits(
+        self,
+        symbol_info: dict[str, object],
+    ) -> None:
+        """Test missing or None symbol digits fail safely without rounded updates."""
         client = _mock_trade_client()
         client.positions_get_as_df.return_value = pd.DataFrame(
             [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
         )
         client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 1.201}
-        client.symbol_info_as_dict.return_value = {}
-
-        assert (
-            calculate_trailing_stop_updates(
-                client,
-                symbol="EURUSD",
-                trailing_stop_ratio=0.01,
-            )
-            == {}
-        )
-
-        client.symbol_info_as_dict.return_value = {"digits": None}
+        client.symbol_info_as_dict.return_value = symbol_info
 
         assert (
             calculate_trailing_stop_updates(
@@ -3025,8 +2847,23 @@ class TestVolumeAndExecution:
         client.symbol_select.assert_called_once_with("EURUSD", enable=True)
         client.order_send.assert_called_once()
 
-    def test_update_sltp_marks_failed_retcode(self) -> None:
-        """Test SL/TP updates normalize failed broker retcodes."""
+    @pytest.mark.parametrize(
+        ("raw_retcode", "expected_retcode"),
+        [
+            (10013, 10013),
+            (np_int64(10013), 10013),
+            ("10013", 10013),
+            ("invalid", None),
+            (_MISSING_RETCODE, None),
+        ],
+        ids=["int", "np-int", "str", "malformed", "missing-key"],
+    )
+    def test_update_sltp_normalizes_failed_retcode(
+        self,
+        raw_retcode: object,
+        expected_retcode: int | None,
+    ) -> None:
+        """Test failed or malformed SL/TP retcodes normalize correctly."""
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {"visible": True}
         client.positions_get_as_df.return_value = pd.DataFrame(
@@ -3041,113 +2878,14 @@ class TestVolumeAndExecution:
                 },
             ],
         )
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": 10013, "comment": "invalid stops"}],
-        )
+        response: dict[str, object] = {"comment": "x"}
+        if raw_retcode is not _MISSING_RETCODE:
+            response["retcode"] = raw_retcode
+        client.order_send.return_value = pd.DataFrame([response])
 
         result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
 
-        assert result[0]["status"] == "failed"
-        assert result[0]["retcode"] == 10013
-
-    def test_update_sltp_marks_failed_numpy_retcode(self) -> None:
-        """Test numpy integer retcodes normalize to failed SL/TP status."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {"visible": True}
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {
-                    "ticket": 1,
-                    "symbol": "EURUSD",
-                    "type": 0,
-                    "volume": 0.1,
-                    "sl": 1.0,
-                    "tp": 1.4,
-                },
-            ],
-        )
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": np_int64(10013), "comment": "invalid stops"}],
-        )
-
-        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
-
-        assert result[0]["status"] == "failed"
-        assert result[0]["retcode"] == 10013
-
-    def test_update_sltp_marks_failed_string_retcode(self) -> None:
-        """Test digit-string failure retcodes normalize to failed SL/TP status."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {"visible": True}
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {
-                    "ticket": 1,
-                    "symbol": "EURUSD",
-                    "type": 0,
-                    "volume": 0.1,
-                    "sl": 1.0,
-                    "tp": 1.4,
-                },
-            ],
-        )
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": "10013", "comment": "invalid stops"}],
-        )
-
-        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
-
-        assert result[0]["retcode"] == 10013
-        assert result[0]["status"] == "failed"
-
-    def test_update_sltp_marks_malformed_retcode_as_failed(self) -> None:
-        """Test malformed non-None SL/TP retcodes are fail-closed."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {"visible": True}
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {
-                    "ticket": 1,
-                    "symbol": "EURUSD",
-                    "type": 0,
-                    "volume": 0.1,
-                    "sl": 1.0,
-                    "tp": 1.4,
-                },
-            ],
-        )
-        client.order_send.return_value = pd.DataFrame(
-            [{"retcode": "invalid", "comment": "invalid stops"}],
-        )
-
-        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
-
-        assert result[0]["retcode"] is None
-        assert result[0]["status"] == "failed"
-
-    def test_update_sltp_marks_missing_retcode_as_failed(self) -> None:
-        """Test live SL/TP responses without retcode are fail-closed."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {"visible": True}
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {
-                    "ticket": 1,
-                    "symbol": "EURUSD",
-                    "type": 0,
-                    "volume": 0.1,
-                    "sl": 1.0,
-                    "tp": 1.4,
-                },
-            ],
-        )
-        client.order_send.return_value = pd.DataFrame(
-            [{"comment": "missing retcode"}],
-        )
-
-        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
-
-        assert result[0]["retcode"] is None
+        assert result[0]["retcode"] == expected_retcode
         assert result[0]["status"] == "failed"
 
     def test_trading_typed_dict_exports(self) -> None:
@@ -3646,59 +3384,54 @@ class TestFetchLatestClosedRatesIndexed:
 class TestExtractTickPrice:
     """Tests for the public extract_tick_price helper."""
 
-    def test_valid_positive_float(self) -> None:
-        """Returns a positive float value unchanged."""
-        _assert_close(extract_tick_price({"bid": 1.1000}, "bid"), 1.1000)
-
-    def test_valid_positive_int(self) -> None:
-        """Accepts an integer value and returns it as float."""
-        result = extract_tick_price({"bid": 2}, "bid")
-        _assert_close(result, 2.0)
+    @pytest.mark.parametrize(
+        ("tick", "expected"),
+        [
+            ({"bid": 1.1000}, 1.1000),
+            ({"bid": 2}, 2.0),
+            ({"bid": "1.5"}, 1.5),
+        ],
+        ids=["float", "int", "numeric-string"],
+    )
+    def test_returns_valid_price(
+        self, tick: dict[str, object], expected: float
+    ) -> None:
+        """Returns a valid positive float for numeric inputs."""
+        result = extract_tick_price(tick, "bid")
+        assert result is not None
         assert isinstance(result, float)
+        _assert_close(result, expected)
 
-    def test_valid_numeric_string(self) -> None:
-        """Accepts a numeric string and returns the parsed float."""
-        _assert_close(extract_tick_price({"bid": "1.5"}, "bid"), 1.5)
-
-    def test_missing_key(self) -> None:
-        """Returns None when the key is absent from the tick dict."""
-        assert extract_tick_price({}, "bid") is None
-
-    def test_none_value(self) -> None:
-        """Returns None when the stored value is None."""
-        assert extract_tick_price({"bid": None}, "bid") is None
-
-    def test_bool_value(self) -> None:
-        """Returns None for bool values even though bool is int-like."""
-        assert extract_tick_price({"bid": True}, "bid") is None
-
-    def test_invalid_string(self) -> None:
-        """Returns None for a non-numeric string."""
-        assert extract_tick_price({"bid": "not_a_number"}, "bid") is None
-
-    def test_nan(self) -> None:
-        """Returns None for a NaN float."""
-        assert extract_tick_price({"bid": float("nan")}, "bid") is None
-
-    def test_positive_infinity(self) -> None:
-        """Returns None for positive infinity."""
-        assert extract_tick_price({"bid": float("inf")}, "bid") is None
-
-    def test_negative_infinity(self) -> None:
-        """Returns None for negative infinity."""
-        assert extract_tick_price({"bid": float("-inf")}, "bid") is None
-
-    def test_zero(self) -> None:
-        """Returns None for zero (not a valid price)."""
-        assert extract_tick_price({"bid": 0.0}, "bid") is None
-
-    def test_negative_value(self) -> None:
-        """Returns None for a negative price."""
-        assert extract_tick_price({"bid": -1.0}, "bid") is None
-
-    def test_unsupported_type(self) -> None:
-        """Returns None for unsupported value types such as list."""
-        assert extract_tick_price({"bid": [1.0]}, "bid") is None
+    @pytest.mark.parametrize(
+        "tick",
+        [
+            {},
+            {"bid": None},
+            {"bid": True},
+            {"bid": "not_a_number"},
+            {"bid": float("nan")},
+            {"bid": float("inf")},
+            {"bid": float("-inf")},
+            {"bid": 0.0},
+            {"bid": -1.0},
+            {"bid": [1.0]},
+        ],
+        ids=[
+            "missing-key",
+            "none",
+            "bool",
+            "invalid-string",
+            "nan",
+            "inf",
+            "neg-inf",
+            "zero",
+            "negative",
+            "list",
+        ],
+    )
+    def test_returns_none(self, tick: dict[str, object]) -> None:
+        """Returns None for missing, invalid, or non-positive price values."""
+        assert extract_tick_price(tick, "bid") is None
 
 
 class TestCalculatePositionsMarginBySymbol:
