@@ -1,6 +1,6 @@
 [project]
 name = "mt5cli"
-version = "0.9.4"
+version = "0.9.5"
 description = "Generic MT5 data and execution infrastructure for Python applications"
 authors = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
 maintainers = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
