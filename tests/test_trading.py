@@ -77,7 +77,7 @@ def _request_from_result(result: OrderExecutionResult) -> dict[str, object]:  # 
 
 _MISSING_RETCODE: object = (
     object()
-)  # Sentinel: parametrized retcode test has no "retcode" key
+)  # sentinel: absent "retcode" key (used in two parametrized retcode tests)
 
 
 class TestDetectPositionSide:
@@ -2217,6 +2217,7 @@ class TestVolumeAndExecution:
             (object(), None),
             (_MISSING_RETCODE, None),
         ],
+        # ids required: repr(object()) is non-deterministic, breaking --lf/-k
         ids=[
             "int",
             "np-int",
@@ -2807,7 +2808,12 @@ class TestVolumeAndExecution:
         raw_retcode: object,
         expected_retcode: int | None,
     ) -> None:
-        """Test failed or malformed SL/TP retcodes normalize correctly."""
+        """Test failed or malformed SL/TP retcodes normalize correctly.
+
+        Exhaustive retcode variants are covered in
+        test_place_market_order_normalizes_failed_retcode; this set is
+        representative because both functions share the same normalization path.
+        """
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {"visible": True}
         client.positions_get_as_df.return_value = pd.DataFrame(
