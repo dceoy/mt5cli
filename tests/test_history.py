@@ -705,19 +705,25 @@ class TestIncrementalStart:
         assert starts["EURUSD", 1] == datetime(2024, 1, 2, tzinfo=UTC)
         assert starts["GBPUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
 
-    def test_load_incremental_start_datetimes_requires_timeframe_column(
+    @pytest.mark.parametrize(
+        ("ddl", "missing_col"),
+        [
+            ("CREATE TABLE rates(symbol TEXT, time TEXT, open REAL)", "timeframe"),
+            ("CREATE TABLE rates(timeframe INTEGER, time TEXT, open REAL)", "symbol"),
+            ("CREATE TABLE rates(symbol TEXT, timeframe INTEGER, open REAL)", "time"),
+        ],
+    )
+    def test_load_incremental_start_datetimes_requires_column(
         self,
         tmp_path: Path,
+        ddl: str,
+        missing_col: str,
     ) -> None:
-        """Test rates tables without timeframe fail fast during incremental resume."""
+        """Test rates tables missing a required column fail fast."""
         fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "rates-without-timeframe.db") as conn:
-            conn.execute("CREATE TABLE rates(symbol TEXT, time TEXT, open REAL)")
-            conn.execute(
-                "INSERT INTO rates(symbol, time, open) VALUES (?, ?, ?)",
-                ("EURUSD", "2024-01-02T00:00:00+00:00", 1.0),
-            )
-            with pytest.raises(ValueError, match="missing: timeframe") as exc_info:
+        with sqlite3.connect(tmp_path / f"rates-no-{missing_col}.db") as conn:
+            conn.execute(ddl)
+            with pytest.raises(ValueError, match=f"missing: {missing_col}") as exc_info:
                 load_incremental_start_datetimes(
                     conn,
                     Dataset.rates,
@@ -725,47 +731,7 @@ class TestIncrementalStart:
                     timeframes=[1],
                     fallback_start=fallback,
                 )
-            assert "timeframe" in str(exc_info.value)
-
-    def test_load_incremental_start_datetimes_requires_symbol_column(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test rates tables without symbol fail fast during incremental resume."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "rates-no-symbol.db") as conn:
-            conn.execute(
-                "CREATE TABLE rates(timeframe INTEGER, time TEXT, open REAL)",
-            )
-            with pytest.raises(ValueError, match="missing: symbol") as exc_info:
-                load_incremental_start_datetimes(
-                    conn,
-                    Dataset.rates,
-                    symbols=["EURUSD"],
-                    timeframes=[1],
-                    fallback_start=fallback,
-                )
-            assert "symbol" in str(exc_info.value)
-
-    def test_load_incremental_start_datetimes_requires_time_column(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test rates tables without time fail fast during incremental resume."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "rates-no-time.db") as conn:
-            conn.execute(
-                "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, open REAL)",
-            )
-            with pytest.raises(ValueError, match="missing: time") as exc_info:
-                load_incremental_start_datetimes(
-                    conn,
-                    Dataset.rates,
-                    symbols=["EURUSD"],
-                    timeframes=[1],
-                    fallback_start=fallback,
-                )
-            assert "time" in str(exc_info.value)
+            assert missing_col in str(exc_info.value)
 
     def test_load_incremental_start_datetimes_rejects_unrelated_rates_columns(
         self,
@@ -1800,12 +1766,11 @@ class TestIncrementalIntegration:
             )
         assert written_tables == set()
 
-    def test_resolve_history_tick_flags_invalid(self) -> None:
+    @pytest.mark.parametrize("flags", ["BAD", 7])
+    def test_resolve_history_tick_flags_invalid(self, flags: str | int) -> None:
         """Test invalid tick flags raise ValueError."""
         with pytest.raises(ValueError, match="Invalid tick flags"):
-            resolve_history_tick_flags("BAD")
-        with pytest.raises(ValueError, match="Invalid tick flags"):
-            resolve_history_tick_flags(7)
+            resolve_history_tick_flags(flags)
 
     def test_resolve_history_timeframes_invalid(self) -> None:
         """Test invalid timeframes raise ValueError."""
