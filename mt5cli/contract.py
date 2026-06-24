@@ -77,6 +77,7 @@ STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "resolve_rate_view_name",
     "resolve_rate_view_names",
     "substitute_env_placeholders",
+    "substitute_mapping_values",
     "update_history",
     "update_history_with_config",
     "update_sltp_for_open_positions",

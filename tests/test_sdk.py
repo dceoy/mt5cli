@@ -54,6 +54,7 @@ from mt5cli.sdk import (
     resolve_account_spec,
     resolve_account_specs,
     substitute_env_placeholders,
+    substitute_mapping_values,
     symbol_info,
     symbol_info_tick,
     symbols,
@@ -2436,3 +2437,252 @@ class TestThrottledHistoryUpdater:
             updater.update(MagicMock(), ["EURUSD"])
 
         assert updater.last_update_monotonic is None
+
+
+class TestBuildConfigStringLogin:
+    """Tests for build_config() string login coercion (issue #61)."""
+
+    @pytest.mark.parametrize(
+        ("login", "expected"),
+        [
+            (None, None),
+            (12345, 12345),
+            ("12345", 12345),
+            (" 12345 ", 12345),
+            ("", None),
+            ("   ", None),
+        ],
+    )
+    def test_coerces_login_from_string(
+        self,
+        login: int | str | None,
+        expected: int | None,
+    ) -> None:
+        """Test build_config coerces string login to int or None."""
+        config = build_config(login=login)
+        assert config.login == expected
+
+    def test_rejects_non_numeric_string_login(self) -> None:
+        """Test build_config raises ValueError for non-numeric string login."""
+        with pytest.raises(ValueError, match="invalid literal"):
+            build_config(login="abc")
+
+    def test_expands_dollar_brace_login_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test build_config expands ${MT5_LOGIN} and coerces with opt-in."""
+        monkeypatch.setenv("MT5_LOGIN", "12345")
+        config = build_config(login="${MT5_LOGIN}", allow_whole_dollar_env=True)
+        assert config.login == 12345
+
+    def test_expands_whole_dollar_login_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test build_config expands $MT5_LOGIN and coerces with opt-in."""
+        monkeypatch.setenv("MT5_LOGIN", "99999")
+        config = build_config(login="$MT5_LOGIN", allow_whole_dollar_env=True)
+        assert config.login == 99999
+
+    def test_missing_env_variable_raises(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test build_config raises ValueError when referenced env var is not set."""
+        monkeypatch.delenv("MT5_LOGIN", raising=False)
+        with pytest.raises(ValueError, match="'MT5_LOGIN' is not set"):
+            build_config(login="${MT5_LOGIN}", allow_whole_dollar_env=True)
+
+    def test_env_expands_to_blank_becomes_none(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test build_config coerces blank env-expanded login to None."""
+        monkeypatch.setenv("MT5_LOGIN", "")
+        config = build_config(login="${MT5_LOGIN}", allow_whole_dollar_env=True)
+        assert config.login is None
+
+    def test_dollar_brace_login_not_expanded_without_opt_in(self) -> None:
+        """Test ${MT5_LOGIN} is not expanded when allow_whole_dollar_env=False."""
+        with pytest.raises(ValueError, match="invalid literal"):
+            build_config(login="${MT5_LOGIN}")
+
+    def test_integer_login_preserved_backward_compat(self) -> None:
+        """Test existing int login callers remain backward-compatible."""
+        config = build_config(login=54321)
+        assert config.login == 54321
+
+    def test_none_login_preserved_backward_compat(self) -> None:
+        """Test existing None login callers remain backward-compatible."""
+        config = build_config(login=None)
+        assert config.login is None
+
+
+class TestSubstituteMappingValues:
+    """Tests for substitute_mapping_values() (issue #62)."""
+
+    def test_substitutes_selected_keys_in_flat_dict(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test selected keys are substituted in a flat mapping."""
+        monkeypatch.setenv("MT5_LOGIN", "12345")
+        data: dict[str, object] = {
+            "mt5_login": "${MT5_LOGIN}",
+            "strategy_name": "${MT5_LOGIN}",
+        }
+        result = substitute_mapping_values(data, keys={"mt5_login"})
+        assert result == {"mt5_login": "12345", "strategy_name": "${MT5_LOGIN}"}
+
+    def test_preserves_non_selected_literal_dollar_signs(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test literal dollar signs in non-selected fields are preserved exactly."""
+        monkeypatch.setenv("MT5_PASSWORD", "secret")
+        data: dict[str, object] = {
+            "mt5_password": "${MT5_PASSWORD}",
+            "notes": "$NOT_EXPANDED",
+        }
+        result = substitute_mapping_values(data, keys={"mt5_password"})
+        assert result == {"mt5_password": "secret", "notes": "$NOT_EXPANDED"}
+
+    def test_nested_dict_traversal_substitutes_selected_keys(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test selected keys inside nested dicts are substituted."""
+        monkeypatch.setenv("MT5_SERVER", "Broker-Demo")
+        data: dict[str, object] = {
+            "outer": {
+                "mt5_server": "${MT5_SERVER}",
+                "other": "${MT5_SERVER}",
+            }
+        }
+        result = substitute_mapping_values(data, keys={"mt5_server"})
+        assert result == {
+            "outer": {"mt5_server": "Broker-Demo", "other": "${MT5_SERVER}"}
+        }
+
+    def test_nested_list_traversal_substitutes_selected_keys(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test selected keys inside list elements are substituted."""
+        monkeypatch.setenv("MT5_LOGIN", "42")
+        data: dict[str, object] = {
+            "accounts": [
+                {"mt5_login": "${MT5_LOGIN}", "name": "${MT5_LOGIN}"},
+                {"mt5_login": "${MT5_LOGIN}", "name": "fixed"},
+            ]
+        }
+        result = substitute_mapping_values(data, keys={"mt5_login"})
+        assert result == {
+            "accounts": [
+                {"mt5_login": "42", "name": "${MT5_LOGIN}"},
+                {"mt5_login": "42", "name": "fixed"},
+            ]
+        }
+
+    def test_whole_dollar_expanded_with_opt_in(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test $ENV_NAME is expanded when allow_whole_dollar_env=True."""
+        monkeypatch.setenv("MT5_PASSWORD", "secret")
+        data: dict[str, object] = {"mt5_password": "$MT5_PASSWORD"}
+        result = substitute_mapping_values(
+            data,
+            keys={"mt5_password"},
+            allow_whole_dollar_env=True,
+        )
+        assert result == {"mt5_password": "secret"}
+
+    def test_whole_dollar_not_expanded_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test $ENV_NAME in a selected key is preserved when opt-in is False."""
+        monkeypatch.setenv("MT5_PASSWORD", "secret")
+        data: dict[str, object] = {"mt5_password": "$MT5_PASSWORD"}
+        result = substitute_mapping_values(data, keys={"mt5_password"})
+        assert result == {"mt5_password": "$MT5_PASSWORD"}
+
+    def test_blank_string_becomes_none_for_blank_keys(self) -> None:
+        """Test blank strings are normalised to None for blank_string_keys_as_none."""
+        data: dict[str, object] = {
+            "mt5_login": "",
+            "mt5_password": "  ",
+            "other": "",
+        }
+        result = substitute_mapping_values(
+            data,
+            keys=set(),
+            blank_string_keys_as_none={"mt5_login", "mt5_password"},
+        )
+        assert result == {"mt5_login": None, "mt5_password": None, "other": ""}
+
+    def test_env_expanded_blank_becomes_none(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test env-expanded blank string is normalised to None."""
+        monkeypatch.setenv("MT5_LOGIN", "")
+        data: dict[str, object] = {"mt5_login": "${MT5_LOGIN}"}
+        result = substitute_mapping_values(
+            data,
+            keys={"mt5_login"},
+            blank_string_keys_as_none={"mt5_login"},
+        )
+        assert result == {"mt5_login": None}
+
+    def test_missing_env_variable_raises_for_selected_key(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test missing env var for a selected key raises ValueError."""
+        monkeypatch.delenv("MT5_MISSING", raising=False)
+        data: dict[str, object] = {"mt5_login": "${MT5_MISSING}"}
+        with pytest.raises(ValueError, match="'MT5_MISSING' is not set"):
+            substitute_mapping_values(data, keys={"mt5_login"})
+
+    def test_non_string_values_preserved(self) -> None:
+        """Test non-string values under selected or non-selected keys are preserved."""
+        data: dict[str, object] = {
+            "mt5_login": 12345,
+            "timeout": 5000,
+            "enabled": True,
+            "ratio": 1.5,
+            "nothing": None,
+        }
+        result = substitute_mapping_values(
+            data, keys={"mt5_login", "timeout", "enabled", "ratio", "nothing"}
+        )
+        assert result == data
+
+    def test_caller_supplied_key_set_substitutes_correctly(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test helper works with any caller-supplied key set."""
+        monkeypatch.setenv("APP_LOGIN", "77777")
+        monkeypatch.setenv("APP_PASSWORD", "p4ss")
+        data: dict[str, object] = {
+            "app_login": "${APP_LOGIN}",
+            "app_password": "${APP_PASSWORD}",
+            "unrelated": "${APP_LOGIN}",
+        }
+        credential_keys = {"app_login", "app_password"}
+        result = substitute_mapping_values(data, keys=credential_keys)
+        assert result == {
+            "app_login": "77777",
+            "app_password": "p4ss",
+            "unrelated": "${APP_LOGIN}",
+        }
+
+    def test_scalar_data_returned_unchanged(self) -> None:
+        """Test a scalar (non-dict, non-list) value is returned as-is."""
+        assert substitute_mapping_values("hello", keys={"x"}) == "hello"
+        assert substitute_mapping_values(42, keys={"x"}) == 42
+        assert substitute_mapping_values(None, keys={"x"}) is None
