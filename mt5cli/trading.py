@@ -25,6 +25,7 @@ OrderSide = Literal["BUY", "SELL"]
 OrderFillingMode = Literal["IOC", "FOK", "RETURN"]
 OrderTimeMode = Literal["GTC", "DAY", "SPECIFIED", "SPECIFIED_DAY"]
 ExecutionStatus = Literal["executed", "dry_run", "skipped", "failed"]
+ProjectionMode = Literal["add", "replace_symbol"]
 
 
 class MarginVolume(TypedDict):
@@ -127,6 +128,7 @@ __all__ = [
     "OrderSide",
     "OrderTimeMode",
     "PositionSide",
+    "ProjectionMode",
     "calculate_account_projected_margin_ratio",
     "calculate_margin_and_volume",
     "calculate_new_position_margin_ratio",
@@ -928,13 +930,22 @@ def calculate_symbol_group_margin_ratio(
     new_position_side: OrderSide | None = None,
     new_position_volume: float = 0.0,
     suppress_errors: bool = True,
+    projection_mode: ProjectionMode = "add",
 ) -> float:
     """Return estimated symbol-group margin over account equity.
 
     Per-symbol current exposure is summed with
     :func:`calculate_positions_margin_by_symbol`. When ``new_symbol`` is inside
-    the input symbol group, optional projected order margin is added for that
-    symbol. Invalid equity always raises to fail closed.
+    the input symbol group and candidate side/volume are provided, projected order
+    margin is applied according to ``projection_mode``:
+
+    - ``"add"`` (default): adds candidate margin to the group total.
+    - ``"replace_symbol"``: subtracts current margin for ``new_symbol``, then
+      adds candidate margin. Useful for reversal-style projections where the new
+      order is intended to replace existing exposure for that symbol.
+
+    If the candidate margin estimation fails, the subtraction is also skipped so
+    the operation is atomic. Invalid equity always raises to fail closed.
 
     Raises:
         AttributeError: When symbol margin lookup or projected margin lookup
@@ -947,21 +958,19 @@ def calculate_symbol_group_margin_ratio(
     """
     equity = _account_equity(client)
     unique_symbols = list(dict.fromkeys(symbols))
-    margin = sum(
-        calculate_positions_margin_by_symbol(
-            client,
-            symbols=unique_symbols,
-            suppress_errors=suppress_errors,
-        ).values(),
-        0.0,
+    per_symbol = calculate_positions_margin_by_symbol(
+        client,
+        symbols=unique_symbols,
+        suppress_errors=suppress_errors,
     )
+    margin = sum(per_symbol.values(), 0.0)
     if (
         new_symbol in unique_symbols
         and new_position_side is not None
         and new_position_volume > 0
     ):
         try:
-            margin += estimate_order_margin(
+            candidate_margin = estimate_order_margin(
                 client,
                 new_symbol,
                 new_position_side,
@@ -971,6 +980,10 @@ def calculate_symbol_group_margin_ratio(
             if not suppress_errors:
                 raise
             _logger.warning("Skipping projected margin for %r.", new_symbol)
+        else:
+            if projection_mode == "replace_symbol":
+                margin -= per_symbol.get(new_symbol, 0.0)
+            margin += candidate_margin
     return margin / equity
 
 

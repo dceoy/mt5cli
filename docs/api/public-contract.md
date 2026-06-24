@@ -111,6 +111,7 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`, `update_trailing_stop_loss_for_open_positions` | Order execution helpers (`dry_run` supported)                     |
 | `MarginVolume`, `OrderLimits`, `OrderExecutionResult`                                                                          | Typed return contracts for order helpers                          |
 | `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`, `ExecutionStatus`                                            | Typed enums for order helpers                                     |
+| `ProjectionMode`                                                                                                               | Literal type for `calculate_symbol_group_margin_ratio` projection |
 
 `MT5Client.order_send()` and CLI `order-send --yes` are live execution paths.
 
@@ -171,6 +172,13 @@ the MT5 SDK helper.
 | MT5 parsing maps     | `granularity_name`, `parse_tick_flags`, `parse_timeframe`, `TICK_FLAG_MAP`, `TIMEFRAME_MAP`                   |
 | Trading data shapes  | `POSITION_COLUMNS`                                                                                            |
 
+`calculate_symbol_group_margin_ratio` supports an optional `projection_mode`
+parameter (`"add"` by default). Pass `projection_mode="replace_symbol"` to
+subtract current exposure for `new_symbol` before adding the candidate margin —
+useful for reversal-style projections. mt5cli only calculates broker-facing
+exposure; downstream applications own thresholds, risk guard actions, and
+strategy policy.
+
 ## CLI commands
 
 The Typer application in `mt5cli.cli` exposes file-export commands documented in
@@ -182,7 +190,12 @@ The Typer application in `mt5cli.cli` exposes file-export commands documented in
 - Delegate to the same Python APIs described here; they are not duplicated
   business logic.
 
-`order-send` requires `--yes` before placing live trades.
+`order-send` is the expert raw-request path; it requires `--yes` and a fully
+constructed request payload. `close-positions` is the safer high-level helper
+that closes open positions by `--symbol` or `--ticket` using
+`close_open_positions()`. Both `order-send --yes` and `close-positions --yes`
+are live execution paths. `close-positions --dry-run` previews close orders
+without placing them and does not require `--yes`.
 
 ## Internal helpers (not stable)
 

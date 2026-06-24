@@ -34,6 +34,7 @@ from mt5cli import (
     Mt5SchemaError,
     OrderExecutionResult,
     OrderLimits,
+    ProjectionMode,
     RateTarget,
     build_config,
     build_rate_targets,
