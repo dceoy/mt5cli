@@ -92,15 +92,20 @@ Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `norma
 Trading applications can depend on `mt5cli` imports only; terminal path,
 credentials, server, and timeout are forwarded to `pdmt5.Mt5Config`, numeric
 login strings are coerced to integers, and empty login strings are treated as
-unset.
+unset. Pass `allow_whole_dollar_env=True` to expand `${ENV_VAR}` and bare
+`$ENV_NAME` placeholders in connection string parameters before coercion.
 
 ```python
 from mt5cli import (
+    build_config,
     calculate_spread_ratio,
     create_trading_client,
     get_account_snapshot,
     mt5_trading_session,
 )
+
+# Login from environment — numeric string is coerced to int automatically
+config = build_config(login="$MT5_LOGIN", allow_whole_dollar_env=True)
 
 with mt5_trading_session(
     path=r"C:\Program Files\MetaTrader 5\terminal64.exe",
@@ -248,7 +253,7 @@ rates = collect_latest_closed_rates_by_granularity(
 eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 ```
 
-- **Credential resolution**: use `resolve_account_spec()` / `resolve_account_specs()` to merge explicit override values over `AccountSpec` fields and expand `${ENV_VAR}` placeholders (via `substitute_env_placeholders()`), raising `ValueError` for missing variables. This keeps secrets out of plan/config files without coupling to any strategy code.
+- **Credential resolution**: use `resolve_account_spec()` / `resolve_account_specs()` to merge explicit override values over `AccountSpec` fields and expand `${ENV_VAR}` placeholders (via `substitute_env_placeholders()`), raising `ValueError` for missing variables. This keeps secrets out of plan/config files without coupling to any strategy code. For config dicts or nested structures loaded from YAML/TOML, use `substitute_mapping_values(data, keys={"login", "password"})` to expand placeholders only for caller-specified keys — key names are never hard-coded in mt5cli.
 - **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, `OSError`, and MT5 client capability errors for history API methods without advancing the throttle (other `AttributeError` / `TypeError` values always propagate). Pass `update_backend` to inject a custom history update callable (same keyword arguments as `update_history`) instead of monkey-patching `mt5cli.sdk.update_history`.
 - **Trading session helpers**: use `mt5_trading_session()` for a trading-capable `pdmt5.Mt5TradingClient` that initializes/logs in via `Mt5Config.path` and always shuts down safely. Pair with `detect_position_side()`, `calculate_margin_and_volume()`, and `determine_order_limits()` for generic position and sizing utilities. Keep read-only collection on `mt5_session()` / `MT5Client`.
 - **Granularity-keyed rate loading**: `load_rate_series_by_granularity()` builds targets with `build_rate_targets()`, loads them with `load_rate_series_from_sqlite()`, and returns a mapping keyed by `(symbol | None, granularity_name)` such as `("EURUSD", "M1")` to reduce downstream boilerplate.
