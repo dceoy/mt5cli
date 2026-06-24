@@ -2686,3 +2686,14 @@ class TestSubstituteMappingValues:
         assert substitute_mapping_values("hello", keys={"x"}) == "hello"
         assert substitute_mapping_values(42, keys={"x"}) == 42
         assert substitute_mapping_values(None, keys={"x"}) is None
+
+    def test_tuple_container_not_traversed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test tuple containers are returned as-is without traversal."""
+        monkeypatch.setenv("MT5_LOGIN", "42")
+        data: dict[str, object] = {"accounts": ({"mt5_login": "${MT5_LOGIN}"},)}
+        result = substitute_mapping_values(data, keys={"mt5_login"})
+        # tuple is returned as-is; inner dict is NOT visited
+        assert result == {"accounts": ({"mt5_login": "${MT5_LOGIN}"},)}

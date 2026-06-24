@@ -1463,10 +1463,15 @@ def substitute_mapping_values(
     ``$ENV_NAME`` when ``allow_whole_dollar_env=True``) in string values
     whose immediate parent dict key is in ``keys``.  Fields whose key is
     not in ``keys`` are preserved exactly, including literal dollar signs.
+    Strings that are direct elements of a list are never substituted;
+    substitution only applies to strings that are immediate dict values.
 
     This is a generic downstream config utility.  Key names such as
     ``mt5_login`` or ``mt5_password`` must be supplied by the caller;
     mt5cli does not hard-code any application-specific key names.
+    Callers are responsible for ensuring ``data`` has bounded nesting depth;
+    deeply nested or self-referential structures will hit Python's recursion
+    limit.
 
     Args:
         data: Arbitrarily nested dict/list/scalar value to process.
@@ -1482,8 +1487,10 @@ def substitute_mapping_values(
             appearing in ``keys``.
 
     Returns:
-        A new object with the same structure as ``data`` but with the
-        selected fields substituted and blank-normalised.
+        The processed value.  Dicts and lists are rebuilt into new
+        containers with selected string values substituted and
+        blank-normalised.  Scalar inputs (non-dict, non-list) are
+        returned as-is.
     """
     keys_set: frozenset[str] = frozenset(keys)
     blank_keys_set: frozenset[str] = frozenset(blank_string_keys_as_none)
