@@ -218,7 +218,7 @@ APIs.</p>
 </tr>
 <tr>
 <td><code>build_config</code></td>
-<td>Build <code>pdmt5.Mt5Config</code> from connection fields</td>
+<td>Build <code>pdmt5.Mt5Config</code> from connection fields; <code>login</code> accepts <code>int \| str \| None</code> — numeric strings are coerced to <code>int</code>, blank strings are treated as unset, and <code>${ENV_VAR}</code> / <code>$ENV_NAME</code> placeholders in string parameters are expanded when <code>allow_whole_dollar_env=True</code></td>
 </tr>
 <tr>
 <td><code>mt5_session</code></td>
@@ -240,14 +240,19 @@ APIs.</p>
 <td><code>substitute_env_placeholders</code></td>
 <td>Replace <code>${NAME}</code> substrings from the environment; opt-in <code>allow_whole_dollar_env</code> for whole-value <code>$NAME</code></td>
 </tr>
+<tr>
+<td><code>substitute_mapping_values</code></td>
+<td>Recursively traverse a dict/list/scalar structure and substitute <code>${ENV_VAR}</code> placeholders for caller-selected mapping keys only; optionally normalise blank strings to <code>None</code> for a separate caller-selected key set; does not hard-code any application-specific key names</td>
+</tr>
 </tbody>
 </table>
 <p>Credential resolution is generic: any environment variable name may appear inside
 <code>${...}</code>. mt5cli does not hard-code application-specific keys such as
 <code>mt5_login</code> or <code>mt5_exe</code>.</p>
 <p>Pass <code>allow_whole_dollar_env=True</code> to <code>substitute_env_placeholders()</code>,
-<code>resolve_account_spec()</code>, <code>resolve_account_specs()</code>, and <code>build_config()</code> to
-additionally expand strings whose entire value is a bare <code>$ENV_NAME</code> identifier.
+<code>substitute_mapping_values()</code>, <code>resolve_account_spec()</code>, <code>resolve_account_specs()</code>,
+and <code>build_config()</code> to additionally expand strings whose entire value is a bare
+<code>$ENV_NAME</code> identifier.
 Partial strings such as <code>"plan$pass"</code>, <code>"abc$ENV"</code>, or <code>"$ENV-suffix"</code> are
 <strong>never</strong> expanded — only an exact <code>$IDENTIFIER</code> whole-string match qualifies.
 Default is <code>False</code> to preserve backward compatibility.</p>
