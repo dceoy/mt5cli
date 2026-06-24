@@ -234,16 +234,19 @@ def test_is_recoverable_mt5_error(exc: Exception) -> None:
     assert is_recoverable_mt5_error(exc)
 
 
-def test_normalize_mt5_exception_maps_types() -> None:
+@pytest.mark.parametrize(
+    ("exc", "expected_type"),
+    [
+        (Mt5RuntimeError("x"), Mt5ConnectionError),
+        (Mt5TradingError("x"), Mt5OperationError),
+    ],
+)
+def test_normalize_mt5_exception_maps_types(
+    exc: Exception,
+    expected_type: type[Mt5ConnectionError | Mt5OperationError],
+) -> None:
     """MT5 exceptions map to stable mt5cli types."""
-    assert isinstance(
-        normalize_mt5_exception(Mt5RuntimeError("x")),
-        Mt5ConnectionError,
-    )
-    assert isinstance(
-        normalize_mt5_exception(Mt5TradingError("x")),
-        Mt5OperationError,
-    )
+    assert isinstance(normalize_mt5_exception(exc), expected_type)
 
 
 def test_call_with_normalized_errors_reraises_mapped_type() -> None:
@@ -420,26 +423,24 @@ def test_normalize_time_columns_skips_absent_time_fields() -> None:
     assert list(result.columns) == ["open"]
 
 
-def test_normalize_time_columns_converts_unix_seconds() -> None:
-    """Numeric MT5 ``time`` values are interpreted as Unix seconds."""
-    frame = pd.DataFrame({"time": [1704067200]})
-    result = normalize_time_columns(frame, DataKind.rates)
-    assert result.loc[0, "time"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
-
-
-def test_normalize_time_columns_converts_unix_milliseconds() -> None:
-    """Numeric MT5 ``time_msc`` values are interpreted as Unix milliseconds."""
-    frame = pd.DataFrame({"time_msc": [1704067200000]})
-    result = normalize_time_columns(frame, DataKind.ticks)
-    assert result.loc[0, "time_msc"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
-
-
-def test_normalize_time_columns_preserves_utc_datetimes() -> None:
-    """Already-converted datetime values remain UTC-normalized."""
-    aware = datetime(2024, 1, 1, tzinfo=UTC)
-    frame = pd.DataFrame({"time": [aware]})
-    result = normalize_time_columns(frame, DataKind.rates)
-    assert result.loc[0, "time"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
+@pytest.mark.parametrize(
+    ("col", "value", "kind"),
+    [
+        ("time", 1704067200, DataKind.rates),
+        ("time_msc", 1704067200000, DataKind.ticks),
+        ("time", datetime(2024, 1, 1, tzinfo=UTC), DataKind.rates),
+        ("time", "2024-01-01T00:00:00+00:00", DataKind.rates),
+    ],
+)
+def test_normalize_time_columns_coerces_value(
+    col: str,
+    value: object,
+    kind: DataKind,
+) -> None:
+    """Time column values are coerced to UTC timestamps regardless of input type."""
+    frame = pd.DataFrame({col: [value]})
+    result = normalize_time_columns(frame, kind)
+    assert result.loc[0, col] == pd.Timestamp("2024-01-01T00:00:00+00:00")
 
 
 def test_normalize_time_columns_handles_optional_order_times() -> None:
@@ -487,13 +488,6 @@ def test_ensure_utc_columns_skips_missing_columns() -> None:
     frame = _sample_frame(DataKind.rates)
     result = ensure_utc_columns(frame, ["time", "missing"])
     assert "time" in result.columns
-
-
-def test_normalize_time_columns_coerces_string_timestamps() -> None:
-    """String timestamps are parsed with timezone-aware datetime coercion."""
-    frame = pd.DataFrame({"time": ["2024-01-01T00:00:00+00:00"]})
-    result = normalize_time_columns(frame, DataKind.rates)
-    assert result.loc[0, "time"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
 
 
 def test_ensure_utc_columns_coerces_non_mt5_columns() -> None:
