@@ -23,9 +23,6 @@ if TYPE_CHECKING:
 # Constants
 # ---------------------------------------------------------------------------
 
-# Backward-compatible snapshot; prefer ``COPY_TICKS_MAP`` from pdmt5 directly.
-TICK_FLAG_MAP: dict[str, int] = dict(COPY_TICKS_MAP)
-
 TIMEFRAME_NAMES: tuple[str, ...] = tuple(
     name for name in TIMEFRAME_MAP if not name.startswith("TIMEFRAME_")
 )

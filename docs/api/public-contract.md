@@ -1,11 +1,28 @@
 # Public API Contract
 
-mt5cli is the generic MT5 data and execution infrastructure layer for downstream
-Python applications. The intended dependency direction is:
+mt5cli is the canonical operational trading SDK and CLI/batch layer over pdmt5.
+The intended dependency direction is:
 
 ```text
 downstream app -> mt5cli -> pdmt5 -> MetaTrader 5
+mt5api         -> pdmt5 -> MetaTrader 5
 ```
+
+mt5cli must not depend on mt5api.
+
+## Responsibility boundary
+
+| Layer            | Owns                                                                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **pdmt5**        | MT5 core wrapper; DataFrame/dict conversion; canonical MT5 constants and parsers; direct low-level order primitives                           |
+| **mt5cli**       | CLI/batch workflows; SQLite history collection; normalized datasets; closed-bar helpers; small downstream operational SDK; generic broker-facing margin/volume/order orchestration |
+| **mt5api**       | HTTP/FastAPI adapter over pdmt5; not a dependency of mt5cli                                                                                   |
+| **downstream**   | Strategy logic; signals; risk policy; backtesting; optimization; YAML/application semantics                                                   |
+
+Downstream code should import raw pdmt5 types and constants (such as
+`Mt5Config`, `Mt5TradingClient`, `Mt5RuntimeError`, `Mt5TradingError`,
+`TIMEFRAME_MAP`, `COPY_TICKS_MAP`) directly from `pdmt5` when needed.
+mt5cli does not serve as a pass-through compatibility namespace for pdmt5.
 
 Downstream packages should import from the package root (`from mt5cli import
 ...`) and use the public tier sets in `mt5cli.contract` to distinguish API
@@ -133,13 +150,12 @@ sending requests. Failed, malformed, or unknown broker retcodes are fail-closed
 and returned as `status="failed"` with normalized `request` / `response` details;
 `dry_run=True` never calls `ensure_symbol_selected()` or `order_send()`.
 
-### Errors and MT5 type re-exports
+### Errors
 
-| Symbol                                                                               | Role                                            |
-| ------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| `Mt5CliError`, `Mt5ConnectionError`, `Mt5OperationError`, `Mt5SchemaError`           | Stable mt5cli exception types                   |
-| `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error` | Error normalization and retry classification    |
-| `Mt5Config`, `Mt5RuntimeError`, `Mt5TradingClient`, `Mt5TradingError`                | Re-exported pdmt5 types for adapter convenience |
+| Symbol                                                                               | Role                                         |
+| ------------------------------------------------------------------------------------ | -------------------------------------------- |
+| `Mt5CliError`, `Mt5ConnectionError`, `Mt5OperationError`, `Mt5SchemaError`           | Stable mt5cli exception types                |
+| `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error` | Error normalization and retry classification |
 
 ## Secondary public exports
 
@@ -176,7 +192,7 @@ the MT5 SDK helper.
 | Export helpers       | `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                             |
 | Symbol parsing       | `normalize_symbol`, `normalize_symbols`                                                                       |
 | Time parsing         | `ensure_utc`, `parse_date_range`, `parse_datetime`, `recent_window`                                           |
-| MT5 parsing maps     | `granularity_name`, `parse_tick_flags`, `parse_timeframe`, `TICK_FLAG_MAP`, `TIMEFRAME_MAP`                   |
+| MT5 parsing maps     | `granularity_name`, `parse_tick_flags`, `parse_timeframe`                                                     |
 | Trading data shapes  | `POSITION_COLUMNS`                                                                                            |
 
 ## CLI commands

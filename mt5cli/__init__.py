@@ -8,8 +8,6 @@ strategy responsibilities.
 
 from importlib.metadata import version
 
-from pdmt5 import Mt5Config, Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
-
 from .client import MT5Client, build_config, mt5_session
 from .contract import (
     PUBLIC_EXPORT_TIERS,
@@ -152,8 +150,6 @@ from .trading import (
     update_trailing_stop_loss_for_open_positions,
 )
 from .utils import (
-    TICK_FLAG_MAP,
-    TIMEFRAME_MAP,
     parse_datetime,
     parse_tick_flags,
     parse_timeframe,
@@ -169,8 +165,6 @@ __all__ = [
     "REQUIRED_COLUMNS",
     "SECONDARY_PUBLIC_EXPORTS",
     "STABLE_SDK_EXPORTS",
-    "TICK_FLAG_MAP",
-    "TIMEFRAME_MAP",
     "TIME_COLUMNS",
     "AccountSpec",
     "DataKind",
@@ -180,13 +174,9 @@ __all__ = [
     "MT5Client",
     "MarginVolume",
     "Mt5CliError",
-    "Mt5Config",
     "Mt5ConnectionError",
     "Mt5OperationError",
-    "Mt5RuntimeError",
     "Mt5SchemaError",
-    "Mt5TradingClient",
-    "Mt5TradingError",
     "OrderExecutionResult",
     "OrderFillingMode",
     "OrderLimits",
