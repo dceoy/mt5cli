@@ -29,6 +29,12 @@ Built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data han
 pip install -U mt5cli MetaTrader5
 ```
 
+Parquet export is not included by default. To enable it, install the `parquet` extra:
+
+```bash
+pip install -U "mt5cli[parquet]" MetaTrader5
+```
+
 ## Python API (downstream packages)
 
 Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives.

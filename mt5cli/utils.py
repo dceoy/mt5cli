@@ -314,6 +314,7 @@ def export_dataframe(
         table_name: Table name for SQLite3 output.
 
     Raises:
+        ImportError: If the parquet format is requested but pyarrow is not installed.
         ValueError: If the output format is not supported.
     """
     if output_format == "csv":
@@ -326,6 +327,14 @@ def export_dataframe(
             indent=2,
         )
     elif output_format == "parquet":
+        try:
+            __import__("pyarrow")
+        except ImportError as exc:
+            msg = (
+                "Parquet export requires the optional dependency pyarrow. "
+                'Install it with: pip install "mt5cli[parquet]"'
+            )
+            raise ImportError(msg) from exc
         df.to_parquet(output_path, index=False)
     elif output_format == "sqlite3":
         export_dataframe_to_sqlite(

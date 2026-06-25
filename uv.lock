@@ -492,8 +492,12 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "pdmt5" },
-    { name = "pyarrow" },
     { name = "typer" },
+]
+
+[package.optional-dependencies]
+parquet = [
+    { name = "pyarrow" },
 ]
 
 [package.dev-dependencies]
@@ -502,6 +506,7 @@ dev = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
     { name = "pandas-stubs" },
+    { name = "pyarrow" },
     { name = "pymdown-extensions" },
     { name = "pyright" },
     { name = "pytest" },
@@ -514,9 +519,10 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.1.0" },
     { name = "pdmt5", specifier = ">=0.3.0" },
-    { name = "pyarrow", specifier = ">=19.0.0" },
+    { name = "pyarrow", marker = "extra == 'parquet'", specifier = ">=19.0.0" },
     { name = "typer", specifier = ">=0.15.0" },
 ]
+provides-extras = ["parquet"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -524,6 +530,7 @@ dev = [
     { name = "mkdocs-material", specifier = ">=9.7.6" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.4" },
     { name = "pandas-stubs", specifier = ">=2.2.3.250527" },
+    { name = "pyarrow", specifier = ">=19.0.0" },
     { name = "pymdown-extensions", specifier = ">=10.21.2" },
     { name = "pyright", specifier = ">=1.1.407" },
     { name = "pytest", specifier = ">=9.0.3" },

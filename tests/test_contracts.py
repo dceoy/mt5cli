@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from datetime import UTC, datetime
+from importlib.metadata import requires
 from pathlib import Path
 from typing import get_type_hints
 from unittest.mock import MagicMock
@@ -832,3 +833,24 @@ class TestStableSdkContract:
         assert result.index.tz is not None
         assert "time" not in result.columns
         assert "close" in result.columns
+
+
+# ---------------------------------------------------------------------------
+# Packaging metadata
+# ---------------------------------------------------------------------------
+
+
+def test_parquet_extra_declares_pyarrow() -> None:
+    """Package metadata lists pyarrow under the parquet optional extra."""
+    reqs = requires("mt5cli") or []
+    parquet_reqs = [r for r in reqs if "pyarrow" in r and "parquet" in r]
+    assert parquet_reqs, "pyarrow not found in parquet optional extra"
+
+
+def test_pyarrow_not_in_core_dependencies() -> None:
+    """Pyarrow is not a core dependency; it belongs only in the parquet extra."""
+    reqs = requires("mt5cli") or []
+    core_reqs = [r for r in reqs if "extra ==" not in r]
+    assert not any("pyarrow" in r for r in core_reqs), (
+        "pyarrow should not appear in core dependencies"
+    )

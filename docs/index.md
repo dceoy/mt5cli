@@ -27,6 +27,12 @@ mt5cli provides a stable `MT5Client` Python API, standardized dataset schemas, s
 pip install mt5cli
 ```
 
+Parquet export is not included by default. To enable it, install the `parquet` extra:
+
+```bash
+pip install "mt5cli[parquet]"
+```
+
 ## Python API for downstream packages
 
 Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives.

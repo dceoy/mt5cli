@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -110,6 +111,17 @@ class TestExportDataframe:
         export_dataframe(sample_df, output, "parquet")
         result = pd.read_parquet(output)
         pd.testing.assert_frame_equal(result, sample_df)
+
+    def test_export_parquet_without_pyarrow(
+        self,
+        tmp_path: Path,
+        sample_df: pd.DataFrame,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test that a clear error is raised when pyarrow is not installed."""
+        monkeypatch.setitem(sys.modules, "pyarrow", None)
+        with pytest.raises(ImportError, match="mt5cli\\[parquet\\]"):
+            export_dataframe(sample_df, tmp_path / "out.parquet", "parquet")
 
     def test_export_sqlite3(self, tmp_path: Path, sample_df: pd.DataFrame) -> None:
         """Test SQLite3 export."""
