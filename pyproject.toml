@@ -1,6 +1,6 @@
 [project]
 name = "mt5cli"
-version = "0.9.6"
+version = "0.9.7"
 description = "Generic MT5 data and execution infrastructure for Python applications"
 authors = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
 maintainers = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
@@ -11,7 +11,6 @@ requires-python = ">= 3.11, < 3.14"
 dependencies = [
   "pdmt5>=0.3.0",
   "click >= 8.1.0",
-  "pyarrow >= 19.0.0",
   "typer >= 0.15.0",
 ]
 classifiers = [
@@ -24,6 +23,9 @@ classifiers = [
   "Intended Audience :: Financial and Insurance Industry",
   "Topic :: Office/Business :: Financial :: Investment",
 ]
+
+[project.optional-dependencies]
+parquet = ["pyarrow >= 19.0.0"]
 
 [project.scripts]
 mt5cli = "mt5cli.cli:main"
@@ -42,6 +44,7 @@ dev = [
   "pytest-mock >= 3.12.0",
   "pytest-cov >= 5.0.0",
   "pandas-stubs >= 2.2.3.250527",
+  "pyarrow >= 19.0.0",
   "mkdocs >= 1.6.1",
   "mkdocs-material >= 9.7.6",
   "mkdocstrings[python] >= 1.0.4",
