@@ -425,8 +425,18 @@ strategy entries, exits, Kelly sizing, or signal logic.</p>
 <td><code>OrderSide</code>, <code>OrderFillingMode</code>, <code>OrderTimeMode</code>, <code>PositionSide</code>, <code>ExecutionStatus</code></td>
 <td>Typed enums for order helpers</td>
 </tr>
+<tr>
+<td><code>ProjectionMode</code></td>
+<td>Literal type for <code>calculate_symbol_group_margin_ratio</code> projection</td>
+</tr>
 </tbody>
 </table>
+<p><code>calculate_symbol_group_margin_ratio</code> accepts an optional <code>projection_mode</code>
+parameter (<code>"add"</code> by default). Pass <code>projection_mode="replace_symbol"</code> to
+subtract current exposure for <code>new_symbol</code> before adding the candidate margin —
+useful for reversal-style projections. mt5cli only calculates broker-facing
+exposure; downstream applications own thresholds, risk guard actions, and
+strategy policy.</p>
 <p><code>MT5Client.order_send()</code> and CLI <code>order-send --yes</code> are live execution paths.</p>
 <p>Order helpers validate broker stop-level distance in <code>determine_order_limits()</code> and
 raise <code>Mt5TradingError</code> when computed SL/TP prices are too close to the entry
@@ -556,7 +566,12 @@ the MT5 SDK helper.</p>
 <li>Delegate to the same Python APIs described here; they are not duplicated
   business logic.</li>
 </ul>
-<p><code>order-send</code> requires <code>--yes</code> before placing live trades.</p>
+<p><code>order-send</code> is the expert raw-request path; it requires <code>--yes</code> and a fully
+constructed request payload. <code>close-positions</code> is the safer high-level helper
+that closes open positions by <code>--symbol</code> or <code>--ticket</code> using
+<code>close_open_positions()</code>. Both <code>order-send --yes</code> and <code>close-positions --yes</code>
+are live execution paths. <code>close-positions --dry-run</code> previews close orders
+without placing them and does not require <code>--yes</code>.</p>
 <h2 id="internal-helpers-not-stable">Internal helpers (not stable)<a class="headerlink" href="#internal-helpers-not-stable" title="Permanent link">&para;</a></h2>
 <p>Do not import these for downstream contracts; they may change without a semver
 notice:</p>
