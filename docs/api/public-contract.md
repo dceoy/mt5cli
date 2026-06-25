@@ -5,19 +5,15 @@ The intended dependency direction is:
 
 ```text
 downstream app -> mt5cli -> pdmt5 -> MetaTrader 5
-mt5api         -> pdmt5 -> MetaTrader 5
 ```
-
-mt5cli must not depend on mt5api.
 
 ## Responsibility boundary
 
-| Layer            | Owns                                                                                                                                          |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **pdmt5**        | MT5 core wrapper; DataFrame/dict conversion; canonical MT5 constants and parsers; direct low-level order primitives                           |
-| **mt5cli**       | CLI/batch workflows; SQLite history collection; normalized datasets; closed-bar helpers; small downstream operational SDK; generic broker-facing margin/volume/order orchestration |
-| **mt5api**       | HTTP/FastAPI adapter over pdmt5; not a dependency of mt5cli                                                                                   |
-| **downstream**   | Strategy logic; signals; risk policy; backtesting; optimization; YAML/application semantics                                                   |
+| Layer          | Owns                                                                                                                                                                               |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **pdmt5**      | MT5 core wrapper; DataFrame/dict conversion; canonical MT5 constants and parsers; direct low-level order primitives                                                                |
+| **mt5cli**     | CLI/batch workflows; SQLite history collection; normalized datasets; closed-bar helpers; small downstream operational SDK; generic broker-facing margin/volume/order orchestration |
+| **downstream** | Strategy logic; signals; risk policy; backtesting; optimization; YAML/application semantics                                                                                        |
 
 Downstream code should import raw pdmt5 types and constants (such as
 `Mt5Config`, `Mt5TradingClient`, `Mt5RuntimeError`, `Mt5TradingError`,
