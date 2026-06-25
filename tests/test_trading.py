@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, cast, get_args
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -19,6 +19,7 @@ from mt5cli.trading import (
     MarginVolume,
     OrderExecutionResult,
     OrderLimits,
+    ProjectionMode,
     calculate_account_projected_margin_ratio,
     calculate_margin_and_volume,
     calculate_new_position_margin_ratio,
@@ -2064,6 +2065,202 @@ class TestVolumeAndExecution:
                 new_position_volume=0.1,
                 suppress_errors=False,
             )
+
+    def test_symbol_group_margin_ratio_replace_symbol_subtracts_and_adds(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test replace_symbol mode subtracts current exposure and adds candidate."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.101, "bid": 1.1}
+        client.order_calc_margin.return_value = 15.0
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={"EURUSD": 25.0},
+        )
+
+        result = calculate_symbol_group_margin_ratio(
+            client,
+            symbols=["EURUSD"],
+            new_symbol="EURUSD",
+            new_position_side="BUY",
+            new_position_volume=0.1,
+            projection_mode="replace_symbol",
+        )
+
+        # margin = 25.0 - 25.0 (replaced) + 15.0 (candidate) = 15.0
+        _assert_close(result, 0.015)
+
+    def test_symbol_group_margin_ratio_replace_no_existing_adds_candidate(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test replace_symbol with no existing current margin still adds candidate."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.101, "bid": 1.1}
+        client.order_calc_margin.return_value = 20.0
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={"EURUSD": 0.0},
+        )
+
+        result = calculate_symbol_group_margin_ratio(
+            client,
+            symbols=["EURUSD"],
+            new_symbol="EURUSD",
+            new_position_side="BUY",
+            new_position_volume=0.2,
+            projection_mode="replace_symbol",
+        )
+
+        # margin = 0.0 - 0.0 + 20.0 = 20.0
+        _assert_close(result, 0.02)
+
+    def test_symbol_group_margin_ratio_replace_symbol_outside_group_unchanged(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test candidate symbol outside the group does not affect margin."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={"EURUSD": 30.0},
+        )
+
+        result = calculate_symbol_group_margin_ratio(
+            client,
+            symbols=["EURUSD"],
+            new_symbol="GBPUSD",
+            new_position_side="BUY",
+            new_position_volume=0.1,
+            projection_mode="replace_symbol",
+        )
+
+        # GBPUSD is not in the group; no candidate margin applied
+        _assert_close(result, 0.03)
+
+    def test_symbol_group_margin_ratio_replace_no_candidate_returns_current(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test replace_symbol with no candidate side/volume returns current margin."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={"EURUSD": 40.0},
+        )
+
+        result = calculate_symbol_group_margin_ratio(
+            client,
+            symbols=["EURUSD"],
+            new_symbol="EURUSD",
+            projection_mode="replace_symbol",
+        )
+
+        _assert_close(result, 0.04)
+
+    def test_symbol_group_margin_ratio_replace_suppresses_candidate_failure(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test replace mode skips both subtract and add when estimation fails."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={"EURUSD": 25.0},
+        )
+        mocker.patch(
+            "mt5cli.trading.estimate_order_margin",
+            side_effect=Mt5TradingError("bad tick"),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            result = calculate_symbol_group_margin_ratio(
+                client,
+                symbols=["EURUSD"],
+                new_symbol="EURUSD",
+                new_position_side="BUY",
+                new_position_volume=0.1,
+                projection_mode="replace_symbol",
+                suppress_errors=True,
+            )
+
+        # When candidate fails, neither subtraction nor addition is applied
+        _assert_close(result, 0.025)
+        assert "Skipping projected margin" in caplog.text
+
+    def test_symbol_group_margin_ratio_replace_reraises_candidate_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test replace mode re-raises candidate failure when suppress_errors=False."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        mocker.patch(
+            "mt5cli.trading.calculate_positions_margin_by_symbol",
+            return_value={"EURUSD": 25.0},
+        )
+        mocker.patch(
+            "mt5cli.trading.estimate_order_margin",
+            side_effect=Mt5TradingError("bad tick"),
+        )
+
+        with pytest.raises(Mt5TradingError, match="bad tick"):
+            calculate_symbol_group_margin_ratio(
+                client,
+                symbols=["EURUSD"],
+                new_symbol="EURUSD",
+                new_position_side="BUY",
+                new_position_volume=0.1,
+                projection_mode="replace_symbol",
+                suppress_errors=False,
+            )
+
+    def test_projection_mode_type_alias_is_importable(self) -> None:
+        """Test ProjectionMode type alias is importable and has expected values."""
+        assert ProjectionMode is not None
+        args = get_args(ProjectionMode)
+        assert "add" in args
+        assert "replace_symbol" in args
+
+    def test_invalid_projection_mode_raises_value_error(self) -> None:
+        """Test that an unsupported projection_mode raises ValueError."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 10000.0}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            columns=["symbol", "type", "volume"]
+        )
+        with pytest.raises(ValueError, match="Unsupported projection mode"):
+            calculate_symbol_group_margin_ratio(
+                client,
+                symbols=["EURUSD"],
+                projection_mode="invalid",  # type: ignore[arg-type]
+            )
+
+    def test_invalid_projection_mode_message_includes_value_and_accepted(
+        self,
+    ) -> None:
+        """Test ValueError message contains the bad value and accepted modes."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 10000.0}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            columns=["symbol", "type", "volume"]
+        )
+        with pytest.raises(ValueError, match="'unknown'") as exc_info:
+            calculate_symbol_group_margin_ratio(
+                client,
+                symbols=["EURUSD"],
+                projection_mode="unknown",  # type: ignore[arg-type]
+            )
+        msg = str(exc_info.value)
+        assert "add" in msg
+        assert "replace_symbol" in msg
 
     def test_place_market_order_dry_run_does_not_send(self) -> None:
         """Test dry-run market orders return a request without sending."""

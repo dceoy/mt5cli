@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
+import pandas as pd
 import typer
 from pdmt5 import Mt5Config
 
 from . import sdk
 from .client import MT5Client
+from .trading import OrderExecutionResult, close_open_positions, create_trading_client
 from .utils import (
     DATETIME_TYPE,
     REQUEST_TYPE,
@@ -28,8 +31,6 @@ from .utils import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -598,6 +599,96 @@ def order_send(
         msg = "Pass --yes to send a live trade request."
         raise typer.BadParameter(msg, param_hint="--yes")
     _export_command(ctx, lambda client: client.order_send(request))
+
+
+_EXECUTION_RESULT_COLUMNS: list[str] = [
+    "status",
+    "symbol",
+    "order_side",
+    "volume",
+    "retcode",
+    "comment",
+    "request",
+    "response",
+    "dry_run",
+]
+
+
+def _execution_results_to_df(results: list[OrderExecutionResult]) -> pd.DataFrame:
+    if not results:
+        return pd.DataFrame(columns=_EXECUTION_RESULT_COLUMNS)
+    rows = [
+        {
+            **r,
+            "request": json.dumps(r["request"]),
+            "response": json.dumps(r["response"]),
+        }
+        for r in results
+    ]
+    return pd.DataFrame(rows)
+
+
+@app.command()
+def close_positions(
+    ctx: typer.Context,
+    symbol: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--symbol",
+            "-s",
+            help="Symbol to close (repeat for multiple symbols).",
+        ),
+    ] = None,
+    ticket: Annotated[
+        list[int] | None,
+        typer.Option(
+            "--ticket",
+            "-t",
+            help="Position ticket to close (repeat for multiple tickets).",
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview close orders without executing them."),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Confirm live position closing."),
+    ] = False,
+) -> None:
+    """Close open positions by symbol or ticket.
+
+    Delegates to :func:`mt5cli.trading.close_open_positions`. At least one
+    ``--symbol`` or ``--ticket`` must be provided to avoid accidentally closing
+    all positions. Use ``--dry-run`` to preview without executing; ``--yes`` is
+    required for live execution.
+
+    ``order-send`` is the expert raw-request path. ``close-positions`` is the
+    safer high-level helper that builds correct close requests automatically.
+
+    Raises:
+        typer.BadParameter: If neither ``--symbol`` nor ``--ticket`` is given,
+            or if ``--yes`` is missing for a live (non-dry-run) run.
+    """
+    if not symbol and not ticket:
+        msg = "Provide at least one --symbol or --ticket to close positions."
+        raise typer.BadParameter(msg)
+    if not dry_run and not yes:
+        msg = "Pass --yes to close live positions."
+        raise typer.BadParameter(msg, param_hint="--yes")
+    export_ctx = _get_export_context(ctx)
+    client = create_trading_client(config=export_ctx.config)
+    try:
+        results = close_open_positions(
+            client,
+            symbols=list(symbol) if symbol else None,
+            tickets=list(ticket) if ticket else None,
+            dry_run=dry_run,
+        )
+    finally:
+        client.shutdown()
+    df = _execution_results_to_df(results)
+    _execute_export(ctx, lambda: df)
 
 
 @app.command()

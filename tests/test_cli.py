@@ -741,6 +741,306 @@ class TestCommands:
 
 
 # ---------------------------------------------------------------------------
+# close-positions command
+# ---------------------------------------------------------------------------
+
+
+def _build_mock_trading_client() -> MagicMock:
+    """Return a MagicMock Mt5TradingClient with trading constants set."""
+    client = MagicMock()
+    client.mt5.POSITION_TYPE_BUY = 0
+    client.mt5.POSITION_TYPE_SELL = 1
+    client.mt5.ORDER_TYPE_BUY = 10
+    client.mt5.ORDER_TYPE_SELL = 11
+    client.mt5.TRADE_ACTION_DEAL = 20
+    client.mt5.ORDER_FILLING_IOC = 30
+    client.mt5.ORDER_TIME_GTC = 40
+    client.mt5.TRADE_RETCODE_DONE = 10009
+    client.mt5.TRADE_RETCODE_PLACED = 10008
+    client.mt5.TRADE_RETCODE_DONE_PARTIAL = 10010
+    return client
+
+
+class TestClosePositions:
+    """Tests for the close-positions command."""
+
+    @pytest.fixture
+    def trading_client(self, mocker: MockerFixture) -> MagicMock:
+        """Patch create_trading_client and return a mock trading client."""
+        client = _build_mock_trading_client()
+        client.positions_get_as_df.return_value = pd.DataFrame([
+            {"ticket": 1, "symbol": "JP225", "type": 0, "volume": 1.0},
+            {"ticket": 2, "symbol": "EURUSD", "type": 1, "volume": 0.5},
+        ])
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        mocker.patch("mt5cli.cli.create_trading_client", return_value=client)
+        return client
+
+    def test_dry_run_does_not_require_yes(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test --dry-run mode succeeds without --yes."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "close-positions", "--symbol", "JP225", "--dry-run"],
+        )
+        assert result.exit_code == 0, result.output
+        assert output.exists()
+        trading_client.order_send.assert_not_called()
+        trading_client.shutdown.assert_called_once()
+
+    def test_live_requires_yes(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test live close-positions fails without --yes."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "close-positions", "--symbol", "JP225"],
+        )
+        assert result.exit_code != 0
+        assert "Pass --yes" in normalize_cli_output(result.output)
+        trading_client.order_send.assert_not_called()
+
+    def test_live_with_yes_calls_order_send(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test --yes triggers live execution for matching positions."""
+        trading_client.order_send.return_value = {"retcode": 10009, "comment": "ok"}
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "close-positions", "--symbol", "JP225", "--yes"],
+        )
+        assert result.exit_code == 0, result.output
+        trading_client.order_send.assert_called_once()
+        trading_client.shutdown.assert_called_once()
+
+    def test_symbol_filter_passed_through(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test --symbol values are used to filter positions."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(output.read_text())
+        assert len(data) == 1
+        assert data[0]["symbol"] == "JP225"
+        trading_client.shutdown.assert_called_once()
+
+    def test_multiple_symbols_filter(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test multiple --symbol options are combined."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                "--symbol",
+                "EURUSD",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(output.read_text())
+        assert len(data) == 2
+        symbols = {row["symbol"] for row in data}
+        assert symbols == {"JP225", "EURUSD"}
+        trading_client.shutdown.assert_called_once()
+
+    def test_ticket_filter_passed_through(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test --ticket values are used to filter positions."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--ticket",
+                "2",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(output.read_text())
+        assert len(data) == 1
+        assert data[0]["symbol"] == "EURUSD"
+        trading_client.shutdown.assert_called_once()
+
+    def test_symbol_and_ticket_combined(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test --symbol and --ticket apply AND semantics when combined."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                "--ticket",
+                "1",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(output.read_text())
+        # symbol=JP225 AND ticket=1 → exactly one match
+        assert len(data) == 1
+        assert data[0]["symbol"] == "JP225"
+        trading_client.shutdown.assert_called_once()
+
+    def test_missing_symbol_and_ticket_fails(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that omitting both --symbol and --ticket fails closed."""
+        mocker.patch("mt5cli.cli.create_trading_client")
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "close-positions", "--dry-run"],
+        )
+        assert result.exit_code != 0
+        assert "symbol" in normalize_cli_output(result.output).lower()
+
+    def test_output_export_dry_run(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test dry-run results export with status=dry_run."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "close-positions", "--symbol", "JP225", "--dry-run"],
+        )
+        assert result.exit_code == 0, result.output
+        trading_client.shutdown.assert_called_once()
+        data = json.loads(output.read_text())
+        assert data[0]["status"] == "dry_run"
+        assert data[0]["dry_run"] is True
+        assert data[0]["order_side"] == "SELL"
+
+    def test_order_send_unchanged(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test that order-send behavior is unchanged by close-positions addition."""
+        output = tmp_path / "out.csv"
+        request = json.dumps({"action": 1, "symbol": "EURUSD", "volume": 0.1})
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "order-send", "--request", request, "--yes"],
+        )
+        assert result.exit_code == 0, result.output
+        mock_client.order_send_as_df.assert_called_once()
+
+    def test_shutdown_called_on_close_error(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that shutdown is called even when close_open_positions raises."""
+        client = _build_mock_trading_client()
+        client.positions_get_as_df.side_effect = RuntimeError("connection lost")
+        mocker.patch("mt5cli.cli.create_trading_client", return_value=client)
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "close-positions", "--symbol", "JP225", "--dry-run"],
+        )
+        assert result.exit_code != 0
+        client.shutdown.assert_called_once()
+
+    def test_dry_run_wins_over_yes(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test that --dry-run takes precedence when combined with --yes."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                "--dry-run",
+                "--yes",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        trading_client.order_send.assert_not_called()
+        trading_client.shutdown.assert_called_once()
+
+    def test_no_matching_positions_exports_empty_result(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test that zero filter matches produces an empty JSON array."""
+        trading_client.positions_get_as_df.return_value = pd.DataFrame([
+            {"ticket": 1, "symbol": "JP225", "type": 0, "volume": 1.0},
+        ])
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "NONEXISTENT",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        trading_client.shutdown.assert_called_once()
+        assert output.exists()
+        assert json.loads(output.read_text()) == []
+
+
+# ---------------------------------------------------------------------------
 # Callback / shared options
 # ---------------------------------------------------------------------------
 

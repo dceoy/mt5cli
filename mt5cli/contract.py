@@ -17,6 +17,7 @@ STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "OrderSide",
     "OrderTimeMode",
     "PositionSide",
+    "ProjectionMode",
     "ExecutionStatus",
     "MarginVolume",
     "OrderExecutionResult",

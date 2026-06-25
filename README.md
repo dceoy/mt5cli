@@ -178,10 +178,13 @@ python -m mt5cli -o account.csv account-info
 | `recent-history-deals` | Export historical deals from a recent trailing window                                                        |
 | `mt5-summary`          | Export terminal/account status summary                                                                       |
 | `order-check`          | Check funds sufficiency for a trade request                                                                  |
-| `order-send`           | Send a trade request to the trade server (`--yes` required)                                                  |
+| `order-send`           | Send a raw trade request to the trade server (`--yes` required; expert path)                                 |
+| `close-positions`      | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` available)          |
 | `collect-history`      | Bundle rates, ticks, history-orders, and history-deals for one or more symbols into a single SQLite database |
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
+`close-positions` is the safer high-level alternative that builds correct close
+requests automatically. At least one `--symbol` or `--ticket` must be provided.
 
 ### `collect-history`
 
