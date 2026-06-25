@@ -2229,6 +2229,39 @@ class TestVolumeAndExecution:
         assert "add" in args
         assert "replace_symbol" in args
 
+    def test_invalid_projection_mode_raises_value_error(self) -> None:
+        """Test that an unsupported projection_mode raises ValueError."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 10000.0}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            columns=["symbol", "type", "volume"]
+        )
+        with pytest.raises(ValueError, match="Unsupported projection mode"):
+            calculate_symbol_group_margin_ratio(
+                client,
+                symbols=["EURUSD"],
+                projection_mode="invalid",  # type: ignore[arg-type]
+            )
+
+    def test_invalid_projection_mode_message_includes_value_and_accepted(
+        self,
+    ) -> None:
+        """Test ValueError message contains the bad value and accepted modes."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 10000.0}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            columns=["symbol", "type", "volume"]
+        )
+        with pytest.raises(ValueError, match="'unknown'") as exc_info:
+            calculate_symbol_group_margin_ratio(
+                client,
+                symbols=["EURUSD"],
+                projection_mode="unknown",  # type: ignore[arg-type]
+            )
+        msg = str(exc_info.value)
+        assert "add" in msg
+        assert "replace_symbol" in msg
+
     def test_place_market_order_dry_run_does_not_send(self) -> None:
         """Test dry-run market orders return a request without sending."""
         client = _mock_trade_client()

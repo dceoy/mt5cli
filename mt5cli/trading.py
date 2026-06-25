@@ -922,6 +922,16 @@ def calculate_projected_margin_ratio(
     return margin / equity
 
 
+def _validate_projection_mode(projection_mode: str) -> ProjectionMode:
+    if projection_mode not in {"add", "replace_symbol"}:
+        msg = (
+            f"Unsupported projection mode: {projection_mode!r}. "
+            "Expected 'add' or 'replace_symbol'."
+        )
+        raise ValueError(msg)
+    return cast("ProjectionMode", projection_mode)
+
+
 def calculate_symbol_group_margin_ratio(
     client: Mt5TradingClient,
     *,
@@ -956,6 +966,7 @@ def calculate_symbol_group_margin_ratio(
             lookup or projected margin lookup fails and ``suppress_errors`` is
             ``False``.
     """
+    projection_mode = _validate_projection_mode(projection_mode)
     equity = _account_equity(client)
     unique_symbols = list(dict.fromkeys(symbols))
     per_symbol = calculate_positions_margin_by_symbol(
