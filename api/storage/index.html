@@ -1891,6 +1891,16 @@ completed bars. Empty frames and single-row frames return empty results.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
+                  <code><span title="ImportError">ImportError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If the parquet format is requested but pyarrow is not installed.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
                   <code><span title="ValueError">ValueError</span></code>
             </td>
             <td>
@@ -1943,7 +1953,16 @@ completed bars. Empty frames and single-row frames return empty results.</p>
 <span class="normal"><a href="#__codelineno-0-337">337</a></span>
 <span class="normal"><a href="#__codelineno-0-338">338</a></span>
 <span class="normal"><a href="#__codelineno-0-339">339</a></span>
-<span class="normal"><a href="#__codelineno-0-340">340</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-302" name="__codelineno-0-302"></a><span class="k">def</span><span class="w"> </span><span class="nf">export_dataframe</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-340">340</a></span>
+<span class="normal"><a href="#__codelineno-0-341">341</a></span>
+<span class="normal"><a href="#__codelineno-0-342">342</a></span>
+<span class="normal"><a href="#__codelineno-0-343">343</a></span>
+<span class="normal"><a href="#__codelineno-0-344">344</a></span>
+<span class="normal"><a href="#__codelineno-0-345">345</a></span>
+<span class="normal"><a href="#__codelineno-0-346">346</a></span>
+<span class="normal"><a href="#__codelineno-0-347">347</a></span>
+<span class="normal"><a href="#__codelineno-0-348">348</a></span>
+<span class="normal"><a href="#__codelineno-0-349">349</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-302" name="__codelineno-0-302"></a><span class="k">def</span><span class="w"> </span><span class="nf">export_dataframe</span><span class="p">(</span>
 <a id="__codelineno-0-303" name="__codelineno-0-303"></a>    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
 <a id="__codelineno-0-304" name="__codelineno-0-304"></a>    <span class="n">output_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
 <a id="__codelineno-0-305" name="__codelineno-0-305"></a>    <span class="n">output_format</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -1958,30 +1977,39 @@ completed bars. Empty frames and single-row frames return empty results.</p>
 <a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="sd">        table_name: Table name for SQLite3 output.</span>
 <a id="__codelineno-0-315" name="__codelineno-0-315"></a>
 <a id="__codelineno-0-316" name="__codelineno-0-316"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">        ValueError: If the output format is not supported.</span>
-<a id="__codelineno-0-318" name="__codelineno-0-318"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-319" name="__codelineno-0-319"></a>    <span class="k">if</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;csv&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-320" name="__codelineno-0-320"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-0-321" name="__codelineno-0-321"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;json&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-322" name="__codelineno-0-322"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_json</span><span class="p">(</span>
-<a id="__codelineno-0-323" name="__codelineno-0-323"></a>            <span class="n">output_path</span><span class="p">,</span>
-<a id="__codelineno-0-324" name="__codelineno-0-324"></a>            <span class="n">orient</span><span class="o">=</span><span class="s2">&quot;records&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-325" name="__codelineno-0-325"></a>            <span class="n">date_format</span><span class="o">=</span><span class="s2">&quot;iso&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-326" name="__codelineno-0-326"></a>            <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-0-327" name="__codelineno-0-327"></a>        <span class="p">)</span>
-<a id="__codelineno-0-328" name="__codelineno-0-328"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;parquet&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-329" name="__codelineno-0-329"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_parquet</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-0-330" name="__codelineno-0-330"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;sqlite3&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-331" name="__codelineno-0-331"></a>        <span class="n">export_dataframe_to_sqlite</span><span class="p">(</span>
-<a id="__codelineno-0-332" name="__codelineno-0-332"></a>            <span class="n">df</span><span class="p">,</span>
-<a id="__codelineno-0-333" name="__codelineno-0-333"></a>            <span class="n">output_path</span><span class="p">,</span>
-<a id="__codelineno-0-334" name="__codelineno-0-334"></a>            <span class="n">table_name</span><span class="p">,</span>
-<a id="__codelineno-0-335" name="__codelineno-0-335"></a>            <span class="n">if_exists</span><span class="o">=</span><span class="n">IfExists</span><span class="o">.</span><span class="n">REPLACE</span><span class="p">,</span>
-<a id="__codelineno-0-336" name="__codelineno-0-336"></a>            <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-337" name="__codelineno-0-337"></a>        <span class="p">)</span>
-<a id="__codelineno-0-338" name="__codelineno-0-338"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-339" name="__codelineno-0-339"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Unsupported output format: </span><span class="si">{</span><span class="n">output_format</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-340" name="__codelineno-0-340"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">        ImportError: If the parquet format is requested but pyarrow is not installed.</span>
+<a id="__codelineno-0-318" name="__codelineno-0-318"></a><span class="sd">        ValueError: If the output format is not supported.</span>
+<a id="__codelineno-0-319" name="__codelineno-0-319"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-320" name="__codelineno-0-320"></a>    <span class="k">if</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;csv&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-321" name="__codelineno-0-321"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-0-322" name="__codelineno-0-322"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;json&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-323" name="__codelineno-0-323"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_json</span><span class="p">(</span>
+<a id="__codelineno-0-324" name="__codelineno-0-324"></a>            <span class="n">output_path</span><span class="p">,</span>
+<a id="__codelineno-0-325" name="__codelineno-0-325"></a>            <span class="n">orient</span><span class="o">=</span><span class="s2">&quot;records&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-326" name="__codelineno-0-326"></a>            <span class="n">date_format</span><span class="o">=</span><span class="s2">&quot;iso&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-327" name="__codelineno-0-327"></a>            <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-0-328" name="__codelineno-0-328"></a>        <span class="p">)</span>
+<a id="__codelineno-0-329" name="__codelineno-0-329"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;parquet&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-330" name="__codelineno-0-330"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-331" name="__codelineno-0-331"></a>            <span class="nb">__import__</span><span class="p">(</span><span class="s2">&quot;pyarrow&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-332" name="__codelineno-0-332"></a>        <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-333" name="__codelineno-0-333"></a>            <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-0-334" name="__codelineno-0-334"></a>                <span class="s2">&quot;Parquet export requires the optional dependency pyarrow. &quot;</span>
+<a id="__codelineno-0-335" name="__codelineno-0-335"></a>                <span class="s1">&#39;Install it with: pip install &quot;mt5cli[parquet]&quot;&#39;</span>
+<a id="__codelineno-0-336" name="__codelineno-0-336"></a>            <span class="p">)</span>
+<a id="__codelineno-0-337" name="__codelineno-0-337"></a>            <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-338" name="__codelineno-0-338"></a>        <span class="n">df</span><span class="o">.</span><span class="n">to_parquet</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a>    <span class="k">elif</span> <span class="n">output_format</span> <span class="o">==</span> <span class="s2">&quot;sqlite3&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a>        <span class="n">export_dataframe_to_sqlite</span><span class="p">(</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a>            <span class="n">df</span><span class="p">,</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a>            <span class="n">output_path</span><span class="p">,</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a>            <span class="n">table_name</span><span class="p">,</span>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a>            <span class="n">if_exists</span><span class="o">=</span><span class="n">IfExists</span><span class="o">.</span><span class="n">REPLACE</span><span class="p">,</span>
+<a id="__codelineno-0-345" name="__codelineno-0-345"></a>            <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-346" name="__codelineno-0-346"></a>        <span class="p">)</span>
+<a id="__codelineno-0-347" name="__codelineno-0-347"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-348" name="__codelineno-0-348"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Unsupported output format: </span><span class="si">{</span><span class="n">output_format</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-349" name="__codelineno-0-349"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
