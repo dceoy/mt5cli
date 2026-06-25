@@ -982,7 +982,7 @@ def calculate_symbol_group_margin_ratio(
             _logger.warning("Skipping projected margin for %r.", new_symbol)
         else:
             if projection_mode == "replace_symbol":
-                margin -= per_symbol.get(new_symbol, 0.0)
+                margin = max(0.0, margin - per_symbol.get(new_symbol, 0.0))
             margin += candidate_margin
     return margin / equity
 

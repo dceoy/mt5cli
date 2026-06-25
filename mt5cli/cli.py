@@ -601,14 +601,27 @@ def order_send(
     _export_command(ctx, lambda client: client.order_send(request))
 
 
+_EXECUTION_RESULT_COLUMNS: list[str] = [
+    "status",
+    "symbol",
+    "order_side",
+    "volume",
+    "retcode",
+    "comment",
+    "request",
+    "response",
+    "dry_run",
+]
+
+
 def _execution_results_to_df(results: list[OrderExecutionResult]) -> pd.DataFrame:
+    if not results:
+        return pd.DataFrame(columns=_EXECUTION_RESULT_COLUMNS)
     rows = [
         {
             **r,
             "request": json.dumps(r["request"]),
-            "response": json.dumps(r["response"])
-            if r["response"] is not None
-            else None,
+            "response": json.dumps(r["response"]),
         }
         for r in results
     ]

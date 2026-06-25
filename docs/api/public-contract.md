@@ -113,6 +113,13 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`, `ExecutionStatus`                                            | Typed enums for order helpers                                     |
 | `ProjectionMode`                                                                                                               | Literal type for `calculate_symbol_group_margin_ratio` projection |
 
+`calculate_symbol_group_margin_ratio` accepts an optional `projection_mode`
+parameter (`"add"` by default). Pass `projection_mode="replace_symbol"` to
+subtract current exposure for `new_symbol` before adding the candidate margin —
+useful for reversal-style projections. mt5cli only calculates broker-facing
+exposure; downstream applications own thresholds, risk guard actions, and
+strategy policy.
+
 `MT5Client.order_send()` and CLI `order-send --yes` are live execution paths.
 
 Order helpers validate broker stop-level distance in `determine_order_limits()` and
@@ -171,13 +178,6 @@ the MT5 SDK helper.
 | Time parsing         | `ensure_utc`, `parse_date_range`, `parse_datetime`, `recent_window`                                           |
 | MT5 parsing maps     | `granularity_name`, `parse_tick_flags`, `parse_timeframe`, `TICK_FLAG_MAP`, `TIMEFRAME_MAP`                   |
 | Trading data shapes  | `POSITION_COLUMNS`                                                                                            |
-
-`calculate_symbol_group_margin_ratio` supports an optional `projection_mode`
-parameter (`"add"` by default). Pass `projection_mode="replace_symbol"` to
-subtract current exposure for `new_symbol` before adding the candidate margin —
-useful for reversal-style projections. mt5cli only calculates broker-facing
-exposure; downstream applications own thresholds, risk guard actions, and
-strategy policy.
 
 ## CLI commands
 

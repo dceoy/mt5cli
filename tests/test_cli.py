@@ -990,6 +990,55 @@ class TestClosePositions:
         assert result.exit_code != 0
         client.shutdown.assert_called_once()
 
+    def test_dry_run_wins_over_yes(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test that --dry-run takes precedence when combined with --yes."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                "--dry-run",
+                "--yes",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        trading_client.order_send.assert_not_called()
+        trading_client.shutdown.assert_called_once()
+
+    def test_no_matching_positions_exports_empty_result(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Test that zero filter matches produces an empty JSON array."""
+        trading_client.positions_get_as_df.return_value = pd.DataFrame([
+            {"ticket": 1, "symbol": "JP225", "type": 0, "volume": 1.0},
+        ])
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "NONEXISTENT",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        trading_client.shutdown.assert_called_once()
+        assert output.exists()
+        assert json.loads(output.read_text()) == []
+
 
 # ---------------------------------------------------------------------------
 # Callback / shared options
