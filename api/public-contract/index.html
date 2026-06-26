@@ -133,6 +133,10 @@
             
             <li class="nav-item" data-bs-level="1"><a href="#public-api-contract" class="nav-link">Public API Contract</a>
               <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#responsibility-boundary" class="nav-link">Responsibility boundary</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
             <li class="nav-item" data-bs-level="2"><a href="#public-api-tiers" class="nav-link">Public API tiers</a>
               <ul class="nav flex-column">
               </ul>
@@ -169,10 +173,39 @@
                     <div class="col-md-9" role="main">
 
 <h1 id="public-api-contract">Public API Contract<a class="headerlink" href="#public-api-contract" title="Permanent link">&para;</a></h1>
-<p>mt5cli is the generic MT5 data and execution infrastructure layer for downstream
-Python applications. The intended dependency direction is:</p>
+<p>mt5cli is the canonical operational trading SDK and CLI/batch layer over pdmt5.
+The intended dependency direction is:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>downstream app -&gt; mt5cli -&gt; pdmt5 -&gt; MetaTrader 5
 </code></pre></div>
+<h2 id="responsibility-boundary">Responsibility boundary<a class="headerlink" href="#responsibility-boundary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Owns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>pdmt5</strong></td>
+<td>MT5 core wrapper; DataFrame/dict conversion; canonical MT5 constants and parsers; direct low-level order primitives</td>
+</tr>
+<tr>
+<td><strong>mt5cli</strong></td>
+<td>CLI/batch workflows; SQLite history collection; normalized datasets; closed-bar helpers; small downstream operational SDK; generic broker-facing margin/volume/order orchestration</td>
+</tr>
+<tr>
+<td><strong>downstream</strong></td>
+<td>Strategy logic; signals; risk policy; backtesting; optimization; YAML/application semantics</td>
+</tr>
+</tbody>
+</table>
+<p>Downstream code should import raw pdmt5 types and constants (such as
+<code>Mt5Config</code>, <code>Mt5TradingClient</code>, <code>Mt5RuntimeError</code>, <code>Mt5TradingError</code>,
+<code>TIMEFRAME_MAP</code>, <code>COPY_TICKS_MAP</code>) directly from <code>pdmt5</code> when needed.
+mt5cli does not serve as a pass-through compatibility namespace for pdmt5.</p>
+<p>Note: the former <code>mt5cli</code> re-export <code>TICK_FLAG_MAP</code> corresponds to <code>COPY_TICKS_MAP</code>
+in pdmt5 — the name changed, it was not simply moved.</p>
 <p>Downstream packages should import from the package root (<code>from mt5cli import
 ...</code>) and use the public tier sets in <code>mt5cli.contract</code> to distinguish API
 stability. CLI commands mirror the same behavior but are not importable Python
@@ -448,7 +481,7 @@ after price movement and does not inspect <code>trade_freeze_level</code>. Live
 sending requests. Failed, malformed, or unknown broker retcodes are fail-closed
 and returned as <code>status="failed"</code> with normalized <code>request</code> / <code>response</code> details;
 <code>dry_run=True</code> never calls <code>ensure_symbol_selected()</code> or <code>order_send()</code>.</p>
-<h3 id="errors-and-mt5-type-re-exports">Errors and MT5 type re-exports<a class="headerlink" href="#errors-and-mt5-type-re-exports" title="Permanent link">&para;</a></h3>
+<h3 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -464,10 +497,6 @@ and returned as <code>status="failed"</code> with normalized <code>request</code
 <tr>
 <td><code>normalize_mt5_exception</code>, <code>call_with_normalized_errors</code>, <code>is_recoverable_mt5_error</code></td>
 <td>Error normalization and retry classification</td>
-</tr>
-<tr>
-<td><code>Mt5Config</code>, <code>Mt5RuntimeError</code>, <code>Mt5TradingClient</code>, <code>Mt5TradingError</code></td>
-<td>Re-exported pdmt5 types for adapter convenience</td>
 </tr>
 </tbody>
 </table>
@@ -548,7 +577,7 @@ the MT5 SDK helper.</p>
 </tr>
 <tr>
 <td>MT5 parsing maps</td>
-<td><code>granularity_name</code>, <code>parse_tick_flags</code>, <code>parse_timeframe</code>, <code>TICK_FLAG_MAP</code>, <code>TIMEFRAME_MAP</code></td>
+<td><code>granularity_name</code>, <code>parse_tick_flags</code>, <code>parse_timeframe</code></td>
 </tr>
 <tr>
 <td>Trading data shapes</td>
