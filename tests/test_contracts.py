@@ -835,6 +835,28 @@ class TestStableSdkContract:
         assert "close" in result.columns
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Mt5Config",
+        "Mt5RuntimeError",
+        "Mt5TradingClient",
+        "Mt5TradingError",
+        "TICK_FLAG_MAP",
+        "TIMEFRAME_MAP",
+    ],
+)
+def test_pdmt5_pass_through_names_removed_from_public_contract(name: str) -> None:
+    """Removed pdmt5 pass-through names are not part of the public contract."""
+    assert name not in STABLE_SDK_EXPORTS, (
+        f"{name!r} should not be in STABLE_SDK_EXPORTS"
+    )
+    assert name not in SECONDARY_PUBLIC_EXPORTS, (
+        f"{name!r} should not be in SECONDARY_PUBLIC_EXPORTS"
+    )
+    assert name not in mt5cli.__all__, f"{name!r} should not be in mt5cli.__all__"
+
+
 # ---------------------------------------------------------------------------
 # Packaging metadata
 # ---------------------------------------------------------------------------

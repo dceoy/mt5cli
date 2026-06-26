@@ -11,15 +11,15 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import pytest
 
+import mt5cli.utils
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 from mt5cli.utils import (
     DATETIME_TYPE,
     REQUEST_TYPE,
-    TICK_FLAG_MAP,
     TICK_FLAGS_TYPE,
-    TIMEFRAME_MAP,
     TIMEFRAME_TYPE,
     Dataset,
     IfExists,
@@ -373,17 +373,13 @@ class TestParseRequest:
 class TestConstants:
     """Tests for module constants."""
 
-    def test_timeframe_map_has_expected_keys(self) -> None:
-        """Test that TIMEFRAME_MAP contains standard timeframes."""
-        for key in ("M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1"):
-            assert key in TIMEFRAME_MAP
+    def test_timeframe_map_is_private_in_utils(self) -> None:
+        """TIMEFRAME_MAP is a private implementation detail; not a public attribute."""
+        assert not hasattr(mt5cli.utils, "TIMEFRAME_MAP")
 
-    def test_tick_flag_map_has_expected_keys(self) -> None:
-        """Test that TICK_FLAG_MAP contains standard flags with MT5 values."""
-        assert {"ALL", "INFO", "TRADE"} <= set(TICK_FLAG_MAP)
-        assert TICK_FLAG_MAP["ALL"] == -1
-        assert TICK_FLAG_MAP["INFO"] == 1
-        assert TICK_FLAG_MAP["TRADE"] == 2
+    def test_tick_flag_map_absent_from_utils(self) -> None:
+        """TICK_FLAG_MAP is not exposed by mt5cli.utils."""
+        assert not hasattr(mt5cli.utils, "TICK_FLAG_MAP")
 
     @pytest.mark.parametrize(
         ("dataset", "expected"),

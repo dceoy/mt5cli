@@ -15,6 +15,8 @@ from pytest_mock import MockerFixture  # noqa: TC002
 if TYPE_CHECKING:
     from pathlib import Path
 
+from pdmt5 import TIMEFRAME_MAP
+
 from mt5cli import history
 from mt5cli.history import (
     DEFAULT_HISTORY_TIMEFRAMES,
@@ -58,7 +60,7 @@ from mt5cli.history import (
     write_rates_dataset,
     write_streamed_frame,
 )
-from mt5cli.utils import TIMEFRAME_MAP, Dataset, IfExists
+from mt5cli.utils import Dataset, IfExists
 
 
 class TestResolveRateViewName:

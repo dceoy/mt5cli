@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeGuard
 
 import click
-from pdmt5 import COPY_TICKS_MAP, TIMEFRAME_MAP
+from pdmt5 import COPY_TICKS_MAP as _COPY_TICKS_MAP
+from pdmt5 import TIMEFRAME_MAP as _TIMEFRAME_MAP
 from pdmt5 import parse_copy_ticks as _parse_copy_ticks
 from pdmt5 import parse_timeframe as _parse_timeframe
 
@@ -23,14 +24,11 @@ if TYPE_CHECKING:
 # Constants
 # ---------------------------------------------------------------------------
 
-# Backward-compatible snapshot; prefer ``COPY_TICKS_MAP`` from pdmt5 directly.
-TICK_FLAG_MAP: dict[str, int] = dict(COPY_TICKS_MAP)
-
 TIMEFRAME_NAMES: tuple[str, ...] = tuple(
-    name for name in TIMEFRAME_MAP if not name.startswith("TIMEFRAME_")
+    name for name in _TIMEFRAME_MAP if not name.startswith("TIMEFRAME_")
 )
 _TICK_FLAG_NAMES: tuple[str, ...] = tuple(
-    name for name in COPY_TICKS_MAP if not name.startswith("COPY_TICKS_")
+    name for name in _COPY_TICKS_MAP if not name.startswith("COPY_TICKS_")
 )
 
 _FORMAT_EXTENSIONS: dict[str, str] = {
