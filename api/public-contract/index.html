@@ -193,9 +193,12 @@ The intended dependency direction is:</p>
 </tbody>
 </table>
 <p>Downstream code should import raw pdmt5 types and constants (such as
-<code>Mt5Config</code>, <code>Mt5TradingClient</code>, <code>Mt5RuntimeError</code>, <code>Mt5TradingError</code>,
-<code>TIMEFRAME_MAP</code>, <code>COPY_TICKS_MAP</code>) directly from <code>pdmt5</code> when needed.
-mt5cli does not serve as a pass-through compatibility namespace for pdmt5.</p>
+<code>Mt5Config</code>, <code>Mt5RuntimeError</code>, <code>TIMEFRAME_MAP</code>, <code>COPY_TICKS_MAP</code>) directly
+from <code>pdmt5</code> when needed. mt5cli does not serve as a pass-through compatibility
+namespace for pdmt5. mt5cli's trading helpers type their client parameter against
+an internal protocol backed by <code>pdmt5.Mt5DataClient</code>; <code>Mt5TradingClient</code> is no
+longer required. <code>Mt5TradingError</code> is conditionally imported where still present
+in pdmt5, but mt5cli raises <code>Mt5OperationError</code> for all trading-related failures.</p>
 <p>Note: the former <code>mt5cli</code> re-export <code>TICK_FLAG_MAP</code> corresponds to <code>COPY_TICKS_MAP</code>
 in pdmt5 — the name changed, it was not simply moved.</p>
 <p>Downstream packages should import from the package root (<code>from mt5cli import
@@ -230,7 +233,7 @@ their owning modules (<code>mt5cli.schemas</code>, <code>mt5cli.utils</code>, <c
 </tr>
 <tr>
 <td><code>create_trading_client</code>, <code>mt5_trading_session</code></td>
-<td>Trading-capable <code>pdmt5.Mt5TradingClient</code> lifecycle</td>
+<td>Trading-capable MT5 client lifecycle; returns a client supporting order execution and account management</td>
 </tr>
 <tr>
 <td><code>AccountSpec</code></td>
@@ -264,7 +267,7 @@ timestamp normalization in downstream apps.</p>
 </tr>
 <tr>
 <td><code>fetch_latest_closed_rates_for_trading_client</code></td>
-<td>Closed bars from an active <code>Mt5TradingClient</code> session; returns RangeIndex</td>
+<td>Closed bars from an active trading client session; returns RangeIndex</td>
 </tr>
 <tr>
 <td><code>fetch_latest_closed_rates_indexed</code></td>
@@ -410,7 +413,7 @@ exposure; downstream applications own thresholds, risk guard actions, and
 strategy policy.</p>
 <p><code>MT5Client.order_send()</code> and CLI <code>order-send --yes</code> are live execution paths.</p>
 <p>Order helpers validate broker stop-level distance in <code>determine_order_limits()</code> and
-raise <code>Mt5TradingError</code> when computed SL/TP prices are too close to the entry
+raise <code>Mt5OperationError</code> when computed SL/TP prices are too close to the entry
 quote. Validation uses <code>trade_stops_level * point</code> from the current quote and
 symbol metadata as a pre-check only; it does not guarantee live order acceptance
 after price movement and does not inspect <code>trade_freeze_level</code>. Live
