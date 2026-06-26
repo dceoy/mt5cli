@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypeVar
 
-from pdmt5 import Mt5RuntimeError, Mt5TradingError
+from pdmt5 import Mt5RuntimeError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+try:
+    from pdmt5 import Mt5TradingError
+except ImportError:
+    Mt5TradingError = None  # type: ignore[assignment]
 
 T = TypeVar("T")
 
@@ -22,8 +27,9 @@ __all__ = [
 ]
 
 _RECOVERABLE_MT5_ERRORS: tuple[type[BaseException], ...] = (
-    Mt5TradingError,
-    Mt5RuntimeError,
+    (Mt5TradingError, Mt5RuntimeError)  # type: ignore[assignment]
+    if Mt5TradingError is not None
+    else (Mt5RuntimeError,)
 )
 
 
@@ -50,7 +56,7 @@ def is_recoverable_mt5_error(exc: BaseException) -> bool:
         exc: Exception raised by MT5 or pdmt5.
 
     Returns:
-        True for ``Mt5RuntimeError`` and ``Mt5TradingError``.
+        True for ``Mt5RuntimeError`` and ``Mt5TradingError`` (if available).
     """
     return isinstance(exc, _RECOVERABLE_MT5_ERRORS)
 
@@ -65,7 +71,7 @@ def normalize_mt5_exception(exc: BaseException) -> Mt5CliError:
         ``Mt5ConnectionError`` for runtime failures, ``Mt5OperationError`` for
         trading failures, or the original exception when it is not recognized.
     """
-    if isinstance(exc, Mt5TradingError):
+    if Mt5TradingError is not None and isinstance(exc, Mt5TradingError):
         return Mt5OperationError(str(exc))
     if isinstance(exc, Mt5RuntimeError):
         return Mt5ConnectionError(str(exc))

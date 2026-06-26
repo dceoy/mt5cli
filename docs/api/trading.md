@@ -6,8 +6,9 @@
 
 `create_trading_client()` and `mt5_trading_session()` complement the read-only
 `mt5_session()` helper in `sdk.py`. They return or yield an initialized
-`pdmt5.Mt5TradingClient`, use `Mt5Config.path` to launch the terminal when
-configured, and `mt5_trading_session()` always calls `shutdown()` on exit.
+client supporting order execution and account management, use `Mt5Config.path`
+to launch the terminal when configured, and `mt5_trading_session()` always
+calls `shutdown()` on exit.
 
 ```python
 from mt5cli import create_trading_client, mt5_trading_session
@@ -115,19 +116,19 @@ closed = close_open_positions(client, symbols="EURUSD", dry_run=True)
 `detect_position_side()` returns `long` for buy-only exposure, `short` for
 sell-only exposure, and `None` for no positions or mixed long/short exposure.
 `calculate_spread_ratio()` uses `(ask - bid) / ((ask + bid) / 2)` and raises
-`Mt5TradingError` when bid or ask is missing or non-positive.
+`Mt5OperationError` when bid or ask is missing or non-positive.
 `normalize_order_volume()` returns `0.0` for invalid constraints or
 sub-minimum requests; check the result before calling `estimate_order_margin()`,
 which requires a positive finite volume. `calculate_positions_margin()` silently
 skips rows with missing symbols, non-positive volumes, non-finite volumes, or
-unsupported position types, but propagates `Mt5TradingError` from `estimate_order_margin()` when a valid row
+unsupported position types, but propagates `Mt5OperationError` from `estimate_order_margin()` when a valid row
 encounters invalid tick data or margin results from the broker.
 
 SL/TP ratios for `determine_order_limits()` must satisfy `0 <= ratio < 1`; `0`
 omits that level. SL/TP prices are rounded with symbol `digits` metadata when
 available. `determine_order_limits()` pre-validates computed SL/TP prices against
 available `trade_stops_level * point` metadata when present; violations raise
-`Mt5TradingError`. This is a planning helper only: it does not guarantee broker
+`Mt5OperationError`. This is a planning helper only: it does not guarantee broker
 acceptance because live validation can still depend on price movement, bid/ask
 side, freeze levels, and server-side rules, and it does not validate
 `trade_freeze_level`. When symbol metadata cannot be loaded, protective prices
