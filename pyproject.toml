@@ -178,7 +178,10 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 fail_under = 100
-exclude_lines = ["if TYPE_CHECKING:"]
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "^\\s+\\.\\.\\.$",
+]
 
 [build-system]
 requires = ["hatchling"]

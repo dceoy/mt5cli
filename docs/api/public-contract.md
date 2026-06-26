@@ -16,9 +16,12 @@ downstream app -> mt5cli -> pdmt5 -> MetaTrader 5
 | **downstream** | Strategy logic; signals; risk policy; backtesting; optimization; YAML/application semantics                                                                                        |
 
 Downstream code should import raw pdmt5 types and constants (such as
-`Mt5Config`, `Mt5TradingClient`, `Mt5RuntimeError`, `Mt5TradingError`,
-`TIMEFRAME_MAP`, `COPY_TICKS_MAP`) directly from `pdmt5` when needed.
-mt5cli does not serve as a pass-through compatibility namespace for pdmt5.
+`Mt5Config`, `Mt5RuntimeError`, `TIMEFRAME_MAP`, `COPY_TICKS_MAP`) directly
+from `pdmt5` when needed. mt5cli does not serve as a pass-through compatibility
+namespace for pdmt5. mt5cli's trading helpers type their client parameter against
+an internal protocol backed by `pdmt5.Mt5DataClient`; `Mt5TradingClient` is no
+longer required. `Mt5TradingError` is conditionally imported where still present
+in pdmt5, but mt5cli raises `Mt5OperationError` for all trading-related failures.
 
 Note: the former `mt5cli` re-export `TICK_FLAG_MAP` corresponds to `COPY_TICKS_MAP`
 in pdmt5 — the name changed, it was not simply moved.
@@ -42,7 +45,7 @@ These names are exported from `mt5cli` and enumerated in
 | `MT5Client`                                     | Read-only data client with optional `order_check` / `order_send`                                                                                                                                                                                                                  |
 | `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True` |
 | `mt5_session`                                   | Context manager: initialize, login, yield client, shutdown                                                                                                                                                                                                                        |
-| `create_trading_client`, `mt5_trading_session`  | Trading-capable `pdmt5.Mt5TradingClient` lifecycle                                                                                                                                                                                                                                |
+| `create_trading_client`, `mt5_trading_session`  | Trading-capable MT5 client lifecycle; returns a client supporting order execution and account management                                                                                                                                                                       |
 | `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                          |
 | `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                            |
 
@@ -56,7 +59,7 @@ timestamp normalization in downstream apps.
 | ------------------------------------------------ | ------------------------------------------------------------------------------- |
 | `drop_forming_rate_bar`                          | Remove the last row from chronologically ordered rate data                      |
 | `fetch_latest_closed_rates`                      | Single connected client: fetch `count + 1`, drop forming bar                    |
-| `fetch_latest_closed_rates_for_trading_client`   | Closed bars from an active `Mt5TradingClient` session; returns RangeIndex       |
+| `fetch_latest_closed_rates_for_trading_client`   | Closed bars from an active trading client session; returns RangeIndex           |
 | `fetch_latest_closed_rates_indexed`              | Same as above but returns a UTC `DatetimeIndex` named `"time"` (no time column) |
 | `collect_latest_closed_rates_for_accounts`       | Multi-account closed bars with optional retry wrapper                           |
 | `collect_latest_closed_rates_by_granularity`     | Same data keyed by `(symbol, granularity_name)`                                 |
@@ -111,7 +114,7 @@ strategy policy.
 `MT5Client.order_send()` and CLI `order-send --yes` are live execution paths.
 
 Order helpers validate broker stop-level distance in `determine_order_limits()` and
-raise `Mt5TradingError` when computed SL/TP prices are too close to the entry
+raise `Mt5OperationError` when computed SL/TP prices are too close to the entry
 quote. Validation uses `trade_stops_level * point` from the current quote and
 symbol metadata as a pre-check only; it does not guarantee live order acceptance
 after price movement and does not inspect `trade_freeze_level`. Live

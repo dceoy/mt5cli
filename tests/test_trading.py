@@ -14,6 +14,7 @@ from numpy import int64 as np_int64
 from pdmt5 import Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
 from pytest_mock import MockerFixture  # noqa: TC002
 
+from mt5cli.exceptions import Mt5OperationError
 from mt5cli.sdk import build_config
 from mt5cli.trading import (
     MarginVolume,
@@ -434,7 +435,7 @@ class TestDetermineOrderLimits:
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1}
 
-        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             determine_order_limits(client, "EURUSD", "long")
 
     def test_accepts_numeric_string_entry(self) -> None:
@@ -483,7 +484,7 @@ class TestDetermineOrderLimits:
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = tick
 
-        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             determine_order_limits(client, "EURUSD", side)
 
     @pytest.mark.parametrize(
@@ -512,7 +513,7 @@ class TestDetermineOrderLimits:
             "point": 0.0001,
         }
 
-        with pytest.raises(Mt5TradingError, match=match):
+        with pytest.raises(Mt5OperationError, match=match):
             determine_order_limits(client, "EURUSD", side, **{kwarg: 0.0001})
 
     def test_accepts_stop_loss_exactly_at_minimum_stop_distance(self) -> None:
@@ -619,7 +620,7 @@ class TestDetermineOrderLimits:
         client.symbol_select.return_value = False
         client.last_error.return_value = (1, "not found")
 
-        with pytest.raises(Mt5TradingError, match="Failed to select symbol 'EURUSD'"):
+        with pytest.raises(Mt5OperationError, match="Failed to select symbol 'EURUSD'"):
             ensure_symbol_selected(client, "EURUSD")
 
     def test_raises_when_symbol_select_is_unavailable(self) -> None:
@@ -629,7 +630,7 @@ class TestDetermineOrderLimits:
         del client.symbol_select
 
         with pytest.raises(
-            Mt5TradingError,
+            Mt5OperationError,
             match="missing required method: symbol_select",
         ):
             ensure_symbol_selected(client, "EURUSD")
@@ -645,7 +646,7 @@ class TestMt5TradingSession:
         """Test mt5_trading_session connects, yields a client, and shuts down."""
         mock_client = MagicMock()
         trading_client = mocker.patch(
-            "mt5cli.trading.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=mock_client,
         )
 
@@ -668,10 +669,10 @@ class TestCreateTradingClient:
     """Tests for create_trading_client."""
 
     def test_initializes_with_keyword_config(self, mocker: MockerFixture) -> None:
-        """Test keyword configuration is forwarded to Mt5TradingClient."""
+        """Test keyword configuration is forwarded to Mt5DataClient."""
         mock_client = MagicMock()
         trading_client = mocker.patch(
-            "mt5cli.trading.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=mock_client,
         )
 
@@ -695,7 +696,7 @@ class TestCreateTradingClient:
     def test_empty_login_string_is_unset(self, mocker: MockerFixture) -> None:
         """Test empty login strings are treated as None."""
         trading_client = mocker.patch(
-            "mt5cli.trading.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=MagicMock(),
         )
 
@@ -708,7 +709,7 @@ class TestCreateTradingClient:
         """Test failed initialization shuts the client down."""
         mock_client = MagicMock()
         mock_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
-        mocker.patch("mt5cli.trading.Mt5TradingClient", return_value=mock_client)
+        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_client)
 
         with pytest.raises(Mt5RuntimeError, match="boom"):
             create_trading_client()
@@ -791,7 +792,7 @@ class TestSnapshotsAndState:
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"bid": None, "ask": 1.0}
 
-        with pytest.raises(Mt5TradingError):
+        with pytest.raises(Mt5OperationError):
             calculate_spread_ratio(client, "EURUSD")
 
     def test_calculate_spread_ratio_rejects_non_positive_tick(self) -> None:
@@ -799,7 +800,7 @@ class TestSnapshotsAndState:
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"bid": 0.0, "ask": 1.0}
 
-        with pytest.raises(Mt5TradingError):
+        with pytest.raises(Mt5OperationError):
             calculate_spread_ratio(client, "EURUSD")
 
     def test_calculate_spread_ratio_accepts_numeric_string_tick(self) -> None:
@@ -843,7 +844,7 @@ class TestSnapshotsAndState:
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = tick
 
-        with pytest.raises(Mt5TradingError, match="Tick bid/ask is unavailable"):
+        with pytest.raises(Mt5OperationError, match="Tick bid/ask is unavailable"):
             calculate_spread_ratio(client, "EURUSD")
 
 
@@ -1033,7 +1034,7 @@ class TestEstimateOrderMargin:
         """Test non-positive volume raises Mt5TradingError."""
         client = _mock_trade_client()
 
-        with pytest.raises(Mt5TradingError, match="positive finite number"):
+        with pytest.raises(Mt5OperationError, match="positive finite number"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.0)
 
     @pytest.mark.parametrize("volume", [float("nan"), float("inf")], ids=["nan", "inf"])
@@ -1041,7 +1042,7 @@ class TestEstimateOrderMargin:
         """Test NaN or infinite volume raises Mt5TradingError without broker calls."""
         client = _mock_trade_client()
 
-        with pytest.raises(Mt5TradingError, match="positive finite number"):
+        with pytest.raises(Mt5OperationError, match="positive finite number"):
             estimate_order_margin(client, "EURUSD", "BUY", volume)
 
         client.symbol_info_tick_as_dict.assert_not_called()
@@ -1052,7 +1053,7 @@ class TestEstimateOrderMargin:
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1000}
 
-        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)
 
     def test_rejects_non_positive_tick_price(self) -> None:
@@ -1060,7 +1061,7 @@ class TestEstimateOrderMargin:
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": 0.0, "bid": 1.1000}
 
-        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)
 
     def test_rejects_non_finite_tick_price(self) -> None:
@@ -1071,7 +1072,7 @@ class TestEstimateOrderMargin:
             "bid": 1.1000,
         }
 
-        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)
 
     @pytest.mark.parametrize(
@@ -1085,7 +1086,7 @@ class TestEstimateOrderMargin:
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
         client.order_calc_margin.return_value = margin_value
 
-        with pytest.raises(Mt5TradingError, match="Margin estimate is invalid"):
+        with pytest.raises(Mt5OperationError, match="Margin estimate is invalid"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)
 
 
@@ -1184,7 +1185,7 @@ class TestCalculatePositionsMargin:
         )
         client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1000}
 
-        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             calculate_positions_margin(client)
 
     def test_skips_rows_with_invalid_symbol_volume_or_type(self) -> None:
@@ -1376,7 +1377,7 @@ class TestVolumeAndExecution:
             "volume_step": 0.1,
         }
 
-        with pytest.raises(Mt5TradingError):
+        with pytest.raises(Mt5OperationError):
             calculate_volume_by_margin(client, "EURUSD", 100.0, "BUY")
 
     def test_calculate_volume_by_margin_rejects_bad_tick(self) -> None:
@@ -1389,7 +1390,7 @@ class TestVolumeAndExecution:
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.0, "bid": None}
 
-        with pytest.raises(Mt5TradingError):
+        with pytest.raises(Mt5OperationError):
             calculate_volume_by_margin(client, "EURUSD", 100.0, "SELL")
 
     def test_calculate_volume_by_margin_steps_down_when_margin_exceeds_budget(
@@ -1604,7 +1605,7 @@ class TestVolumeAndExecution:
             "volume_step": 0.1,
         }
 
-        with pytest.raises(Mt5TradingError, match="Invalid volume constraints"):
+        with pytest.raises(Mt5OperationError, match="Invalid volume constraints"):
             calculate_margin_and_volume(
                 client,
                 "EURUSD",
@@ -1623,7 +1624,7 @@ class TestVolumeAndExecution:
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 99.0}
 
-        with pytest.raises(Mt5TradingError, match="Tick price is unavailable"):
+        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             calculate_margin_and_volume(
                 client,
                 "EURUSD",
@@ -1722,7 +1723,7 @@ class TestVolumeAndExecution:
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"equity": 0.0, "margin": 50.0}
 
-        with pytest.raises(Mt5TradingError):
+        with pytest.raises(Mt5OperationError):
             calculate_new_position_margin_ratio(client, symbol="EURUSD")
 
     def test_new_position_margin_ratio_rejects_bad_tick(self) -> None:
@@ -1731,7 +1732,7 @@ class TestVolumeAndExecution:
         client.account_info_as_dict.return_value = {"equity": 1000.0, "margin": 50.0}
         client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.0}
 
-        with pytest.raises(Mt5TradingError):
+        with pytest.raises(Mt5OperationError):
             calculate_new_position_margin_ratio(
                 client,
                 symbol="EURUSD",
@@ -1905,7 +1906,7 @@ class TestVolumeAndExecution:
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = account
 
-        with pytest.raises(Mt5TradingError, match=match):
+        with pytest.raises(Mt5OperationError, match=match):
             calculate_account_projected_margin_ratio(client)
 
     def test_account_projected_margin_ratio_propagates_candidate_margin_error(
@@ -1920,10 +1921,10 @@ class TestVolumeAndExecution:
         }
         mocker.patch(
             "mt5cli.trading.estimate_order_margin",
-            side_effect=Mt5TradingError("bad tick"),
+            side_effect=Mt5OperationError("bad tick"),
         )
 
-        with pytest.raises(Mt5TradingError, match="bad tick"):
+        with pytest.raises(Mt5OperationError, match="bad tick"):
             calculate_account_projected_margin_ratio(
                 client,
                 symbol="EURUSD",
@@ -1999,7 +2000,7 @@ class TestVolumeAndExecution:
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"equity": 0.0}
 
-        with pytest.raises(Mt5TradingError, match="Account equity"):
+        with pytest.raises(Mt5OperationError, match="Account equity"):
             calculate_symbol_group_margin_ratio(client, symbols=["EURUSD"])
 
     def test_projected_margin_ratio_rejects_nonnumeric_equity(self) -> None:
@@ -2007,7 +2008,7 @@ class TestVolumeAndExecution:
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"equity": "invalid"}
 
-        with pytest.raises(Mt5TradingError, match="Account equity"):
+        with pytest.raises(Mt5OperationError, match="Account equity"):
             calculate_projected_margin_ratio(client, symbol="EURUSD")
 
     def test_symbol_group_margin_ratio_suppresses_projected_failure(
@@ -2024,7 +2025,7 @@ class TestVolumeAndExecution:
         )
         mocker.patch(
             "mt5cli.trading.estimate_order_margin",
-            side_effect=Mt5TradingError("bad tick"),
+            side_effect=Mt5OperationError("bad tick"),
         )
 
         with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
@@ -2053,10 +2054,10 @@ class TestVolumeAndExecution:
         )
         mocker.patch(
             "mt5cli.trading.estimate_order_margin",
-            side_effect=Mt5TradingError("bad tick"),
+            side_effect=Mt5OperationError("bad tick"),
         )
 
-        with pytest.raises(Mt5TradingError, match="bad tick"):
+        with pytest.raises(Mt5OperationError, match="bad tick"):
             calculate_symbol_group_margin_ratio(
                 client,
                 symbols=["EURUSD"],
@@ -2177,7 +2178,7 @@ class TestVolumeAndExecution:
         )
         mocker.patch(
             "mt5cli.trading.estimate_order_margin",
-            side_effect=Mt5TradingError("bad tick"),
+            side_effect=Mt5OperationError("bad tick"),
         )
 
         with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
@@ -2208,10 +2209,10 @@ class TestVolumeAndExecution:
         )
         mocker.patch(
             "mt5cli.trading.estimate_order_margin",
-            side_effect=Mt5TradingError("bad tick"),
+            side_effect=Mt5OperationError("bad tick"),
         )
 
-        with pytest.raises(Mt5TradingError, match="bad tick"):
+        with pytest.raises(Mt5OperationError, match="bad tick"):
             calculate_symbol_group_margin_ratio(
                 client,
                 symbols=["EURUSD"],
@@ -2335,7 +2336,7 @@ class TestVolumeAndExecution:
         del client.mt5.ORDER_FILLING_IOC
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
 
-        with pytest.raises(Mt5TradingError, match="ORDER_FILLING_IOC"):
+        with pytest.raises(Mt5OperationError, match="ORDER_FILLING_IOC"):
             place_market_order(
                 client,
                 symbol="EURUSD",
@@ -2346,7 +2347,7 @@ class TestVolumeAndExecution:
 
     def test_place_market_order_rejects_invalid_volume(self) -> None:
         """Test non-positive volume raises a trading error."""
-        with pytest.raises(Mt5TradingError):
+        with pytest.raises(Mt5OperationError):
             place_market_order(
                 _mock_trade_client(),
                 symbol="EURUSD",
@@ -2359,7 +2360,7 @@ class TestVolumeAndExecution:
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1}
 
-        with pytest.raises(Mt5TradingError):
+        with pytest.raises(Mt5OperationError):
             place_market_order(
                 client,
                 symbol="EURUSD",
@@ -2913,7 +2914,7 @@ class TestVolumeAndExecution:
         """Test shutdown is called when initialization fails."""
         mock_client = MagicMock()
         mock_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
-        mocker.patch("mt5cli.trading.Mt5TradingClient", return_value=mock_client)
+        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_client)
 
         with pytest.raises(Mt5RuntimeError, match="boom"), mt5_trading_session():
             pass
@@ -3070,7 +3071,7 @@ class TestVolumeAndExecution:
     def test_shuts_down_when_body_raises(self, mocker: MockerFixture) -> None:
         """Test shutdown is called when the context body raises."""
         mock_client = MagicMock()
-        mocker.patch("mt5cli.trading.Mt5TradingClient", return_value=mock_client)
+        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_client)
 
         body_error = "body error"
         with pytest.raises(RuntimeError, match=body_error), mt5_trading_session():
@@ -3201,7 +3202,7 @@ class TestFetchLatestClosedRatesForTradingClient:
         """Test missing rate-fetch methods raise Mt5TradingError."""
         client = MagicMock(spec=[])
 
-        with pytest.raises(Mt5TradingError, match="cannot fetch rate data"):
+        with pytest.raises(Mt5OperationError, match="cannot fetch rate data"):
             fetch_latest_closed_rates_for_trading_client(
                 client,
                 symbol="EURUSD",

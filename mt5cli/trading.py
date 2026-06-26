@@ -6,19 +6,78 @@ import logging
 from contextlib import contextmanager
 from math import floor, isfinite
 from numbers import Integral, Real
-from typing import TYPE_CHECKING, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
 
 import pandas as pd
-from pdmt5 import Mt5Config, Mt5RuntimeError, Mt5TradingClient, Mt5TradingError
+from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
 
+from .exceptions import Mt5OperationError
 from .history import drop_forming_rate_bar
 from .sdk import build_config
 from .utils import coerce_login as _coerce_login
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
+    from typing import Any
 
 _logger = logging.getLogger(__name__)
+
+
+class _Mt5ClientProtocol(Protocol):
+    """Minimal protocol for MT5 clients with methods required by mt5cli.
+
+    This protocol describes the interface required by mt5cli trading helpers.
+    It uses positional-only parameters to avoid structural subtyping issues with
+    different client implementations that may use different parameter names.
+    """
+
+    @property
+    def mt5(self) -> Any:  # noqa: ANN401
+        """MT5 module with trading constants (POSITION_TYPE_*, ORDER_TYPE_*, etc.)."""
+        ...
+
+    def account_info_as_dict(self) -> dict[str, Any]:
+        """Return account information as a dictionary."""
+        ...
+
+    def symbol_info(self, symbol: str, /) -> object:
+        """Return symbol information."""
+        ...
+
+    def symbol_info_tick(self, symbol: str, /) -> object:
+        """Return latest symbol tick information."""
+        ...
+
+    def positions_get_as_df(self, symbol: str | None = None) -> pd.DataFrame:
+        """Return open positions as a DataFrame."""
+        ...
+
+    def order_calc_margin(
+        self, /, action: int, symbol: str, volume: float, price: float
+    ) -> Any:  # noqa: ANN401
+        """Calculate required margin for an order."""
+        ...
+
+    def order_send(self, request: dict[str, Any], /) -> Any:  # noqa: ANN401
+        """Send an order request and return the response."""
+        ...
+
+    def symbol_select(self, symbol: str, enable: bool = True) -> bool:
+        """Select/deselect a symbol in Market Watch."""
+        ...
+
+    def last_error(self) -> object:
+        """Return the last error message or info."""
+        ...
+
+    def shutdown(self) -> None:
+        """Shut down the MT5 client."""
+        ...
+
+    def initialize_and_login_mt5(self) -> None:
+        """Initialize and login to MT5."""
+        ...
+
 
 PositionSide = Literal["long", "short"]
 OrderSide = Literal["BUY", "SELL"]
@@ -188,7 +247,7 @@ def _validate_protective_prices(
     """Validate SL/TP distances against broker stop-level constraints.
 
     Raises:
-        Mt5TradingError: When a protective price is closer than ``min_distance``.
+        Mt5OperationError: When a protective price is closer than ``min_distance``.
     """
     if min_distance <= 0:
         return
@@ -198,37 +257,37 @@ def _validate_protective_prices(
                 f"Stop loss for {symbol!r} violates broker stop level "
                 f"(minimum distance {min_distance})."
             )
-            raise Mt5TradingError(msg)
+            raise Mt5OperationError(msg)
         if take_profit is not None and (take_profit - entry) < min_distance:
             msg = (
                 f"Take profit for {symbol!r} violates broker stop level "
                 f"(minimum distance {min_distance})."
             )
-            raise Mt5TradingError(msg)
+            raise Mt5OperationError(msg)
         return
     if stop_loss is not None and (stop_loss - entry) < min_distance:
         msg = (
             f"Stop loss for {symbol!r} violates broker stop level "
             f"(minimum distance {min_distance})."
         )
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     if take_profit is not None and (entry - take_profit) < min_distance:
         msg = (
             f"Take profit for {symbol!r} violates broker stop level "
             f"(minimum distance {min_distance})."
         )
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
 
 
-def ensure_symbol_selected(client: Mt5TradingClient, symbol: str) -> None:
+def ensure_symbol_selected(client: _Mt5ClientProtocol, symbol: str) -> None:
     """Ensure a symbol is visible in Market Watch before sending orders.
 
     Args:
-        client: Connected ``Mt5TradingClient`` instance.
+        client: Connected MT5 client instance.
         symbol: Symbol to select.
 
     Raises:
-        Mt5TradingError: If the symbol cannot be selected in Market Watch or
+        Mt5OperationError: If the symbol cannot be selected in Market Watch or
             ``symbol_select`` is unavailable on the client.
     """
     snapshot = get_symbol_snapshot(client, symbol)
@@ -237,13 +296,13 @@ def ensure_symbol_selected(client: Mt5TradingClient, symbol: str) -> None:
     select = getattr(client, "symbol_select", None)
     if not callable(select):
         msg = "MT5 client is missing required method: symbol_select"
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     if select(symbol, enable=True):
         return
     last_error = getattr(client, "last_error", None)
     detail = f" ({last_error()})" if callable(last_error) else ""
     msg = f"Failed to select symbol {symbol!r} in Market Watch{detail}."
-    raise Mt5TradingError(msg)
+    raise Mt5OperationError(msg)
 
 
 def _require_unit_ratio(value: float, name: str) -> None:
@@ -370,7 +429,7 @@ def _snapshot_from_value(value: object, fields: tuple[str, ...]) -> dict[str, ob
     return {field: row.get(field) for field in fields}
 
 
-def _call_snapshot_method(client: Mt5TradingClient, *names: str) -> object:
+def _call_snapshot_method(client: _Mt5ClientProtocol, *names: str) -> object:
     for name in names:
         method = getattr(client, name, None)
         if callable(method):
@@ -394,7 +453,7 @@ def _resolve_mt5_constant(
         return cast("int", getattr(mt5, name))
     except AttributeError as exc:
         msg = f"MT5 module is missing required constant: {name}"
-        raise Mt5TradingError(msg) from exc
+        raise Mt5OperationError(msg) from exc
 
 
 def _parse_digit_string(value: str) -> int | None:
@@ -478,7 +537,7 @@ def _order_status_from_retcode(mt5: object, retcode: object) -> ExecutionStatus:
 
 
 def _calculate_min_volume_if_affordable(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     symbol: str,
     available_margin: float,
     order_side: OrderSide,
@@ -495,14 +554,14 @@ def _calculate_min_volume_if_affordable(
         or (volume_max > 0 and volume_min > volume_max)
     ):
         msg = f"Invalid volume constraints for {symbol!r}."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     side = _normalize_order_side(order_side)
     price = extract_tick_price(
         get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
     )
     if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     order_type = (
         client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
     )
@@ -519,8 +578,12 @@ def create_trading_client(
     path: str | None = None,
     timeout: int | None = None,
     retry_count: int = 0,
-) -> Mt5TradingClient:
-    """Return an initialized and logged-in trading client."""
+) -> _Mt5ClientProtocol:
+    """Return an initialized and logged-in trading client.
+
+    Returns:
+        A client instance supporting the required MT5 trading methods.
+    """
     mt5_config = _resolve_config(
         config=config,
         login=login,
@@ -529,7 +592,7 @@ def create_trading_client(
         path=path,
         timeout=timeout,
     )
-    client = Mt5TradingClient(config=mt5_config, retry_count=retry_count)
+    client = Mt5DataClient(config=mt5_config, retry_count=retry_count)
     try:
         client.initialize_and_login_mt5()
     except Exception:
@@ -539,13 +602,13 @@ def create_trading_client(
 
 
 def detect_position_side(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     symbol: str,
 ) -> PositionSide | None:
     """Detect the net open position side for a symbol.
 
     Args:
-        client: Connected ``Mt5TradingClient`` instance.
+        client: Connected MT5 client instance.
         symbol: Symbol to inspect.
 
     Returns:
@@ -569,7 +632,7 @@ def detect_position_side(
 
 
 def get_account_snapshot(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
 ) -> dict[str, float | int | str | None]:
     """Return normalized account state with stable keys."""
     value = _call_snapshot_method(client, "account_info_as_dict", "account_info")
@@ -580,7 +643,7 @@ def get_account_snapshot(
 
 
 def get_symbol_snapshot(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     symbol: str,
 ) -> dict[str, float | int | str | bool | None]:
     """Return normalized symbol metadata required for trading decisions."""
@@ -592,7 +655,7 @@ def get_symbol_snapshot(
 
 
 def get_tick_snapshot(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     symbol: str,
 ) -> dict[str, float | int | None]:
     """Return normalized latest tick data, including bid, ask, and timestamp."""
@@ -606,7 +669,7 @@ def get_tick_snapshot(
 
 
 def get_positions_frame(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     symbol: str | None = None,
 ) -> pd.DataFrame:
     """Return open positions as a DataFrame with stable baseline columns."""
@@ -618,7 +681,7 @@ def get_positions_frame(
 
 
 def _order_side_from_position_type(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     position_type: object,
 ) -> OrderSide | None:
     if position_type == client.mt5.POSITION_TYPE_BUY:
@@ -640,7 +703,7 @@ def _ensure_rate_time_column(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def estimate_order_margin(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     symbol: str,
     order_side: OrderSide | str,
     volume: float,
@@ -651,17 +714,17 @@ def estimate_order_margin(
         Positive finite margin required for the order at the current quote.
 
     Raises:
-        Mt5TradingError: If volume, tick data, or margin estimation is invalid.
+        Mt5OperationError: If volume, tick data, or margin estimation is invalid.
     """
     if not _is_positive_finite_number(volume):
         msg = "Volume must be a positive finite number to estimate order margin."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     side = _normalize_order_side(order_side)
     tick = get_tick_snapshot(client, symbol)
     price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
     if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     order_type = (
         client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
     )
@@ -670,22 +733,22 @@ def estimate_order_margin(
         margin = float(raw_margin)
     except (TypeError, ValueError) as exc:
         msg = f"Margin estimate is invalid for {symbol!r}."
-        raise Mt5TradingError(msg) from exc
+        raise Mt5OperationError(msg) from exc
     if margin <= 0 or not isfinite(margin):
         msg = f"Margin estimate is invalid for {symbol!r}."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     return margin
 
 
 def calculate_positions_margin(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbols: Sequence[str] | None = None,
 ) -> float:
     """Return the sum of estimated current margin for open positions.
 
     Args:
-        client: Connected ``Mt5TradingClient`` instance.
+        client: Connected MT5 client instance.
         symbols: Optional symbol filter. When omitted, all open positions are
             included.
 
@@ -720,7 +783,7 @@ def calculate_positions_margin(
 
 
 def calculate_positions_margin_by_symbol(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbols: Sequence[str],
     suppress_errors: bool = True,
@@ -732,10 +795,10 @@ def calculate_positions_margin_by_symbol(
     first-seen order.
 
     Args:
-        client: Connected ``Mt5TradingClient`` instance.
+        client: Connected MT5 client instance.
         symbols: Symbols to compute margin for.
         suppress_errors: When ``True``, log and skip symbols that raise
-            ``Mt5TradingError``, ``Mt5RuntimeError``, or ``AttributeError``.
+            ``Mt5OperationError``, ``Mt5RuntimeError``, or ``AttributeError``.
             When ``False``, re-raise the first failure.
 
     Returns:
@@ -744,7 +807,7 @@ def calculate_positions_margin_by_symbol(
         with ``suppress_errors=True``.
 
     Raises:
-        Mt5TradingError: When a symbol raises ``Mt5TradingError`` and
+        Mt5OperationError: When a symbol raises ``Mt5OperationError`` and
             ``suppress_errors=False``.
         Mt5RuntimeError: When a symbol raises ``Mt5RuntimeError`` and
             ``suppress_errors=False``.
@@ -755,7 +818,7 @@ def calculate_positions_margin_by_symbol(
     for symbol in dict.fromkeys(symbols):
         try:
             result[symbol] = calculate_positions_margin(client, symbols=[symbol])
-        except (Mt5TradingError, Mt5RuntimeError, AttributeError) as exc:
+        except (Mt5OperationError, Mt5RuntimeError, AttributeError) as exc:
             if not suppress_errors:
                 raise
             _logger.warning("Skipping margin for %r: %s", symbol, exc)
@@ -763,7 +826,7 @@ def calculate_positions_margin_by_symbol(
 
 
 def calculate_positions_margin_safe(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbols: Sequence[str],
 ) -> float:
@@ -773,7 +836,7 @@ def calculate_positions_margin_safe(
     ``suppress_errors=True``. Failed symbols are silently skipped.
 
     Args:
-        client: Connected ``Mt5TradingClient`` instance.
+        client: Connected MT5 client instance.
         symbols: Symbols to include.
 
     Returns:
@@ -785,23 +848,23 @@ def calculate_positions_margin_safe(
     )
 
 
-def calculate_spread_ratio(client: Mt5TradingClient, symbol: str) -> float:
+def calculate_spread_ratio(client: _Mt5ClientProtocol, symbol: str) -> float:
     """Return ``(ask - bid) / ((ask + bid) / 2)`` for the latest tick.
 
     Raises:
-        Mt5TradingError: If bid or ask is unavailable.
+        Mt5OperationError: If bid or ask is unavailable.
     """
     tick = get_tick_snapshot(client, symbol)
     bid = extract_tick_price(tick, "bid")
     ask = extract_tick_price(tick, "ask")
     if bid is None or ask is None:
         msg = f"Tick bid/ask is unavailable for {symbol!r}."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     return (ask - bid) / ((ask + bid) / 2.0)
 
 
 def calculate_new_position_margin_ratio(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbol: str,
     new_position_side: OrderSide | None = None,
@@ -810,13 +873,13 @@ def calculate_new_position_margin_ratio(
     """Return total margin/equity ratio after an optional hypothetical position.
 
     Raises:
-        Mt5TradingError: If equity or required tick data is invalid.
+        Mt5OperationError: If equity or required tick data is invalid.
     """
     account = get_account_snapshot(client)
     equity = float(account.get("equity") or 0.0)
     if equity <= 0:
         msg = "Account equity must be positive to calculate margin ratio."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     margin = float(account.get("margin") or 0.0)
     if new_position_side is not None and new_position_volume > 0:
         side = _normalize_order_side(new_position_side)
@@ -825,7 +888,7 @@ def calculate_new_position_margin_ratio(
         )
         if price is None:
             msg = f"Tick price is unavailable for {symbol!r}."
-            raise Mt5TradingError(msg)
+            raise Mt5OperationError(msg)
         order_type = (
             client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
         )
@@ -835,7 +898,7 @@ def calculate_new_position_margin_ratio(
     return margin / equity
 
 
-def _account_equity(client: Mt5TradingClient) -> float:
+def _account_equity(client: _Mt5ClientProtocol) -> float:
     account = get_account_snapshot(client)
     return _required_account_number(account, "equity", allow_zero=False)
 
@@ -849,7 +912,7 @@ def _required_account_number(
     raw_value = account.get(field)
     if isinstance(raw_value, bool) or not isinstance(raw_value, Real):
         msg = f"Account {field} must be a finite number to calculate margin ratio."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     value = float(raw_value)
     if (
         not isfinite(value)
@@ -861,12 +924,12 @@ def _required_account_number(
             if allow_zero
             else f"Account {field} must be a positive finite number."
         )
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     return value
 
 
 def calculate_account_projected_margin_ratio(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbol: str | None = None,
     new_position_side: OrderSide | None = None,
@@ -894,7 +957,7 @@ def calculate_account_projected_margin_ratio(
 
 
 def calculate_projected_margin_ratio(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbol: str,
     new_position_side: OrderSide | None = None,
@@ -933,7 +996,7 @@ def _validate_projection_mode(projection_mode: str) -> ProjectionMode:
 
 
 def calculate_symbol_group_margin_ratio(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbols: Sequence[str],
     new_symbol: str | None = None,
@@ -962,7 +1025,7 @@ def calculate_symbol_group_margin_ratio(
             fails and ``suppress_errors`` is ``False``.
         Mt5RuntimeError: When symbol margin lookup or projected margin lookup
             fails and ``suppress_errors`` is ``False``.
-        Mt5TradingError: When account equity is invalid, or when symbol margin
+        Mt5OperationError: When account equity is invalid, or when symbol margin
             lookup or projected margin lookup fails and ``suppress_errors`` is
             ``False``.
     """
@@ -987,7 +1050,7 @@ def calculate_symbol_group_margin_ratio(
                 new_position_side,
                 new_position_volume,
             )
-        except (Mt5TradingError, Mt5RuntimeError, AttributeError):
+        except (Mt5OperationError, Mt5RuntimeError, AttributeError):
             if not suppress_errors:
                 raise
             _logger.warning("Skipping projected margin for %r.", new_symbol)
@@ -999,7 +1062,7 @@ def calculate_symbol_group_margin_ratio(
 
 
 def calculate_margin_and_volume(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     symbol: str,
     unit_margin_ratio: float,
     preserved_margin_ratio: float,
@@ -1013,7 +1076,7 @@ def calculate_margin_and_volume(
     side when the post-reserve margin can afford it.
 
     Args:
-        client: Connected ``Mt5TradingClient`` instance.
+        client: Connected MT5 client instance.
         symbol: Symbol used for minimum-lot margin and volume calculations.
         unit_margin_ratio: Fraction of post-reserve margin to allocate per unit.
         preserved_margin_ratio: Fraction of ``margin_free`` to preserve.
@@ -1066,7 +1129,7 @@ def calculate_margin_and_volume(
 
 
 def calculate_volume_by_margin(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     symbol: str,
     available_margin: float,
     order_side: OrderSide,
@@ -1079,7 +1142,7 @@ def calculate_volume_by_margin(
         constraints; ``0.0`` when no affordable step exists.
 
     Raises:
-        Mt5TradingError: If symbol volume constraints or tick data are invalid.
+        Mt5OperationError: If symbol volume constraints or tick data are invalid.
     """
     if available_margin <= 0:
         return 0.0
@@ -1089,14 +1152,14 @@ def calculate_volume_by_margin(
     volume_step = float(symbol_info.get("volume_step") or volume_min or 0.0)
     if volume_min <= 0 or volume_step <= 0:
         msg = f"Invalid volume constraints for {symbol!r}."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     side = _normalize_order_side(order_side)
     price = extract_tick_price(
         get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
     )
     if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     order_type = (
         client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
     )
@@ -1138,7 +1201,7 @@ def calculate_volume_by_margin(
 
 
 def determine_order_limits(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     symbol: str,
     side: PositionSide | str,
     stop_loss_limit_ratio: float | None = None,
@@ -1147,7 +1210,7 @@ def determine_order_limits(
     """Derive entry and protective order prices from current market quotes.
 
     Args:
-        client: Connected ``Mt5TradingClient`` instance.
+        client: Connected MT5 client instance.
         symbol: Symbol used for the quote lookup.
         side: Position side as ``"long"``/``"short"`` (``"buy"``/``"sell"``
             aliases are accepted).
@@ -1161,7 +1224,7 @@ def determine_order_limits(
         Omitted protective levels are returned as ``None``.
 
     Raises:
-        Mt5TradingError: If required tick data is invalid or computed SL/TP
+        Mt5OperationError: If required tick data is invalid or computed SL/TP
             prices violate available ``trade_stops_level`` pre-validation.
     """
     stop_loss_ratio = stop_loss_limit_ratio or 0.0
@@ -1174,7 +1237,7 @@ def determine_order_limits(
     entry = extract_tick_price(tick, entry_key)
     if entry is None:
         msg = f"Tick price is unavailable for {symbol!r}."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     try:
         symbol_info = get_symbol_snapshot(client, symbol)
     except (AttributeError, KeyError, TypeError, ValueError):
@@ -1218,7 +1281,7 @@ def determine_order_limits(
 
 
 def place_market_order(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbol: str,
     volume: float,
@@ -1232,20 +1295,20 @@ def place_market_order(
 ) -> OrderExecutionResult:
     """Place one normalized market order or return a dry-run result.
 
-    ``pdmt5.Mt5TradingClient.order_send()`` raises only when MT5 returns no
-    response. When MT5 returns a response with a known non-success retcode, this
-    helper returns ``status="failed"`` and keeps the normalized response
-    details for callers to inspect.
+    ``order_send()`` raises only when MT5 returns no response. When MT5 returns
+    a response with a known non-success retcode, this helper returns
+    ``status="failed"`` and keeps the normalized response details for callers
+    to inspect.
 
     Returns:
         Normalized execution result containing request and response details.
 
     Raises:
-        Mt5TradingError: If volume or required tick data is invalid.
+        Mt5OperationError: If volume or required tick data is invalid.
     """
     if volume <= 0:
         msg = "volume must be positive."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     side = _normalize_order_side(order_side)
     if not dry_run:
         ensure_symbol_selected(client, symbol)
@@ -1253,7 +1316,7 @@ def place_market_order(
     price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
     if price is None:
         msg = f"Tick price is unavailable for {symbol!r}."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     request = {
         "action": client.mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
@@ -1326,7 +1389,7 @@ def _filter_positions(
 
 
 def close_open_positions(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbols: str | list[str] | None = None,
     tickets: list[int] | None = None,
@@ -1358,7 +1421,7 @@ def close_open_positions(
     return results
 
 
-def _symbol_digits(client: Mt5TradingClient, symbol: str) -> int | None:
+def _symbol_digits(client: _Mt5ClientProtocol, symbol: str) -> int | None:
     try:
         raw_digits = get_symbol_snapshot(client, symbol).get("digits")
         if raw_digits is None:
@@ -1379,7 +1442,7 @@ def _current_stop_loss(value: object) -> float | None:
 
 
 def _trailing_stop_loss(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     position_type: object,
     current_sl: float | None,
@@ -1402,7 +1465,7 @@ def _trailing_stop_loss(
 
 
 def calculate_trailing_stop_updates(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbol: str,
     trailing_stop_ratio: float,
@@ -1447,7 +1510,7 @@ def calculate_trailing_stop_updates(
 
 
 def update_trailing_stop_loss_for_open_positions(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbol: str,
     trailing_stop_ratio: float,
@@ -1478,7 +1541,7 @@ def update_trailing_stop_loss_for_open_positions(
 
 
 def update_sltp_for_open_positions(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbol: str | None = None,
     tickets: list[int] | None = None,
@@ -1542,7 +1605,7 @@ def update_sltp_for_open_positions(
 
 
 def fetch_latest_closed_rates_for_trading_client(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbol: str,
     granularity: str,
@@ -1556,7 +1619,7 @@ def fetch_latest_closed_rates_for_trading_client(
     Raises:
         ValueError: If ``count`` is not positive, rate data is empty or
             malformed, or the ``time`` column is missing.
-        Mt5TradingError: If the trading client cannot fetch rate data.
+        Mt5OperationError: If the trading client cannot fetch rate data.
     """
     if count <= 0:
         msg = "count must be positive."
@@ -1564,7 +1627,7 @@ def fetch_latest_closed_rates_for_trading_client(
     fetch_method = getattr(client, "fetch_latest_rates_as_df", None)
     if not callable(fetch_method):
         msg = "MT5 trading client cannot fetch rate data."
-        raise Mt5TradingError(msg)
+        raise Mt5OperationError(msg)
     fetched = fetch_method(symbol, granularity, count + 1)
     if not isinstance(fetched, pd.DataFrame):
         msg = (
@@ -1627,7 +1690,7 @@ def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
 
 
 def fetch_latest_closed_rates_indexed(
-    client: Mt5TradingClient,
+    client: _Mt5ClientProtocol,
     *,
     symbol: str,
     granularity: str,
@@ -1683,13 +1746,13 @@ def mt5_trading_session(
     path: str | None = None,
     timeout: int | None = None,
     retry_count: int = 0,
-) -> Iterator[Mt5TradingClient]:
+) -> Iterator[_Mt5ClientProtocol]:
     """Open a trading-capable MT5 session and always shut down safely.
 
     Launches the MetaTrader 5 terminal using ``Mt5Config.path`` when set,
     initializes and logs in via ``initialize_and_login_mt5()``, yields a
-    connected :class:`~pdmt5.Mt5TradingClient`, and calls ``shutdown()`` on
-    exit even when an error is raised inside the context.
+    connected client supporting required MT5 methods, and calls ``shutdown()``
+    on exit even when an error is raised inside the context.
 
     Args:
         config: MT5 connection configuration. Defaults to an empty config that
@@ -1699,11 +1762,10 @@ def mt5_trading_session(
         server: Optional trading server name.
         path: Optional terminal executable path.
         timeout: Optional connection timeout in milliseconds.
-        retry_count: Number of initialization retries passed to
-            ``Mt5TradingClient``.
+        retry_count: Number of initialization retries.
 
     Yields:
-        Connected ``Mt5TradingClient`` bound to the session.
+        Connected client supporting required MT5 trading methods.
     """
     client = create_trading_client(
         config=config,

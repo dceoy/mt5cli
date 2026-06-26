@@ -15,7 +15,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, TypeVar, cast
 
 import pandas as pd
-from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError, Mt5TradingError
+from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
+
+try:
+    from pdmt5 import Mt5TradingError
+except ImportError:  # pragma: no cover
+    Mt5TradingError = None  # type: ignore[assignment]
 
 from .history import (
     create_cash_events_view,
@@ -49,7 +54,7 @@ T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
 _RECOVERABLE_HISTORY_UPDATE_ERRORS: tuple[type[BaseException], ...] = (
-    Mt5TradingError,
+    *([Mt5TradingError] if Mt5TradingError is not None else []),  # type: ignore[assignment]
     Mt5RuntimeError,
     sqlite3.Error,
     ValueError,

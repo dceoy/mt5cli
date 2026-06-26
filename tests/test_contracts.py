@@ -705,7 +705,7 @@ class TestStableSdkContract:
         """Trading session helper initializes and always shuts down."""
         mock_client = MagicMock()
         mocker.patch(
-            "mt5cli.trading.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=mock_client,
         )
 
@@ -734,7 +734,7 @@ class TestStableSdkContract:
         """Trading session helper shuts down even when the body raises."""
         mock_client = MagicMock()
         mocker.patch(
-            "mt5cli.trading.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=mock_client,
         )
 
@@ -826,6 +826,18 @@ def test_pdmt5_pass_through_names_removed_from_public_contract(name: str) -> Non
         f"{name!r} should not be in STABLE_SDK_EXPORTS"
     )
     assert name not in mt5cli.__all__, f"{name!r} should not be in mt5cli.__all__"
+
+
+def test_mt5cli_does_not_import_high_level_trading_symbols() -> None:
+    """mt5cli doesn't import Mt5TradingClient or Mt5TradingError at module level."""
+    trading_module = importlib.import_module("mt5cli.trading")
+    module_dict = vars(trading_module)
+    assert "Mt5TradingClient" not in module_dict, (
+        "mt5cli.trading should not import Mt5TradingClient at module level"
+    )
+    assert "Mt5TradingError" not in module_dict, (
+        "mt5cli.trading should not import Mt5TradingError at module level"
+    )
 
 
 # ---------------------------------------------------------------------------
