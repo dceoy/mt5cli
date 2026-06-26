@@ -44,16 +44,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mt5cli import (
-    DataKind,
-    Dataset,
     MT5Client,
     build_config,
     collect_history,
-    export_dataframe,
     mt5_session,
-    normalize_dataframe,
     update_history_with_config,
 )
+from mt5cli.schemas import DataKind, normalize_dataframe
+from mt5cli.utils import Dataset, export_dataframe
 
 # Persistent session for multiple calls
 with mt5_session(build_config(login=12345, server="Broker-Demo")) as client:
@@ -89,7 +87,7 @@ update_history_with_config(
 )
 ```
 
-Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Storage helpers are re-exported from `mt5cli.storage` and the package root.
+Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Export and storage helpers are in `mt5cli.utils` (`Dataset`, `export_dataframe`) and `mt5cli.history`.
 
 `MT5Client.order_send()` is a live execution primitive: it can place real trades on the connected account. mt5cli does not implement strategy logic, signal generation, backtesting, or optimization — downstream applications must gate live execution explicitly.
 
@@ -212,7 +210,8 @@ For automated pipelines, use the importable incremental API instead of re-fetchi
 
 ```python
 from pdmt5 import Mt5Config, Mt5DataClient
-from mt5cli import Dataset, update_history, update_history_with_config
+from mt5cli import update_history, update_history_with_config
+from mt5cli.utils import Dataset
 
 # Reuse an already-connected pdmt5 client (does not open/close MT5)
 client = Mt5DataClient(config=Mt5Config(login=12345))

@@ -64,13 +64,13 @@ timestamp normalization in downstream apps.
 
 ### SQLite history collection and rate loading
 
-| Symbol                              | Role                                                                                         |
-| ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| `collect_history`                   | One-shot date-range export into SQLite                                                       |
-| `update_history`, `update_history_with_config` | Incremental append from `MAX(time)` cursors                                     |
-| `ThrottledHistoryUpdater`           | Minimum interval between successful incremental updates; optional `update_backend` injection |
-| `RateTarget`, `build_rate_targets`  | Neutral `(symbol, timeframe)` series descriptors                                             |
-| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load one or many series; fail clearly when managed views are missing |
+| Symbol                                                            | Role                                                                                         |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `collect_history`                                                 | One-shot date-range export into SQLite                                                       |
+| `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors                                                  |
+| `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; optional `update_backend` injection |
+| `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                             |
+| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load one or many series; fail clearly when managed views are missing                         |
 
 See [History Collection (SQLite)](history.md) for schema, view naming, and ER
 diagrams.
@@ -123,23 +123,23 @@ and returned as `status="failed"` with normalized `request` / `response` details
 
 ### Errors
 
-| Symbol                                                                     | Role                           |
-| -------------------------------------------------------------------------- | ------------------------------ |
-| `Mt5CliError`, `Mt5ConnectionError`, `Mt5OperationError`, `Mt5SchemaError` | Stable mt5cli exception types  |
+| Symbol                                                                     | Role                          |
+| -------------------------------------------------------------------------- | ----------------------------- |
+| `Mt5CliError`, `Mt5ConnectionError`, `Mt5OperationError`, `Mt5SchemaError` | Stable mt5cli exception types |
 
 ## Module-scoped helpers
 
 Lower-level helpers are available from their owning modules and are not part
 of the package-root stable surface. Import them directly when needed:
 
-| Module               | Examples                                                                                       |
-| -------------------- | ---------------------------------------------------------------------------------------------- |
-| `mt5cli.history`     | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`      |
-| `mt5cli.sdk`         | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates` |
-| `mt5cli.schemas`     | `DataKind`, `Dataset`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                 |
-| `mt5cli.utils`       | `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                  |
-| `mt5cli.converters`  | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                      |
-| `mt5cli.exceptions`  | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`           |
+| Module              | Examples                                                                                       |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| `mt5cli.history`    | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`      |
+| `mt5cli.sdk`        | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates` |
+| `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                            |
+| `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`      |
+| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                       |
+| `mt5cli.exceptions` | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`           |
 
 ## CLI commands
 

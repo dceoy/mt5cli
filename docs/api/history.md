@@ -182,12 +182,10 @@ targets without hard-coding view names:
 from pathlib import Path
 
 from mt5cli import (
-    load_rate_data,
     load_rate_series_by_granularity,
     load_rate_series_from_sqlite,
-    resolve_rate_table_name,
 )
-from mt5cli.history import resolve_rate_view_name
+from mt5cli.history import load_rate_data, resolve_rate_table_name, resolve_rate_view_name
 
 view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1", require_existing=True)
 rates = load_rate_data(Path("history.db"), view, count=1000)
