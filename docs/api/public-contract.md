@@ -20,6 +20,9 @@ Downstream code should import raw pdmt5 types and constants (such as
 `TIMEFRAME_MAP`, `COPY_TICKS_MAP`) directly from `pdmt5` when needed.
 mt5cli does not serve as a pass-through compatibility namespace for pdmt5.
 
+Note: the former `mt5cli` re-export `TICK_FLAG_MAP` corresponds to `COPY_TICKS_MAP`
+in pdmt5 — the name changed, it was not simply moved.
+
 Downstream packages should import from the package root (`from mt5cli import
 ...`) and use the public tier sets in `mt5cli.contract` to distinguish API
 stability. CLI commands mirror the same behavior but are not importable Python
