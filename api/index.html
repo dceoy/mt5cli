@@ -59,10 +59,6 @@
 </li>
                                     
 <li>
-    <a href="storage/" class="dropdown-item">Storage</a>
-</li>
-                                    
-<li>
     <a href="converters/" class="dropdown-item">Converters</a>
 </li>
                                     
@@ -179,10 +175,6 @@ responsibilities.</p>
 <td>Canonical DataFrame contracts and normalization helpers</td>
 </tr>
 <tr>
-<td><a href="storage/">Storage</a></td>
-<td>CSV/JSON/Parquet/SQLite export and history collection helpers</td>
-</tr>
-<tr>
 <td><a href="converters/">Converters</a></td>
 <td>Symbol, timeframe, timezone, and date-range utilities</td>
 </tr>
@@ -218,14 +210,13 @@ responsibilities.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    CLI[&quot;mt5cli CLI&quot;] --&gt; Client
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    Client --&gt; SDK[&quot;sdk / pdmt5&quot;]
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    Client --&gt; Schemas[&quot;schemas&quot;]
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    Storage[&quot;storage&quot;] --&gt; History[&quot;history SQLite&quot;]
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    Storage --&gt; Utils[&quot;utils export&quot;]
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    SDK --&gt; PDMT5[&quot;pdmt5.Mt5DataClient&quot;]
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    History[&quot;history SQLite&quot;] --&gt; Utils[&quot;utils export&quot;]
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    SDK --&gt; PDMT5[&quot;pdmt5.Mt5DataClient&quot;]
 </code></pre></div>
 <p>Downstream packages should depend on the package root exports documented in the
 <a href="public-contract/">Public API Contract</a> (<code>MT5Client</code>,
-<code>DataKind</code>, <code>normalize_dataframe</code>, <code>collect_history</code>, <code>load_rate_data</code>,
-<code>resolve_rate_view_name</code>, etc.) rather than private modules.</p>
+<code>collect_history</code>, <code>load_rate_series_from_sqlite</code>, etc.) rather than private
+modules. Lower-level helpers are accessible directly from their owning modules.</p>
 <p><code>MT5Client.order_send()</code> is a live execution primitive that can place real trades. mt5cli exposes minimal execution helpers only; strategy logic, signals, backtests, and optimization remain out of scope and must be implemented downstream with explicit execution gating.</p>
 <h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli</span><span class="w"> </span><span class="kn">import</span> <span class="n">MT5Client</span><span class="p">,</span> <span class="n">build_config</span><span class="p">,</span> <span class="n">mt5_session</span>

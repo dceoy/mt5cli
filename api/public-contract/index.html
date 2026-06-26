@@ -59,10 +59,6 @@
 </li>
                                     
 <li>
-    <a href="../storage/" class="dropdown-item">Storage</a>
-</li>
-                                    
-<li>
     <a href="../converters/" class="dropdown-item">Converters</a>
 </li>
                                     
@@ -137,15 +133,11 @@
               <ul class="nav flex-column">
               </ul>
             </li>
-            <li class="nav-item" data-bs-level="2"><a href="#public-api-tiers" class="nav-link">Public API tiers</a>
-              <ul class="nav flex-column">
-              </ul>
-            </li>
             <li class="nav-item" data-bs-level="2"><a href="#stable-downstream-sdk-api" class="nav-link">Stable downstream SDK API</a>
               <ul class="nav flex-column">
               </ul>
             </li>
-            <li class="nav-item" data-bs-level="2"><a href="#secondary-public-exports" class="nav-link">Secondary public exports</a>
+            <li class="nav-item" data-bs-level="2"><a href="#module-scoped-helpers" class="nav-link">Module-scoped helpers</a>
               <ul class="nav flex-column">
               </ul>
             </li>
@@ -207,34 +199,13 @@ mt5cli does not serve as a pass-through compatibility namespace for pdmt5.</p>
 <p>Note: the former <code>mt5cli</code> re-export <code>TICK_FLAG_MAP</code> corresponds to <code>COPY_TICKS_MAP</code>
 in pdmt5 — the name changed, it was not simply moved.</p>
 <p>Downstream packages should import from the package root (<code>from mt5cli import
-...</code>) and use the public tier sets in <code>mt5cli.contract</code> to distinguish API
-stability. CLI commands mirror the same behavior but are not importable Python
-APIs.</p>
-<h2 id="public-api-tiers">Public API tiers<a class="headerlink" href="#public-api-tiers" title="Permanent link">&para;</a></h2>
-<p>mt5cli classifies package-root imports by intended downstream use:</p>
-<table>
-<thead>
-<tr>
-<th>Tier</th>
-<th>Contract set</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Stable core</td>
-<td><code>STABLE_SDK_EXPORTS</code></td>
-<td>Preferred SDK surface for downstream MT5 infrastructure adapters. Changes require a deliberate compatibility path.</td>
-</tr>
-<tr>
-<td>Secondary public</td>
-<td><code>SECONDARY_PUBLIC_EXPORTS</code></td>
-<td>Public helpers for CLI/export/schema integrations and lower-level MT5 wrappers. Importable, but less central to the downstream trading SDK.</td>
-</tr>
-</tbody>
-</table>
+...</code>). The contract set <code>STABLE_SDK_EXPORTS</code> in <code>mt5cli.contract</code> enumerates
+every package-root symbol. Lower-level helpers (schema utilities, export
+functions, parser helpers, low-level MT5 wrappers) are available directly from
+their owning modules (<code>mt5cli.schemas</code>, <code>mt5cli.utils</code>, <code>mt5cli.converters</code>,
+<code>mt5cli.sdk</code>, etc.) and are not part of the root SDK surface.</p>
 <h2 id="stable-downstream-sdk-api">Stable downstream SDK API<a class="headerlink" href="#stable-downstream-sdk-api" title="Permanent link">&para;</a></h2>
-<p>These names are exported from <code>mt5cli</code> and covered by the contract in
+<p>These names are exported from <code>mt5cli</code> and enumerated in
 <code>mt5cli.STABLE_SDK_EXPORTS</code> (defined in <code>mt5cli.contract</code>).</p>
 <h3 id="session-lifecycle-and-configuration">Session lifecycle and configuration<a class="headerlink" href="#session-lifecycle-and-configuration" title="Permanent link">&para;</a></h3>
 <table>
@@ -269,26 +240,8 @@ APIs.</p>
 <td><code>resolve_account_spec</code>, <code>resolve_account_specs</code></td>
 <td>Merge overrides and expand <code>${ENV_VAR}</code> placeholders; opt-in <code>allow_whole_dollar_env</code> for bare <code>$NAME</code></td>
 </tr>
-<tr>
-<td><code>substitute_env_placeholders</code></td>
-<td>Replace <code>${NAME}</code> substrings from the environment; opt-in <code>allow_whole_dollar_env</code> for whole-value <code>$NAME</code></td>
-</tr>
-<tr>
-<td><code>substitute_mapping_values</code></td>
-<td>Recursively traverse a dict/list/scalar structure and substitute <code>${ENV_VAR}</code> placeholders for caller-selected mapping keys only; optionally normalise blank strings to <code>None</code> for a separate caller-selected key set; does not hard-code any application-specific key names</td>
-</tr>
 </tbody>
 </table>
-<p>Credential resolution is generic: any environment variable name may appear inside
-<code>${...}</code>. mt5cli does not hard-code application-specific keys such as
-<code>mt5_login</code> or <code>mt5_exe</code>.</p>
-<p>Pass <code>allow_whole_dollar_env=True</code> to <code>substitute_env_placeholders()</code>,
-<code>substitute_mapping_values()</code>, <code>resolve_account_spec()</code>, <code>resolve_account_specs()</code>,
-and <code>build_config()</code> to additionally expand strings whose entire value is a bare
-<code>$ENV_NAME</code> identifier.
-Partial strings such as <code>"plan$pass"</code>, <code>"abc$ENV"</code>, or <code>"$ENV-suffix"</code> are
-<strong>never</strong> expanded — only an exact <code>$IDENTIFIER</code> whole-string match qualifies.
-Default is <code>False</code> to preserve backward compatibility.</p>
 <h3 id="closed-bar-rate-helpers">Closed-bar rate helpers<a class="headerlink" href="#closed-bar-rate-helpers" title="Permanent link">&para;</a></h3>
 <p>MetaTrader 5 returns the still-forming bar as the last row when
 <code>start_pos=0</code>. Use these helpers instead of reimplementing bar trimming or
@@ -353,20 +306,8 @@ timestamp normalization in downstream apps.</p>
 <td>Minimum interval between successful incremental updates; optional <code>update_backend</code> injection</td>
 </tr>
 <tr>
-<td><code>resolve_history_datasets</code>, <code>resolve_history_timeframes</code>, <code>resolve_history_tick_flags</code></td>
-<td>History pipeline configuration</td>
-</tr>
-<tr>
-<td><code>build_rate_view_name</code>, <code>resolve_rate_table_name</code>, <code>resolve_rate_view_name</code>, <code>resolve_rate_view_names</code>, <code>resolve_rate_tables</code></td>
-<td>Map symbols/timeframes to mt5cli-managed table or view names</td>
-</tr>
-<tr>
 <td><code>RateTarget</code>, <code>build_rate_targets</code></td>
 <td>Neutral <code>(symbol, timeframe)</code> series descriptors</td>
-</tr>
-<tr>
-<td><code>load_rate_data</code>, <code>load_rate_data_from_connection</code></td>
-<td>Load one table/view into a time-indexed DataFrame</td>
 </tr>
 <tr>
 <td><code>load_rate_series_from_sqlite</code>, <code>load_rate_series_by_granularity</code></td>
@@ -374,9 +315,6 @@ timestamp normalization in downstream apps.</p>
 </tr>
 </tbody>
 </table>
-<p>Pass <code>require_existing=True</code> to rate view resolution helpers when downstream
-code must fail instead of receiving a best-guess view name. Multi-series loaders
-require existing managed <code>rate_*__*</code> views unless <code>explicit_tables</code> is supplied.</p>
 <p>See <a href="../history/">History Collection (SQLite)</a> for schema, view naming, and ER
 diagrams.</p>
 <h3 id="trading-and-sizing-primitives-generic">Trading and sizing primitives (generic)<a class="headerlink" href="#trading-and-sizing-primitives-generic" title="Permanent link">&para;</a></h3>
@@ -494,94 +432,42 @@ and returned as <code>status="failed"</code> with normalized <code>request</code
 <td><code>Mt5CliError</code>, <code>Mt5ConnectionError</code>, <code>Mt5OperationError</code>, <code>Mt5SchemaError</code></td>
 <td>Stable mt5cli exception types</td>
 </tr>
+</tbody>
+</table>
+<h2 id="module-scoped-helpers">Module-scoped helpers<a class="headerlink" href="#module-scoped-helpers" title="Permanent link">&para;</a></h2>
+<p>Lower-level helpers are available from their owning modules and are not part
+of the package-root stable surface. Import them directly when needed:</p>
+<table>
+<thead>
 <tr>
+<th>Module</th>
+<th>Examples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mt5cli.history</code></td>
+<td><code>resolve_rate_view_name</code>, <code>resolve_rate_tables</code>, <code>load_rate_data</code>, <code>build_rate_view_name</code></td>
+</tr>
+<tr>
+<td><code>mt5cli.sdk</code></td>
+<td><code>copy_rates_from</code>, <code>copy_ticks_from</code>, <code>account_info</code>, <code>symbols</code>, <code>mt5_summary</code>, <code>latest_rates</code></td>
+</tr>
+<tr>
+<td><code>mt5cli.schemas</code></td>
+<td><code>DataKind</code>, <code>normalize_dataframe</code>, <code>validate_schema</code>, <code>DEDUP_KEYS</code></td>
+</tr>
+<tr>
+<td><code>mt5cli.utils</code></td>
+<td><code>Dataset</code>, <code>IfExists</code>, <code>detect_format</code>, <code>export_dataframe</code>, <code>export_dataframe_to_sqlite</code></td>
+</tr>
+<tr>
+<td><code>mt5cli.converters</code></td>
+<td><code>normalize_symbol</code>, <code>ensure_utc</code>, <code>parse_date_range</code>, <code>granularity_name</code></td>
+</tr>
+<tr>
+<td><code>mt5cli.exceptions</code></td>
 <td><code>normalize_mt5_exception</code>, <code>call_with_normalized_errors</code>, <code>is_recoverable_mt5_error</code></td>
-<td>Error normalization and retry classification</td>
-</tr>
-</tbody>
-</table>
-<h2 id="secondary-public-exports">Secondary public exports<a class="headerlink" href="#secondary-public-exports" title="Permanent link">&para;</a></h2>
-<p>These names remain importable from <code>mt5cli</code> and are covered by
-<code>SECONDARY_PUBLIC_EXPORTS</code>, but they are oriented toward CLI/export/schema
-integrations, parsing, and lower-level MT5 access rather than the stable core
-SDK surface. Prefer the stable symbols above for downstream infrastructure
-adapters.</p>
-<h3 id="read-only-mt5-data-wrappers">Read-only MT5 data wrappers<a class="headerlink" href="#read-only-mt5-data-wrappers" title="Permanent link">&para;</a></h3>
-<p>Module-level helpers open a transient connection per call. Prefer <code>mt5_session</code>
-or <code>MT5Client</code> when making many requests in one process.</p>
-<table>
-<thead>
-<tr>
-<th>Area</th>
-<th>Symbols</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Rates</td>
-<td><code>copy_rates_from</code>, <code>copy_rates_from_pos</code>, <code>copy_rates_range</code>, <code>latest_rates</code>, <code>collect_latest_rates</code></td>
-</tr>
-<tr>
-<td>Ticks</td>
-<td><code>copy_ticks_from</code>, <code>copy_ticks_range</code>, <code>recent_ticks</code></td>
-</tr>
-<tr>
-<td>Account / terminal</td>
-<td><code>account_info</code>, <code>terminal_info</code>, <code>mt5_version</code>, <code>last_error</code>, <code>mt5_summary</code>, <code>mt5_summary_as_df</code></td>
-</tr>
-<tr>
-<td>Symbols / market</td>
-<td><code>symbols</code>, <code>symbol_info</code>, <code>symbol_info_tick</code>, <code>market_book</code>, <code>minimum_margins</code></td>
-</tr>
-<tr>
-<td>Trading state (read)</td>
-<td><code>orders</code>, <code>positions</code>, <code>history_orders</code>, <code>history_deals</code>, <code>recent_history_deals</code></td>
-</tr>
-<tr>
-<td>Multi-account rates</td>
-<td><code>collect_latest_rates_for_accounts</code></td>
-</tr>
-</tbody>
-</table>
-<p>Use <code>mt5_version</code> for MetaTrader 5 terminal version data. The name <code>version</code> at
-the package root refers to <code>importlib.metadata.version</code> (package metadata), not
-the MT5 SDK helper.</p>
-<h3 id="schema-export-and-parser-helpers">Schema, export, and parser helpers<a class="headerlink" href="#schema-export-and-parser-helpers" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Area</th>
-<th>Symbols</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Dataset contracts</td>
-<td><code>DataKind</code>, <code>Dataset</code>, <code>IfExists</code>, <code>DEDUP_KEYS</code>, <code>REQUIRED_COLUMNS</code>, <code>TIME_COLUMNS</code>, <code>KNOWN_MT5_TIME_COLUMNS</code></td>
-</tr>
-<tr>
-<td>Schema normalization</td>
-<td><code>normalize_dataframe</code>, <code>normalize_time_columns</code>, <code>schema_columns</code>, <code>validate_schema</code></td>
-</tr>
-<tr>
-<td>Export helpers</td>
-<td><code>detect_format</code>, <code>export_dataframe</code>, <code>export_dataframe_to_sqlite</code></td>
-</tr>
-<tr>
-<td>Symbol parsing</td>
-<td><code>normalize_symbol</code>, <code>normalize_symbols</code></td>
-</tr>
-<tr>
-<td>Time parsing</td>
-<td><code>ensure_utc</code>, <code>parse_date_range</code>, <code>parse_datetime</code>, <code>recent_window</code></td>
-</tr>
-<tr>
-<td>MT5 parsing maps</td>
-<td><code>granularity_name</code>, <code>parse_tick_flags</code>, <code>parse_timeframe</code></td>
-</tr>
-<tr>
-<td>Trading data shapes</td>
-<td><code>POSITION_COLUMNS</code></td>
 </tr>
 </tbody>
 </table>
@@ -651,10 +537,10 @@ machinery, closed-bar helpers, generic margin/volume/spread/SL/TP utilities, and
 optional order primitives so downstream apps can focus on strategy code behind
 their own adapter layer.</p>
 <h2 id="contract-verification">Contract verification<a class="headerlink" href="#contract-verification" title="Permanent link">&para;</a></h2>
-<p><code>tests/test_contracts.py</code> asserts that every name in the stable and secondary
-tier sets is importable from <code>mt5cli</code>, documents key closed-bar, rate-view,
-SQLite loading, account-resolution, and trading-session behaviors, and keeps the
-tier sets aligned with <code>__all__</code>.</p></div>
+<p><code>tests/test_contracts.py</code> asserts that every name in <code>STABLE_SDK_EXPORTS</code> is
+importable from <code>mt5cli</code>, that all package-root exports are covered by the
+stable set, and documents key closed-bar, SQLite loading, account-resolution,
+and trading-session behaviors.</p></div>
             </div>
         </div>
 
