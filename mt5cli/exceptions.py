@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 try:
     from pdmt5 import Mt5TradingError
-except ImportError:
+except ImportError:  # pragma: no cover
     Mt5TradingError = None  # type: ignore[assignment]
 
 T = TypeVar("T")
@@ -27,9 +27,8 @@ __all__ = [
 ]
 
 _RECOVERABLE_MT5_ERRORS: tuple[type[BaseException], ...] = (
-    (Mt5TradingError, Mt5RuntimeError)  # type: ignore[assignment]
-    if Mt5TradingError is not None
-    else (Mt5RuntimeError,)
+    *([Mt5TradingError] if Mt5TradingError is not None else []),  # type: ignore[misc]
+    Mt5RuntimeError,
 )
 
 

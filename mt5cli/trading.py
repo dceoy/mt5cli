@@ -9,7 +9,7 @@ from numbers import Integral, Real
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
 
 import pandas as pd
-from pdmt5 import Mt5Config, Mt5RuntimeError
+from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
 
 from .exceptions import Mt5OperationError
 from .history import drop_forming_rate_bar
@@ -584,8 +584,6 @@ def create_trading_client(
     Returns:
         A client instance supporting the required MT5 trading methods.
     """
-    from pdmt5 import Mt5TradingClient  # noqa: PLC0415
-
     mt5_config = _resolve_config(
         config=config,
         login=login,
@@ -594,7 +592,7 @@ def create_trading_client(
         path=path,
         timeout=timeout,
     )
-    client = Mt5TradingClient(config=mt5_config, retry_count=retry_count)
+    client = Mt5DataClient(config=mt5_config, retry_count=retry_count)
     try:
         client.initialize_and_login_mt5()
     except Exception:

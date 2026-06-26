@@ -705,7 +705,7 @@ class TestStableSdkContract:
         """Trading session helper initializes and always shuts down."""
         mock_client = MagicMock()
         mocker.patch(
-            "pdmt5.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=mock_client,
         )
 
@@ -734,7 +734,7 @@ class TestStableSdkContract:
         """Trading session helper shuts down even when the body raises."""
         mock_client = MagicMock()
         mocker.patch(
-            "pdmt5.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=mock_client,
         )
 

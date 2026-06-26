@@ -19,7 +19,7 @@ from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
 
 try:
     from pdmt5 import Mt5TradingError
-except ImportError:
+except ImportError:  # pragma: no cover
     Mt5TradingError = None  # type: ignore[assignment]
 
 from .history import (

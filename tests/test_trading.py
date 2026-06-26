@@ -646,7 +646,7 @@ class TestMt5TradingSession:
         """Test mt5_trading_session connects, yields a client, and shuts down."""
         mock_client = MagicMock()
         trading_client = mocker.patch(
-            "pdmt5.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=mock_client,
         )
 
@@ -669,10 +669,10 @@ class TestCreateTradingClient:
     """Tests for create_trading_client."""
 
     def test_initializes_with_keyword_config(self, mocker: MockerFixture) -> None:
-        """Test keyword configuration is forwarded to Mt5TradingClient."""
+        """Test keyword configuration is forwarded to Mt5DataClient."""
         mock_client = MagicMock()
         trading_client = mocker.patch(
-            "pdmt5.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=mock_client,
         )
 
@@ -696,7 +696,7 @@ class TestCreateTradingClient:
     def test_empty_login_string_is_unset(self, mocker: MockerFixture) -> None:
         """Test empty login strings are treated as None."""
         trading_client = mocker.patch(
-            "pdmt5.Mt5TradingClient",
+            "mt5cli.trading.Mt5DataClient",
             return_value=MagicMock(),
         )
 
@@ -709,7 +709,7 @@ class TestCreateTradingClient:
         """Test failed initialization shuts the client down."""
         mock_client = MagicMock()
         mock_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
-        mocker.patch("pdmt5.Mt5TradingClient", return_value=mock_client)
+        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_client)
 
         with pytest.raises(Mt5RuntimeError, match="boom"):
             create_trading_client()
@@ -2914,7 +2914,7 @@ class TestVolumeAndExecution:
         """Test shutdown is called when initialization fails."""
         mock_client = MagicMock()
         mock_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
-        mocker.patch("pdmt5.Mt5TradingClient", return_value=mock_client)
+        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_client)
 
         with pytest.raises(Mt5RuntimeError, match="boom"), mt5_trading_session():
             pass
@@ -3071,7 +3071,7 @@ class TestVolumeAndExecution:
     def test_shuts_down_when_body_raises(self, mocker: MockerFixture) -> None:
         """Test shutdown is called when the context body raises."""
         mock_client = MagicMock()
-        mocker.patch("pdmt5.Mt5TradingClient", return_value=mock_client)
+        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_client)
 
         body_error = "body error"
         with pytest.raises(RuntimeError, match=body_error), mt5_trading_session():
