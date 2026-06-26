@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import pytest
 
+import mt5cli.utils
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -370,6 +372,14 @@ class TestParseRequest:
 
 class TestConstants:
     """Tests for module constants."""
+
+    def test_timeframe_map_is_private_in_utils(self) -> None:
+        """TIMEFRAME_MAP is a private implementation detail; not a public attribute."""
+        assert not hasattr(mt5cli.utils, "TIMEFRAME_MAP")
+
+    def test_tick_flag_map_absent_from_utils(self) -> None:
+        """TICK_FLAG_MAP is not exposed by mt5cli.utils."""
+        assert not hasattr(mt5cli.utils, "TICK_FLAG_MAP")
 
     @pytest.mark.parametrize(
         ("dataset", "expected"),
