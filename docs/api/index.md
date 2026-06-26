@@ -13,7 +13,6 @@ responsibilities.
 | [Public API Contract](public-contract.md) | Stable downstream SDK exports, CLI boundary, and out-of-scope items       |
 | [Client](client.md)                       | `MT5Client` session abstraction for data access and order primitives      |
 | [Schemas](schemas.md)                     | Canonical DataFrame contracts and normalization helpers                   |
-| [Storage](storage.md)                     | CSV/JSON/Parquet/SQLite export and history collection helpers             |
 | [Converters](converters.md)               | Symbol, timeframe, timezone, and date-range utilities                     |
 | [Exceptions](exceptions.md)               | Stable mt5cli exception types and MT5 error normalization                 |
 | [SDK](sdk.md)                             | Module-level fetch helpers, multi-account collectors, incremental history |
@@ -30,15 +29,14 @@ flowchart TD
     CLI["mt5cli CLI"] --> Client
     Client --> SDK["sdk / pdmt5"]
     Client --> Schemas["schemas"]
-    Storage["storage"] --> History["history SQLite"]
-    Storage --> Utils["utils export"]
+    History["history SQLite"] --> Utils["utils export"]
     SDK --> PDMT5["pdmt5.Mt5DataClient"]
 ```
 
 Downstream packages should depend on the package root exports documented in the
 [Public API Contract](public-contract.md) (`MT5Client`,
-`DataKind`, `normalize_dataframe`, `collect_history`, `load_rate_data`,
-`resolve_rate_view_name`, etc.) rather than private modules.
+`collect_history`, `load_rate_series_from_sqlite`, etc.) rather than private
+modules. Lower-level helpers are accessible directly from their owning modules.
 
 `MT5Client.order_send()` is a live execution primitive that can place real trades. mt5cli exposes minimal execution helpers only; strategy logic, signals, backtests, and optimization remain out of scope and must be implemented downstream with explicit execution gating.
 

@@ -24,22 +24,15 @@ Note: the former `mt5cli` re-export `TICK_FLAG_MAP` corresponds to `COPY_TICKS_M
 in pdmt5 — the name changed, it was not simply moved.
 
 Downstream packages should import from the package root (`from mt5cli import
-...`) and use the public tier sets in `mt5cli.contract` to distinguish API
-stability. CLI commands mirror the same behavior but are not importable Python
-APIs.
-
-## Public API tiers
-
-mt5cli classifies package-root imports by intended downstream use:
-
-| Tier             | Contract set               | Meaning                                                                                                                                     |
-| ---------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stable core      | `STABLE_SDK_EXPORTS`       | Preferred SDK surface for downstream MT5 infrastructure adapters. Changes require a deliberate compatibility path.                          |
-| Secondary public | `SECONDARY_PUBLIC_EXPORTS` | Public helpers for CLI/export/schema integrations and lower-level MT5 wrappers. Importable, but less central to the downstream trading SDK. |
+...`). The contract set `STABLE_SDK_EXPORTS` in `mt5cli.contract` enumerates
+every package-root symbol. Lower-level helpers (schema utilities, export
+functions, parser helpers, low-level MT5 wrappers) are available directly from
+their owning modules (`mt5cli.schemas`, `mt5cli.utils`, `mt5cli.converters`,
+`mt5cli.sdk`, etc.) and are not part of the root SDK surface.
 
 ## Stable downstream SDK API
 
-These names are exported from `mt5cli` and covered by the contract in
+These names are exported from `mt5cli` and enumerated in
 `mt5cli.STABLE_SDK_EXPORTS` (defined in `mt5cli.contract`).
 
 ### Session lifecycle and configuration
@@ -52,20 +45,6 @@ These names are exported from `mt5cli` and covered by the contract in
 | `create_trading_client`, `mt5_trading_session`  | Trading-capable `pdmt5.Mt5TradingClient` lifecycle                                                                                                                                                                                                                                |
 | `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                          |
 | `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                            |
-| `substitute_env_placeholders`                   | Replace `${NAME}` substrings from the environment; opt-in `allow_whole_dollar_env` for whole-value `$NAME`                                                                                                                                                                        |
-| `substitute_mapping_values`                     | Recursively traverse a dict/list/scalar structure and substitute `${ENV_VAR}` placeholders for caller-selected mapping keys only; optionally normalise blank strings to `None` for a separate caller-selected key set; does not hard-code any application-specific key names      |
-
-Credential resolution is generic: any environment variable name may appear inside
-`${...}`. mt5cli does not hard-code application-specific keys such as
-`mt5_login` or `mt5_exe`.
-
-Pass `allow_whole_dollar_env=True` to `substitute_env_placeholders()`,
-`substitute_mapping_values()`, `resolve_account_spec()`, `resolve_account_specs()`,
-and `build_config()` to additionally expand strings whose entire value is a bare
-`$ENV_NAME` identifier.
-Partial strings such as `"plan$pass"`, `"abc$ENV"`, or `"$ENV-suffix"` are
-**never** expanded — only an exact `$IDENTIFIER` whole-string match qualifies.
-Default is `False` to preserve backward compatibility.
 
 ### Closed-bar rate helpers
 
@@ -85,20 +64,13 @@ timestamp normalization in downstream apps.
 
 ### SQLite history collection and rate loading
 
-| Symbol                                                                                                                        | Role                                                                                         |
-| ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `collect_history`                                                                                                             | One-shot date-range export into SQLite                                                       |
-| `update_history`, `update_history_with_config`                                                                                | Incremental append from `MAX(time)` cursors                                                  |
-| `ThrottledHistoryUpdater`                                                                                                     | Minimum interval between successful incremental updates; optional `update_backend` injection |
-| `resolve_history_datasets`, `resolve_history_timeframes`, `resolve_history_tick_flags`                                        | History pipeline configuration                                                               |
-| `build_rate_view_name`, `resolve_rate_table_name`, `resolve_rate_view_name`, `resolve_rate_view_names`, `resolve_rate_tables` | Map symbols/timeframes to mt5cli-managed table or view names                                 |
-| `RateTarget`, `build_rate_targets`                                                                                            | Neutral `(symbol, timeframe)` series descriptors                                             |
-| `load_rate_data`, `load_rate_data_from_connection`                                                                            | Load one table/view into a time-indexed DataFrame                                            |
-| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity`                                                             | Load one or many series; fail clearly when managed views are missing                         |
-
-Pass `require_existing=True` to rate view resolution helpers when downstream
-code must fail instead of receiving a best-guess view name. Multi-series loaders
-require existing managed `rate_*__*` views unless `explicit_tables` is supplied.
+| Symbol                              | Role                                                                                         |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| `collect_history`                   | One-shot date-range export into SQLite                                                       |
+| `update_history`, `update_history_with_config` | Incremental append from `MAX(time)` cursors                                     |
+| `ThrottledHistoryUpdater`           | Minimum interval between successful incremental updates; optional `update_backend` injection |
+| `RateTarget`, `build_rate_targets`  | Neutral `(symbol, timeframe)` series descriptors                                             |
+| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load one or many series; fail clearly when managed views are missing |
 
 See [History Collection (SQLite)](history.md) for schema, view naming, and ER
 diagrams.
@@ -151,48 +123,23 @@ and returned as `status="failed"` with normalized `request` / `response` details
 
 ### Errors
 
-| Symbol                                                                               | Role                                         |
-| ------------------------------------------------------------------------------------ | -------------------------------------------- |
-| `Mt5CliError`, `Mt5ConnectionError`, `Mt5OperationError`, `Mt5SchemaError`           | Stable mt5cli exception types                |
-| `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error` | Error normalization and retry classification |
+| Symbol                                                                     | Role                           |
+| -------------------------------------------------------------------------- | ------------------------------ |
+| `Mt5CliError`, `Mt5ConnectionError`, `Mt5OperationError`, `Mt5SchemaError` | Stable mt5cli exception types  |
 
-## Secondary public exports
+## Module-scoped helpers
 
-These names remain importable from `mt5cli` and are covered by
-`SECONDARY_PUBLIC_EXPORTS`, but they are oriented toward CLI/export/schema
-integrations, parsing, and lower-level MT5 access rather than the stable core
-SDK surface. Prefer the stable symbols above for downstream infrastructure
-adapters.
+Lower-level helpers are available from their owning modules and are not part
+of the package-root stable surface. Import them directly when needed:
 
-### Read-only MT5 data wrappers
-
-Module-level helpers open a transient connection per call. Prefer `mt5_session`
-or `MT5Client` when making many requests in one process.
-
-| Area                 | Symbols                                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------------------------- |
-| Rates                | `copy_rates_from`, `copy_rates_from_pos`, `copy_rates_range`, `latest_rates`, `collect_latest_rates` |
-| Ticks                | `copy_ticks_from`, `copy_ticks_range`, `recent_ticks`                                                |
-| Account / terminal   | `account_info`, `terminal_info`, `mt5_version`, `last_error`, `mt5_summary`, `mt5_summary_as_df`     |
-| Symbols / market     | `symbols`, `symbol_info`, `symbol_info_tick`, `market_book`, `minimum_margins`                       |
-| Trading state (read) | `orders`, `positions`, `history_orders`, `history_deals`, `recent_history_deals`                     |
-| Multi-account rates  | `collect_latest_rates_for_accounts`                                                                  |
-
-Use `mt5_version` for MetaTrader 5 terminal version data. The name `version` at
-the package root refers to `importlib.metadata.version` (package metadata), not
-the MT5 SDK helper.
-
-### Schema, export, and parser helpers
-
-| Area                 | Symbols                                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Dataset contracts    | `DataKind`, `Dataset`, `IfExists`, `DEDUP_KEYS`, `REQUIRED_COLUMNS`, `TIME_COLUMNS`, `KNOWN_MT5_TIME_COLUMNS` |
-| Schema normalization | `normalize_dataframe`, `normalize_time_columns`, `schema_columns`, `validate_schema`                          |
-| Export helpers       | `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                             |
-| Symbol parsing       | `normalize_symbol`, `normalize_symbols`                                                                       |
-| Time parsing         | `ensure_utc`, `parse_date_range`, `parse_datetime`, `recent_window`                                           |
-| MT5 parsing maps     | `granularity_name`, `parse_tick_flags`, `parse_timeframe`                                                     |
-| Trading data shapes  | `POSITION_COLUMNS`                                                                                            |
+| Module               | Examples                                                                                       |
+| -------------------- | ---------------------------------------------------------------------------------------------- |
+| `mt5cli.history`     | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`      |
+| `mt5cli.sdk`         | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates` |
+| `mt5cli.schemas`     | `DataKind`, `Dataset`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                 |
+| `mt5cli.utils`       | `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                  |
+| `mt5cli.converters`  | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                      |
+| `mt5cli.exceptions`  | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`           |
 
 ## CLI commands
 
@@ -246,7 +193,7 @@ their own adapter layer.
 
 ## Contract verification
 
-`tests/test_contracts.py` asserts that every name in the stable and secondary
-tier sets is importable from `mt5cli`, documents key closed-bar, rate-view,
-SQLite loading, account-resolution, and trading-session behaviors, and keeps the
-tier sets aligned with `__all__`.
+`tests/test_contracts.py` asserts that every name in `STABLE_SDK_EXPORTS` is
+importable from `mt5cli`, that all package-root exports are covered by the
+stable set, and documents key closed-bar, SQLite loading, account-resolution,
+and trading-session behaviors.

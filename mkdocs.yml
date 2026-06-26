@@ -59,7 +59,6 @@ nav:
       - Public API Contract: api/public-contract.md
       - Client: api/client.md
       - Schemas: api/schemas.md
-      - Storage: api/storage.md
       - Converters: api/converters.md
       - Exceptions: api/exceptions.md
       - CLI: api/cli.md
