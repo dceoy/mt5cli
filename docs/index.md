@@ -42,19 +42,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mt5cli import (
-    DataKind,
-    Dataset,
     MT5Client,
     build_config,
     collect_history,
-    export_dataframe,
-    load_rate_data,
-    minimum_margins,
     mt5_session,
-    normalize_dataframe,
-    recent_ticks,
-    resolve_rate_view_name,
 )
+from mt5cli.history import load_rate_data, resolve_rate_view_name
+from mt5cli.schemas import DataKind, normalize_dataframe
+from mt5cli.sdk import minimum_margins, recent_ticks
+from mt5cli.utils import Dataset, export_dataframe
 
 # Persistent session for multiple calls
 with mt5_session(build_config(login=12345, server="Broker-Demo")) as client:
@@ -90,7 +86,7 @@ collect_history(
 )
 ```
 
-Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Storage helpers are re-exported from `mt5cli.storage` and the package root.
+Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Export and storage helpers are in `mt5cli.utils` (`Dataset`, `export_dataframe`) and `mt5cli.history`.
 
 `MT5Client.order_send()` is a live execution primitive: it can place real trades on the connected account. mt5cli does not implement strategy logic, signal generation, backtesting, or optimization — downstream applications must gate live execution explicitly (the CLI requires `--yes` for `order-send`).
 

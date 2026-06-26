@@ -117,7 +117,8 @@ call it every iteration without over-fetching.
 ```python
 from pdmt5 import Mt5Config, Mt5DataClient
 
-from mt5cli import Dataset, ThrottledHistoryUpdater
+from mt5cli import ThrottledHistoryUpdater
+from mt5cli.utils import Dataset
 
 updater = ThrottledHistoryUpdater(
     output="history.db",

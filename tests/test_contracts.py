@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import re
+import importlib
 import sqlite3
 from datetime import UTC, datetime
 from importlib.metadata import requires
-from pathlib import Path
-from typing import get_type_hints
+from typing import TYPE_CHECKING, get_type_hints
 from unittest.mock import MagicMock
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -17,15 +19,8 @@ from pytest_mock import MockerFixture  # noqa: TC002
 
 import mt5cli
 from mt5cli import (
-    DEDUP_KEYS,
-    PUBLIC_EXPORT_TIERS,
-    REQUIRED_COLUMNS,
-    SECONDARY_PUBLIC_EXPORTS,
     STABLE_SDK_EXPORTS,
-    TIME_COLUMNS,
     AccountSpec,
-    DataKind,
-    Dataset,
     ExecutionStatus,
     MarginVolume,
     MT5Client,
@@ -44,40 +39,56 @@ from mt5cli import (
     calculate_projected_margin_ratio,
     calculate_symbol_group_margin_ratio,
     calculate_trailing_stop_updates,
-    call_with_normalized_errors,
-    detect_format,
     drop_forming_rate_bar,
     ensure_symbol_selected,
-    ensure_utc,
-    export_dataframe,
-    export_dataframe_to_sqlite,
     extract_tick_price,
     fetch_latest_closed_rates,
     fetch_latest_closed_rates_for_trading_client,
     fetch_latest_closed_rates_indexed,
-    granularity_name,
-    is_recoverable_mt5_error,
-    load_rate_data,
     load_rate_series_from_sqlite,
     mt5_session,
     mt5_trading_session,
-    normalize_dataframe,
-    normalize_mt5_exception,
     normalize_order_volume,
+    place_market_order,
+    resolve_account_spec,
+    resolve_account_specs,
+)
+from mt5cli.converters import (
+    ensure_utc,
+    granularity_name,
     normalize_symbol,
     normalize_symbols,
     parse_date_range,
-    place_market_order,
     recent_window,
-    resolve_account_spec,
-    resolve_account_specs,
+)
+from mt5cli.exceptions import (
+    call_with_normalized_errors,
+    is_recoverable_mt5_error,
+    normalize_mt5_exception,
+)
+from mt5cli.history import (
+    create_rate_compatibility_views,
+    load_rate_data,
     resolve_rate_view_name,
+)
+from mt5cli.retry import retry_with_backoff
+from mt5cli.schemas import (
+    DEDUP_KEYS,
+    REQUIRED_COLUMNS,
+    TIME_COLUMNS,
+    DataKind,
+    ensure_utc_columns,
+    normalize_dataframe,
+    normalize_time_columns,
     schema_columns,
     validate_schema,
 )
-from mt5cli.history import create_rate_compatibility_views
-from mt5cli.retry import retry_with_backoff
-from mt5cli.schemas import ensure_utc_columns, normalize_time_columns
+from mt5cli.utils import (
+    Dataset,
+    detect_format,
+    export_dataframe,
+    export_dataframe_to_sqlite,
+)
 
 
 def _sample_frame(kind: DataKind) -> pd.DataFrame:
@@ -540,6 +551,12 @@ def test_storage_export_round_trip_sqlite(tmp_path: Path) -> None:
     assert count == 1
 
 
+def test_storage_module_does_not_exist() -> None:
+    """mt5cli.storage re-export module has been removed."""
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("mt5cli.storage")
+
+
 class TestStableSdkContract:
     """Tests for the documented stable downstream SDK contract."""
 
@@ -548,67 +565,24 @@ class TestStableSdkContract:
         missing = sorted(STABLE_SDK_EXPORTS - set(mt5cli.__all__))
         assert not missing, f"STABLE_SDK_EXPORTS missing from __all__: {missing}"
 
-    def test_public_export_tiers_are_disjoint_and_complete(self) -> None:
-        """Documented public tiers do not overlap and classify root exports."""
-        assert PUBLIC_EXPORT_TIERS == {
-            "stable": STABLE_SDK_EXPORTS,
-            "secondary": SECONDARY_PUBLIC_EXPORTS,
-        }
-        assert not (STABLE_SDK_EXPORTS & SECONDARY_PUBLIC_EXPORTS)
-        tiered_exports = STABLE_SDK_EXPORTS | SECONDARY_PUBLIC_EXPORTS
+    def test_stable_exports_cover_root_api(self) -> None:
+        """STABLE_SDK_EXPORTS classifies every package-root symbol."""
+        tier_metadata = {"STABLE_SDK_EXPORTS"}
         root_exports = set(mt5cli.__all__)
 
-        missing_from_root = sorted(tiered_exports - root_exports)
+        missing_from_root = sorted(STABLE_SDK_EXPORTS - root_exports)
         assert not missing_from_root, (
-            f"Tiered exports missing from __all__: {missing_from_root}"
+            f"STABLE_SDK_EXPORTS missing from __all__: {missing_from_root}"
         )
 
-        tier_metadata_exports = {
-            "PUBLIC_EXPORT_TIERS",
-            "SECONDARY_PUBLIC_EXPORTS",
-            "STABLE_SDK_EXPORTS",
-        }
-        unclassified_root_exports = sorted(
-            root_exports - tiered_exports - tier_metadata_exports,
-        )
-        assert not unclassified_root_exports, (
-            f"Root exports missing from public API tiers: {unclassified_root_exports}"
-        )
-
-    def test_stable_docs_do_not_document_nonstable_exports(self) -> None:
-        """Stable docs do not promote secondary root exports."""
-        docs_path = Path("docs/api/public-contract.md")
-        docs = docs_path.read_text(encoding="utf-8")
-        stable_section = docs.split("## Stable downstream SDK API", maxsplit=1)[
-            1
-        ].split(
-            "## Secondary public exports",
-            maxsplit=1,
-        )[0]
-        documented_symbols = set(
-            re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", stable_section)
-        )
-        nonstable_exports = SECONDARY_PUBLIC_EXPORTS
-
-        wrongly_stable = sorted(documented_symbols & nonstable_exports)
-        assert not wrongly_stable, (
-            f"Non-stable exports documented in stable section: {wrongly_stable}"
+        unclassified = sorted(root_exports - STABLE_SDK_EXPORTS - tier_metadata)
+        assert not unclassified, (
+            f"Root exports not in STABLE_SDK_EXPORTS: {unclassified}"
         )
 
     @pytest.mark.parametrize("name", sorted(STABLE_SDK_EXPORTS))
     def test_stable_exports_are_importable_from_package_root(self, name: str) -> None:
         """Stable SDK names resolve through ``from mt5cli import ...``."""
-        assert hasattr(mt5cli, name), f"{name!r} missing from mt5cli package root"
-
-    @pytest.mark.parametrize(
-        "name",
-        sorted(SECONDARY_PUBLIC_EXPORTS),
-    )
-    def test_secondary_exports_are_importable(
-        self,
-        name: str,
-    ) -> None:
-        """Non-stable public names remain available from the package root."""
         assert hasattr(mt5cli, name), f"{name!r} missing from mt5cli package root"
 
     def test_drop_forming_rate_bar_from_package_root(self) -> None:
@@ -683,38 +657,6 @@ class TestStableSdkContract:
         assert callable(calculate_account_projected_margin_ratio)
         assert callable(calculate_projected_margin_ratio)
         assert callable(calculate_symbol_group_margin_ratio)
-
-    def test_resolve_rate_view_name_from_package_root(self, tmp_path: Path) -> None:
-        """Rate view resolution is importable and honors require_existing."""
-        db_path = tmp_path / "rates.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
-            )
-            conn.execute(
-                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
-                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
-            )
-            create_rate_compatibility_views(conn)
-
-        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
-        missing = tmp_path / "missing.db"
-        with pytest.raises(ValueError, match="SQLite database not found"):
-            resolve_rate_view_name(missing, "EURUSD", "M1", require_existing=True)
-
-    def test_load_rate_data_from_package_root(self, tmp_path: Path) -> None:
-        """SQLite rate loading normalizes timestamps through the stable API."""
-        db_path = tmp_path / "view.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                'CREATE VIEW "rate_EURUSD__1" AS'
-                " SELECT '2024-01-01T00:00:00+00:00' AS time, 1.1 AS close",
-            )
-
-        frame = load_rate_data(db_path, "rate_EURUSD__1")
-        assert frame.index.name == "time"
-        assert abs(float(frame.iloc[0]["close"]) - 1.1) < 1e-9
 
     def test_load_rate_series_from_sqlite_requires_managed_views(
         self,
@@ -834,6 +776,38 @@ class TestStableSdkContract:
         assert "time" not in result.columns
         assert "close" in result.columns
 
+    def test_rate_view_helpers_in_history_module(self, tmp_path: Path) -> None:
+        """Rate view helpers are available from mt5cli.history."""
+        db_path = tmp_path / "rates.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            create_rate_compatibility_views(conn)
+
+        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
+        missing = tmp_path / "missing.db"
+        with pytest.raises(ValueError, match="SQLite database not found"):
+            resolve_rate_view_name(missing, "EURUSD", "M1", require_existing=True)
+
+    def test_load_rate_data_in_history_module(self, tmp_path: Path) -> None:
+        """SQLite rate loading normalizes timestamps through mt5cli.history."""
+        db_path = tmp_path / "view.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                'CREATE VIEW "rate_EURUSD__1" AS'
+                " SELECT '2024-01-01T00:00:00+00:00' AS time, 1.1 AS close",
+            )
+
+        frame = load_rate_data(db_path, "rate_EURUSD__1")
+        assert frame.index.name == "time"
+        assert abs(float(frame.iloc[0]["close"]) - 1.1) < 1e-9
+
 
 @pytest.mark.parametrize(
     "name",
@@ -850,9 +824,6 @@ def test_pdmt5_pass_through_names_removed_from_public_contract(name: str) -> Non
     """Removed pdmt5 pass-through names are not part of the public contract."""
     assert name not in STABLE_SDK_EXPORTS, (
         f"{name!r} should not be in STABLE_SDK_EXPORTS"
-    )
-    assert name not in SECONDARY_PUBLIC_EXPORTS, (
-        f"{name!r} should not be in SECONDARY_PUBLIC_EXPORTS"
     )
     assert name not in mt5cli.__all__, f"{name!r} should not be in mt5cli.__all__"
 
