@@ -378,7 +378,7 @@
 </tr>
 </tbody>
 </table>
-<h3 id="trading">Trading<a class="headerlink" href="#trading" title="Permanent link">&para;</a></h3>
+<h3 id="trading-state">Trading State<a class="headerlink" href="#trading-state" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -413,15 +413,35 @@
 </tr>
 <tr>
 <td><code>order-check</code></td>
-<td>Check funds sufficiency for a trade request</td>
-</tr>
-<tr>
-<td><code>order-send</code></td>
-<td>Send a trade request to the trade server (<code>--yes</code> required)</td>
+<td>Check funds sufficiency for a trade request (read-only, no <code>--yes</code>)</td>
 </tr>
 </tbody>
 </table>
-<p>Use <code>order-check</code> to validate a request payload before running <code>order-send --yes</code>.</p>
+<h3 id="execution-live-mutating">Execution (live / mutating)<a class="headerlink" href="#execution-live-mutating" title="Permanent link">&para;</a></h3>
+<p>These commands send requests to the live trade server and can place or close
+real trades. Both require <code>--yes</code> for live execution.</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>order-send</code></td>
+<td>Send a <strong>raw</strong> trade request directly to MT5 (<code>--yes</code> required; expert path — no extra validation)</td>
+</tr>
+<tr>
+<td><code>close-positions</code></td>
+<td>Close open positions by <code>--symbol</code> or <code>--ticket</code> (<code>--yes</code> required for live; <code>--dry-run</code> to preview)</td>
+</tr>
+</tbody>
+</table>
+<p>Use <code>order-check</code> (Trading State) to validate funds before running <code>order-send --yes</code>.
+<code>close-positions</code> is the safer high-level alternative that builds correct close
+requests automatically. <code>order-send</code> is the expert raw path — downstream
+applications should prefer dedicated closing helpers or their own risk controls.</p>
 <h3 id="bulk-collection">Bulk Collection<a class="headerlink" href="#bulk-collection" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -553,7 +573,7 @@
 <h2 id="api-reference">API Reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h2>
 <p>Browse the API documentation for detailed module information:</p>
 <ul>
-<li><a href="api/cli/">CLI Module</a> - CLI application with export commands</li>
+<li><a href="api/cli/">CLI Module</a> - CLI application with data export and execution commands</li>
 <li><a href="api/sdk/">SDK Module</a> - Programmatic read-only data collection API</li>
 <li><a href="api/utils/">Utils Module</a> - Constants, parameter types, parsers, and export utilities</li>
 </ul>
@@ -648,5 +668,5 @@
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2026-06-26 17:07:02.896752+00:00
+Build Date UTC : 2026-06-27 16:23:57.124608+00:00
 -->
