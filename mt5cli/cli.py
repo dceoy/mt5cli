@@ -802,6 +802,100 @@ def collect_history(
     )
 
 
+@app.command(rich_help_panel="Collection")
+def grafana_schema(ctx: typer.Context) -> None:
+    """Create or refresh Grafana-ready views and indexes in a SQLite database.
+
+    Idempotent — safe to run repeatedly on the same database. Requires SQLite
+    output. Does not connect to MetaTrader 5.
+
+    Raises:
+        typer.BadParameter: If the output format is not SQLite3.
+    """
+    import sqlite3 as _sqlite3  # noqa: PLC0415
+
+    from .grafana import create_snapshot_tables, ensure_grafana_schema  # noqa: PLC0415
+
+    export_ctx = _get_export_context(ctx)
+    if export_ctx.output_format != "sqlite3":
+        msg = (
+            "grafana-schema requires SQLite3 output."
+            " Use a .db/.sqlite/.sqlite3 extension or --format sqlite3."
+        )
+        raise typer.BadParameter(msg)
+    with _sqlite3.connect(export_ctx.output) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        create_snapshot_tables(conn)
+        ensure_grafana_schema(conn)
+    logger.info("Grafana schema applied to %s", export_ctx.output)
+
+
+@app.command(rich_help_panel="Collection")
+def snapshot(
+    ctx: typer.Context,
+    symbol: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--symbol",
+            "-s",
+            help="Symbol filter for positions/orders (repeat for multiple).",
+        ),
+    ] = None,
+    with_account: Annotated[
+        bool,
+        typer.Option("--with-account/--no-account", help="Snapshot account info."),
+    ] = True,
+    with_positions: Annotated[
+        bool,
+        typer.Option(
+            "--with-positions/--no-positions", help="Snapshot open positions."
+        ),
+    ] = True,
+    with_orders: Annotated[
+        bool,
+        typer.Option("--with-orders/--no-orders", help="Snapshot active orders."),
+    ] = True,
+    with_terminal: Annotated[
+        bool,
+        typer.Option("--with-terminal/--no-terminal", help="Snapshot terminal info."),
+    ] = True,
+    with_grafana_schema: Annotated[
+        bool,
+        typer.Option(
+            "--with-grafana-schema/--no-grafana-schema",
+            help="Ensure Grafana views and indexes exist.",
+        ),
+    ] = False,
+) -> None:
+    """Snapshot current account, position, order, and terminal state into SQLite.
+
+    Appends a timestamped snapshot row for each data type. Never places
+    orders or modifies trading state.
+
+    Raises:
+        typer.BadParameter: If the output format is not SQLite3.
+    """
+    export_ctx = _get_export_context(ctx)
+    if export_ctx.output_format != "sqlite3":
+        msg = (
+            "snapshot requires SQLite3 output."
+            " Use a .db/.sqlite/.sqlite3 extension or --format sqlite3."
+        )
+        raise typer.BadParameter(msg)
+    sdk.update_observability_with_config(
+        output=export_ctx.output,
+        config=export_ctx.config,
+        symbols=list(symbol) if symbol else None,
+        include_account=with_account,
+        include_positions=with_positions,
+        include_orders=with_orders,
+        include_terminal=with_terminal,
+        with_grafana_schema=with_grafana_schema,
+    )
+    logger.info("Snapshot written to %s", export_ctx.output)
+
+
 def main() -> None:
     """Run the mt5cli CLI."""
     app()

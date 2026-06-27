@@ -8,7 +8,7 @@ import os
 import re
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,6 +22,16 @@ try:
 except ImportError:  # pragma: no cover
     Mt5TradingError = None  # type: ignore[assignment]
 
+from .grafana import (
+    create_snapshot_tables,
+    ensure_grafana_schema,
+    insert_account_snapshot,
+    insert_order_snapshots,
+    insert_position_snapshots,
+    insert_terminal_snapshot,
+    record_snapshot_run,
+    start_snapshot_run,
+)
 from .history import (
     create_cash_events_view,
     create_history_indexes,
@@ -154,6 +164,8 @@ __all__ = [
     "terminal_info",
     "update_history",
     "update_history_with_config",
+    "update_observability",
+    "update_observability_with_config",
     "version",
 ]
 
@@ -1011,7 +1023,7 @@ def update_history(  # noqa: PLR0913
         sorted(dataset.value for dataset in request.selected),
         request.output_path,
     )
-    with sqlite3.connect(request.output_path) as conn:
+    with closing(sqlite3.connect(request.output_path)) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         write_incremental_datasets(
@@ -1258,7 +1270,11 @@ def collect_history(
     tf = _coerce_timeframe(timeframe)
     tick_flags = _coerce_tick_flags(flags)
     mt5_config = config or build_config()
-    with connected_client(mt5_config) as client, sqlite3.connect(output) as conn:
+    with (
+        connected_client(mt5_config) as client,
+        closing(sqlite3.connect(output)) as conn,
+        conn,
+    ):
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         written_tables, written_columns = write_collected_datasets(
@@ -2148,3 +2164,165 @@ def mt5_summary(*, config: Mt5Config | None = None) -> dict[str, object]:
 def mt5_summary_as_df(*, config: Mt5Config | None = None) -> pd.DataFrame:
     """Return an export-safe terminal/account status summary DataFrame."""
     return _make_client(config=config).mt5_summary_as_df()
+
+
+# ---------------------------------------------------------------------------
+# Observability: account / position / order / terminal snapshots
+# ---------------------------------------------------------------------------
+
+
+def _snapshot_account(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    run_id: int,
+) -> int | None:
+    df = client.account_info_as_df()
+    if df.empty:
+        logger.warning(
+            "account_info_as_df returned empty frame; skipping account snapshot"
+        )
+        return None
+    row = cast("dict[str, object]", df.iloc[0].to_dict())
+    insert_account_snapshot(conn, run_id, row)
+    login_val = row.get("login")
+    return int(login_val) if login_val is not None else None  # type: ignore[arg-type]
+
+
+def _snapshot_positions(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    run_id: int,
+    login: int | None,
+    symbols: Sequence[str] | None,
+) -> None:
+    df: pd.DataFrame = client.positions_get_as_df()
+    if symbols is not None and not df.empty and "symbol" in df.columns:
+        df = df[df["symbol"].isin(symbols)].reset_index(drop=True)
+    raw = df.to_dict(orient="records") if not df.empty else []
+    rows = cast("list[dict[str, object]]", raw)
+    insert_position_snapshots(conn, run_id, login, rows)
+
+
+def _snapshot_orders(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    run_id: int,
+    login: int | None,
+    symbols: Sequence[str] | None,
+) -> None:
+    df: pd.DataFrame = client.orders_get_as_df()
+    if symbols is not None and not df.empty and "symbol" in df.columns:
+        df = df[df["symbol"].isin(symbols)].reset_index(drop=True)
+    raw = df.to_dict(orient="records") if not df.empty else []
+    rows = cast("list[dict[str, object]]", raw)
+    insert_order_snapshots(conn, run_id, login, rows)
+
+
+def _snapshot_terminal(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    run_id: int,
+) -> None:
+    df = client.terminal_info_as_df()
+    if df.empty:
+        logger.warning(
+            "terminal_info_as_df returned empty frame; skipping terminal snapshot"
+        )
+        return
+    row = cast("dict[str, object]", df.iloc[0].to_dict())
+    insert_terminal_snapshot(conn, run_id, row)
+
+
+def update_observability(
+    *,
+    client: Mt5DataClient,
+    output: Path | str,
+    symbols: Sequence[str] | None = None,
+    include_account: bool = True,
+    include_positions: bool = True,
+    include_orders: bool = True,
+    include_terminal: bool = True,
+    with_grafana_schema: bool = False,
+) -> None:
+    """Snapshot current account/position/order/terminal state into SQLite.
+
+    Reads the current MT5 state and appends timestamped snapshot rows. Never
+    places orders or modifies trading state.
+
+    Args:
+        client: Connected MT5 data client.
+        output: SQLite database path.
+        symbols: Optional symbol filter for positions and orders. When None,
+            all positions and orders are snapshotted.
+        include_account: Snapshot account info into ``account_snapshots``.
+        include_positions: Snapshot open positions into ``position_snapshots``.
+        include_orders: Snapshot active orders into ``order_snapshots``.
+        include_terminal: Snapshot terminal info into ``terminal_snapshots``.
+        with_grafana_schema: Ensure Grafana views and indexes exist. Defaults
+            to ``False``; run ``grafana-schema`` once to set up the schema,
+            then use ``snapshot`` repeatedly without this flag.
+    """
+    observed_at = int(datetime.now(UTC).timestamp())
+    with closing(sqlite3.connect(Path(output))) as conn, conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        if with_grafana_schema:
+            ensure_grafana_schema(conn)
+        else:
+            create_snapshot_tables(conn)
+        run_id = start_snapshot_run(conn, observed_at)
+        login: int | None = None
+        try:
+            if include_account:
+                login = _snapshot_account(conn, client, run_id)
+            if include_positions:
+                _snapshot_positions(conn, client, run_id, login, symbols)
+            if include_orders:
+                _snapshot_orders(conn, client, run_id, login, symbols)
+            if include_terminal:
+                _snapshot_terminal(conn, client, run_id)
+            record_snapshot_run(conn, run_id, "ok")
+        except Exception:
+            record_snapshot_run(conn, run_id, "error")
+            conn.commit()
+            raise
+
+
+def update_observability_with_config(
+    *,
+    output: Path | str,
+    config: Mt5Config | None = None,
+    symbols: Sequence[str] | None = None,
+    include_account: bool = True,
+    include_positions: bool = True,
+    include_orders: bool = True,
+    include_terminal: bool = True,
+    with_grafana_schema: bool = False,
+) -> None:
+    """Snapshot current MT5 state, opening and closing the MT5 connection.
+
+    Convenience wrapper around :func:`update_observability` for standalone use.
+
+    Args:
+        output: SQLite database path.
+        config: MT5 connection configuration. Defaults to an empty config that
+            attaches to a running terminal.
+        symbols: Optional symbol filter for positions and orders.
+        include_account: Snapshot account info.
+        include_positions: Snapshot open positions.
+        include_orders: Snapshot active orders.
+        include_terminal: Snapshot terminal info.
+        with_grafana_schema: Ensure Grafana views and indexes exist.
+    """
+    mt5_config = config or build_config()
+    with connected_client(mt5_config) as client:
+        update_observability(
+            client=client,
+            output=output,
+            symbols=symbols,
+            include_account=include_account,
+            include_positions=include_positions,
+            include_orders=include_orders,
+            include_terminal=include_terminal,
+            with_grafana_schema=with_grafana_schema,
+        )

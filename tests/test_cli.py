@@ -1855,6 +1855,174 @@ class TestCollectHistory:
         )
 
 
+class TestGrafanaSchemaCommand:
+    """Tests for the grafana-schema CLI command."""
+
+    def test_grafana_schema_creates_snapshot_tables_in_sqlite(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """grafana-schema applies Grafana schema to a SQLite database."""
+        output = tmp_path / "out.db"
+        result = runner.invoke(app, ["-o", str(output), "grafana-schema"])
+        assert result.exit_code == 0, result.output
+        with sqlite3.connect(output) as conn:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+        assert "snapshot_runs" in tables
+        assert "account_snapshots" in tables
+
+    def test_grafana_schema_is_idempotent(self, tmp_path: Path) -> None:
+        """grafana-schema can be invoked multiple times without error."""
+        output = tmp_path / "out.db"
+        result1 = runner.invoke(app, ["-o", str(output), "grafana-schema"])
+        result2 = runner.invoke(app, ["-o", str(output), "grafana-schema"])
+        assert result1.exit_code == 0, result1.output
+        assert result2.exit_code == 0, result2.output
+
+    def test_grafana_schema_rejects_non_sqlite_output(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """grafana-schema fails when output is not a SQLite3 format."""
+        result = runner.invoke(
+            app,
+            ["-o", str(tmp_path / "out.csv"), "grafana-schema"],
+        )
+        assert result.exit_code != 0
+        assert "grafana-schema requires SQLite3 output" in result.output
+
+
+class TestSnapshotCommand:
+    """Tests for the snapshot CLI command."""
+
+    def test_snapshot_rejects_non_sqlite_output(self, tmp_path: Path) -> None:
+        """Snapshot fails when output is not a SQLite3 format."""
+        result = runner.invoke(
+            app,
+            ["-o", str(tmp_path / "out.csv"), "snapshot"],
+        )
+        assert result.exit_code != 0
+        assert "snapshot requires SQLite3 output" in result.output
+
+    def test_snapshot_delegates_to_update_observability_with_config(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Snapshot calls sdk.update_observability_with_config."""
+        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        output = tmp_path / "out.db"
+        result = runner.invoke(app, ["-o", str(output), "snapshot"])
+        assert result.exit_code == 0, result.output
+        updater.assert_called_once()
+        kwargs = updater.call_args.kwargs
+        assert kwargs["output"] == output
+        assert kwargs["symbols"] is None
+        assert kwargs["include_account"] is True
+        assert kwargs["include_positions"] is True
+        assert kwargs["include_orders"] is True
+        assert kwargs["include_terminal"] is True
+        assert kwargs["with_grafana_schema"] is False
+
+    def test_snapshot_with_symbol_filter(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Snapshot passes symbol list to update_observability_with_config."""
+        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(tmp_path / "out.db"),
+                "snapshot",
+                "--symbol",
+                "EURUSD",
+                "--symbol",
+                "GBPUSD",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        kwargs = updater.call_args.kwargs
+        assert kwargs["symbols"] == ["EURUSD", "GBPUSD"]
+
+    def test_snapshot_with_no_account_flag(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """--no-account disables account snapshotting."""
+        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        result = runner.invoke(
+            app,
+            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-account"],
+        )
+        assert result.exit_code == 0, result.output
+        assert updater.call_args.kwargs["include_account"] is False
+
+    def test_snapshot_with_no_positions_flag(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """--no-positions disables position snapshotting."""
+        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        result = runner.invoke(
+            app,
+            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-positions"],
+        )
+        assert result.exit_code == 0, result.output
+        assert updater.call_args.kwargs["include_positions"] is False
+
+    def test_snapshot_with_no_orders_flag(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """--no-orders disables order snapshotting."""
+        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        result = runner.invoke(
+            app,
+            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-orders"],
+        )
+        assert result.exit_code == 0, result.output
+        assert updater.call_args.kwargs["include_orders"] is False
+
+    def test_snapshot_with_no_terminal_flag(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """--no-terminal disables terminal snapshotting."""
+        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        result = runner.invoke(
+            app,
+            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-terminal"],
+        )
+        assert result.exit_code == 0, result.output
+        assert updater.call_args.kwargs["include_terminal"] is False
+
+    def test_snapshot_with_no_grafana_schema_flag(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """--no-grafana-schema disables Grafana schema creation."""
+        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        result = runner.invoke(
+            app,
+            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-grafana-schema"],
+        )
+        assert result.exit_code == 0, result.output
+        assert updater.call_args.kwargs["with_grafana_schema"] is False
+
+
 class TestMain:
     """Tests for the main entry point."""
 
