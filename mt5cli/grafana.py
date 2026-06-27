@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import cast
 
 from .history import get_table_columns
 
@@ -42,12 +43,13 @@ def _other_cols(all_cols: set[str], exclude: set[str]) -> list[str]:
 
 _SNAPSHOT_TABLE_DDLS: list[str] = [
     """CREATE TABLE IF NOT EXISTS snapshot_runs (
+        run_id INTEGER PRIMARY KEY,
         observed_at INTEGER NOT NULL,
         status TEXT NOT NULL,
         detail TEXT
     )""",
     """CREATE TABLE IF NOT EXISTS account_snapshots (
-        observed_at INTEGER NOT NULL,
+        run_id INTEGER NOT NULL,
         login INTEGER,
         currency TEXT,
         balance REAL,
@@ -59,7 +61,7 @@ _SNAPSHOT_TABLE_DDLS: list[str] = [
         leverage INTEGER
     )""",
     """CREATE TABLE IF NOT EXISTS position_snapshots (
-        observed_at INTEGER NOT NULL,
+        run_id INTEGER NOT NULL,
         login INTEGER,
         ticket INTEGER,
         position_id INTEGER,
@@ -74,7 +76,7 @@ _SNAPSHOT_TABLE_DDLS: list[str] = [
         magic INTEGER
     )""",
     """CREATE TABLE IF NOT EXISTS order_snapshots (
-        observed_at INTEGER NOT NULL,
+        run_id INTEGER NOT NULL,
         login INTEGER,
         ticket INTEGER,
         symbol TEXT,
@@ -88,7 +90,7 @@ _SNAPSHOT_TABLE_DDLS: list[str] = [
         time_setup INTEGER
     )""",
     """CREATE TABLE IF NOT EXISTS terminal_snapshots (
-        observed_at INTEGER NOT NULL,
+        run_id INTEGER NOT NULL,
         name TEXT,
         connected INTEGER,
         community_account INTEGER,
@@ -105,6 +107,19 @@ def create_snapshot_tables(conn: sqlite3.Connection) -> None:
     """Create snapshot tables idempotently."""
     for ddl in _SNAPSHOT_TABLE_DDLS:
         conn.execute(ddl)
+
+
+def start_snapshot_run(conn: sqlite3.Connection, observed_at: int) -> int:
+    """Insert a snapshot_runs row with status 'running' and return its run_id.
+
+    Returns:
+        The auto-assigned run_id for the new row.
+    """
+    cursor = conn.execute(
+        "INSERT INTO snapshot_runs (observed_at, status) VALUES (?, 'running')",
+        (observed_at,),
+    )
+    return cast("int", cursor.lastrowid)
 
 
 # ---------------------------------------------------------------------------
@@ -309,24 +324,19 @@ def _build_snapshot_view(
     if not cols:
         logger.warning("Skipping %s: %s table missing", view_name, table_name)
         return
-    others = _other_cols(cols, {"observed_at"})
+    others = _other_cols(cols, {"run_id"})
     run_cols = get_table_columns(conn, "snapshot_runs")
-    if {"observed_at", "status"}.issubset(run_cols):
+    if {"run_id", "observed_at", "status"}.issubset(run_cols):
         other_sql = (", " + ", ".join(f's."{c}"' for c in others)) if others else ""
         _create_view_safe(
             conn,
             view_name,
-            f'SELECT s."observed_at" AS "time"{other_sql} FROM "{table_name}" s'  # noqa: S608
-            f' JOIN "snapshot_runs" r ON s."observed_at" = r."observed_at"'
+            f'SELECT r."observed_at" AS "time"{other_sql} FROM "{table_name}" s'  # noqa: S608
+            f' JOIN "snapshot_runs" r ON s."run_id" = r."run_id"'
             f" WHERE r.\"status\" = 'ok'",
         )
     else:
-        other_sql = (", " + ", ".join(f'"{c}"' for c in others)) if others else ""
-        _create_view_safe(
-            conn,
-            view_name,
-            f'SELECT "observed_at" AS "time"{other_sql} FROM "{table_name}"',  # noqa: S608
-        )
+        logger.warning("Skipping %s: snapshot_runs missing required columns", view_name)
 
 
 def _build_grafana_account_snapshots(conn: sqlite3.Connection) -> None:
@@ -405,22 +415,20 @@ def create_grafana_indexes(conn: sqlite3.Connection) -> None:
             ' ON "history_orders"("time_setup", "symbol")',
         )
 
-    if {"observed_at", "login"}.issubset(get_table_columns(conn, "account_snapshots")):
+    if {"run_id", "login"}.issubset(get_table_columns(conn, "account_snapshots")):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_account_snapshots_time_login"
-            ' ON "account_snapshots"("observed_at", "login")',
+            ' ON "account_snapshots"("run_id", "login")',
         )
-    if {"observed_at", "symbol"}.issubset(
-        get_table_columns(conn, "position_snapshots")
-    ):
+    if {"run_id", "symbol"}.issubset(get_table_columns(conn, "position_snapshots")):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_position_snapshots_time_symbol"
-            ' ON "position_snapshots"("observed_at", "symbol")',
+            ' ON "position_snapshots"("run_id", "symbol")',
         )
-    if {"observed_at", "symbol"}.issubset(get_table_columns(conn, "order_snapshots")):
+    if {"run_id", "symbol"}.issubset(get_table_columns(conn, "order_snapshots")):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_order_snapshots_time_symbol"
-            ' ON "order_snapshots"("observed_at", "symbol")',
+            ' ON "order_snapshots"("run_id", "symbol")',
         )
     if {"observed_at", "status"}.issubset(get_table_columns(conn, "snapshot_runs")):
         conn.execute(
@@ -443,17 +451,17 @@ def ensure_grafana_schema(conn: sqlite3.Connection) -> None:
 
 def insert_account_snapshot(
     conn: sqlite3.Connection,
-    observed_at: int,
+    run_id: int,
     row: dict[str, object],
 ) -> None:
     """Append one account state row to account_snapshots."""
     conn.execute(
         "INSERT INTO account_snapshots"
-        " (observed_at, login, currency, balance, equity,"
+        " (run_id, login, currency, balance, equity,"
         "  margin, margin_free, margin_level, profit, leverage)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
-            observed_at,
+            run_id,
             row.get("login"),
             row.get("currency"),
             row.get("balance"),
@@ -469,7 +477,7 @@ def insert_account_snapshot(
 
 def insert_position_snapshots(
     conn: sqlite3.Connection,
-    observed_at: int,
+    run_id: int,
     login: int | None,
     rows: list[dict[str, object]],
 ) -> None:
@@ -478,12 +486,12 @@ def insert_position_snapshots(
         return
     conn.executemany(
         "INSERT INTO position_snapshots"
-        " (observed_at, login, ticket, position_id, symbol, type, volume,"
+        " (run_id, login, ticket, position_id, symbol, type, volume,"
         "  price_open, price_current, profit, swap, comment, magic)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
-                observed_at,
+                run_id,
                 login,
                 r.get("ticket"),
                 r.get("position_id"),
@@ -504,7 +512,7 @@ def insert_position_snapshots(
 
 def insert_order_snapshots(
     conn: sqlite3.Connection,
-    observed_at: int,
+    run_id: int,
     login: int | None,
     rows: list[dict[str, object]],
 ) -> None:
@@ -513,12 +521,12 @@ def insert_order_snapshots(
         return
     conn.executemany(
         "INSERT INTO order_snapshots"
-        " (observed_at, login, ticket, symbol, type, volume_current,"
+        " (run_id, login, ticket, symbol, type, volume_current,"
         "  price_open, price_current, state, comment, magic, time_setup)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
-                observed_at,
+                run_id,
                 login,
                 r.get("ticket"),
                 r.get("symbol"),
@@ -538,17 +546,17 @@ def insert_order_snapshots(
 
 def insert_terminal_snapshot(
     conn: sqlite3.Connection,
-    observed_at: int,
+    run_id: int,
     row: dict[str, object],
 ) -> None:
     """Append one terminal state row to terminal_snapshots."""
     conn.execute(
         "INSERT INTO terminal_snapshots"
-        " (observed_at, name, connected, community_account,"
+        " (run_id, name, connected, community_account,"
         "  trade_allowed, trade_expert, path, company, language)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
-            observed_at,
+            run_id,
             row.get("name"),
             row.get("connected"),
             row.get("community_account"),
@@ -563,12 +571,12 @@ def insert_terminal_snapshot(
 
 def record_snapshot_run(
     conn: sqlite3.Connection,
-    observed_at: int,
+    run_id: int,
     status: str,
     detail: str | None = None,
 ) -> None:
-    """Record a snapshot run result in snapshot_runs."""
+    """Finalize a snapshot run by setting its status."""
     conn.execute(
-        "INSERT INTO snapshot_runs (observed_at, status, detail) VALUES (?, ?, ?)",
-        (observed_at, status, detail),
+        "UPDATE snapshot_runs SET status = ?, detail = ? WHERE run_id = ?",
+        (status, detail, run_id),
     )

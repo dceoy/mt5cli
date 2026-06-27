@@ -24,6 +24,7 @@ from mt5cli.grafana import (
     insert_position_snapshots,
     insert_terminal_snapshot,
     record_snapshot_run,
+    start_snapshot_run,
 )
 
 
@@ -351,31 +352,45 @@ class TestGrafanaViews:
         assert "grafana_order_snapshots" not in views
         assert "grafana_terminal_snapshots" not in views
 
-    def test_build_snapshot_view_with_only_observed_at_col(
+    def test_build_snapshot_view_with_only_run_id_col(
         self,
         conn: sqlite3.Connection,
     ) -> None:
-        """_build_snapshot_view creates a valid view when table has only observed_at."""
-        conn.execute("CREATE TABLE only_time (observed_at INTEGER NOT NULL)")
-        _build_snapshot_view(conn, "test_view", "only_time")
+        """_build_snapshot_view creates a view when table has only run_id col."""
+        create_snapshot_tables(conn)
+        conn.execute("CREATE TABLE only_run (run_id INTEGER NOT NULL)")
+        run_id = start_snapshot_run(conn, 1000)
+        record_snapshot_run(conn, run_id, "ok")
+        conn.execute("INSERT INTO only_run (run_id) VALUES (?)", (run_id,))
+        _build_snapshot_view(conn, "test_view", "only_run")
         views = _get_names(conn, "view")
         assert "test_view" in views
+
+    def test_build_snapshot_view_skips_when_snapshot_runs_missing(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """_build_snapshot_view skips view when snapshot_runs has wrong columns."""
+        conn.execute("CREATE TABLE only_run (run_id INTEGER NOT NULL)")
+        conn.execute("CREATE TABLE snapshot_runs (foo TEXT)")
+        _build_snapshot_view(conn, "test_view", "only_run")
+        views = _get_names(conn, "view")
+        assert "test_view" not in views
 
     def test_snapshot_view_excludes_failed_run_rows(
         self,
         conn: sqlite3.Connection,
     ) -> None:
-        """Snapshot views hide rows whose observed_at matches a failed run."""
+        """Snapshot views hide rows from failed runs."""
         create_snapshot_tables(conn)
+        run_id = start_snapshot_run(conn, 1000)
         conn.execute(
             "INSERT INTO account_snapshots"
-            " (observed_at, login, balance, equity, margin, margin_free, profit)"
-            " VALUES (1000, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
+            " (run_id, login, balance, equity, margin, margin_free, profit)"
+            " VALUES (?, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
+            (run_id,),
         )
-        conn.execute(
-            "INSERT INTO snapshot_runs (observed_at, status, detail)"
-            " VALUES (1000, 'error', 'terminal offline')",
-        )
+        record_snapshot_run(conn, run_id, "error", "terminal offline")
         create_grafana_views(conn)
         rows = conn.execute("SELECT * FROM grafana_account_snapshots").fetchall()
         assert rows == []
@@ -384,22 +399,65 @@ class TestGrafanaViews:
         self,
         conn: sqlite3.Connection,
     ) -> None:
-        """Snapshot views show rows whose observed_at matches a successful run."""
+        """Snapshot views show rows from successful runs."""
         create_snapshot_tables(conn)
+        run_id = start_snapshot_run(conn, 2000)
         conn.execute(
             "INSERT INTO account_snapshots"
-            " (observed_at, login, balance, equity, margin, margin_free, profit)"
-            " VALUES (2000, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
+            " (run_id, login, balance, equity, margin, margin_free, profit)"
+            " VALUES (?, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
+            (run_id,),
         )
-        conn.execute(
-            "INSERT INTO snapshot_runs (observed_at, status, detail)"
-            " VALUES (2000, 'ok', NULL)",
-        )
+        record_snapshot_run(conn, run_id, "ok")
         create_grafana_views(conn)
         rows = conn.execute(
             "SELECT time, login FROM grafana_account_snapshots"
         ).fetchall()
         assert rows == [(2000, 12345)]
+
+    def test_snapshot_view_same_second_ok_and_error_no_cross_contamination(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """An ok and error run sharing observed_at expose only the ok run's rows."""
+        create_snapshot_tables(conn)
+        run_err = start_snapshot_run(conn, 3000)
+        conn.execute(
+            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 99)",
+            (run_err,),
+        )
+        record_snapshot_run(conn, run_err, "error")
+        run_ok = start_snapshot_run(conn, 3000)
+        conn.execute(
+            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 12345)",
+            (run_ok,),
+        )
+        record_snapshot_run(conn, run_ok, "ok")
+        create_grafana_views(conn)
+        rows = conn.execute("SELECT login FROM grafana_account_snapshots").fetchall()
+        assert rows == [(12345,)]
+
+    def test_snapshot_view_two_ok_runs_same_second_no_duplication(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """Two ok runs sharing observed_at each produce exactly one row in the view."""
+        create_snapshot_tables(conn)
+        run1 = start_snapshot_run(conn, 4000)
+        conn.execute(
+            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 1)",
+            (run1,),
+        )
+        record_snapshot_run(conn, run1, "ok")
+        run2 = start_snapshot_run(conn, 4000)
+        conn.execute(
+            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 2)",
+            (run2,),
+        )
+        record_snapshot_run(conn, run2, "ok")
+        create_grafana_views(conn)
+        rows = conn.execute("SELECT login FROM grafana_account_snapshots").fetchall()
+        assert len(rows) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +623,7 @@ class TestSnapshotInserts:
 
     def test_insert_account_snapshot(self, conn: sqlite3.Connection) -> None:
         """insert_account_snapshot appends a row with correct values."""
+        run_id = start_snapshot_run(conn, 1700000000)
         row: dict[str, object] = {
             "login": 12345,
             "currency": "USD",
@@ -576,7 +635,7 @@ class TestSnapshotInserts:
             "profit": -200.0,
             "leverage": 100,
         }
-        insert_account_snapshot(conn, 1700000000, row)
+        insert_account_snapshot(conn, run_id, row)
         result = conn.execute(
             "SELECT login, currency, balance FROM account_snapshots"
         ).fetchone()
@@ -587,7 +646,8 @@ class TestSnapshotInserts:
         conn: sqlite3.Connection,
     ) -> None:
         """insert_account_snapshot works when some fields are missing (uses None)."""
-        insert_account_snapshot(conn, 1700000000, {"login": 1})
+        run_id = start_snapshot_run(conn, 1700000000)
+        insert_account_snapshot(conn, run_id, {"login": 1})
         result = conn.execute(
             "SELECT login, currency FROM account_snapshots"
         ).fetchone()
@@ -598,11 +658,12 @@ class TestSnapshotInserts:
         conn: sqlite3.Connection,
     ) -> None:
         """insert_position_snapshots appends each position row."""
+        run_id = start_snapshot_run(conn, 1700000000)
         rows: list[dict[str, object]] = [
             {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 10.0},
             {"ticket": 2, "symbol": "GBPUSD", "volume": 0.2, "profit": -5.0},
         ]
-        insert_position_snapshots(conn, 1700000000, 12345, rows)
+        insert_position_snapshots(conn, run_id, 12345, rows)
         count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[0]
         assert count == 2
 
@@ -611,7 +672,8 @@ class TestSnapshotInserts:
         conn: sqlite3.Connection,
     ) -> None:
         """insert_position_snapshots is a no-op when rows is empty."""
-        insert_position_snapshots(conn, 1700000000, 12345, [])
+        run_id = start_snapshot_run(conn, 1700000000)
+        insert_position_snapshots(conn, run_id, 12345, [])
         count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[0]
         assert count == 0
 
@@ -620,10 +682,11 @@ class TestSnapshotInserts:
         conn: sqlite3.Connection,
     ) -> None:
         """insert_order_snapshots appends each order row."""
+        run_id = start_snapshot_run(conn, 1700000000)
         rows: list[dict[str, object]] = [
             {"ticket": 10, "symbol": "EURUSD", "type": 2, "volume_current": 0.1},
         ]
-        insert_order_snapshots(conn, 1700000000, 12345, rows)
+        insert_order_snapshots(conn, run_id, 12345, rows)
         count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
         assert count == 1
 
@@ -632,12 +695,14 @@ class TestSnapshotInserts:
         conn: sqlite3.Connection,
     ) -> None:
         """insert_order_snapshots is a no-op when rows is empty."""
-        insert_order_snapshots(conn, 1700000000, 12345, [])
+        run_id = start_snapshot_run(conn, 1700000000)
+        insert_order_snapshots(conn, run_id, 12345, [])
         count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
         assert count == 0
 
     def test_insert_terminal_snapshot(self, conn: sqlite3.Connection) -> None:
         """insert_terminal_snapshot appends a terminal info row."""
+        run_id = start_snapshot_run(conn, 1700000000)
         row: dict[str, object] = {
             "name": "MetaTrader 5",
             "connected": 1,
@@ -648,18 +713,28 @@ class TestSnapshotInserts:
             "company": "Broker",
             "language": "en",
         }
-        insert_terminal_snapshot(conn, 1700000000, row)
+        insert_terminal_snapshot(conn, run_id, row)
         result = conn.execute(
             "SELECT name, connected FROM terminal_snapshots"
         ).fetchone()
         assert result == ("MetaTrader 5", 1)
+
+    def test_start_snapshot_run_returns_incrementing_ids(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """start_snapshot_run returns a unique run_id for each call."""
+        run1 = start_snapshot_run(conn, 1700000000)
+        run2 = start_snapshot_run(conn, 1700000000)
+        assert run1 != run2
 
     def test_record_snapshot_run_with_detail(
         self,
         conn: sqlite3.Connection,
     ) -> None:
         """record_snapshot_run stores status and detail text."""
-        record_snapshot_run(conn, 1700000000, "error", "RuntimeError: boom")
+        run_id = start_snapshot_run(conn, 1700000000)
+        record_snapshot_run(conn, run_id, "error", "RuntimeError: boom")
         row = conn.execute("SELECT status, detail FROM snapshot_runs").fetchone()
         assert row == ("error", "RuntimeError: boom")
 
@@ -668,6 +743,7 @@ class TestSnapshotInserts:
         conn: sqlite3.Connection,
     ) -> None:
         """record_snapshot_run stores None for detail when omitted."""
-        record_snapshot_run(conn, 1700000000, "ok")
+        run_id = start_snapshot_run(conn, 1700000000)
+        record_snapshot_run(conn, run_id, "ok")
         row = conn.execute("SELECT status, detail FROM snapshot_runs").fetchone()
         assert row == ("ok", None)

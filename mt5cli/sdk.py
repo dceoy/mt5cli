@@ -30,6 +30,7 @@ from .grafana import (
     insert_position_snapshots,
     insert_terminal_snapshot,
     record_snapshot_run,
+    start_snapshot_run,
 )
 from .history import (
     create_cash_events_view,
@@ -2169,7 +2170,7 @@ def mt5_summary_as_df(*, config: Mt5Config | None = None) -> pd.DataFrame:
 def _snapshot_account(
     conn: sqlite3.Connection,
     client: Mt5DataClient,
-    observed_at: int,
+    run_id: int,
 ) -> int | None:
     df = client.account_info_as_df()
     if df.empty:
@@ -2178,7 +2179,7 @@ def _snapshot_account(
         )
         return None
     row = cast("dict[str, object]", df.iloc[0].to_dict())
-    insert_account_snapshot(conn, observed_at, row)
+    insert_account_snapshot(conn, run_id, row)
     login_val = row.get("login")
     return int(login_val) if login_val is not None else None  # type: ignore[arg-type]
 
@@ -2186,7 +2187,7 @@ def _snapshot_account(
 def _snapshot_positions(
     conn: sqlite3.Connection,
     client: Mt5DataClient,
-    observed_at: int,
+    run_id: int,
     login: int | None,
     symbols: Sequence[str] | None,
 ) -> None:
@@ -2195,13 +2196,13 @@ def _snapshot_positions(
         df = df[df["symbol"].isin(symbols)].reset_index(drop=True)
     raw = df.to_dict(orient="records") if not df.empty else []
     rows = cast("list[dict[str, object]]", raw)
-    insert_position_snapshots(conn, observed_at, login, rows)
+    insert_position_snapshots(conn, run_id, login, rows)
 
 
 def _snapshot_orders(
     conn: sqlite3.Connection,
     client: Mt5DataClient,
-    observed_at: int,
+    run_id: int,
     login: int | None,
     symbols: Sequence[str] | None,
 ) -> None:
@@ -2210,13 +2211,13 @@ def _snapshot_orders(
         df = df[df["symbol"].isin(symbols)].reset_index(drop=True)
     raw = df.to_dict(orient="records") if not df.empty else []
     rows = cast("list[dict[str, object]]", raw)
-    insert_order_snapshots(conn, observed_at, login, rows)
+    insert_order_snapshots(conn, run_id, login, rows)
 
 
 def _snapshot_terminal(
     conn: sqlite3.Connection,
     client: Mt5DataClient,
-    observed_at: int,
+    run_id: int,
 ) -> None:
     df = client.terminal_info_as_df()
     if df.empty:
@@ -2225,7 +2226,7 @@ def _snapshot_terminal(
         )
         return
     row = cast("dict[str, object]", df.iloc[0].to_dict())
-    insert_terminal_snapshot(conn, observed_at, row)
+    insert_terminal_snapshot(conn, run_id, row)
 
 
 def update_observability(
@@ -2265,19 +2266,20 @@ def update_observability(
             ensure_grafana_schema(conn)
         else:
             create_snapshot_tables(conn)
+        run_id = start_snapshot_run(conn, observed_at)
         login: int | None = None
         try:
             if include_account:
-                login = _snapshot_account(conn, client, observed_at)
+                login = _snapshot_account(conn, client, run_id)
             if include_positions:
-                _snapshot_positions(conn, client, observed_at, login, symbols)
+                _snapshot_positions(conn, client, run_id, login, symbols)
             if include_orders:
-                _snapshot_orders(conn, client, observed_at, login, symbols)
+                _snapshot_orders(conn, client, run_id, login, symbols)
             if include_terminal:
-                _snapshot_terminal(conn, client, observed_at)
-            record_snapshot_run(conn, observed_at, "ok")
+                _snapshot_terminal(conn, client, run_id)
+            record_snapshot_run(conn, run_id, "ok")
         except Exception:
-            record_snapshot_run(conn, observed_at, "error")
+            record_snapshot_run(conn, run_id, "error")
             conn.commit()
             raise
 

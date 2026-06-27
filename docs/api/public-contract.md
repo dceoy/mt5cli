@@ -171,8 +171,8 @@ without this flag.
 | `grafana_terminal_snapshots` | `terminal_snapshots`                  |
 
 Lower-level helpers (`ensure_grafana_schema`, `create_grafana_views`,
-`create_grafana_indexes`, `create_snapshot_tables`, `insert_account_snapshot`,
-`insert_position_snapshots`, `insert_order_snapshots`,
+`create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`,
+`insert_account_snapshot`, `insert_position_snapshots`, `insert_order_snapshots`,
 `insert_terminal_snapshot`, `record_snapshot_run`) are available directly from
 `mt5cli.grafana` and are not part of the package-root stable surface.
 
@@ -189,7 +189,7 @@ of the package-root stable surface. Import them directly when needed:
 
 | Module              | Examples                                                                                                                                              |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mt5cli.grafana`    | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `insert_account_snapshot`, `record_snapshot_run` |
+| `mt5cli.grafana`    | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`, `insert_account_snapshot`, `record_snapshot_run` |
 | `mt5cli.history`    | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`                                                             |
 | `mt5cli.sdk`        | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                        |
 | `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                    |
