@@ -180,6 +180,18 @@ class TestGrafanaViews:
         }
         assert expected.issubset(views)
 
+    def test_stale_view_dropped_when_source_table_disappears(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """create_grafana_views drops a previously created view whose source is gone."""
+        _make_ticks_table(conn)
+        create_grafana_views(conn)
+        assert "grafana_ticks" in _get_names(conn, "view")
+        conn.execute("DROP TABLE ticks")
+        create_grafana_views(conn)
+        assert "grafana_ticks" not in _get_names(conn, "view")
+
     def test_grafana_rates_skipped_when_table_absent(
         self,
         conn: sqlite3.Connection,

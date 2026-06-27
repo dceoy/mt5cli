@@ -13,6 +13,22 @@ logger = logging.getLogger(__name__)
 
 _TRADE_DEAL_TYPES_SQL = "(0, 1)"
 
+_GRAFANA_VIEW_NAMES = (
+    "grafana_rates",
+    "grafana_ticks",
+    "grafana_history_deals",
+    "grafana_history_orders",
+    "grafana_trade_deals",
+    "grafana_cash_events",
+    "grafana_realized_pnl",
+    "grafana_symbol_pnl",
+    "grafana_trade_stats",
+    "grafana_account_snapshots",
+    "grafana_position_snapshots",
+    "grafana_order_snapshots",
+    "grafana_terminal_snapshots",
+)
+
 
 def _to_epoch_int(value: object) -> int | None:
     if value is None:
@@ -377,8 +393,11 @@ def create_grafana_views(conn: sqlite3.Connection) -> None:
     """Create all Grafana-facing views idempotently.
 
     Missing source tables cause the affected view to be skipped with a warning;
-    other views are unaffected.
+    other views are unaffected. Stale views whose source table or required
+    columns have disappeared are dropped before rebuild.
     """
+    for name in _GRAFANA_VIEW_NAMES:
+        conn.execute(f'DROP VIEW IF EXISTS "{name}"')
     _build_grafana_rates(conn)
     _build_grafana_ticks(conn)
     _build_grafana_history_deals(conn)
