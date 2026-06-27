@@ -149,15 +149,15 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 
 ### Trading State
 
-| Command                | Description                                                           |
-| ---------------------- | --------------------------------------------------------------------- |
-| `orders`               | Export active orders                                                  |
-| `positions`            | Export open positions                                                 |
-| `history-orders`       | Export historical orders                                              |
-| `history-deals`        | Export historical deals                                               |
-| `recent-history-deals` | Export historical deals from a trailing window                        |
-| `mt5-summary`          | Export terminal/account status summary                                |
-| `order-check`          | Check funds sufficiency for a trade request (read-only, no `--yes`)   |
+| Command                | Description                                                         |
+| ---------------------- | ------------------------------------------------------------------- |
+| `orders`               | Export active orders                                                |
+| `positions`            | Export open positions                                               |
+| `history-orders`       | Export historical orders                                            |
+| `history-deals`        | Export historical deals                                             |
+| `recent-history-deals` | Export historical deals from a trailing window                      |
+| `mt5-summary`          | Export terminal/account status summary                              |
+| `order-check`          | Check funds sufficiency for a trade request (read-only, no `--yes`) |
 
 ### Execution (live / mutating)
 
@@ -176,8 +176,8 @@ applications should prefer dedicated closing helpers or their own risk controls.
 
 ### Bulk Collection
 
-| Command           | Description                                                                                                                                        |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Command           | Description                                                                                                                                                                      |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `collect-history` | Collect rates, history-orders, and history-deals (ticks opt-in via `--dataset ticks`) for one or more symbols into a single SQLite database (optional cash-event/position views) |
 
 ```bash
@@ -190,16 +190,16 @@ mt5cli -o history.db collect-history \
 
 `collect-history` options:
 
-| Option         | Default    | Description                                                                                   |
-| -------------- | ---------- | --------------------------------------------------------------------------------------------- |
-| `--symbol/-s`  | _required_ | Symbol to collect (repeat for multiple).                                                      |
-| `--date-from`  | _required_ | Start date in ISO 8601.                                                                       |
-| `--date-to`    | _required_ | End date in ISO 8601.                                                                         |
+| Option         | Default                              | Description                                                                                                                |
+| -------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `--symbol/-s`  | _required_                           | Symbol to collect (repeat for multiple).                                                                                   |
+| `--date-from`  | _required_                           | Start date in ISO 8601.                                                                                                    |
+| `--date-to`    | _required_                           | End date in ISO 8601.                                                                                                      |
 | `--dataset`    | rates, history-orders, history-deals | Repeatable: `rates`, `ticks`, `history-orders`, `history-deals`. Ticks are opt-in: pass `--dataset ticks` to include them. |
-| `--timeframe`  | `M1`       | Rates timeframe; recorded in a `timeframe` column on the `rates` table.                       |
-| `--flags`      | `ALL`      | Tick copy flags forwarded to `copy_ticks_range`.                                              |
-| `--if-exists`  | `fail`     | `append`, `replace`, or `fail` when a target table already exists.                            |
-| `--with-views` | off        | Add `cash_events` and `positions_reconstructed` views (requires the `history-deals` dataset). |
+| `--timeframe`  | `M1`                                 | Rates timeframe; recorded in a `timeframe` column on the `rates` table.                                                    |
+| `--flags`      | `ALL`                                | Tick copy flags forwarded to `copy_ticks_range`.                                                                           |
+| `--if-exists`  | `fail`                               | `append`, `replace`, or `fail` when a target table already exists.                                                         |
+| `--with-views` | off                                  | Add `cash_events` and `positions_reconstructed` views (requires the `history-deals` dataset).                              |
 
 History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `cash_events` view is derived from symbol-filtered `history_deals`, so account-level cash events with empty or non-matching symbols may be excluded. The `positions_reconstructed` view excludes positions with no closing deal, uses volume-weighted open/close prices, and reports reversal deals (`DEAL_ENTRY_INOUT`) via `volume_reversal` / `reversal_count`.
 
