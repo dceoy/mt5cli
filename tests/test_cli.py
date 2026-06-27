@@ -741,6 +741,67 @@ class TestCommands:
 
 
 # ---------------------------------------------------------------------------
+# Help text / scope tests
+# ---------------------------------------------------------------------------
+
+
+class TestHelpText:
+    """Tests verifying CLI help text matches the documented scope."""
+
+    def test_top_level_help_mentions_execution(self) -> None:
+        """Top-level help must describe execution utilities, not export only."""
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        output = normalize_cli_output(result.output)
+        assert "execution" in output.lower()
+
+    def test_top_level_help_has_execution_panel(self) -> None:
+        """Top-level help must show an Execution command group."""
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "Execution" in result.output
+
+    def test_top_level_help_has_data_export_panel(self) -> None:
+        """Top-level help must show a Data / Export command group."""
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "Data / Export" in result.output
+
+    def test_order_send_help_mentions_expert_or_raw(self) -> None:
+        """order-send help must communicate it is the expert raw-request path."""
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        result2 = runner.invoke(
+            app,
+            ["-o", "out.csv", "order-send", "--help"],
+        )
+        assert result2.exit_code == 0
+        output = normalize_cli_output(result2.output)
+        assert "raw" in output.lower() or "expert" in output.lower()
+
+    def test_order_send_help_mentions_live_execution(self) -> None:
+        """order-send help must warn about live execution."""
+        result = runner.invoke(
+            app,
+            ["-o", "out.csv", "order-send", "--help"],
+        )
+        assert result.exit_code == 0
+        output = normalize_cli_output(result.output)
+        assert "live" in output.lower()
+
+    def test_close_positions_help_mentions_dry_run_and_yes(self) -> None:
+        """close-positions help must document both safety gates."""
+        result = runner.invoke(
+            app,
+            ["-o", "out.csv", "close-positions", "--help"],
+        )
+        assert result.exit_code == 0
+        output = normalize_cli_output(result.output)
+        assert "--dry-run" in output
+        assert "--yes" in output
+
+
+# ---------------------------------------------------------------------------
 # close-positions command
 # ---------------------------------------------------------------------------
 

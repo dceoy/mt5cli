@@ -1,4 +1,4 @@
-"""Command-line interface for MetaTrader 5 data export."""
+"""Command-line interface for MetaTrader 5 data and execution utilities."""
 
 from __future__ import annotations
 
@@ -55,7 +55,12 @@ class _ExportContext:
 
 app = typer.Typer(
     name="mt5cli",
-    help="Export MetaTrader5 data to CSV, JSON, Parquet, or SQLite3.",
+    help=(
+        "MT5 data and execution utilities — read market data, inspect account"
+        " state, and send trade requests. Data commands write to CSV, JSON,"
+        " Parquet, or SQLite3. Execution commands (order-send, close-positions)"
+        " require --yes for live mutations."
+    ),
 )
 
 _REQUEST_OPTION_HELP = (
@@ -151,7 +156,7 @@ def _callback(  # pyright: ignore[reportUnusedFunction]
         typer.Option("--log-level", help="Logging level."),
     ] = LogLevel.WARNING,
 ) -> None:
-    """Configure shared options for all export commands.
+    """Configure shared connection and output options.
 
     Raises:
         typer.BadParameter: If the output format cannot be determined.
@@ -183,7 +188,7 @@ def _callback(  # pyright: ignore[reportUnusedFunction]
 # ---------------------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def rates_from(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -210,7 +215,7 @@ def rates_from(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def rates_from_pos(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -236,7 +241,7 @@ def rates_from_pos(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def latest_rates(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -265,7 +270,7 @@ def latest_rates(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def rates_range(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -292,7 +297,7 @@ def rates_range(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def ticks_from(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -316,7 +321,7 @@ def ticks_from(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def ticks_range(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -340,7 +345,7 @@ def ticks_range(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def ticks_recent(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -377,19 +382,19 @@ def ticks_recent(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def account_info(ctx: typer.Context) -> None:
     """Export account information."""
     _export_command(ctx, lambda client: client.account_info())
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def terminal_info(ctx: typer.Context) -> None:
     """Export terminal information."""
     _export_command(ctx, lambda client: client.terminal_info())
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def symbols(
     ctx: typer.Context,
     group: Annotated[
@@ -401,7 +406,7 @@ def symbols(
     _export_command(ctx, lambda client: client.symbols(group=group))
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def symbol_info(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -410,7 +415,7 @@ def symbol_info(
     _export_command(ctx, lambda client: client.symbol_info(symbol))
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def minimum_margins(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -419,7 +424,7 @@ def minimum_margins(
     _export_command(ctx, lambda client: client.minimum_margins(symbol))
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def orders(
     ctx: typer.Context,
     symbol: Annotated[str | None, typer.Option(help="Symbol filter.")] = None,
@@ -433,7 +438,7 @@ def orders(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def positions(
     ctx: typer.Context,
     symbol: Annotated[str | None, typer.Option(help="Symbol filter.")] = None,
@@ -447,7 +452,7 @@ def positions(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def history_orders(
     ctx: typer.Context,
     date_from: Annotated[
@@ -477,7 +482,7 @@ def history_orders(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def history_deals(
     ctx: typer.Context,
     date_from: Annotated[
@@ -507,7 +512,7 @@ def history_deals(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def recent_history_deals(
     ctx: typer.Context,
     hours: Annotated[float, typer.Option(help="Lookback window in hours.")],
@@ -530,25 +535,25 @@ def recent_history_deals(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def mt5_summary(ctx: typer.Context) -> None:
     """Export a compact terminal/account status summary."""
     _export_command(ctx, lambda client: client.mt5_summary_as_df())
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def version(ctx: typer.Context) -> None:
     """Export MetaTrader5 version information."""
     _export_command(ctx, lambda client: client.version())
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def last_error(ctx: typer.Context) -> None:
     """Export the last error information."""
     _export_command(ctx, lambda client: client.last_error())
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def symbol_info_tick(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -557,7 +562,7 @@ def symbol_info_tick(
     _export_command(ctx, lambda client: client.symbol_info_tick(symbol))
 
 
-@app.command()
+@app.command(rich_help_panel="Data / Export")
 def market_book(
     ctx: typer.Context,
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
@@ -566,7 +571,7 @@ def market_book(
     _export_command(ctx, lambda client: client.market_book(symbol))
 
 
-@app.command()
+@app.command(rich_help_panel="Execution")
 def order_check(
     ctx: typer.Context,
     request: Annotated[
@@ -578,7 +583,7 @@ def order_check(
     _export_command(ctx, lambda client: client.order_check(request))
 
 
-@app.command()
+@app.command(rich_help_panel="Execution")
 def order_send(
     ctx: typer.Context,
     request: Annotated[
@@ -590,7 +595,13 @@ def order_send(
         typer.Option("--yes", help="Confirm the live trade request."),
     ] = False,
 ) -> None:
-    """Send a trading operation request to the trade server.
+    """Send a raw trade request to the trade server (expert path, live execution).
+
+    Passes the request JSON directly to MT5 ``order_send``. This is the
+    low-level expert path — it places real trades on the connected account
+    with no additional validation beyond what MT5 itself performs. Use
+    ``order-check`` first to validate funds sufficiency. Prefer
+    ``close-positions`` for closing open positions. ``--yes`` is required.
 
     Raises:
         typer.BadParameter: If --yes is not provided.
@@ -628,7 +639,7 @@ def _execution_results_to_df(results: list[OrderExecutionResult]) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
-@app.command()
+@app.command(rich_help_panel="Execution")
 def close_positions(
     ctx: typer.Context,
     symbol: Annotated[
@@ -691,7 +702,7 @@ def close_positions(
     _execute_export(ctx, lambda: df)
 
 
-@app.command()
+@app.command(rich_help_panel="Collection")
 def collect_history(
     ctx: typer.Context,
     symbol: Annotated[
