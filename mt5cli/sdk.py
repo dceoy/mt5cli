@@ -1242,7 +1242,8 @@ def collect_history(
         symbols: Symbols to collect.
         date_from: Start date.
         date_to: End date.
-        datasets: Datasets to include (defaults to all).
+        datasets: Datasets to include (defaults to rates, history-orders,
+            history-deals; pass ``{Dataset.ticks}`` to opt in to ticks).
         timeframe: Rates timeframe as integer or name (e.g. ``M1``).
         flags: Tick copy flags as integer or name (e.g. ``ALL``).
         if_exists: Behavior when a target table already exists.
@@ -1251,7 +1252,7 @@ def collect_history(
     """
     start = _require_datetime(date_from)
     end = _require_datetime(date_to)
-    selected = datasets if datasets is not None else set(Dataset)
+    selected = resolve_history_datasets(datasets)
     tf = _coerce_timeframe(timeframe)
     tick_flags = _coerce_tick_flags(flags)
     mt5_config = config or build_config()

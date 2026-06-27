@@ -727,7 +727,8 @@ def collect_history(
             "--dataset",
             help=(
                 "Dataset to include (repeat for multiple)."
-                " Defaults to all: rates, ticks, history-orders, history-deals."
+                " Defaults to rates, history-orders, history-deals."
+                " Ticks are opt-in: pass --dataset ticks to include them."
             ),
         ),
     ] = None,
@@ -765,10 +766,12 @@ def collect_history(
 ) -> None:
     """Collect historical datasets into a single SQLite database.
 
-    Tables written depend on ``--dataset``: ``rates``, ``ticks``,
-    ``history_orders``, ``history_deals``. History datasets are fetched per
-    symbol and concatenated. Rates rows carry the requested ``timeframe`` so
-    appended runs at different timeframes remain distinguishable.
+    Tables written depend on ``--dataset``: ``rates``, ``history_orders``,
+    ``history_deals`` by default. ``ticks`` are opt-in: pass
+    ``--dataset ticks`` to include them (tick data grows the database quickly).
+    History datasets are fetched per symbol and concatenated. Rates rows carry
+    the requested ``timeframe`` so appended runs at different timeframes remain
+    distinguishable.
 
     With ``--with-views`` (requires the ``history-deals`` dataset), optional
     views ``cash_events`` and ``positions_reconstructed`` are derived from
@@ -784,7 +787,7 @@ def collect_history(
             " Use a .db/.sqlite/.sqlite3 extension or --format sqlite3."
         )
         raise typer.BadParameter(msg)
-    datasets = set(dataset) if dataset else set(Dataset)
+    datasets = set(dataset) if dataset else None
     sdk.collect_history(
         output=export_ctx.output,
         symbols=symbol,

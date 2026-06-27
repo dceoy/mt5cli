@@ -30,6 +30,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = TIMEFRAME_NAMES
+DEFAULT_HISTORY_DATASETS: frozenset[Dataset] = frozenset({
+    Dataset.rates,
+    Dataset.history_orders,
+    Dataset.history_deals,
+})
 
 _HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
     Dataset.rates: DEDUP_KEYS[DataKind.rates],
@@ -62,11 +67,12 @@ def resolve_history_datasets(datasets: set[Dataset] | None) -> set[Dataset]:
     """Resolve configured history datasets.
 
     Returns:
-        All supported datasets when ``datasets`` is None, otherwise the
-        configured selection (which may be empty).
+        ``DEFAULT_HISTORY_DATASETS`` (rates, history-orders, history-deals)
+        when ``datasets`` is None, otherwise the configured selection (which
+        may be empty or explicitly include ``Dataset.ticks``).
     """
     if datasets is None:
-        return set(Dataset)
+        return set(DEFAULT_HISTORY_DATASETS)
     return set(datasets)
 
 

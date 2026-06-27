@@ -178,7 +178,7 @@ applications should prefer dedicated closing helpers or their own risk controls.
 
 | Command           | Description                                                                                                                                        |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `collect-history` | Collect rates, ticks, history-orders, and history-deals for one or more symbols into a single SQLite database (optional cash-event/position views) |
+| `collect-history` | Collect rates, history-orders, and history-deals (ticks opt-in via `--dataset ticks`) for one or more symbols into a single SQLite database (optional cash-event/position views) |
 
 ```bash
 mt5cli -o history.db collect-history \
@@ -195,7 +195,7 @@ mt5cli -o history.db collect-history \
 | `--symbol/-s`  | _required_ | Symbol to collect (repeat for multiple).                                                      |
 | `--date-from`  | _required_ | Start date in ISO 8601.                                                                       |
 | `--date-to`    | _required_ | End date in ISO 8601.                                                                         |
-| `--dataset`    | all four   | Repeatable: `rates`, `ticks`, `history-orders`, `history-deals`.                              |
+| `--dataset`    | rates, history-orders, history-deals | Repeatable: `rates`, `ticks`, `history-orders`, `history-deals`. Ticks are opt-in: pass `--dataset ticks` to include them. |
 | `--timeframe`  | `M1`       | Rates timeframe; recorded in a `timeframe` column on the `rates` table.                       |
 | `--flags`      | `ALL`      | Tick copy flags forwarded to `copy_ticks_range`.                                              |
 | `--if-exists`  | `fail`     | `append`, `replace`, or `fail` when a target table already exists.                            |
