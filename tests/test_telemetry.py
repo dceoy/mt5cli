@@ -126,8 +126,8 @@ class TestMt5Metrics:
             profit=12.5,
             volume=0.01,
         )
-        # Both profit and volume share the same gauge mock via create_gauge;
-        # verify that set was called exactly twice (once each).
+        # Both profit and volume share the same gauge mock via create_gauge.
+        # Verify that set was called exactly twice (once each).
         assert m._position_profit.set.call_count == 2  # type: ignore[reportPrivateUsage]
 
     def test_record_account_state_after_configure(self) -> None:
@@ -144,7 +144,7 @@ class TestMt5Metrics:
             margin_free=4800.0,
             margin_level=2550.0,
         )
-        # All five account gauges share the same gauge mock; set is called 5×.
+        # All five account gauges share the same gauge mock; set is called 5 times.
         assert m._account_balance.set.call_count == 5  # type: ignore[reportPrivateUsage]
 
     def test_record_history_update_noop_before_configure(self) -> None:
