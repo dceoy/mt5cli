@@ -131,10 +131,10 @@ idempotent (`CREATE TABLE IF NOT EXISTS`, `DROP VIEW IF EXISTS` + `CREATE
 VIEW`, `CREATE INDEX IF NOT EXISTS`). Missing source tables are skipped with a
 warning rather than raising an error.
 
-| Symbol                                                    | Role                                                                                                   |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `update_observability`                                    | Append one timestamped snapshot row per data type; accepts an already-connected `Mt5DataClient`        |
-| `update_observability_with_config`                        | Standalone wrapper: opens/closes MT5 connection automatically around `update_observability`            |
+| Symbol                             | Role                                                                                            |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `update_observability`             | Append one timestamped snapshot row per data type; accepts an already-connected `Mt5DataClient` |
+| `update_observability_with_config` | Standalone wrapper: opens/closes MT5 connection automatically around `update_observability`     |
 
 Both functions write to the SQLite path given by `output=`. The optional
 `symbols` parameter filters `positions_get` / `orders_get` by symbol.
@@ -143,31 +143,31 @@ exist before inserting.
 
 **Snapshot tables** (created by `create_snapshot_tables` in `mt5cli.grafana`):
 
-| Table                 | Content                                    |
-| --------------------- | ------------------------------------------ |
-| `account_snapshots`   | Balance, equity, margin, free-margin, P&L  |
-| `position_snapshots`  | Open positions: symbol, volume, profit, …  |
-| `order_snapshots`     | Active orders: symbol, type, price, …      |
-| `terminal_snapshots`  | Terminal connectivity and build info       |
-| `snapshot_runs`       | Per-run status (`ok` / `error`) timestamp  |
+| Table                | Content                                   |
+| -------------------- | ----------------------------------------- |
+| `account_snapshots`  | Balance, equity, margin, free-margin, P&L |
+| `position_snapshots` | Open positions: symbol, volume, profit, … |
+| `order_snapshots`    | Active orders: symbol, type, price, …     |
+| `terminal_snapshots` | Terminal connectivity and build info      |
+| `snapshot_runs`      | Per-run status (`ok` / `error`) timestamp |
 
 **Grafana views** (integer epoch-second `time` column throughout):
 
-| View                        | Source                              |
-| --------------------------- | ----------------------------------- |
-| `grafana_rates`             | `rates` table                       |
-| `grafana_ticks`             | `ticks` table                       |
-| `grafana_history_deals`     | `history_deals`                     |
-| `grafana_history_orders`    | `history_orders`                    |
-| `grafana_trade_deals`       | `history_deals` trade types only    |
-| `grafana_cash_events`       | `history_deals` non-trade events    |
-| `grafana_realized_pnl`      | Aggregated by symbol                |
-| `grafana_symbol_pnl`        | Per-close-deal P&L per symbol       |
-| `grafana_trade_stats`       | Win/loss counts and profit per symbol |
-| `grafana_account_snapshots` | `account_snapshots`                 |
-| `grafana_position_snapshots`| `position_snapshots`                |
-| `grafana_order_snapshots`   | `order_snapshots`                   |
-| `grafana_terminal_snapshots`| `terminal_snapshots`                |
+| View                         | Source                                |
+| ---------------------------- | ------------------------------------- |
+| `grafana_rates`              | `rates` table                         |
+| `grafana_ticks`              | `ticks` table                         |
+| `grafana_history_deals`      | `history_deals`                       |
+| `grafana_history_orders`     | `history_orders`                      |
+| `grafana_trade_deals`        | `history_deals` trade types only      |
+| `grafana_cash_events`        | `history_deals` non-trade events      |
+| `grafana_realized_pnl`       | Aggregated by symbol                  |
+| `grafana_symbol_pnl`         | Per-close-deal P&L per symbol         |
+| `grafana_trade_stats`        | Win/loss counts and profit per symbol |
+| `grafana_account_snapshots`  | `account_snapshots`                   |
+| `grafana_position_snapshots` | `position_snapshots`                  |
+| `grafana_order_snapshots`    | `order_snapshots`                     |
+| `grafana_terminal_snapshots` | `terminal_snapshots`                  |
 
 Lower-level helpers (`ensure_grafana_schema`, `create_grafana_views`,
 `create_grafana_indexes`, `create_snapshot_tables`, `insert_account_snapshot`,
@@ -186,15 +186,15 @@ Lower-level helpers (`ensure_grafana_schema`, `create_grafana_views`,
 Lower-level helpers are available from their owning modules and are not part
 of the package-root stable surface. Import them directly when needed:
 
-| Module              | Examples                                                                                                                                                  |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mt5cli.grafana`    | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `insert_account_snapshot`, `record_snapshot_run`     |
-| `mt5cli.history`    | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`                                                                 |
-| `mt5cli.sdk`        | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                           |
-| `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                             |
-| `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`       |
-| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                       |
-| `mt5cli.exceptions` | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`           |
+| Module              | Examples                                                                                                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mt5cli.grafana`    | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `insert_account_snapshot`, `record_snapshot_run` |
+| `mt5cli.history`    | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`                                                             |
+| `mt5cli.sdk`        | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                        |
+| `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                    |
+| `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                                              |
+| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                                                                              |
+| `mt5cli.exceptions` | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`                                                                  |
 
 ## CLI commands
 
