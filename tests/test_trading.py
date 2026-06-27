@@ -3252,6 +3252,17 @@ class TestFetchLatestClosedRatesForTradingClient:
         assert len(result) == 4
         assert list(result["close"]) == [1.0, 2.0, 3.0, 4.0]
 
+    def test_copy_rates_from_pos_fallback_raises_on_invalid_granularity(self) -> None:
+        """Invalid granularity raises ValueError before calling the fallback method."""
+        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
+
+        with pytest.raises(ValueError, match="Invalid timeframe"):
+            fetch_latest_closed_rates_for_trading_client(
+                client, symbol="EURUSD", granularity="BADGRAN", count=1
+            )
+
+        client.copy_rates_from_pos_as_df.assert_not_called()
+
     def test_raises_when_trading_client_cannot_fetch_rates(self) -> None:
         """Test missing rate-fetch methods raise Mt5TradingError."""
         client = MagicMock(spec=[])

@@ -1625,12 +1625,12 @@ def fetch_latest_closed_rates_for_trading_client(
     if count <= 0:
         msg = "count must be positive."
         raise ValueError(msg)
+    timeframe = parse_timeframe(granularity)
     fetch_method = getattr(client, "fetch_latest_rates_as_df", None)
     copy_method = getattr(client, "copy_rates_from_pos_as_df", None)
     if callable(fetch_method):
         fetched = fetch_method(symbol, granularity, count + 1)
     elif callable(copy_method):
-        timeframe = parse_timeframe(granularity)
         fetched = copy_method(
             symbol=symbol, timeframe=timeframe, start_pos=0, count=count + 1
         )
