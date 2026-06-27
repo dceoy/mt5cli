@@ -767,17 +767,16 @@ class TestHelpText:
         assert result.exit_code == 0
         assert "Data / Export" in result.output
 
-    def test_order_send_help_mentions_expert_or_raw(self) -> None:
+    def test_order_send_help_mentions_expert_and_raw(self) -> None:
         """order-send help must communicate it is the expert raw-request path."""
-        result = runner.invoke(app, ["--help"])
-        assert result.exit_code == 0
         result2 = runner.invoke(
             app,
             ["-o", "out.csv", "order-send", "--help"],
         )
         assert result2.exit_code == 0
         output = normalize_cli_output(result2.output)
-        assert "raw" in output.lower() or "expert" in output.lower()
+        assert "raw" in output.lower()
+        assert "expert" in output.lower()
 
     def test_order_send_help_mentions_live_execution(self) -> None:
         """order-send help must warn about live execution."""

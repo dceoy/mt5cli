@@ -571,7 +571,7 @@ def market_book(
     _export_command(ctx, lambda client: client.market_book(symbol))
 
 
-@app.command(rich_help_panel="Execution")
+@app.command(rich_help_panel="Data / Export")
 def order_check(
     ctx: typer.Context,
     request: Annotated[

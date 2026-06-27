@@ -161,16 +161,16 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 ### Execution (live / mutating)
 
 These commands interact with the live trade server and can place or close real
-trades. All of them require `--yes` for live mutation; `order-check` is
-read-only but grouped here as the natural pre-flight check.
+trades. `order-send` and `close-positions` require `--yes` for live execution;
+`order-check` is read-only and carries no confirmation gate.
 
 | Command           | Description                                                                                          |
 | ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `order-check`     | Check funds sufficiency for a trade request (read-only pre-flight)                                   |
+| `order-check`     | Check funds sufficiency for a trade request (read-only — no `--yes` required)                        |
 | `order-send`      | Send a **raw** trade request directly to MT5 (`--yes` required; expert path — no extra validation)   |
 | `close-positions` | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` to preview) |
 
-Use `order-check` to validate a request payload before running `order-send --yes`.
+Use `order-check` (Data / Export panel in the CLI) to validate a request payload before running `order-send --yes`.
 `close-positions` is the safer high-level alternative that builds correct close
 requests automatically. `order-send` is the expert raw path — downstream
 applications should prefer dedicated closing helpers or their own risk controls.
