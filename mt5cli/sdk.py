@@ -22,6 +22,15 @@ try:
 except ImportError:  # pragma: no cover
     Mt5TradingError = None  # type: ignore[assignment]
 
+from .grafana import (
+    create_snapshot_tables,
+    ensure_grafana_schema,
+    insert_account_snapshot,
+    insert_order_snapshots,
+    insert_position_snapshots,
+    insert_terminal_snapshot,
+    record_snapshot_run,
+)
 from .history import (
     create_cash_events_view,
     create_history_indexes,
@@ -2162,8 +2171,6 @@ def _snapshot_account(
     client: Mt5DataClient,
     observed_at: int,
 ) -> int | None:
-    from .grafana import insert_account_snapshot  # noqa: PLC0415
-
     df = client.account_info_as_df()
     if df.empty:
         logger.warning(
@@ -2183,18 +2190,9 @@ def _snapshot_positions(
     login: int | None,
     symbols: Sequence[str] | None,
 ) -> None:
-    from .grafana import insert_position_snapshots  # noqa: PLC0415
-
-    if symbols is not None:
-        frames = [client.positions_get_as_df(symbol=sym) for sym in symbols]
-        non_empty = [f for f in frames if not f.empty]
-        df: pd.DataFrame = (
-            pd.concat(non_empty, ignore_index=True) if non_empty else pd.DataFrame()
-        )
-        if "ticket" in df.columns and not df.empty:
-            df = df.drop_duplicates(subset=["ticket"])
-    else:
-        df = client.positions_get_as_df()
+    df: pd.DataFrame = client.positions_get_as_df()
+    if symbols is not None and not df.empty and "symbol" in df.columns:
+        df = df[df["symbol"].isin(symbols)].reset_index(drop=True)
     raw = df.to_dict(orient="records") if not df.empty else []
     rows = cast("list[dict[str, object]]", raw)
     insert_position_snapshots(conn, observed_at, login, rows)
@@ -2207,16 +2205,9 @@ def _snapshot_orders(
     login: int | None,
     symbols: Sequence[str] | None,
 ) -> None:
-    from .grafana import insert_order_snapshots  # noqa: PLC0415
-
-    if symbols is not None:
-        frames = [client.orders_get_as_df(symbol=sym) for sym in symbols]
-        non_empty = [f for f in frames if not f.empty]
-        df = pd.concat(non_empty, ignore_index=True) if non_empty else pd.DataFrame()
-        if "ticket" in df.columns and not df.empty:
-            df = df.drop_duplicates(subset=["ticket"])
-    else:
-        df = client.orders_get_as_df()
+    df: pd.DataFrame = client.orders_get_as_df()
+    if symbols is not None and not df.empty and "symbol" in df.columns:
+        df = df[df["symbol"].isin(symbols)].reset_index(drop=True)
     raw = df.to_dict(orient="records") if not df.empty else []
     rows = cast("list[dict[str, object]]", raw)
     insert_order_snapshots(conn, observed_at, login, rows)
@@ -2227,8 +2218,6 @@ def _snapshot_terminal(
     client: Mt5DataClient,
     observed_at: int,
 ) -> None:
-    from .grafana import insert_terminal_snapshot  # noqa: PLC0415
-
     df = client.terminal_info_as_df()
     if df.empty:
         logger.warning(
@@ -2248,7 +2237,7 @@ def update_observability(
     include_positions: bool = True,
     include_orders: bool = True,
     include_terminal: bool = True,
-    with_grafana_schema: bool = True,
+    with_grafana_schema: bool = False,
 ) -> None:
     """Snapshot current account/position/order/terminal state into SQLite.
 
@@ -2264,21 +2253,18 @@ def update_observability(
         include_positions: Snapshot open positions into ``position_snapshots``.
         include_orders: Snapshot active orders into ``order_snapshots``.
         include_terminal: Snapshot terminal info into ``terminal_snapshots``.
-        with_grafana_schema: Ensure Grafana views and indexes exist.
+        with_grafana_schema: Ensure Grafana views and indexes exist. Defaults
+            to ``False``; run ``grafana-schema`` once to set up the schema,
+            then use ``snapshot`` repeatedly without this flag.
     """
-    from .grafana import (  # noqa: PLC0415
-        create_snapshot_tables,
-        ensure_grafana_schema,
-        record_snapshot_run,
-    )
-
     observed_at = int(datetime.now(UTC).timestamp())
     with sqlite3.connect(Path(output)) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
-        create_snapshot_tables(conn)
         if with_grafana_schema:
             ensure_grafana_schema(conn)
+        else:
+            create_snapshot_tables(conn)
         login: int | None = None
         try:
             if include_account:
@@ -2305,7 +2291,7 @@ def update_observability_with_config(
     include_positions: bool = True,
     include_orders: bool = True,
     include_terminal: bool = True,
-    with_grafana_schema: bool = True,
+    with_grafana_schema: bool = False,
 ) -> None:
     """Snapshot current MT5 state, opening and closing the MT5 connection.
 

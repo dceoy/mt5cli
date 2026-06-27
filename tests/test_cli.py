@@ -1927,7 +1927,7 @@ class TestSnapshotCommand:
         assert kwargs["include_positions"] is True
         assert kwargs["include_orders"] is True
         assert kwargs["include_terminal"] is True
-        assert kwargs["with_grafana_schema"] is True
+        assert kwargs["with_grafana_schema"] is False
 
     def test_snapshot_with_symbol_filter(
         self,

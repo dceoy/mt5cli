@@ -866,7 +866,7 @@ def snapshot(
             "--with-grafana-schema/--no-grafana-schema",
             help="Ensure Grafana views and indexes exist.",
         ),
-    ] = True,
+    ] = False,
 ) -> None:
     """Snapshot current account, position, order, and terminal state into SQLite.
 

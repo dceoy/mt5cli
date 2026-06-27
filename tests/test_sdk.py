@@ -2838,7 +2838,7 @@ class TestUpdateObservability:
         tmp_path: Path,
     ) -> None:
         """with_grafana_schema=False does not call ensure_grafana_schema."""
-        spy = mocker.patch("mt5cli.grafana.ensure_grafana_schema")
+        spy = mocker.spy(sdk, "ensure_grafana_schema")
         update_observability(
             client=mock_client,
             output=tmp_path / "obs.db",
@@ -2852,8 +2852,8 @@ class TestUpdateObservability:
         mocker: MockerFixture,
         tmp_path: Path,
     ) -> None:
-        """with_grafana_schema=True (default) calls ensure_grafana_schema."""
-        spy = mocker.patch("mt5cli.grafana.ensure_grafana_schema")
+        """with_grafana_schema=True calls ensure_grafana_schema."""
+        spy = mocker.spy(sdk, "ensure_grafana_schema")
         update_observability(
             client=mock_client,
             output=tmp_path / "obs.db",
@@ -2972,90 +2972,83 @@ class TestUpdateObservability:
         self,
         tmp_path: Path,
     ) -> None:
-        """Symbol filter calls per-symbol positions_get_as_df and deduplicates."""
+        """Symbol filter fetches all positions in one call and filters client-side."""
         client = MagicMock()
         client.account_info_as_df.return_value = pd.DataFrame([{"login": 1}])
-        # Both symbols return the same position (ticket=1) — dedup should leave 1 row
-        pos_df = pd.DataFrame([
-            {
-                "ticket": 1,
-                "symbol": "EURUSD",
-                "volume": 0.1,
-                "profit": 0.0,
-            }
+        # All positions; only EURUSD matches the filter
+        client.positions_get_as_df.return_value = pd.DataFrame([
+            {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 0.0},
+            {"ticket": 2, "symbol": "USDJPY", "volume": 0.2, "profit": 0.0},
         ])
-        client.positions_get_as_df.return_value = pos_df
         client.orders_get_as_df.return_value = pd.DataFrame()
         client.terminal_info_as_df.return_value = pd.DataFrame()
         output = tmp_path / "obs.db"
-        update_observability(
-            client=client,
-            output=output,
-            symbols=["EURUSD", "GBPUSD"],
-        )
-        assert client.positions_get_as_df.call_count == 2
+        update_observability(client=client, output=output, symbols=["EURUSD", "GBPUSD"])
+        assert client.positions_get_as_df.call_count == 1
         with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[
-                0
-            ]
+            count = conn.execute(
+                "SELECT COUNT(*) FROM position_snapshots"
+            ).fetchone()[0]
         assert count == 1
 
     def test_update_observability_symbol_filter_orders(
         self,
         tmp_path: Path,
     ) -> None:
-        """Symbol filter calls per-symbol orders_get_as_df and deduplicates."""
+        """Symbol filter fetches all orders in one call and filters client-side."""
         client = MagicMock()
         client.account_info_as_df.return_value = pd.DataFrame([{"login": 1}])
         client.positions_get_as_df.return_value = pd.DataFrame()
-        # Both symbols return the same order (ticket=10) — dedup should leave 1 row
-        ord_df = pd.DataFrame([
-            {
-                "ticket": 10,
-                "symbol": "EURUSD",
-                "volume_current": 0.1,
-            }
+        # All orders; only EURUSD matches the filter
+        client.orders_get_as_df.return_value = pd.DataFrame([
+            {"ticket": 10, "symbol": "EURUSD", "volume_current": 0.1},
+            {"ticket": 11, "symbol": "USDJPY", "volume_current": 0.5},
         ])
-        client.orders_get_as_df.return_value = ord_df
         client.terminal_info_as_df.return_value = pd.DataFrame()
         output = tmp_path / "obs.db"
-        update_observability(
-            client=client,
-            output=output,
-            symbols=["EURUSD", "GBPUSD"],
-        )
-        assert client.orders_get_as_df.call_count == 2
+        update_observability(client=client, output=output, symbols=["EURUSD", "GBPUSD"])
+        assert client.orders_get_as_df.call_count == 1
         with sqlite3.connect(output) as conn:
             count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
         assert count == 1
 
-    def test_update_observability_symbol_filter_no_ticket_col(
+    def test_update_observability_symbol_filter_no_symbol_col(
         self,
         tmp_path: Path,
     ) -> None:
-        """Symbol filter without ticket column still works (no dedup attempted)."""
+        """Symbol filter is skipped when positions df has no symbol column."""
         client = MagicMock()
         client.account_info_as_df.return_value = pd.DataFrame([{"login": 1}])
-        # No ticket column in positions
+        # No symbol column in positions — all rows pass through unfiltered
         client.positions_get_as_df.return_value = pd.DataFrame([
-            {
-                "symbol": "EURUSD",
-                "volume": 0.1,
-            }
+            {"ticket": 1, "volume": 0.1},
         ])
         client.orders_get_as_df.return_value = pd.DataFrame()
         client.terminal_info_as_df.return_value = pd.DataFrame()
         output = tmp_path / "obs.db"
-        update_observability(
-            client=client,
-            output=output,
-            symbols=["EURUSD"],
-        )
+        update_observability(client=client, output=output, symbols=["EURUSD"])
         with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[
-                0
-            ]
+            count = conn.execute(
+                "SELECT COUNT(*) FROM position_snapshots"
+            ).fetchone()[0]
         assert count == 1
+
+    def test_update_observability_account_none_login(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Account row with no login key returns None login for downstream helpers."""
+        client = MagicMock()
+        client.account_info_as_df.return_value = pd.DataFrame([{"balance": 10000.0}])
+        client.positions_get_as_df.return_value = pd.DataFrame()
+        client.orders_get_as_df.return_value = pd.DataFrame()
+        client.terminal_info_as_df.return_value = pd.DataFrame()
+        output = tmp_path / "obs.db"
+        update_observability(client=client, output=output)
+        with sqlite3.connect(output) as conn:
+            row = conn.execute("SELECT login FROM account_snapshots").fetchone()
+        assert row is not None
+        assert row[0] is None
 
     def test_update_observability_empty_account_logs_warning(
         self,

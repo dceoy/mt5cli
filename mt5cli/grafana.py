@@ -235,7 +235,7 @@ def _build_grafana_realized_pnl(conn: sqlite3.Connection) -> None:
     _create_view_safe(
         conn,
         "grafana_realized_pnl",
-        f'SELECT {time_expr} AS "time", "symbol",'  # noqa: S608
+        f'SELECT MAX({time_expr}) AS "time", "symbol",'  # noqa: S608
         ' SUM("profit") AS cumulative_pnl, COUNT(*) AS deal_count'
         ' FROM "history_deals"'
         f' WHERE "type" IN {_TRADE_DEAL_TYPES_SQL}'

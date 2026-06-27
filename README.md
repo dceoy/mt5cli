@@ -287,9 +287,10 @@ SELECT observed_at AS time, equity FROM grafana_account_snapshots ORDER BY time;
 SELECT observed_at AS time, login, balance FROM grafana_account_snapshots
 WHERE login = $login ORDER BY time;
 
--- Open positions at latest snapshot
+-- Open positions at latest successful snapshot (uses snapshot_runs to avoid stale data
+-- when a snapshot had no open positions and wrote no rows to position_snapshots)
 SELECT symbol, volume, profit FROM grafana_position_snapshots
-WHERE observed_at = (SELECT MAX(observed_at) FROM grafana_position_snapshots);
+WHERE observed_at = (SELECT MAX(observed_at) FROM snapshot_runs WHERE status = 'ok');
 
 -- Realized PnL by symbol
 SELECT symbol, total_profit FROM grafana_trade_stats ORDER BY total_profit DESC;
