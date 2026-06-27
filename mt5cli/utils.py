@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -277,7 +278,7 @@ def export_dataframe_to_sqlite(
             full table, so repeated appends cost O(table size); index the key
             columns when appending frequently.
     """
-    with sqlite3.connect(output_path) as conn:
+    with closing(sqlite3.connect(output_path)) as conn, conn:
         df.to_sql(  # type: ignore[reportUnknownMemberType]
             table_name,
             conn,

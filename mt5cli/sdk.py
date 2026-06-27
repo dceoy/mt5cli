@@ -8,7 +8,7 @@ import os
 import re
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1023,7 +1023,7 @@ def update_history(  # noqa: PLR0913
         sorted(dataset.value for dataset in request.selected),
         request.output_path,
     )
-    with sqlite3.connect(request.output_path) as conn:
+    with closing(sqlite3.connect(request.output_path)) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         write_incremental_datasets(
@@ -1270,7 +1270,11 @@ def collect_history(
     tf = _coerce_timeframe(timeframe)
     tick_flags = _coerce_tick_flags(flags)
     mt5_config = config or build_config()
-    with connected_client(mt5_config) as client, sqlite3.connect(output) as conn:
+    with (
+        connected_client(mt5_config) as client,
+        closing(sqlite3.connect(output)) as conn,
+        conn,
+    ):
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         written_tables, written_columns = write_collected_datasets(
@@ -2259,7 +2263,7 @@ def update_observability(
             then use ``snapshot`` repeatedly without this flag.
     """
     observed_at = int(datetime.now(UTC).timestamp())
-    with sqlite3.connect(Path(output)) as conn:
+    with closing(sqlite3.connect(Path(output))) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         if with_grafana_schema:
