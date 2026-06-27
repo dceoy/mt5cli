@@ -281,16 +281,15 @@ update_observability_with_config(
 
 ```sql
 -- Equity curve over time
-SELECT observed_at AS time, equity FROM grafana_account_snapshots ORDER BY time;
+SELECT time, equity FROM grafana_account_snapshots ORDER BY time;
 
 -- Rolling balance by account login
-SELECT observed_at AS time, login, balance FROM grafana_account_snapshots
+SELECT time, login, balance FROM grafana_account_snapshots
 WHERE login = $login ORDER BY time;
 
--- Open positions at latest successful snapshot (uses snapshot_runs to avoid stale data
--- when a snapshot had no open positions and wrote no rows to position_snapshots)
+-- Open positions at latest successful snapshot
 SELECT symbol, volume, profit FROM grafana_position_snapshots
-WHERE observed_at = (SELECT MAX(observed_at) FROM snapshot_runs WHERE status = 'ok');
+WHERE time = (SELECT MAX(time) FROM grafana_position_snapshots);
 
 -- Realized PnL by symbol
 SELECT symbol, total_profit FROM grafana_trade_stats ORDER BY total_profit DESC;

@@ -361,6 +361,46 @@ class TestGrafanaViews:
         views = _get_names(conn, "view")
         assert "test_view" in views
 
+    def test_snapshot_view_excludes_failed_run_rows(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """Snapshot views hide rows whose observed_at matches a failed run."""
+        create_snapshot_tables(conn)
+        conn.execute(
+            "INSERT INTO account_snapshots"
+            " (observed_at, login, balance, equity, margin, margin_free, profit)"
+            " VALUES (1000, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
+        )
+        conn.execute(
+            "INSERT INTO snapshot_runs (observed_at, status, detail)"
+            " VALUES (1000, 'error', 'terminal offline')",
+        )
+        create_grafana_views(conn)
+        rows = conn.execute("SELECT * FROM grafana_account_snapshots").fetchall()
+        assert rows == []
+
+    def test_snapshot_view_includes_ok_run_rows(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """Snapshot views show rows whose observed_at matches a successful run."""
+        create_snapshot_tables(conn)
+        conn.execute(
+            "INSERT INTO account_snapshots"
+            " (observed_at, login, balance, equity, margin, margin_free, profit)"
+            " VALUES (2000, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
+        )
+        conn.execute(
+            "INSERT INTO snapshot_runs (observed_at, status, detail)"
+            " VALUES (2000, 'ok', NULL)",
+        )
+        create_grafana_views(conn)
+        rows = conn.execute(
+            "SELECT time, login FROM grafana_account_snapshots"
+        ).fetchall()
+        assert rows == [(2000, 12345)]
+
 
 # ---------------------------------------------------------------------------
 # TestGrafanaIndexes
@@ -453,6 +493,22 @@ class TestGrafanaIndexes:
         create_grafana_indexes(conn)
         indexes = _get_names(conn, "index")
         assert "idx_history_orders_time_setup_symbol" not in indexes
+
+    def test_snapshot_indexes_skipped_when_cols_missing(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """Snapshot table indexes are skipped when required columns are absent."""
+        conn.execute("CREATE TABLE account_snapshots (foo TEXT)")
+        conn.execute("CREATE TABLE position_snapshots (foo TEXT)")
+        conn.execute("CREATE TABLE order_snapshots (foo TEXT)")
+        conn.execute("CREATE TABLE snapshot_runs (foo TEXT)")
+        create_grafana_indexes(conn)
+        indexes = _get_names(conn, "index")
+        assert "idx_account_snapshots_time_login" not in indexes
+        assert "idx_position_snapshots_time_symbol" not in indexes
+        assert "idx_order_snapshots_time_symbol" not in indexes
+        assert "idx_snapshot_runs_time_status" not in indexes
 
     def test_indexes_are_idempotent(self, conn: sqlite3.Connection) -> None:
         """Creating indexes twice does not raise (IF NOT EXISTS)."""

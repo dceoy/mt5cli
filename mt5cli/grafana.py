@@ -310,19 +310,23 @@ def _build_snapshot_view(
         logger.warning("Skipping %s: %s table missing", view_name, table_name)
         return
     others = _other_cols(cols, {"observed_at"})
-    if not others:
+    run_cols = get_table_columns(conn, "snapshot_runs")
+    if {"observed_at", "status"}.issubset(run_cols):
+        other_sql = (", " + ", ".join(f's."{c}"' for c in others)) if others else ""
         _create_view_safe(
             conn,
             view_name,
-            f'SELECT "observed_at" AS "time" FROM "{table_name}"',  # noqa: S608
+            f'SELECT s."observed_at" AS "time"{other_sql} FROM "{table_name}" s'  # noqa: S608
+            f' JOIN "snapshot_runs" r ON s."observed_at" = r."observed_at"'
+            f" WHERE r.\"status\" = 'ok'",
         )
-        return
-    other_sql = ", ".join(f'"{c}"' for c in others)
-    _create_view_safe(
-        conn,
-        view_name,
-        f'SELECT "observed_at" AS "time", {other_sql} FROM "{table_name}"',  # noqa: S608
-    )
+    else:
+        other_sql = (", " + ", ".join(f'"{c}"' for c in others)) if others else ""
+        _create_view_safe(
+            conn,
+            view_name,
+            f'SELECT "observed_at" AS "time"{other_sql} FROM "{table_name}"',  # noqa: S608
+        )
 
 
 def _build_grafana_account_snapshots(conn: sqlite3.Connection) -> None:
@@ -401,22 +405,24 @@ def create_grafana_indexes(conn: sqlite3.Connection) -> None:
             ' ON "history_orders"("time_setup", "symbol")',
         )
 
-    if get_table_columns(conn, "account_snapshots"):
+    if {"observed_at", "login"}.issubset(get_table_columns(conn, "account_snapshots")):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_account_snapshots_time_login"
             ' ON "account_snapshots"("observed_at", "login")',
         )
-    if get_table_columns(conn, "position_snapshots"):
+    if {"observed_at", "symbol"}.issubset(
+        get_table_columns(conn, "position_snapshots")
+    ):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_position_snapshots_time_symbol"
             ' ON "position_snapshots"("observed_at", "symbol")',
         )
-    if get_table_columns(conn, "order_snapshots"):
+    if {"observed_at", "symbol"}.issubset(get_table_columns(conn, "order_snapshots")):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_order_snapshots_time_symbol"
             ' ON "order_snapshots"("observed_at", "symbol")',
         )
-    if get_table_columns(conn, "snapshot_runs"):
+    if {"observed_at", "status"}.issubset(get_table_columns(conn, "snapshot_runs")):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_snapshot_runs_time_status"
             ' ON "snapshot_runs"("observed_at", "status")',

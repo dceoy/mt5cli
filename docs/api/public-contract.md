@@ -138,8 +138,9 @@ warning rather than raising an error.
 
 Both functions write to the SQLite path given by `output=`. The optional
 `symbols` parameter filters `positions_get` / `orders_get` by symbol.
-`with_grafana_schema=True` (default) ensures all Grafana views and indexes
-exist before inserting.
+`with_grafana_schema=False` (default) skips Grafana view/index setup; run
+`grafana-schema` once to set up the schema, then call `snapshot` repeatedly
+without this flag.
 
 **Snapshot tables** (created by `create_snapshot_tables` in `mt5cli.grafana`):
 
