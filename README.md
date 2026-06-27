@@ -208,7 +208,7 @@ History orders and deals are fetched per symbol and concatenated, so the symbol 
 
 ### Grafana-ready SQLite dashboards
 
-mt5cli can prepare a SQLite database for use as a Grafana datasource (via the [SQLite plugin](https://grafana.com/grafana/plugins/frser-sqlite-datasource/) or similar). The `grafana_*` views expose integer epoch-second `time` columns and Grafana-friendly aggregates.
+mt5cli can prepare a SQLite database for use as a Grafana datasource (via the [SQLite plugin](https://grafana.com/grafana/plugins/frser-sqlite-datasource/) or similar). Most `grafana_*` views expose an integer epoch-second `time` column for use in Grafana time-series panels. Two views (`grafana_realized_pnl`, `grafana_trade_stats`) are static symbol-level summaries with no `time` column — use them in table or stat panels.
 
 #### Prepare the schema (idempotent, no MT5 connection needed)
 
@@ -261,6 +261,8 @@ update_observability_with_config(
 
 #### Available Grafana views
 
+**Time-series views** (integer epoch-second `time` column; snapshot views also expose `run_id`):
+
 | View                         | Source               | Description                                                |
 | ---------------------------- | -------------------- | ---------------------------------------------------------- |
 | `grafana_rates`              | `rates`              | OHLCV bars with integer epoch `time`                       |
@@ -269,13 +271,18 @@ update_observability_with_config(
 | `grafana_history_orders`     | `history_orders`     | All historical orders; adds epoch `time` from `time_setup` |
 | `grafana_trade_deals`        | `history_deals`      | Trade deals only (`type IN (0,1)`)                         |
 | `grafana_cash_events`        | `history_deals`      | Non-trade deals (deposits, dividends, etc.)                |
-| `grafana_realized_pnl`       | `history_deals`      | Realized PnL aggregated by symbol                          |
 | `grafana_symbol_pnl`         | `history_deals`      | Per-close-deal profit/loss per symbol                      |
-| `grafana_trade_stats`        | `history_deals`      | Win/loss counts and profit stats per symbol                |
 | `grafana_account_snapshots`  | `account_snapshots`  | Account balance/equity/margin time series                  |
 | `grafana_position_snapshots` | `position_snapshots` | Open position snapshots over time                          |
 | `grafana_order_snapshots`    | `order_snapshots`    | Active order snapshots over time                           |
 | `grafana_terminal_snapshots` | `terminal_snapshots` | Terminal connectivity snapshots                            |
+
+**Static summary views** (no `time` column; use in table or stat panels, not time-series):
+
+| View                   | Source          | Description                           |
+| ---------------------- | --------------- | ------------------------------------- |
+| `grafana_realized_pnl` | `history_deals` | Cumulative realized PnL per symbol    |
+| `grafana_trade_stats`  | `history_deals` | Win/loss counts and profit per symbol |
 
 #### Example Grafana queries
 

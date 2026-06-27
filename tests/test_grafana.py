@@ -414,6 +414,19 @@ class TestGrafanaViews:
         views = _get_names(conn, "view")
         assert "test_view" not in views
 
+    def test_build_snapshot_view_skips_when_run_id_col_missing(
+        self,
+        conn: sqlite3.Connection,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """_build_snapshot_view skips view when the table lacks run_id."""
+        create_snapshot_tables(conn)
+        conn.execute("CREATE TABLE no_run_id (symbol TEXT)")
+        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
+            _build_snapshot_view(conn, "test_view", "no_run_id")
+        assert "test_view" not in _get_names(conn, "view")
+        assert "missing run_id column" in caplog.text
+
     def test_snapshot_view_excludes_failed_run_rows(
         self,
         conn: sqlite3.Connection,

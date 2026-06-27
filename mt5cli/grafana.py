@@ -351,6 +351,9 @@ def _build_snapshot_view(
     if not cols:
         logger.warning("Skipping %s: %s table missing", view_name, table_name)
         return
+    if "run_id" not in cols:
+        logger.warning("Skipping %s: %s missing run_id column", view_name, table_name)
+        return
     others = _other_cols(cols, {"run_id"})
     run_cols = get_table_columns(conn, "snapshot_runs")
     if {"run_id", "observed_at", "status"}.issubset(run_cols):
