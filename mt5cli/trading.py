@@ -15,6 +15,7 @@ from .exceptions import Mt5OperationError
 from .history import drop_forming_rate_bar
 from .sdk import build_config
 from .utils import coerce_login as _coerce_login
+from .utils import parse_timeframe
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
@@ -1625,10 +1626,17 @@ def fetch_latest_closed_rates_for_trading_client(
         msg = "count must be positive."
         raise ValueError(msg)
     fetch_method = getattr(client, "fetch_latest_rates_as_df", None)
-    if not callable(fetch_method):
+    copy_method = getattr(client, "copy_rates_from_pos_as_df", None)
+    if callable(fetch_method):
+        fetched = fetch_method(symbol, granularity, count + 1)
+    elif callable(copy_method):
+        timeframe = parse_timeframe(granularity)
+        fetched = copy_method(
+            symbol=symbol, timeframe=timeframe, start_pos=0, count=count + 1
+        )
+    else:
         msg = "MT5 trading client cannot fetch rate data."
         raise Mt5OperationError(msg)
-    fetched = fetch_method(symbol, granularity, count + 1)
     if not isinstance(fetched, pd.DataFrame):
         msg = (
             f"Malformed rate data for {symbol!r} at granularity {granularity!r}: "
