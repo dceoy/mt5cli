@@ -271,6 +271,18 @@ class TestGrafanaViews:
         assert "grafana_realized_pnl" not in _get_names(conn, "view")
         assert "Skipping grafana_realized_pnl" in caplog.text
 
+    def test_grafana_realized_pnl_skipped_when_entry_missing(
+        self,
+        conn: sqlite3.Connection,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """grafana_realized_pnl is skipped when entry column is absent."""
+        _make_history_deals_minimal(conn)
+        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
+            create_grafana_views(conn)
+        assert "grafana_realized_pnl" not in _get_names(conn, "view")
+        assert "Skipping grafana_realized_pnl" in caplog.text
+
     def test_grafana_symbol_pnl_skipped_when_required_cols_missing(
         self,
         conn: sqlite3.Connection,
@@ -324,19 +336,27 @@ class TestGrafanaViews:
         self,
         conn: sqlite3.Connection,
     ) -> None:
-        """grafana_trade_stats is created without entry filter when entry is absent."""
+        """grafana_trade_stats is created with time column when entry is absent."""
         _make_history_deals_minimal(conn)
         create_grafana_views(conn)
         assert "grafana_trade_stats" in _get_names(conn, "view")
+        cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(grafana_trade_stats)")
+        }
+        assert "time" in cols
 
     def test_grafana_trade_stats_with_entry_col(
         self,
         conn: sqlite3.Connection,
     ) -> None:
-        """grafana_trade_stats includes entry filter when entry column is present."""
+        """grafana_trade_stats exposes time column when entry column is present."""
         _make_history_deals_full(conn)
         create_grafana_views(conn)
         assert "grafana_trade_stats" in _get_names(conn, "view")
+        cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(grafana_trade_stats)")
+        }
+        assert "time" in cols
 
     def test_snapshot_views_skipped_when_snapshot_tables_absent(
         self,
