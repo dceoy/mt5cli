@@ -422,6 +422,144 @@ after price movement and does not inspect <code>trade_freeze_level</code>. Live
 sending requests. Failed, malformed, or unknown broker retcodes are fail-closed
 and returned as <code>status="failed"</code> with normalized <code>request</code> / <code>response</code> details;
 <code>dry_run=True</code> never calls <code>ensure_symbol_selected()</code> or <code>order_send()</code>.</p>
+<h3 id="grafana-observability-sqlite-read-model">Grafana observability (SQLite read model)<a class="headerlink" href="#grafana-observability-sqlite-read-model" title="Permanent link">&para;</a></h3>
+<p>These helpers prepare a SQLite database as a Grafana datasource. All DDL is
+idempotent (<code>CREATE TABLE IF NOT EXISTS</code>, <code>DROP VIEW IF EXISTS</code> + <code>CREATE
+VIEW</code>, <code>CREATE INDEX IF NOT EXISTS</code>). Missing source tables are skipped with a
+warning rather than raising an error.</p>
+<table>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>update_observability</code></td>
+<td>Append one timestamped snapshot row per data type; accepts an already-connected <code>Mt5DataClient</code></td>
+</tr>
+<tr>
+<td><code>update_observability_with_config</code></td>
+<td>Standalone wrapper: opens/closes MT5 connection automatically around <code>update_observability</code></td>
+</tr>
+</tbody>
+</table>
+<p>Both functions write to the SQLite path given by <code>output=</code>. The optional
+<code>symbols</code> parameter filters <code>positions_get</code> / <code>orders_get</code> by symbol.
+<code>with_grafana_schema=False</code> (default) skips Grafana view/index setup; run
+<code>grafana-schema</code> once to set up the schema, then call <code>snapshot</code> repeatedly
+without this flag.</p>
+<p><strong>Snapshot tables</strong> (created by <code>create_snapshot_tables</code> in <code>mt5cli.grafana</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>account_snapshots</code></td>
+<td>Balance, equity, margin, free-margin, P&amp;L</td>
+</tr>
+<tr>
+<td><code>position_snapshots</code></td>
+<td>Open positions: symbol, volume, profit, …</td>
+</tr>
+<tr>
+<td><code>order_snapshots</code></td>
+<td>Active orders: symbol, type, price, …</td>
+</tr>
+<tr>
+<td><code>terminal_snapshots</code></td>
+<td>Terminal connectivity and build info</td>
+</tr>
+<tr>
+<td><code>snapshot_runs</code></td>
+<td>Per-run status (<code>ok</code> / <code>error</code>) timestamp</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Grafana time-series views</strong> (integer epoch-second <code>time</code> column; snapshot views also expose <code>run_id</code>):</p>
+<table>
+<thead>
+<tr>
+<th>View</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>grafana_rates</code></td>
+<td><code>rates</code> table</td>
+</tr>
+<tr>
+<td><code>grafana_ticks</code></td>
+<td><code>ticks</code> table</td>
+</tr>
+<tr>
+<td><code>grafana_history_deals</code></td>
+<td><code>history_deals</code></td>
+</tr>
+<tr>
+<td><code>grafana_history_orders</code></td>
+<td><code>history_orders</code></td>
+</tr>
+<tr>
+<td><code>grafana_trade_deals</code></td>
+<td><code>history_deals</code> trade types only</td>
+</tr>
+<tr>
+<td><code>grafana_cash_events</code></td>
+<td><code>history_deals</code> non-trade events</td>
+</tr>
+<tr>
+<td><code>grafana_symbol_pnl</code></td>
+<td>Per-close-deal P&amp;L per symbol</td>
+</tr>
+<tr>
+<td><code>grafana_account_snapshots</code></td>
+<td><code>account_snapshots</code></td>
+</tr>
+<tr>
+<td><code>grafana_position_snapshots</code></td>
+<td><code>position_snapshots</code></td>
+</tr>
+<tr>
+<td><code>grafana_order_snapshots</code></td>
+<td><code>order_snapshots</code></td>
+</tr>
+<tr>
+<td><code>grafana_terminal_snapshots</code></td>
+<td><code>terminal_snapshots</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Grafana static summary views</strong> (no <code>time</code> column; use for table/stat panels, not time-series):</p>
+<table>
+<thead>
+<tr>
+<th>View</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>grafana_realized_pnl</code></td>
+<td>Cumulative realized PnL per symbol</td>
+</tr>
+<tr>
+<td><code>grafana_trade_stats</code></td>
+<td>Win/loss counts and profit per symbol</td>
+</tr>
+</tbody>
+</table>
+<p>Lower-level helpers (<code>ensure_grafana_schema</code>, <code>create_grafana_views</code>,
+<code>create_grafana_indexes</code>, <code>create_snapshot_tables</code>, <code>start_snapshot_run</code>,
+<code>insert_account_snapshot</code>, <code>insert_position_snapshots</code>, <code>insert_order_snapshots</code>,
+<code>insert_terminal_snapshot</code>, <code>record_snapshot_run</code>) are available directly from
+<code>mt5cli.grafana</code> and are not part of the package-root stable surface.</p>
 <h3 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -448,6 +586,10 @@ of the package-root stable surface. Import them directly when needed:</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>mt5cli.grafana</code></td>
+<td><code>ensure_grafana_schema</code>, <code>create_grafana_views</code>, <code>create_grafana_indexes</code>, <code>create_snapshot_tables</code>, <code>start_snapshot_run</code>, <code>insert_account_snapshot</code>, <code>record_snapshot_run</code></td>
+</tr>
 <tr>
 <td><code>mt5cli.history</code></td>
 <td><code>resolve_rate_view_name</code>, <code>resolve_rate_tables</code>, <code>load_rate_data</code>, <code>build_rate_view_name</code></td>
@@ -484,6 +626,13 @@ of the package-root stable surface. Import them directly when needed:</p>
 <li>Delegate to the same Python APIs described here; they are not duplicated
   business logic.</li>
 </ul>
+<p><code>grafana-schema</code> initializes Grafana views, indexes, and snapshot tables in the
+target SQLite database without connecting to MT5. It is idempotent and safe to
+run repeatedly.</p>
+<p><code>snapshot</code> appends one timestamped row per enabled data type
+(<code>--with-account</code>, <code>--with-positions</code>, <code>--with-orders</code>, <code>--with-terminal</code>) and
+never places orders or modifies trading state. Both commands require
+<code>-o/--output</code> to point at a <code>.db</code> / SQLite file.</p>
 <p><code>order-send</code> is the expert raw-request path; it requires <code>--yes</code> and a fully
 constructed request payload. <code>close-positions</code> is the safer high-level helper
 that closes open positions by <code>--symbol</code> or <code>--ticket</code> using
