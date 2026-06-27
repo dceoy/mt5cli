@@ -2022,6 +2022,77 @@ class TestSnapshotCommand:
         assert result.exit_code == 0, result.output
         assert updater.call_args.kwargs["with_grafana_schema"] is False
 
+    def test_snapshot_with_publish_copy(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """--publish-copy calls publish_grafana_copy after update_observability."""
+        mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
+        copy_path = tmp_path / "grafana.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(tmp_path / "out.db"),
+                "snapshot",
+                "--publish-copy",
+                str(copy_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        mock_publish.assert_called_once()
+
+    def test_snapshot_no_publish_copy_by_default(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Snapshot does not call publish_grafana_copy without --publish-copy."""
+        mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
+        result = runner.invoke(app, ["-o", str(tmp_path / "out.db"), "snapshot"])
+        assert result.exit_code == 0, result.output
+        mock_publish.assert_not_called()
+
+
+class TestGrafanaSchemaPublishCopy:
+    """Tests for grafana-schema --publish-copy option."""
+
+    def test_grafana_schema_with_publish_copy(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """grafana-schema --publish-copy calls publish_grafana_copy."""
+        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
+        output = tmp_path / "out.db"
+        copy_path = tmp_path / "grafana.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "grafana-schema",
+                "--publish-copy",
+                str(copy_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        mock_publish.assert_called_once()
+
+    def test_grafana_schema_no_publish_copy_by_default(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """grafana-schema does not call publish_grafana_copy by default."""
+        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
+        result = runner.invoke(app, ["-o", str(tmp_path / "out.db"), "grafana-schema"])
+        assert result.exit_code == 0, result.output
+        mock_publish.assert_not_called()
+
 
 class TestMain:
     """Tests for the main entry point."""

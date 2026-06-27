@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import logging
+import os
 import sqlite3
+import tempfile
+from pathlib import Path
 from typing import cast
 
 from .history import get_table_columns
@@ -476,6 +480,57 @@ def ensure_grafana_schema(conn: sqlite3.Connection) -> None:
     create_snapshot_tables(conn)
     create_grafana_views(conn)
     create_grafana_indexes(conn)
+
+
+def publish_grafana_copy(
+    source: str | Path,
+    target: str | Path,
+) -> Path:
+    """Publish a consistent SQLite copy for Grafana using the backup API.
+
+    Uses the SQLite online backup API for a WAL-safe, consistent snapshot of
+    the source database. Writes to a temporary file beside the target, then
+    atomically replaces it so that a previous published copy is preserved if
+    publishing fails.
+
+    Args:
+        source: Path to the source SQLite database.
+        target: Destination path for the published copy.
+
+    Returns:
+        The resolved absolute target path.
+
+    Raises:
+        FileNotFoundError: If the source database does not exist.
+    """
+    source_path = Path(source)
+    target_path = Path(target)
+    if not source_path.exists():
+        raise FileNotFoundError(source_path)
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp_fd, tmp_str = tempfile.mkstemp(
+        dir=target_path.parent,
+        suffix=".tmp",
+        prefix=target_path.name + ".",
+    )
+    tmp_path = Path(tmp_str)
+    try:
+        os.close(tmp_fd)
+        with (
+            sqlite3.connect(source_path) as src,
+            sqlite3.connect(tmp_path) as dst,
+        ):
+            src.backup(dst)
+        tmp_path.replace(target_path)
+    except Exception:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise
+
+    logger.info("Published Grafana copy: %s -> %s", source_path, target_path)
+    return target_path.resolve()
 
 
 # ---------------------------------------------------------------------------

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -24,6 +25,7 @@ from mt5cli.grafana import (
     insert_order_snapshots,
     insert_position_snapshots,
     insert_terminal_snapshot,
+    publish_grafana_copy,
     record_snapshot_run,
     start_snapshot_run,
 )
@@ -836,3 +838,121 @@ class TestSnapshotInserts:
         record_snapshot_run(conn, run_id, "ok")
         row = conn.execute("SELECT status, detail FROM snapshot_runs").fetchone()
         assert row == ("ok", None)
+
+
+# ---------------------------------------------------------------------------
+# TestPublishGrafanaCopy
+# ---------------------------------------------------------------------------
+
+
+def _make_source_db(path: Path) -> None:
+    """Create a minimal source SQLite database with snapshot tables."""
+    with sqlite3.connect(path) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        create_snapshot_tables(conn)
+        conn.execute(
+            "INSERT INTO snapshot_runs (observed_at, status) VALUES (?, 'ok')",
+            (1700000000,),
+        )
+
+
+class TestPublishGrafanaCopy:
+    """Tests for publish_grafana_copy."""
+
+    def test_publish_to_fresh_target(self, tmp_path: Path) -> None:
+        """publish_grafana_copy creates the target file."""
+        source = tmp_path / "src.db"
+        target = tmp_path / "out" / "grafana.db"
+        _make_source_db(source)
+        result = publish_grafana_copy(source, target)
+        assert target.exists()
+        assert result == target.resolve()
+
+    def test_overwrite_existing_target(self, tmp_path: Path) -> None:
+        """publish_grafana_copy replaces an existing target without error."""
+        source = tmp_path / "src.db"
+        target = tmp_path / "grafana.db"
+        _make_source_db(source)
+        target.write_bytes(b"stale")
+        publish_grafana_copy(source, target)
+        # Target must now be a valid SQLite file from source
+        with sqlite3.connect(target) as conn:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+        assert "snapshot_runs" in tables
+
+    def test_target_contains_source_tables(self, tmp_path: Path) -> None:
+        """Published target contains the same tables as the source."""
+        source = tmp_path / "src.db"
+        target = tmp_path / "grafana.db"
+        _make_source_db(source)
+        publish_grafana_copy(source, target)
+        with sqlite3.connect(target) as conn:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+        assert {"snapshot_runs", "account_snapshots"}.issubset(tables)
+
+    def test_target_can_be_opened_readonly(self, tmp_path: Path) -> None:
+        """Published target can be opened with uri=True in read-only mode."""
+        source = tmp_path / "src.db"
+        target = tmp_path / "grafana.db"
+        _make_source_db(source)
+        publish_grafana_copy(source, target)
+        uri = f"file:{target}?mode=ro"
+        with sqlite3.connect(uri, uri=True) as conn:
+            row = conn.execute("SELECT status FROM snapshot_runs").fetchone()
+        assert row == ("ok",)
+
+    def test_source_not_found_raises(self, tmp_path: Path) -> None:
+        """publish_grafana_copy raises FileNotFoundError when source is absent."""
+        with pytest.raises(FileNotFoundError):
+            publish_grafana_copy(tmp_path / "missing.db", tmp_path / "out.db")
+
+    def test_preserve_old_target_on_backup_failure(self, tmp_path: Path) -> None:
+        """Old target is preserved when the backup fails."""
+        source = tmp_path / "src.db"
+        target = tmp_path / "grafana.db"
+        _make_source_db(source)
+        original_content = b"original_data"
+        target.write_bytes(original_content)
+        with patch("sqlite3.connect") as mock_connect:
+            mock_src = MagicMock()
+            mock_src.__enter__ = MagicMock(return_value=mock_src)
+            mock_src.__exit__ = MagicMock(return_value=False)
+            mock_src.backup.side_effect = sqlite3.OperationalError("backup failed")
+            mock_connect.return_value = mock_src
+            with pytest.raises(sqlite3.OperationalError, match="backup failed"):
+                publish_grafana_copy(source, target)
+        assert target.read_bytes() == original_content
+
+    def test_temp_file_cleaned_up_on_failure(self, tmp_path: Path) -> None:
+        """Temporary file is removed when backup raises an exception."""
+        source = tmp_path / "src.db"
+        target = tmp_path / "grafana.db"
+        _make_source_db(source)
+        with patch("sqlite3.connect") as mock_connect:
+            mock_src = MagicMock()
+            mock_src.__enter__ = MagicMock(return_value=mock_src)
+            mock_src.__exit__ = MagicMock(return_value=False)
+            mock_src.backup.side_effect = sqlite3.OperationalError("fail")
+            mock_connect.return_value = mock_src
+            with pytest.raises(sqlite3.OperationalError):
+                publish_grafana_copy(source, target)
+        tmp_files = list(tmp_path.glob("grafana.db.*.tmp"))
+        assert not tmp_files, "Temp file should be cleaned up on failure"
+
+    def test_returns_path_object(self, tmp_path: Path) -> None:
+        """publish_grafana_copy returns a Path instance."""
+        source = tmp_path / "src.db"
+        target = tmp_path / "grafana.db"
+        _make_source_db(source)
+        result = publish_grafana_copy(source, target)
+        assert isinstance(result, Path)

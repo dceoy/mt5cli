@@ -45,6 +45,7 @@ from .history import (
     write_incremental_datasets,
 )
 from .retry import retry_with_backoff
+from .telemetry import get_metrics
 from .utils import (
     Dataset,
     IfExists,
@@ -1026,20 +1027,21 @@ def update_history(  # noqa: PLR0913
     with closing(sqlite3.connect(request.output_path)) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
-        write_incremental_datasets(
-            conn,
-            client,
-            symbols,
-            request.selected,
-            request.resolved_timeframes,
-            request.resolved_tick_flags,
-            request.fallback_start,
-            request.end,
-            deduplicate=deduplicate,
-            create_rate_views=create_rate_views,
-            with_views=with_views,
-            include_account_events=include_account_events,
-        )
+        with get_metrics().record_history_update(dataset="history"):
+            write_incremental_datasets(
+                conn,
+                client,
+                symbols,
+                request.selected,
+                request.resolved_timeframes,
+                request.resolved_tick_flags,
+                request.fallback_start,
+                request.end,
+                deduplicate=deduplicate,
+                create_rate_views=create_rate_views,
+                with_views=with_views,
+                include_account_events=include_account_events,
+            )
 
 
 def update_history_with_config(  # noqa: PLR0913
@@ -2171,6 +2173,36 @@ def mt5_summary_as_df(*, config: Mt5Config | None = None) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
+def _emit_account_metrics(row: dict[str, object]) -> None:
+    login = str(row.get("login", ""))
+    server = str(row.get("server", ""))
+    get_metrics().record_account_state(
+        login=login,
+        server=server,
+        balance=float(row.get("balance") or 0.0),  # type: ignore[arg-type]
+        equity=float(row.get("equity") or 0.0),  # type: ignore[arg-type]
+        margin=float(row.get("margin") or 0.0),  # type: ignore[arg-type]
+        margin_free=float(row.get("margin_free") or 0.0),  # type: ignore[arg-type]
+        margin_level=float(row.get("margin_level") or 0.0),  # type: ignore[arg-type]
+    )
+
+
+def _emit_position_metrics(
+    rows: list[dict[str, object]],
+    login: int | None,
+) -> None:
+    m = get_metrics()
+    login_str = str(login) if login is not None else ""
+    for r in rows:
+        m.record_position_state(
+            login=login_str,
+            server="",
+            symbol=str(r.get("symbol", "")),
+            profit=float(r.get("profit") or 0.0),  # type: ignore[arg-type]
+            volume=float(r.get("volume") or 0.0),  # type: ignore[arg-type]
+        )
+
+
 def _snapshot_account(
     conn: sqlite3.Connection,
     client: Mt5DataClient,
@@ -2184,6 +2216,7 @@ def _snapshot_account(
         return None
     row = cast("dict[str, object]", df.iloc[0].to_dict())
     insert_account_snapshot(conn, run_id, row)
+    _emit_account_metrics(row)
     login_val = row.get("login")
     return int(login_val) if login_val is not None else None  # type: ignore[arg-type]
 
@@ -2201,6 +2234,7 @@ def _snapshot_positions(
     raw = df.to_dict(orient="records") if not df.empty else []
     rows = cast("list[dict[str, object]]", raw)
     insert_position_snapshots(conn, run_id, login, rows)
+    _emit_position_metrics(rows, login)
 
 
 def _snapshot_orders(
@@ -2270,22 +2304,23 @@ def update_observability(
             ensure_grafana_schema(conn)
         else:
             create_snapshot_tables(conn)
-        run_id = start_snapshot_run(conn, observed_at)
-        login: int | None = None
-        try:
-            if include_account:
-                login = _snapshot_account(conn, client, run_id)
-            if include_positions:
-                _snapshot_positions(conn, client, run_id, login, symbols)
-            if include_orders:
-                _snapshot_orders(conn, client, run_id, login, symbols)
-            if include_terminal:
-                _snapshot_terminal(conn, client, run_id)
-            record_snapshot_run(conn, run_id, "ok")
-        except Exception:
-            record_snapshot_run(conn, run_id, "error")
-            conn.commit()
-            raise
+        with get_metrics().record_snapshot_update():
+            run_id = start_snapshot_run(conn, observed_at)
+            login: int | None = None
+            try:
+                if include_account:
+                    login = _snapshot_account(conn, client, run_id)
+                if include_positions:
+                    _snapshot_positions(conn, client, run_id, login, symbols)
+                if include_orders:
+                    _snapshot_orders(conn, client, run_id, login, symbols)
+                if include_terminal:
+                    _snapshot_terminal(conn, client, run_id)
+                record_snapshot_run(conn, run_id, "ok")
+            except Exception:
+                record_snapshot_run(conn, run_id, "error")
+                conn.commit()
+                raise
 
 
 def update_observability_with_config(
