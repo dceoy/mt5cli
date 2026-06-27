@@ -2986,9 +2986,9 @@ class TestUpdateObservability:
         update_observability(client=client, output=output, symbols=["EURUSD", "GBPUSD"])
         assert client.positions_get_as_df.call_count == 1
         with sqlite3.connect(output) as conn:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM position_snapshots"
-            ).fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[
+                0
+            ]
         assert count == 1
 
     def test_update_observability_symbol_filter_orders(
@@ -3028,9 +3028,9 @@ class TestUpdateObservability:
         output = tmp_path / "obs.db"
         update_observability(client=client, output=output, symbols=["EURUSD"])
         with sqlite3.connect(output) as conn:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM position_snapshots"
-            ).fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[
+                0
+            ]
         assert count == 1
 
     def test_update_observability_account_none_login(
