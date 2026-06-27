@@ -3198,6 +3198,71 @@ class TestFetchLatestClosedRatesForTradingClient:
                 count=2,
             )
 
+    def test_copy_rates_from_pos_fallback_drops_forming_bar(self) -> None:
+        """Regression: client with only copy_rates_from_pos_as_df works end-to-end."""
+        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
+        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
+            {
+                "time": [1700000000, 1700000060, 1700000120],
+                "close": [1.0, 1.1, 1.2],
+            },
+        )
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        client.copy_rates_from_pos_as_df.assert_called_once_with(
+            symbol="EURUSD", timeframe=1, start_pos=0, count=3
+        )
+        assert list(result["close"]) == [1.0, 1.1]
+        assert list(result["time"]) == [1700000000, 1700000060]
+
+    def test_copy_rates_from_pos_fallback_resolves_granularity(self) -> None:
+        """Fallback path resolves granularity string to integer timeframe."""
+        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
+        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
+            {"time": [1, 2, 3, 4], "close": [1.0, 1.1, 1.2, 1.3]},
+        )
+
+        fetch_latest_closed_rates_for_trading_client(
+            client, symbol="USDJPY", granularity="H1", count=3
+        )
+
+        call_kwargs = client.copy_rates_from_pos_as_df.call_args.kwargs
+        assert call_kwargs["symbol"] == "USDJPY"
+        assert call_kwargs["timeframe"] == 16385
+        assert call_kwargs["start_pos"] == 0
+        assert call_kwargs["count"] == 4
+
+    def test_copy_rates_from_pos_fallback_returns_count_closed_rows(self) -> None:
+        """Fallback path trims to exactly count closed rows after forming-bar drop."""
+        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
+        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
+            {"time": list(range(6)), "close": [float(i) for i in range(6)]},
+        )
+
+        result = fetch_latest_closed_rates_for_trading_client(
+            client, symbol="EURUSD", granularity="M1", count=4
+        )
+
+        assert len(result) == 4
+        assert list(result["close"]) == [1.0, 2.0, 3.0, 4.0]
+
+    def test_copy_rates_from_pos_fallback_raises_on_invalid_granularity(self) -> None:
+        """Invalid granularity raises ValueError before calling the fallback method."""
+        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
+
+        with pytest.raises(ValueError, match="Invalid timeframe"):
+            fetch_latest_closed_rates_for_trading_client(
+                client, symbol="EURUSD", granularity="BADGRAN", count=1
+            )
+
+        client.copy_rates_from_pos_as_df.assert_not_called()
+
     def test_raises_when_trading_client_cannot_fetch_rates(self) -> None:
         """Test missing rate-fetch methods raise Mt5TradingError."""
         client = MagicMock(spec=[])
@@ -3527,6 +3592,29 @@ class TestFetchLatestClosedRatesIndexed:
         assert "open" in result.columns
         assert "close" in result.columns
         assert isinstance(result.index, pd.DatetimeIndex)
+
+    def test_copy_rates_from_pos_fallback_produces_utc_datetime_index(self) -> None:
+        """Fallback path via copy_rates_from_pos_as_df produces a UTC DatetimeIndex."""
+        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
+        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
+            {
+                "time": [1700000000, 1700003600, 1700007200],
+                "close": [1.1, 1.2, 1.3],
+            },
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            client,
+            symbol="EURUSD",
+            granularity="M1",
+            count=2,
+        )
+
+        assert isinstance(result.index, pd.DatetimeIndex)
+        assert result.index.name == "time"
+        assert str(result.index.tz) == "UTC"
+        assert "time" not in result.columns
+        assert list(result["close"]) == [1.1, 1.2]
 
 
 class TestExtractTickPrice:
