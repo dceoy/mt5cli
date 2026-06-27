@@ -1298,12 +1298,12 @@ class TestCollectHistory:
         """Create a mocked Mt5DataClient with history-style DataFrames."""
         return _build_history_client(mocker)
 
-    def test_collect_history_writes_all_tables(
+    def test_collect_history_writes_default_tables(
         self,
         tmp_path: Path,
         history_client: MagicMock,
     ) -> None:
-        """Test that collect-history writes rates, ticks, and history tables."""
+        """Test that collect-history default excludes ticks."""
         output = tmp_path / "history.db"
         result = runner.invoke(
             app,
@@ -1323,8 +1323,42 @@ class TestCollectHistory:
         )
         assert result.exit_code == 0, result.output
         assert history_client.copy_rates_range_as_df.call_count == 2
-        assert history_client.copy_ticks_range_as_df.call_count == 2
-        history_client.copy_ticks_range_as_df.assert_any_call(
+        assert history_client.copy_ticks_range_as_df.call_count == 0
+        with sqlite3.connect(output) as conn:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'",
+                ).fetchall()
+            }
+        assert {"rates", "history_orders", "history_deals"} <= tables
+        assert "ticks" not in tables
+
+    def test_collect_history_explicit_ticks_dataset(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,
+    ) -> None:
+        """Test that --dataset ticks writes the ticks table with the correct flags."""
+        output = tmp_path / "history.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--symbol",
+                "EURUSD",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+                "--dataset",
+                "ticks",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        history_client.copy_ticks_range_as_df.assert_called_once_with(
             symbol="EURUSD",
             date_from=datetime(2024, 1, 1, tzinfo=UTC),
             date_to=datetime(2024, 2, 1, tzinfo=UTC),
@@ -1337,7 +1371,8 @@ class TestCollectHistory:
                     "SELECT name FROM sqlite_master WHERE type='table'",
                 ).fetchall()
             }
-        assert {"rates", "ticks", "history_orders", "history_deals"} <= tables
+        assert "ticks" in tables
+        assert "rates" not in tables
 
     def test_collect_history_history_fetched_per_symbol(
         self,
@@ -1520,7 +1555,7 @@ class TestCollectHistory:
         tmp_path: Path,
         history_client: MagicMock,
     ) -> None:
-        """Test that --flags defaults to ALL for ticks."""
+        """Test that --flags defaults to ALL when --dataset ticks is explicit."""
         output = tmp_path / "history.db"
         result = runner.invoke(
             app,
@@ -1534,6 +1569,8 @@ class TestCollectHistory:
                 "2024-01-01",
                 "--date-to",
                 "2024-02-01",
+                "--dataset",
+                "ticks",
             ],
         )
         assert result.exit_code == 0, result.output

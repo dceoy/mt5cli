@@ -19,6 +19,7 @@ from pdmt5 import TIMEFRAME_MAP
 
 from mt5cli import history
 from mt5cli.history import (
+    DEFAULT_HISTORY_DATASETS,
     DEFAULT_HISTORY_TIMEFRAMES,
     DedupScope,
     RateTarget,
@@ -547,9 +548,22 @@ class TestResolveHistorySettings:
     """Tests for history dataset and timeframe resolution."""
 
     def test_resolve_history_datasets_defaults_and_empty(self) -> None:
-        """Test dataset resolution distinguishes None from empty selection."""
-        assert resolve_history_datasets(None) == set(Dataset)
+        """Test dataset resolution excludes ticks by default."""
+        resolved = resolve_history_datasets(None)
+        assert resolved == set(DEFAULT_HISTORY_DATASETS)
+        assert Dataset.ticks not in resolved
+        assert {
+            Dataset.rates,
+            Dataset.history_orders,
+            Dataset.history_deals,
+        } == resolved
         assert resolve_history_datasets(set()) == set()
+
+    def test_resolve_history_datasets_explicit_ticks(self) -> None:
+        """Test that explicit ticks selection is honored."""
+        assert resolve_history_datasets({Dataset.ticks}) == {Dataset.ticks}
+        all_ds = resolve_history_datasets(set(Dataset))
+        assert Dataset.ticks in all_ds
 
     def test_resolve_history_timeframes_defaults(self) -> None:
         """Test default timeframes include all fixed MT5 values."""

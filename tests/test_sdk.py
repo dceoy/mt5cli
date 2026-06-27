@@ -618,12 +618,12 @@ class TestCollectHistory:
         """Create a mocked Mt5DataClient with history-style DataFrames."""
         return _build_history_client(mocker)
 
-    def test_collect_history_writes_all_tables(
+    def test_collect_history_writes_default_tables(
         self,
         tmp_path: Path,
         history_client: MagicMock,
     ) -> None:
-        """Test that collect_history writes rates, ticks, and history tables."""
+        """Test that collect_history default excludes ticks."""
         output = tmp_path / "history.db"
         collect_history(
             output,
@@ -632,7 +632,7 @@ class TestCollectHistory:
             "2024-02-01",
         )
         assert history_client.copy_rates_range_as_df.call_count == 2
-        assert history_client.copy_ticks_range_as_df.call_count == 2
+        assert history_client.copy_ticks_range_as_df.call_count == 0
         with sqlite3.connect(output) as conn:
             tables = {
                 row[0]
@@ -640,7 +640,34 @@ class TestCollectHistory:
                     "SELECT name FROM sqlite_master WHERE type='table'",
                 ).fetchall()
             }
-        assert {"rates", "ticks", "history_orders", "history_deals"} <= tables
+        assert {"rates", "history_orders", "history_deals"} <= tables
+        assert "ticks" not in tables
+
+    def test_collect_history_explicit_ticks_dataset(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,
+    ) -> None:
+        """Test that explicit datasets={Dataset.ticks} writes the ticks table."""
+        output = tmp_path / "history.db"
+        collect_history(
+            output,
+            ["EURUSD", "GBPUSD"],
+            "2024-01-01",
+            "2024-02-01",
+            datasets={Dataset.ticks},
+        )
+        assert history_client.copy_ticks_range_as_df.call_count == 2
+        assert history_client.copy_rates_range_as_df.call_count == 0
+        with sqlite3.connect(output) as conn:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'",
+                ).fetchall()
+            }
+        assert "ticks" in tables
+        assert "rates" not in tables
 
     def test_collect_history_with_views(
         self,
@@ -1065,6 +1092,40 @@ class TestUpdateHistory:
         )
         after = datetime.now(UTC)
         assert before <= captured["end"] <= after
+
+    def test_update_history_default_datasets_exclude_ticks(
+        self,
+        connected_client: MagicMock,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Test update_history with datasets=None does not collect ticks."""
+        datasets_written: list[set[Dataset]] = []
+
+        def capture(
+            *args: object,
+            **_kwargs: object,
+        ) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
+            datasets_written.append(args[3])  # type: ignore[arg-type]
+            return set(), {}
+
+        mocker.patch("mt5cli.sdk.write_incremental_datasets", side_effect=capture)
+        update_history(
+            client=connected_client,
+            output=tmp_path / "default-datasets.db",
+            symbols=["EURUSD"],
+            datasets=None,
+            timeframes=["M1"],
+            lookback_hours=1,
+            date_to=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        assert len(datasets_written) == 1
+        assert Dataset.ticks not in datasets_written[0]
+        assert {
+            Dataset.rates,
+            Dataset.history_orders,
+            Dataset.history_deals,
+        } == datasets_written[0]
 
 
 class TestRecentTicks:

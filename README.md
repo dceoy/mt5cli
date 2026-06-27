@@ -184,7 +184,7 @@ python -m mt5cli -o account.csv account-info
 | `order-check`          | Check funds sufficiency for a trade request                                                                  |
 | `order-send`           | Send a raw trade request to the trade server (`--yes` required; expert path)                                 |
 | `close-positions`      | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` available)          |
-| `collect-history`      | Bundle rates, ticks, history-orders, and history-deals for one or more symbols into a single SQLite database |
+| `collect-history`      | Collect rates, history-orders, and history-deals for one or more symbols into a single SQLite database (ticks opt-in via `--dataset ticks`) |
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
 `close-positions` is the safer high-level alternative that builds correct close
@@ -192,7 +192,7 @@ requests automatically. At least one `--symbol` or `--ticket` must be provided.
 
 ### `collect-history`
 
-Collect several historical datasets per symbol into one SQLite database in a single MT5 session. Pick datasets with repeatable `--dataset` (default: all four), choose conflict behavior with `--if-exists append|replace|fail` (default: `fail`), and optionally derive `cash_events` / `positions_reconstructed` views from `history_deals` via `--with-views`.
+Collect several historical datasets per symbol into one SQLite database in a single MT5 session. Pick datasets with repeatable `--dataset` (default: `rates`, `history-orders`, `history-deals`; add `--dataset ticks` when tick-level history is required — tick data can grow the SQLite database quickly), choose conflict behavior with `--if-exists append|replace|fail` (default: `fail`), and optionally derive `cash_events` / `positions_reconstructed` views from `history_deals` via `--with-views`.
 
 ```bash
 mt5cli -o history.db collect-history \
