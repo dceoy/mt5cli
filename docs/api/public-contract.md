@@ -187,15 +187,15 @@ Lower-level helpers (`ensure_grafana_schema`, `create_grafana_views`,
 Lower-level helpers are available from their owning modules and are not part
 of the package-root stable surface. Import them directly when needed:
 
-| Module              | Examples                                                                                                                                              |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Module              | Examples                                                                                                                                                                    |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mt5cli.grafana`    | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`, `insert_account_snapshot`, `record_snapshot_run` |
-| `mt5cli.history`    | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`                                                             |
-| `mt5cli.sdk`        | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                        |
-| `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                    |
-| `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                                              |
-| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                                                                              |
-| `mt5cli.exceptions` | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`                                                                  |
+| `mt5cli.history`    | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`                                                                                   |
+| `mt5cli.sdk`        | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                                              |
+| `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                                          |
+| `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                                                                    |
+| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                                                                                                    |
+| `mt5cli.exceptions` | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`                                                                                        |
 
 ## CLI commands
 
