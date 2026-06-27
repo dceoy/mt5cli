@@ -147,20 +147,32 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 | `minimum-margins`  | Export minimum-volume margin summary    |
 | `market-book`      | Export market depth (order book)        |
 
-### Trading
+### Trading State
 
-| Command                | Description                                                 |
-| ---------------------- | ----------------------------------------------------------- |
-| `orders`               | Export active orders                                        |
-| `positions`            | Export open positions                                       |
-| `history-orders`       | Export historical orders                                    |
-| `history-deals`        | Export historical deals                                     |
-| `recent-history-deals` | Export historical deals from a trailing window              |
-| `mt5-summary`          | Export terminal/account status summary                      |
-| `order-check`          | Check funds sufficiency for a trade request                 |
-| `order-send`           | Send a trade request to the trade server (`--yes` required) |
+| Command                | Description                                                           |
+| ---------------------- | --------------------------------------------------------------------- |
+| `orders`               | Export active orders                                                  |
+| `positions`            | Export open positions                                                 |
+| `history-orders`       | Export historical orders                                              |
+| `history-deals`        | Export historical deals                                               |
+| `recent-history-deals` | Export historical deals from a trailing window                        |
+| `mt5-summary`          | Export terminal/account status summary                                |
+| `order-check`          | Check funds sufficiency for a trade request (read-only, no `--yes`)   |
 
-Use `order-check` to validate a request payload before running `order-send --yes`.
+### Execution (live / mutating)
+
+These commands send requests to the live trade server and can place or close
+real trades. Both require `--yes` for live execution.
+
+| Command           | Description                                                                                          |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `order-send`      | Send a **raw** trade request directly to MT5 (`--yes` required; expert path — no extra validation)   |
+| `close-positions` | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` to preview) |
+
+Use `order-check` (Trading State) to validate funds before running `order-send --yes`.
+`close-positions` is the safer high-level alternative that builds correct close
+requests automatically. `order-send` is the expert raw path — downstream
+applications should prefer dedicated closing helpers or their own risk controls.
 
 ### Bulk Collection
 
@@ -217,7 +229,7 @@ See the [History schema diagram](api/history.md#entity-relationship-diagram) for
 
 Browse the API documentation for detailed module information:
 
-- [CLI Module](api/cli.md) - CLI application with export commands
+- [CLI Module](api/cli.md) - CLI application with data export and execution commands
 - [SDK Module](api/sdk.md) - Programmatic read-only data collection API
 - [Utils Module](api/utils.md) - Constants, parameter types, parsers, and export utilities
 
