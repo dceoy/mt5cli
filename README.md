@@ -289,7 +289,7 @@ WHERE login = $login ORDER BY time;
 
 -- Open positions at latest successful snapshot
 SELECT symbol, volume, profit FROM grafana_position_snapshots
-WHERE time = (SELECT MAX(observed_at) FROM snapshot_runs WHERE status = 'ok');
+WHERE run_id = (SELECT MAX(run_id) FROM snapshot_runs WHERE status = 'ok');
 
 -- Realized PnL by symbol
 SELECT symbol, total_profit FROM grafana_trade_stats ORDER BY total_profit DESC;

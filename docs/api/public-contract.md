@@ -152,23 +152,28 @@ without this flag.
 | `terminal_snapshots` | Terminal connectivity and build info      |
 | `snapshot_runs`      | Per-run status (`ok` / `error`) timestamp |
 
-**Grafana views** (integer epoch-second `time` column throughout):
+**Grafana time-series views** (integer epoch-second `time` column; snapshot views also expose `run_id`):
 
-| View                         | Source                                |
-| ---------------------------- | ------------------------------------- |
-| `grafana_rates`              | `rates` table                         |
-| `grafana_ticks`              | `ticks` table                         |
-| `grafana_history_deals`      | `history_deals`                       |
-| `grafana_history_orders`     | `history_orders`                      |
-| `grafana_trade_deals`        | `history_deals` trade types only      |
-| `grafana_cash_events`        | `history_deals` non-trade events      |
-| `grafana_realized_pnl`       | Aggregated by symbol                  |
-| `grafana_symbol_pnl`         | Per-close-deal P&L per symbol         |
-| `grafana_trade_stats`        | Win/loss counts and profit per symbol |
-| `grafana_account_snapshots`  | `account_snapshots`                   |
-| `grafana_position_snapshots` | `position_snapshots`                  |
-| `grafana_order_snapshots`    | `order_snapshots`                     |
-| `grafana_terminal_snapshots` | `terminal_snapshots`                  |
+| View                         | Source                           |
+| ---------------------------- | -------------------------------- |
+| `grafana_rates`              | `rates` table                    |
+| `grafana_ticks`              | `ticks` table                    |
+| `grafana_history_deals`      | `history_deals`                  |
+| `grafana_history_orders`     | `history_orders`                 |
+| `grafana_trade_deals`        | `history_deals` trade types only |
+| `grafana_cash_events`        | `history_deals` non-trade events |
+| `grafana_symbol_pnl`         | Per-close-deal P&L per symbol    |
+| `grafana_account_snapshots`  | `account_snapshots`              |
+| `grafana_position_snapshots` | `position_snapshots`             |
+| `grafana_order_snapshots`    | `order_snapshots`                |
+| `grafana_terminal_snapshots` | `terminal_snapshots`             |
+
+**Grafana static summary views** (no `time` column; use for table/stat panels, not time-series):
+
+| View                   | Source                                |
+| ---------------------- | ------------------------------------- |
+| `grafana_realized_pnl` | Cumulative realized PnL per symbol    |
+| `grafana_trade_stats`  | Win/loss counts and profit per symbol |
 
 Lower-level helpers (`ensure_grafana_schema`, `create_grafana_views`,
 `create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`,

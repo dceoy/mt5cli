@@ -349,27 +349,29 @@ class TestGrafanaViews:
         self,
         conn: sqlite3.Connection,
     ) -> None:
-        """grafana_trade_stats is created with time column when entry is absent."""
+        """grafana_trade_stats is a static summary view with no time column."""
         _make_history_deals_minimal(conn)
         create_grafana_views(conn)
         assert "grafana_trade_stats" in _get_names(conn, "view")
         cols = {
             row[1] for row in conn.execute("PRAGMA table_info(grafana_trade_stats)")
         }
-        assert "time" in cols
+        assert "time" not in cols
+        assert "symbol" in cols
 
     def test_grafana_trade_stats_with_entry_col(
         self,
         conn: sqlite3.Connection,
     ) -> None:
-        """grafana_trade_stats exposes time column when entry column is present."""
+        """grafana_trade_stats is a static summary view with no time column."""
         _make_history_deals_full(conn)
         create_grafana_views(conn)
         assert "grafana_trade_stats" in _get_names(conn, "view")
         cols = {
             row[1] for row in conn.execute("PRAGMA table_info(grafana_trade_stats)")
         }
-        assert "time" in cols
+        assert "time" not in cols
+        assert "symbol" in cols
 
     def test_snapshot_views_skipped_when_snapshot_tables_absent(
         self,
@@ -389,15 +391,17 @@ class TestGrafanaViews:
         self,
         conn: sqlite3.Connection,
     ) -> None:
-        """_build_snapshot_view creates a view when table has only run_id col."""
+        """_build_snapshot_view exposes time and run_id when table has only run_id."""
         create_snapshot_tables(conn)
         conn.execute("CREATE TABLE only_run (run_id INTEGER NOT NULL)")
         run_id = start_snapshot_run(conn, 1000)
         record_snapshot_run(conn, run_id, "ok")
         conn.execute("INSERT INTO only_run (run_id) VALUES (?)", (run_id,))
         _build_snapshot_view(conn, "test_view", "only_run")
-        views = _get_names(conn, "view")
-        assert "test_view" in views
+        assert "test_view" in _get_names(conn, "view")
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(test_view)")}
+        assert "time" in cols
+        assert "run_id" in cols
 
     def test_build_snapshot_view_skips_when_snapshot_runs_missing(
         self,
@@ -432,7 +436,7 @@ class TestGrafanaViews:
         self,
         conn: sqlite3.Connection,
     ) -> None:
-        """Snapshot views show rows from successful runs."""
+        """Snapshot views show rows from successful runs and expose run_id."""
         create_snapshot_tables(conn)
         run_id = start_snapshot_run(conn, 2000)
         conn.execute(
@@ -444,9 +448,14 @@ class TestGrafanaViews:
         record_snapshot_run(conn, run_id, "ok")
         create_grafana_views(conn)
         rows = conn.execute(
-            "SELECT time, login FROM grafana_account_snapshots"
+            "SELECT time, run_id, login FROM grafana_account_snapshots"
         ).fetchall()
-        assert rows == [(2000, 12345)]
+        assert rows == [(2000, run_id, 12345)]
+        cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(grafana_account_snapshots)")
+        }
+        assert "run_id" in cols
 
     def test_snapshot_view_same_second_ok_and_error_no_cross_contamination(
         self,

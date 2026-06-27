@@ -266,18 +266,17 @@ def _build_grafana_cash_events(conn: sqlite3.Connection) -> None:
 
 def _build_grafana_realized_pnl(conn: sqlite3.Connection) -> None:
     cols = get_table_columns(conn, "history_deals")
-    required = {"time", "symbol", "profit", "type", "entry"}
+    required = {"symbol", "profit", "type", "entry"}
     if not required.issubset(cols):
         logger.warning(
             "Skipping grafana_realized_pnl: history_deals missing columns %s",
             sorted(required - cols),
         )
         return
-    time_expr = _time_col_expr("time")
     _create_view_safe(
         conn,
         "grafana_realized_pnl",
-        f'SELECT MAX({time_expr}) AS "time", "symbol",'  # noqa: S608
+        'SELECT "symbol",'  # noqa: S608
         ' SUM("profit") AS cumulative_pnl, COUNT(*) AS deal_count'
         ' FROM "history_deals"'
         f' WHERE "type" IN {_TRADE_DEAL_TYPES_SQL}'
@@ -315,7 +314,7 @@ def _build_grafana_symbol_pnl(conn: sqlite3.Connection) -> None:
 
 def _build_grafana_trade_stats(conn: sqlite3.Connection) -> None:
     cols = get_table_columns(conn, "history_deals")
-    required = {"time", "symbol", "profit", "type"}
+    required = {"symbol", "profit", "type"}
     if not required.issubset(cols):
         logger.warning(
             "Skipping grafana_trade_stats: history_deals missing columns %s",
@@ -324,11 +323,10 @@ def _build_grafana_trade_stats(conn: sqlite3.Connection) -> None:
         return
     has_entry = "entry" in cols
     entry_filter = ' AND "entry" IN (1, 2, 3)' if has_entry else ""
-    time_expr = _time_col_expr("time")
     _create_view_safe(
         conn,
         "grafana_trade_stats",
-        f'SELECT MAX({time_expr}) AS "time", "symbol",'  # noqa: S608
+        'SELECT "symbol",'  # noqa: S608
         " COUNT(*) AS total_deals,"
         ' SUM(CASE WHEN "profit" > 0 THEN 1 ELSE 0 END) AS winning_deals,'
         ' SUM(CASE WHEN "profit" <= 0 THEN 1 ELSE 0 END) AS losing_deals,'
@@ -357,10 +355,11 @@ def _build_snapshot_view(
     run_cols = get_table_columns(conn, "snapshot_runs")
     if {"run_id", "observed_at", "status"}.issubset(run_cols):
         other_sql = (", " + ", ".join(f's."{c}"' for c in others)) if others else ""
+        select_cols = f'r."observed_at" AS "time", s."run_id"{other_sql}'
         _create_view_safe(
             conn,
             view_name,
-            f'SELECT r."observed_at" AS "time"{other_sql} FROM "{table_name}" s'  # noqa: S608
+            f'SELECT {select_cols} FROM "{table_name}" s'  # noqa: S608
             f' JOIN "snapshot_runs" r ON s."run_id" = r."run_id"'
             f" WHERE r.\"status\" = 'ok'",
         )
