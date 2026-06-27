@@ -70,11 +70,11 @@ Edit `docker-compose.yml` to point `MT5CLI_DB_PATH` at your `.db` file.
 
 ## Dashboard overview
 
-| Dashboard | Description |
-|---|---|
+| Dashboard              | Description                                             |
+| ---------------------- | ------------------------------------------------------- |
 | `mt5cli-overview.json` | Account balance, equity, margin, and snapshot freshness |
-| `mt5cli-trades.json` | Trade P/L, win rate, symbol breakdown |
-| `mt5cli-market.json` | OHLCV rates, spreads, and tick volume |
+| `mt5cli-trades.json`   | Trade P/L, win rate, symbol breakdown                   |
+| `mt5cli-market.json`   | OHLCV rates, spreads, and tick volume                   |
 
 All panel queries use the `grafana_*` views; they do not read internal storage
 tables directly.
