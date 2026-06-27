@@ -981,7 +981,8 @@ def update_history(  # noqa: PLR0913
         client: Connected MT5 data client.
         output: SQLite database path.
         symbols: Symbols to update.
-        datasets: Datasets to include (defaults to all).
+        datasets: Datasets to include (defaults to rates, history-orders,
+            history-deals; pass ``{Dataset.ticks}`` to opt in to ticks).
         timeframes: Rate timeframes to update (defaults to all fixed MT5
             timeframes when None).
         flags: Tick copy flags as integer or name (e.g. ``ALL``).
@@ -1110,7 +1111,8 @@ class ThrottledHistoryUpdater:
 
         Args:
             output: SQLite database path.
-            datasets: Datasets to include (defaults to all).
+            datasets: Datasets to include (defaults to rates, history-orders,
+                history-deals; pass ``{Dataset.ticks}`` to opt in to ticks).
             timeframes: Rate timeframes to update (defaults to all fixed MT5
                 timeframes).
             flags: Tick copy flags as integer or name (e.g. ``ALL``).

@@ -787,7 +787,7 @@ def collect_history(
             " Use a .db/.sqlite/.sqlite3 extension or --format sqlite3."
         )
         raise typer.BadParameter(msg)
-    datasets = set(dataset) if dataset else None
+    datasets = set(dataset) if dataset is not None else None
     sdk.collect_history(
         output=export_ctx.output,
         symbols=symbol,
