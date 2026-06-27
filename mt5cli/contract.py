@@ -62,6 +62,8 @@ STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "resolve_account_specs",
     "update_history",
     "update_history_with_config",
+    "update_observability",
+    "update_observability_with_config",
     "update_sltp_for_open_positions",
     "update_trailing_stop_loss_for_open_positions",
 })
