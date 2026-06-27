@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 import sqlite3
 from typing import cast
@@ -11,6 +12,16 @@ from .history import get_table_columns
 logger = logging.getLogger(__name__)
 
 _TRADE_DEAL_TYPES_SQL = "(0, 1)"
+
+
+def _to_epoch_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime.datetime):
+        return int(value.timestamp())
+    if isinstance(value, (int, float)):
+        return int(value)
+    return None
 
 
 def _time_col_expr(col: str) -> str:
@@ -539,7 +550,7 @@ def insert_order_snapshots(
                 r.get("state"),
                 r.get("comment"),
                 r.get("magic"),
-                r.get("time_setup"),
+                _to_epoch_int(r.get("time_setup")),
             )
             for r in rows
         ],

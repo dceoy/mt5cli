@@ -7,6 +7,7 @@ import sqlite3
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 
 if TYPE_CHECKING:
@@ -719,6 +720,40 @@ class TestSnapshotInserts:
         insert_order_snapshots(conn, run_id, 12345, [])
         count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
         assert count == 0
+
+    def test_insert_order_snapshots_normalizes_timestamp_time_setup(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """insert_order_snapshots converts pd.Timestamp time_setup to epoch int."""
+        run_id = start_snapshot_run(conn, 1700000000)
+        ts = pd.Timestamp("2024-01-15 10:30:00", tz="UTC")
+        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": ts}]
+        insert_order_snapshots(conn, run_id, 12345, rows)
+        stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
+        assert stored == int(ts.timestamp())
+
+    def test_insert_order_snapshots_stores_int_time_setup(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """insert_order_snapshots stores an integer time_setup as-is."""
+        run_id = start_snapshot_run(conn, 1700000000)
+        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": 1705314600}]
+        insert_order_snapshots(conn, run_id, 12345, rows)
+        stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
+        assert stored == 1705314600
+
+    def test_insert_order_snapshots_stores_null_for_unknown_time_setup_type(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """insert_order_snapshots stores NULL for an unrecognized time_setup type."""
+        run_id = start_snapshot_run(conn, 1700000000)
+        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": "not_a_time"}]
+        insert_order_snapshots(conn, run_id, 12345, rows)
+        stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
+        assert stored is None
 
     def test_insert_terminal_snapshot(self, conn: sqlite3.Connection) -> None:
         """insert_terminal_snapshot appends a terminal info row."""
