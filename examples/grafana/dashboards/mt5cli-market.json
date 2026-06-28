@@ -33,7 +33,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "rawSql": "SELECT \"time\" AS time, \"symbol\", \"close\" FROM grafana_rates WHERE $__timeFilter(time) ORDER BY time",
+          "rawSql": "SELECT \"time\" AS time, \"symbol\", \"close\" FROM grafana_rates WHERE \"time\" >= $__from / 1000 AND \"time\" < $__to / 1000 ORDER BY time",
           "format": "time_series",
           "refId": "A"
         }
@@ -48,7 +48,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "rawSql": "SELECT \"time\" AS time, \"symbol\", \"spread\" FROM grafana_rates WHERE $__timeFilter(time) ORDER BY time",
+          "rawSql": "SELECT \"time\" AS time, \"symbol\", \"spread\" FROM grafana_rates WHERE \"time\" >= $__from / 1000 AND \"time\" < $__to / 1000 ORDER BY time",
           "format": "time_series",
           "refId": "A"
         }
@@ -63,7 +63,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "rawSql": "SELECT \"time\" AS time, \"symbol\", \"tick_volume\" FROM grafana_rates WHERE $__timeFilter(time) ORDER BY time",
+          "rawSql": "SELECT \"time\" AS time, \"symbol\", \"tick_volume\" FROM grafana_rates WHERE \"time\" >= $__from / 1000 AND \"time\" < $__to / 1000 ORDER BY time",
           "format": "time_series",
           "refId": "A"
         }
@@ -78,7 +78,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "rawSql": "SELECT \"time\" AS time, \"symbol\", \"bid\", \"ask\" FROM grafana_ticks WHERE $__timeFilter(time) ORDER BY time LIMIT 5000",
+          "rawSql": "SELECT \"time\" AS time, \"symbol\", \"bid\", \"ask\" FROM grafana_ticks WHERE \"time\" >= $__from / 1000 AND \"time\" < $__to / 1000 ORDER BY time LIMIT 5000",
           "format": "time_series",
           "refId": "A"
         }

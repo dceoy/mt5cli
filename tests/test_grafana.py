@@ -956,3 +956,27 @@ class TestPublishGrafanaCopy:
         _make_source_db(source)
         result = publish_grafana_copy(source, target)
         assert isinstance(result, Path)
+
+    def test_fresh_target_has_readable_permissions(self, tmp_path: Path) -> None:
+        """Published copy has world-readable permissions (0o644) by default."""
+        source = tmp_path / "src.db"
+        target = tmp_path / "grafana.db"
+        _make_source_db(source)
+        publish_grafana_copy(source, target)
+        import stat as _stat  # noqa: PLC0415
+
+        mode = target.stat().st_mode & 0o777
+        assert bool(mode & _stat.S_IRUSR), "owner must be able to read"
+        assert bool(mode & _stat.S_IRGRP), "group must be able to read"
+        assert bool(mode & _stat.S_IROTH), "others must be able to read"
+
+    def test_overwrite_preserves_existing_target_mode(self, tmp_path: Path) -> None:
+        """Overwriting an existing target preserves that target's file mode."""
+        source = tmp_path / "src.db"
+        target = tmp_path / "grafana.db"
+        _make_source_db(source)
+        target.write_bytes(b"old")
+        target.chmod(0o640)
+        publish_grafana_copy(source, target)
+        mode = target.stat().st_mode & 0o777
+        assert mode == 0o640

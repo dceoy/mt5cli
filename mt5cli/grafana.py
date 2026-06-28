@@ -523,6 +523,11 @@ def publish_grafana_copy(
             sqlite3.connect(tmp_path) as dst,
         ):
             src.backup(dst)
+        try:
+            target_mode = target_path.stat().st_mode & 0o777
+        except FileNotFoundError:
+            target_mode = 0o644
+        Path(tmp_path).chmod(target_mode)
         tmp_path.replace(target_path)
     except Exception:
         with contextlib.suppress(OSError):
