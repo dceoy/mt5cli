@@ -803,7 +803,19 @@ def collect_history(
 
 
 @app.command(rich_help_panel="Collection")
-def grafana_schema(ctx: typer.Context) -> None:
+def grafana_schema(
+    ctx: typer.Context,
+    publish_copy: Annotated[
+        Path | None,
+        typer.Option(
+            "--publish-copy",
+            help=(
+                "Publish a Grafana-ready SQLite copy to this path"
+                " after schema creation."
+            ),
+        ),
+    ] = None,
+) -> None:
     """Create or refresh Grafana-ready views and indexes in a SQLite database.
 
     Idempotent — safe to run repeatedly on the same database. Requires SQLite
@@ -814,7 +826,11 @@ def grafana_schema(ctx: typer.Context) -> None:
     """
     import sqlite3 as _sqlite3  # noqa: PLC0415
 
-    from .grafana import create_snapshot_tables, ensure_grafana_schema  # noqa: PLC0415
+    from .grafana import (  # noqa: PLC0415
+        create_snapshot_tables,
+        ensure_grafana_schema,
+        publish_grafana_copy,
+    )
 
     export_ctx = _get_export_context(ctx)
     if export_ctx.output_format != "sqlite3":
@@ -829,6 +845,9 @@ def grafana_schema(ctx: typer.Context) -> None:
         create_snapshot_tables(conn)
         ensure_grafana_schema(conn)
     logger.info("Grafana schema applied to %s", export_ctx.output)
+    if publish_copy is not None:
+        publish_grafana_copy(export_ctx.output, publish_copy)
+        logger.info("Grafana copy published to %s", publish_copy)
 
 
 @app.command(rich_help_panel="Collection")
@@ -867,6 +886,13 @@ def snapshot(
             help="Ensure Grafana views and indexes exist.",
         ),
     ] = False,
+    publish_copy: Annotated[
+        Path | None,
+        typer.Option(
+            "--publish-copy",
+            help=("Publish a Grafana-ready SQLite copy to this path after snapshot."),
+        ),
+    ] = None,
 ) -> None:
     """Snapshot current account, position, order, and terminal state into SQLite.
 
@@ -894,6 +920,11 @@ def snapshot(
         with_grafana_schema=with_grafana_schema,
     )
     logger.info("Snapshot written to %s", export_ctx.output)
+    if publish_copy is not None:
+        from .grafana import publish_grafana_copy  # noqa: PLC0415
+
+        publish_grafana_copy(export_ctx.output, publish_copy)
+        logger.info("Grafana copy published to %s", publish_copy)
 
 
 def main() -> None:

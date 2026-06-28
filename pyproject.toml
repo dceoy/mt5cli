@@ -26,6 +26,11 @@ classifiers = [
 
 [project.optional-dependencies]
 parquet = ["pyarrow >= 19.0.0"]
+otel = [
+  "opentelemetry-api",
+  "opentelemetry-sdk",
+  "opentelemetry-exporter-otlp-proto-http",
+]
 
 [project.scripts]
 mt5cli = "mt5cli.cli:main"
@@ -45,6 +50,8 @@ dev = [
   "pytest-cov >= 5.0.0",
   "pandas-stubs >= 2.2.3.250527",
   "pyarrow >= 19.0.0",
+  "opentelemetry-api",
+  "opentelemetry-sdk",
   "mkdocs >= 1.6.1",
   "mkdocs-material >= 9.7.6",
   "mkdocstrings[python] >= 1.0.4",

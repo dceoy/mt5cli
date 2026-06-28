@@ -1,0 +1,254 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_MT5CLI_SQLITE",
+      "label": "mt5cli-SQLite",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "frser-sqlite-datasource",
+      "pluginName": "SQLite"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "datasource",
+      "id": "frser-sqlite-datasource",
+      "name": "SQLite",
+      "version": "1.0.0"
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "title": "Balance",
+      "type": "stat",
+      "targets": [
+        {
+          "rawSql": "SELECT \"time\" AS time, \"balance\" FROM grafana_account_snapshots ORDER BY time DESC LIMIT 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "title": "Equity",
+      "type": "stat",
+      "targets": [
+        {
+          "rawSql": "SELECT \"time\" AS time, \"equity\" FROM grafana_account_snapshots ORDER BY time DESC LIMIT 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "title": "Free Margin",
+      "type": "stat",
+      "targets": [
+        {
+          "rawSql": "SELECT \"time\" AS time, \"margin_free\" FROM grafana_account_snapshots ORDER BY time DESC LIMIT 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "title": "Margin Level",
+      "type": "stat",
+      "targets": [
+        {
+          "rawSql": "SELECT \"time\" AS time, \"margin_level\" FROM grafana_account_snapshots ORDER BY time DESC LIMIT 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 7,
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "title": "Last Snapshot",
+      "type": "stat",
+      "targets": [
+        {
+          "rawSql": "SELECT MAX(\"time\") * 1000 AS \"Last Snapshot\" FROM grafana_account_snapshots",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 5,
+      "title": "Account Balance Over Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "rawSql": "SELECT \"time\" AS time, \"balance\" FROM grafana_account_snapshots ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 6,
+      "title": "Equity Over Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "rawSql": "SELECT \"time\" AS time, \"equity\" FROM grafana_account_snapshots ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 36,
+  "tags": ["mt5cli", "account"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Data Source",
+        "multi": false,
+        "name": "DS_MT5CLI_SQLITE",
+        "options": [],
+        "query": "frser-sqlite-datasource",
+        "refresh": 1,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "MT5CLI - Account Overview",
+  "uid": "mt5cli-overview",
+  "version": 1
+}

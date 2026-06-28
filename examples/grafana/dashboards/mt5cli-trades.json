@@ -1,0 +1,167 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_MT5CLI_SQLITE",
+      "label": "mt5cli-SQLite",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "frser-sqlite-datasource",
+      "pluginName": "SQLite"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "datasource",
+      "id": "frser-sqlite-datasource",
+      "name": "SQLite",
+      "version": "1.0.0"
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "title": "Realized P/L by Symbol",
+      "type": "table",
+      "targets": [
+        {
+          "rawSql": "SELECT \"symbol\", \"cumulative_pnl\", \"deal_count\" FROM grafana_realized_pnl ORDER BY cumulative_pnl DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "win_rate_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "displayName",
+                "value": "Win Rate (%)"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "title": "Trade Statistics by Symbol",
+      "type": "table",
+      "targets": [
+        {
+          "rawSql": "SELECT \"symbol\", \"total_deals\", \"winning_deals\", \"losing_deals\", \"total_profit\", \"avg_profit\", 100.0 * \"winning_deals\" / NULLIF(\"total_deals\", 0) AS \"win_rate_pct\" FROM grafana_trade_stats ORDER BY total_profit DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "title": "Open Position Profit Over Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "rawSql": "SELECT \"time\" AS time, \"symbol\", SUM(\"profit\") AS profit FROM grafana_position_snapshots GROUP BY time, symbol ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 4,
+      "title": "Cash Events Over Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "rawSql": "SELECT \"time\" AS time, \"profit\" FROM grafana_cash_events ORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 36,
+  "tags": ["mt5cli", "trades"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Data Source",
+        "multi": false,
+        "name": "DS_MT5CLI_SQLITE",
+        "options": [],
+        "query": "frser-sqlite-datasource",
+        "refresh": 1,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "MT5CLI - Trade Analytics",
+  "uid": "mt5cli-trades",
+  "version": 1
+}
