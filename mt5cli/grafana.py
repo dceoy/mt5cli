@@ -507,9 +507,8 @@ def publish_grafana_copy(
     source_path = Path(source)
     target_path = Path(target)
     if source_path.resolve() == target_path.resolve():
-        msg = (
-            "--publish-copy target must differ from the source database: "
-            + str(source_path)
+        msg = "--publish-copy target must differ from the source database: " + str(
+            source_path
         )
         raise ValueError(msg)
     if not source_path.exists():
