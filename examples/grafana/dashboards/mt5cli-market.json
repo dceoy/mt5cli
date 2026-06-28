@@ -68,21 +68,6 @@
           "refId": "A"
         }
       ]
-    },
-    {
-      "datasource": "${DS_MT5CLI_SQLITE}",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
-      "id": 4,
-      "title": "Tick Bid/Ask Over Time",
-      "type": "timeseries",
-      "targets": [
-        {
-          "rawSql": "SELECT \"time\" AS time, \"symbol\", \"bid\", \"ask\" FROM grafana_ticks WHERE \"time\" >= $__from / 1000 AND \"time\" < $__to / 1000 ORDER BY time LIMIT 5000",
-          "format": "time_series",
-          "refId": "A"
-        }
-      ]
     }
   ],
   "refresh": "1m",
