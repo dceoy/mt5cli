@@ -87,6 +87,9 @@ class _Mt5Metrics:
         self._account_margin_level: Any = _NOOP
         self._position_profit: Any = _NOOP
         self._position_volume: Any = _NOOP
+        self._terminal_connected: Any = _NOOP
+        self._terminal_trade_allowed: Any = _NOOP
+        self._terminal_trade_expert: Any = _NOOP
         self._last_successful_update: Any = _NOOP
 
     def configure(self, meter: Any) -> None:  # noqa: ANN401
@@ -146,6 +149,18 @@ class _Mt5Metrics:
         self._position_volume = meter.create_gauge(
             "mt5_position_volume",
             description="Volume of an open position.",
+        )
+        self._terminal_connected = meter.create_gauge(
+            "mt5_terminal_connected",
+            description="1 if the terminal is connected to the broker, 0 otherwise.",
+        )
+        self._terminal_trade_allowed = meter.create_gauge(
+            "mt5_terminal_trade_allowed",
+            description="1 if trading is allowed by the broker server, 0 otherwise.",
+        )
+        self._terminal_trade_expert = meter.create_gauge(
+            "mt5_terminal_trade_expert",
+            description="1 if Expert Advisor trading is enabled, 0 otherwise.",
         )
         self._last_successful_update = meter.create_gauge(
             "mt5_last_successful_update_timestamp",
@@ -250,6 +265,24 @@ class _Mt5Metrics:
         attrs: dict[str, str] = {"login": login, "server": server, "symbol": symbol}
         self._position_profit.set(profit, attrs)
         self._position_volume.set(volume, attrs)
+
+    def record_terminal_state(
+        self,
+        *,
+        connected: float,
+        trade_allowed: float,
+        trade_expert: float,
+    ) -> None:
+        """Emit terminal connection and trading status gauges.
+
+        Args:
+            connected: 1.0 if connected to the broker, 0.0 otherwise.
+            trade_allowed: 1.0 if broker server allows trading, 0.0 otherwise.
+            trade_expert: 1.0 if Expert Advisor trading is enabled, 0.0 otherwise.
+        """
+        self._terminal_connected.set(connected, {})
+        self._terminal_trade_allowed.set(trade_allowed, {})
+        self._terminal_trade_expert.set(trade_expert, {})
 
 
 _metrics = _Mt5Metrics()

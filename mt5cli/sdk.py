@@ -2268,6 +2268,14 @@ def _snapshot_orders(
     insert_order_snapshots(conn, run_id, login, rows)
 
 
+def _emit_terminal_metrics(row: dict[str, object]) -> None:
+    get_metrics().record_terminal_state(
+        connected=float(row.get("connected") or 0.0),  # type: ignore[arg-type]
+        trade_allowed=float(row.get("trade_allowed") or 0.0),  # type: ignore[arg-type]
+        trade_expert=float(row.get("trade_expert") or 0.0),  # type: ignore[arg-type]
+    )
+
+
 def _snapshot_terminal(
     conn: sqlite3.Connection,
     client: Mt5DataClient,
@@ -2281,6 +2289,7 @@ def _snapshot_terminal(
         return
     row = cast("dict[str, object]", df.iloc[0].to_dict())
     insert_terminal_snapshot(conn, run_id, row)
+    _emit_terminal_metrics(row)
 
 
 def update_observability(

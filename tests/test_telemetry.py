@@ -141,6 +141,15 @@ class TestMt5Metrics:
         # Verify that set was called exactly twice (once each).
         assert m._position_profit.set.call_count == 2  # type: ignore[reportPrivateUsage]
 
+    def test_record_terminal_state(self) -> None:
+        """record_terminal_state emits connected, trade_allowed, trade_expert gauges."""
+        meter = MagicMock()
+        m = _Mt5Metrics()
+        m.configure(meter)
+        m.record_terminal_state(connected=1.0, trade_allowed=1.0, trade_expert=0.0)
+        # All three terminal gauges share the same mock; set is called 3 times.
+        assert m._terminal_connected.set.call_count == 3  # type: ignore[reportPrivateUsage]
+
     def test_record_account_state_after_configure(self) -> None:
         """record_account_state emits all five account gauges."""
         meter = MagicMock()

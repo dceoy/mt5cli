@@ -52,7 +52,10 @@ jsonData:
 
 1. Download and install Grafana from <https://grafana.com/grafana/download/>.
 2. Install the SQLite plugin: `grafana-cli plugins install frser-sqlite-datasource`.
-3. Copy `provisioning/` into `%ProgramFiles%\GrafanaLabs\grafana\conf\provisioning\`.
+3. Copy `provisioning/datasources/mt5cli-sqlite.yml` into
+   `%ProgramFiles%\GrafanaLabs\grafana\conf\provisioning\datasources\`.
+   Do not copy `provisioning/dashboards/mt5cli.yml` — it contains a
+   Docker-specific dashboard path that is not valid on Windows.
 4. Import the dashboards from `dashboards/` via the Grafana UI
    (Dashboards → Import → Upload JSON file).
 

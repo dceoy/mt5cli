@@ -3153,6 +3153,24 @@ class TestUpdateObservability:
         update_observability(client=mock_client, output=tmp_path / "obs.db")
         mock_metrics.record_account_state.assert_called_once()
 
+    def test_update_observability_emits_terminal_metrics(
+        self,
+        mock_client: MagicMock,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """_snapshot_terminal emits connected/trade gauges via get_metrics."""
+        mock_metrics = MagicMock()
+        mock_cm = MagicMock()
+        mock_cm.__enter__ = MagicMock(return_value=None)
+        mock_cm.__exit__ = MagicMock(return_value=False)
+        mock_metrics.record_snapshot_update.return_value = mock_cm
+        mocker.patch("mt5cli.sdk.get_metrics", return_value=mock_metrics)
+        update_observability(client=mock_client, output=tmp_path / "obs.db")
+        mock_metrics.record_terminal_state.assert_called_once_with(
+            connected=1.0, trade_allowed=1.0, trade_expert=1.0
+        )
+
     def test_update_observability_aggregates_same_symbol_positions(
         self,
         mocker: MockerFixture,

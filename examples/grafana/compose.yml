@@ -1,7 +1,8 @@
 # Docker Compose for Grafana with mt5cli SQLite datasource.
 #
-# Set MT5CLI_DB_PATH to the absolute host path of your published .db file
-# before running `docker compose up -d`.
+# MT5CLI_DB_PATH must be set to the absolute host path of your published .db
+# file before running `docker compose up -d`. Compose will refuse to start if
+# the variable is missing or empty.
 #
 # Example:
 #   MT5CLI_DB_PATH=/home/user/history.grafana.db docker compose up -d
@@ -18,7 +19,7 @@ services:
       - ./provisioning:/etc/grafana/provisioning:ro
       - ./dashboards:/var/lib/grafana/dashboards:ro
       - grafana-storage:/var/lib/grafana
-      - ${MT5CLI_DB_PATH:-/tmp/mt5cli-placeholder.db}:/data/mt5cli.db:ro
+      - ${MT5CLI_DB_PATH:?Set MT5CLI_DB_PATH to the path of your published mt5cli SQLite DB}:/data/mt5cli.db:ro
     user: "472"
 
 volumes:
