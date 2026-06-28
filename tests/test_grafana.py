@@ -911,6 +911,13 @@ class TestPublishGrafanaCopy:
             row = conn.execute("SELECT status FROM snapshot_runs").fetchone()
         assert row == ("ok",)
 
+    def test_same_path_raises(self, tmp_path: Path) -> None:
+        """publish_grafana_copy raises ValueError when source and target are the same."""
+        db = tmp_path / "history.db"
+        _make_source_db(db)
+        with pytest.raises(ValueError, match="must differ from the source"):
+            publish_grafana_copy(db, db)
+
     def test_source_not_found_raises(self, tmp_path: Path) -> None:
         """publish_grafana_copy raises FileNotFoundError when source is absent."""
         with pytest.raises(FileNotFoundError):

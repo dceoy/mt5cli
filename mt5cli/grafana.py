@@ -502,9 +502,14 @@ def publish_grafana_copy(
 
     Raises:
         FileNotFoundError: If the source database does not exist.
+        ValueError: If source and target resolve to the same path.
     """
     source_path = Path(source)
     target_path = Path(target)
+    if source_path.resolve() == target_path.resolve():
+        raise ValueError(
+            f"--publish-copy target must differ from the source database: {source_path}"
+        )
     if not source_path.exists():
         raise FileNotFoundError(source_path)
 
