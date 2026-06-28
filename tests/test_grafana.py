@@ -912,7 +912,7 @@ class TestPublishGrafanaCopy:
         assert row == ("ok",)
 
     def test_same_path_raises(self, tmp_path: Path) -> None:
-        """publish_grafana_copy raises ValueError when source and target are the same."""
+        """publish_grafana_copy raises ValueError when source equals target."""
         db = tmp_path / "history.db"
         _make_source_db(db)
         with pytest.raises(ValueError, match="must differ from the source"):
