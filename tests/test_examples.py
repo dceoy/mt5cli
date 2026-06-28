@@ -61,15 +61,15 @@ class TestGrafanaExamples:
         assert (_EXAMPLES_DIR / "README.md").is_file()
 
     def test_compose_file_exists(self) -> None:
-        """examples/grafana/compose.yaml is present."""
-        assert (_EXAMPLES_DIR / "compose.yaml").is_file()
+        """examples/grafana/compose.yml is present."""
+        assert (_EXAMPLES_DIR / "compose.yml").is_file()
 
     def test_datasource_provisioning_exists(self) -> None:
         """Datasource provisioning YAML is present."""
         assert (
-            _EXAMPLES_DIR / "provisioning" / "datasources" / "mt5cli-sqlite.yaml"
+            _EXAMPLES_DIR / "provisioning" / "datasources" / "mt5cli-sqlite.yml"
         ).is_file()
 
     def test_dashboard_provisioning_exists(self) -> None:
         """Dashboard provisioning YAML is present."""
-        assert (_EXAMPLES_DIR / "provisioning" / "dashboards" / "mt5cli.yaml").is_file()
+        assert (_EXAMPLES_DIR / "provisioning" / "dashboards" / "mt5cli.yml").is_file()

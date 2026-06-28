@@ -40,7 +40,7 @@ even when the source database uses WAL journal mode.
 
 ## Configuring the datasource path
 
-Edit `provisioning/datasources/mt5cli-sqlite.yaml` and set the `path` field
+Edit `provisioning/datasources/mt5cli-sqlite.yml` and set the `path` field
 to the absolute path of your published `.db` file:
 
 ```yaml
@@ -66,7 +66,7 @@ docker compose up -d
 Then open <http://localhost:3000> (default credentials: admin / admin).
 
 The Compose file mounts this directory and the SQLite file into the container.
-Edit `compose.yaml` to point `MT5CLI_DB_PATH` at your `.db` file.
+Edit `compose.yml` to point `MT5CLI_DB_PATH` at your `.db` file.
 
 ## Dashboard overview
 
