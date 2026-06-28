@@ -61,15 +61,20 @@ jsonData:
 
 ## Running with Docker Compose
 
+Set `MT5CLI_DB_PATH` to the absolute path of your published `.db` file, then
+start the stack:
+
 ```sh
 # From the examples/grafana directory
-docker compose up -d
+MT5CLI_DB_PATH=/absolute/path/to/history.mt5cli.db docker compose up -d
 ```
 
-Then open <http://localhost:3000> (default credentials: admin / admin).
+Alternatively, create a `.env` file in `examples/grafana/` containing
+`MT5CLI_DB_PATH=/absolute/path/to/history.mt5cli.db` and run
+`docker compose up -d`. Compose refuses to start if the variable is unset or
+empty.
 
-The Compose file mounts this directory and the SQLite file into the container.
-Edit `compose.yml` to point `MT5CLI_DB_PATH` at your `.db` file.
+Then open <http://localhost:3000> (default credentials: admin / admin).
 
 ## Dashboard overview
 
