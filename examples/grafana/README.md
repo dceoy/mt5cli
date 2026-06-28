@@ -66,7 +66,7 @@ docker compose up -d
 Then open <http://localhost:3000> (default credentials: admin / admin).
 
 The Compose file mounts this directory and the SQLite file into the container.
-Edit `docker-compose.yml` to point `MT5CLI_DB_PATH` at your `.db` file.
+Edit `compose.yaml` to point `MT5CLI_DB_PATH` at your `.db` file.
 
 ## Dashboard overview
 
