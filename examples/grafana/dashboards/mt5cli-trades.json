@@ -17,7 +17,9 @@
       "version": "1.0.0"
     }
   ],
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -26,8 +28,16 @@
   "panels": [
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "title": "Realized P/L by Symbol",
       "type": "table",
@@ -41,14 +51,39 @@
     },
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "win_rate_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "displayName",
+                "value": "Win Rate (%)"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "id": 2,
       "title": "Trade Statistics by Symbol",
       "type": "table",
       "targets": [
         {
-          "rawSql": "SELECT \"symbol\", \"total_deals\", \"winning_deals\", \"losing_deals\", \"total_profit\", \"avg_profit\" FROM grafana_trade_stats ORDER BY total_profit DESC",
+          "rawSql": "SELECT \"symbol\", \"total_deals\", \"winning_deals\", \"losing_deals\", \"total_profit\", \"avg_profit\", 100.0 * \"winning_deals\" / NULLIF(\"total_deals\", 0) AS \"win_rate_pct\" FROM grafana_trade_stats ORDER BY total_profit DESC",
           "format": "table",
           "refId": "A"
         }
@@ -56,8 +91,16 @@
     },
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
       "id": 3,
       "title": "Open Position Profit Over Time",
       "type": "timeseries",
@@ -71,8 +114,16 @@
     },
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
       "id": 4,
       "title": "Cash Events Over Time",
       "type": "timeseries",
@@ -104,7 +155,10 @@
       }
     ]
   },
-  "time": { "from": "now-30d", "to": "now" },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "MT5CLI - Trade Analytics",

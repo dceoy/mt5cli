@@ -17,7 +17,9 @@
       "version": "1.0.0"
     }
   ],
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -27,12 +29,23 @@
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
       "fieldConfig": {
-        "defaults": { "unit": "currencyUSD" },
+        "defaults": {
+          "unit": "currencyUSD"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
       "title": "Balance",
       "type": "stat",
       "targets": [
@@ -46,12 +59,23 @@
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
       "fieldConfig": {
-        "defaults": { "unit": "currencyUSD" },
+        "defaults": {
+          "unit": "currencyUSD"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "id": 2,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
       "title": "Equity",
       "type": "stat",
       "targets": [
@@ -65,12 +89,23 @@
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
       "fieldConfig": {
-        "defaults": { "unit": "currencyUSD" },
+        "defaults": {
+          "unit": "currencyUSD"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "id": 3,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
       "title": "Free Margin",
       "type": "stat",
       "targets": [
@@ -84,12 +119,23 @@
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
       "fieldConfig": {
-        "defaults": { "unit": "percent" },
+        "defaults": {
+          "unit": "percent"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "id": 4,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
       "title": "Margin Level",
       "type": "stat",
       "targets": [
@@ -102,8 +148,46 @@
     },
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 7,
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "title": "Last Snapshot",
+      "type": "stat",
+      "targets": [
+        {
+          "rawSql": "SELECT MAX(\"time\") * 1000 AS \"Last Snapshot\" FROM grafana_account_snapshots",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_MT5CLI_SQLITE}",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
       "id": 5,
       "title": "Account Balance Over Time",
       "type": "timeseries",
@@ -117,8 +201,16 @@
     },
     {
       "datasource": "${DS_MT5CLI_SQLITE}",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
       "id": 6,
       "title": "Equity Over Time",
       "type": "timeseries",
@@ -150,7 +242,10 @@
       }
     ]
   },
-  "time": { "from": "now-7d", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "MT5CLI - Account Overview",
