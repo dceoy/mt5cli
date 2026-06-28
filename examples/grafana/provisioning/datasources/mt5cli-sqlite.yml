@@ -3,7 +3,7 @@
 # Requires the frser-sqlite-datasource plugin:
 #   grafana-cli plugins install frser-sqlite-datasource
 #
-# Set `path` to the absolute path of your published history.grafana.db file.
+# Set `path` to the absolute path of your published history.mt5cli.db file.
 
 apiVersion: 1
 

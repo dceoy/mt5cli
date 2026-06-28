@@ -31,8 +31,8 @@ Grafana reads the SQLite file directly. To avoid read/write conflicts, publish
 a consistent copy after each update:
 
 ```sh
-mt5cli -o history.db grafana-schema --publish-copy history.grafana.db
-mt5cli -o history.db snapshot --publish-copy history.grafana.db
+mt5cli -o history.db grafana-schema --publish-copy history.mt5cli.db
+mt5cli -o history.db snapshot --publish-copy history.mt5cli.db
 ```
 
 The `--publish-copy` option uses the SQLite online backup API, which is safe
@@ -45,7 +45,7 @@ to the absolute path of your published `.db` file:
 
 ```yaml
 jsonData:
-  path: /absolute/path/to/history.grafana.db
+  path: /absolute/path/to/history.mt5cli.db
 ```
 
 ## Running Grafana on Windows (native)

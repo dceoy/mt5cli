@@ -5,7 +5,7 @@
 # the variable is missing or empty.
 #
 # Example:
-#   MT5CLI_DB_PATH=/home/user/history.grafana.db docker compose up -d
+#   MT5CLI_DB_PATH=/home/user/history.mt5cli.db docker compose up -d
 
 services:
   grafana:
