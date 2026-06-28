@@ -525,8 +525,8 @@ def publish_grafana_copy(
     try:
         os.close(tmp_fd)
         with (
-            sqlite3.connect(source_path) as src,
-            sqlite3.connect(tmp_path) as dst,
+            contextlib.closing(sqlite3.connect(source_path)) as src,
+            contextlib.closing(sqlite3.connect(tmp_path)) as dst,
         ):
             src.backup(dst)
         try:
