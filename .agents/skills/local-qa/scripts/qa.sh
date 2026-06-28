@@ -10,7 +10,7 @@ uv run pyright .
 uv run pytest
 
 # Markdown
-npx -y prettier --write './**/*.{,d,json}'
+npx -y prettier --write './**/*.{md,json}'
 
 # GitHub Actions
 case "${OSTYPE}" in

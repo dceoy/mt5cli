@@ -13,6 +13,7 @@ services:
       - "3000:3000"
     environment:
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_INSTALL_PLUGINS: frser-sqlite-datasource
     volumes:
       - ./provisioning:/etc/grafana/provisioning:ro
       - ./dashboards:/var/lib/grafana/dashboards:ro

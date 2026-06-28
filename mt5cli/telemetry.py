@@ -16,12 +16,27 @@ _otel_available_flag = False
 
 try:
     import opentelemetry.metrics as _otel_metrics_mod
+    from opentelemetry.sdk.metrics import MeterProvider as _OtelMeterProvider
+    from opentelemetry.sdk.metrics.export import (
+        PeriodicExportingMetricReader as _OtelPeriodicReader,
+    )
+    from opentelemetry.sdk.resources import Resource as _OtelResource
 
     _otel_available_flag = True
 except ImportError:  # pragma: no cover
     _otel_metrics_mod = None  # type: ignore[assignment]
+    _OtelMeterProvider = None  # type: ignore[assignment]
+    _OtelPeriodicReader = None  # type: ignore[assignment]
+    _OtelResource = None  # type: ignore[assignment]
 
 _OTEL_AVAILABLE: bool = _otel_available_flag
+
+try:
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import (  # type: ignore[import]
+        OTLPMetricExporter as _OtelOTLPExporter,  # type: ignore[reportUnknownVariableType]
+    )
+except ImportError:  # pragma: no cover
+    _OtelOTLPExporter = None  # type: ignore[assignment, misc]
 
 
 class _NoOp:
@@ -240,17 +255,29 @@ def configure_metrics(meter: Any) -> None:  # noqa: ANN401
     _metrics.configure(meter)
 
 
-def enable_otel_metrics(service_name: str = "mt5cli") -> None:
-    """Enable OTel metrics using the global meter provider.
+def enable_otel_metrics(
+    service_name: str = "mt5cli",
+    readers: list[Any] | None = None,
+) -> None:
+    """Enable OTel metrics by wiring up an SDK ``MeterProvider`` pipeline.
 
     Requires the ``otel`` optional dependency group:
     ``pip install "mt5cli[otel]"``.
 
     Args:
-        service_name: OTel meter/service name.
+        service_name: OTel meter/service name used for the ``Resource`` and
+            the meter itself.
+        readers: Optional list of metric readers. When *None* (the default),
+            a :class:`~opentelemetry.sdk.metrics.export.PeriodicExportingMetricReader`
+            backed by an OTLP HTTP exporter is created automatically
+            (reads the endpoint from ``OTEL_EXPORTER_OTLP_ENDPOINT``).
+            Pass a custom list (e.g. ``InMemoryMetricReader`` for tests)
+            to override.
 
     Raises:
-        ImportError: If ``opentelemetry-api`` is not installed.
+        ImportError: If ``opentelemetry-api`` is not installed, or if
+            ``readers`` is *None* and
+            ``opentelemetry-exporter-otlp-proto-http`` is not installed.
     """
     if not _OTEL_AVAILABLE:
         msg = (
@@ -258,7 +285,20 @@ def enable_otel_metrics(service_name: str = "mt5cli") -> None:
             'Install it with: pip install "mt5cli[otel]"'
         )
         raise ImportError(msg)
-    meter = _otel_metrics_mod.get_meter(service_name)  # type: ignore[union-attr]
+    if readers is None:
+        if _OtelOTLPExporter is None:
+            msg = (
+                "opentelemetry-exporter-otlp-proto-http is required for the "
+                "default OTLP export pipeline. "
+                'Install it with: pip install "mt5cli[otel]" or pass a '
+                "custom readers list."
+            )
+            raise ImportError(msg)
+        readers = [_OtelPeriodicReader(_OtelOTLPExporter())]  # type: ignore[misc]
+    resource = _OtelResource.create({"service.name": service_name})  # type: ignore[union-attr]
+    provider = _OtelMeterProvider(resource=resource, metric_readers=readers)  # type: ignore[misc]
+    _otel_metrics_mod.set_meter_provider(provider)  # type: ignore[union-attr]
+    meter = provider.get_meter(service_name)
     configure_metrics(meter)
 
 

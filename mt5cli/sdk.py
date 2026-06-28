@@ -2193,13 +2193,26 @@ def _emit_position_metrics(
 ) -> None:
     m = get_metrics()
     login_str = str(login) if login is not None else ""
+    # Aggregate profit and volume by symbol so hedging accounts (multiple open
+    # positions sharing the same symbol) emit a single gauge value per symbol
+    # instead of overwriting with each row's value.
+    totals: dict[str, tuple[float, float]] = {}
     for r in rows:
+        symbol = str(r.get("symbol", ""))
+        profit = float(r.get("profit") or 0.0)  # type: ignore[arg-type]
+        volume = float(r.get("volume") or 0.0)  # type: ignore[arg-type]
+        if symbol in totals:
+            prev_p, prev_v = totals[symbol]
+            totals[symbol] = (prev_p + profit, prev_v + volume)
+        else:
+            totals[symbol] = (profit, volume)
+    for symbol, (profit, volume) in totals.items():
         m.record_position_state(
             login=login_str,
             server="",
-            symbol=str(r.get("symbol", "")),
-            profit=float(r.get("profit") or 0.0),  # type: ignore[arg-type]
-            volume=float(r.get("volume") or 0.0),  # type: ignore[arg-type]
+            symbol=symbol,
+            profit=profit,
+            volume=volume,
         )
 
 

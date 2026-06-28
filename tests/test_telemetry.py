@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
 from mt5cli.telemetry import (
     _OTEL_AVAILABLE,  # type: ignore[reportPrivateUsage]
@@ -186,18 +187,43 @@ class TestEnableOtelMetrics:
         with pytest.raises(ImportError, match="opentelemetry-api"):
             enable_otel_metrics()
 
-    def test_enable_uses_global_meter_provider(
+    def test_enable_configures_sdk_pipeline_with_readers(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """enable_otel_metrics calls get_meter on the OTel metrics module."""
-        mock_meter = MagicMock()
+        """enable_otel_metrics wires up an SDK MeterProvider with supplied readers."""
         mock_mod = MagicMock()
-        mock_mod.get_meter.return_value = mock_meter
         monkeypatch.setattr("mt5cli.telemetry._OTEL_AVAILABLE", True)
         monkeypatch.setattr("mt5cli.telemetry._otel_metrics_mod", mock_mod)
+        reader = InMemoryMetricReader()
+        enable_otel_metrics("my-service", readers=[reader])
+        mock_mod.set_meter_provider.assert_called_once()
+        provider = mock_mod.set_meter_provider.call_args[0][0]
+        assert provider.get_meter("my-service") is not None
+
+    def test_enable_default_readers_uses_otlp(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """enable_otel_metrics with no readers creates an OTLP pipeline by default."""
+        mock_mod = MagicMock()
+        monkeypatch.setattr("mt5cli.telemetry._OTEL_AVAILABLE", True)
+        monkeypatch.setattr("mt5cli.telemetry._otel_metrics_mod", mock_mod)
+        monkeypatch.setattr("mt5cli.telemetry._OtelOTLPExporter", MagicMock())
         enable_otel_metrics("my-service")
-        mock_mod.get_meter.assert_called_once_with("my-service")
+        mock_mod.set_meter_provider.assert_called_once()
+
+    def test_enable_default_readers_raises_when_otlp_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """enable_otel_metrics raises ImportError when the OTLP exporter is missing."""
+        mock_mod = MagicMock()
+        monkeypatch.setattr("mt5cli.telemetry._OTEL_AVAILABLE", True)
+        monkeypatch.setattr("mt5cli.telemetry._otel_metrics_mod", mock_mod)
+        monkeypatch.setattr("mt5cli.telemetry._OtelOTLPExporter", None)
+        with pytest.raises(ImportError, match="opentelemetry-exporter-otlp-proto-http"):
+            enable_otel_metrics()
 
     def test_otel_available_flag_is_bool(self) -> None:
         """_OTEL_AVAILABLE is a boolean."""

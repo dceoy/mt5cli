@@ -3153,6 +3153,47 @@ class TestUpdateObservability:
         update_observability(client=mock_client, output=tmp_path / "obs.db")
         mock_metrics.record_account_state.assert_called_once()
 
+    def test_update_observability_aggregates_same_symbol_positions(
+        self,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Same-symbol positions are summed before emitting gauges (hedging)."""
+        mock_client = MagicMock()
+        mock_client.account_info_as_df.return_value = pd.DataFrame([
+            {
+                "login": 1,
+                "server": "demo",
+                "balance": 1000.0,
+                "equity": 1000.0,
+                "margin": 0.0,
+                "margin_free": 1000.0,
+                "margin_level": 0.0,
+            }
+        ])
+        mock_client.positions_get_as_df.return_value = pd.DataFrame([
+            {"ticket": 1, "symbol": "EURUSD", "profit": 10.0, "volume": 0.1},
+            {"ticket": 2, "symbol": "EURUSD", "profit": -5.0, "volume": 0.2},
+            {"ticket": 3, "symbol": "GBPUSD", "profit": 3.0, "volume": 0.05},
+        ])
+        mock_client.orders_get_as_df.return_value = pd.DataFrame()
+        mock_client.terminal_info_as_df.return_value = pd.DataFrame()
+        mock_metrics = MagicMock()
+        mock_cm = MagicMock()
+        mock_cm.__enter__ = MagicMock(return_value=None)
+        mock_cm.__exit__ = MagicMock(return_value=False)
+        mock_metrics.record_snapshot_update.return_value = mock_cm
+        mocker.patch("mt5cli.sdk.get_metrics", return_value=mock_metrics)
+        update_observability(client=mock_client, output=tmp_path / "obs.db")
+        calls = mock_metrics.record_position_state.call_args_list
+        # Two EURUSD positions should be collapsed to one call; GBPUSD is one call.
+        assert len(calls) == 2
+        by_symbol = {c.kwargs["symbol"]: c.kwargs for c in calls}
+        assert abs(float(by_symbol["EURUSD"]["profit"]) - 5.0) < 1e-9
+        assert abs(float(by_symbol["EURUSD"]["volume"]) - 0.3) < 1e-9
+        assert abs(float(by_symbol["GBPUSD"]["profit"]) - 3.0) < 1e-9
+        assert abs(float(by_symbol["GBPUSD"]["volume"]) - 0.05) < 1e-9
+
 
 class TestUpdateHistoryTelemetry:
     """Tests for telemetry hooks in update_history."""
