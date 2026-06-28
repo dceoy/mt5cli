@@ -176,6 +176,15 @@ class _Mt5Metrics:
             self._history_failures.add(1, attrs)
             raise
 
+    def add_history_rows(self, count: int, *, dataset: str) -> None:
+        """Increment the history rows-written counter.
+
+        Args:
+            count: Number of rows written during this update.
+            dataset: Dataset label (e.g. ``"rates"``).
+        """
+        self._history_rows.add(count, {"dataset": dataset})
+
     @contextmanager
     def record_snapshot_update(self) -> Iterator[None]:
         """Context manager recording snapshot update duration and failures.

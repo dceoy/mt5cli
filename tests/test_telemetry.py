@@ -91,6 +91,16 @@ class TestMt5Metrics:
         )
         m._history_duration.record.assert_not_called()  # type: ignore[reportPrivateUsage]
 
+    def test_add_history_rows(self) -> None:
+        """add_history_rows increments the rows-written counter."""
+        meter = MagicMock()
+        m = _Mt5Metrics()
+        m.configure(meter)
+        m.add_history_rows(42, dataset="rates")
+        m._history_rows.add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
+            42, {"dataset": "rates"}
+        )
+
     def test_record_snapshot_update_success(self) -> None:
         """record_snapshot_update records duration on success."""
         meter = MagicMock()

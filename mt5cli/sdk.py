@@ -1027,7 +1027,9 @@ def update_history(  # noqa: PLR0913
     with closing(sqlite3.connect(request.output_path)) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
-        with get_metrics().record_history_update(dataset="history"):
+        m = get_metrics()
+        with m.record_history_update(dataset="history"):
+            before = conn.total_changes
             write_incremental_datasets(
                 conn,
                 client,
@@ -1042,6 +1044,7 @@ def update_history(  # noqa: PLR0913
                 with_views=with_views,
                 include_account_events=include_account_events,
             )
+            m.add_history_rows(conn.total_changes - before, dataset="history")
 
 
 def update_history_with_config(  # noqa: PLR0913

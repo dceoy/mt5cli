@@ -3220,3 +3220,26 @@ class TestUpdateHistoryTelemetry:
             symbols=["EURUSD"],
         )
         mock_metrics.record_history_update.assert_called_once_with(dataset="history")
+
+    def test_update_history_emits_history_rows(
+        self,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        """update_history calls add_history_rows with the SQLite change delta."""
+        mock_client = MagicMock()
+        mock_client.copy_rates_range_as_df.return_value = pd.DataFrame()
+        mock_client.history_orders_get_as_df.return_value = pd.DataFrame()
+        mock_client.history_deals_get_as_df.return_value = pd.DataFrame()
+        mock_metrics = MagicMock()
+        mock_cm = MagicMock()
+        mock_cm.__enter__ = MagicMock(return_value=None)
+        mock_cm.__exit__ = MagicMock(return_value=False)
+        mock_metrics.record_history_update.return_value = mock_cm
+        mocker.patch("mt5cli.sdk.get_metrics", return_value=mock_metrics)
+        update_history(
+            client=mock_client,
+            output=tmp_path / "hist.db",
+            symbols=["EURUSD"],
+        )
+        mock_metrics.add_history_rows.assert_called_once_with(0, dataset="history")
