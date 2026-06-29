@@ -3868,12 +3868,20 @@ class TestFetchRecentHistoryDealsForTradingClient:
         assert isinstance(result, pd.DataFrame)
         assert result.empty
 
-    def test_empty_dataframe_result_stays_empty(self) -> None:
-        """Empty DataFrame from client is returned as empty."""
-        client = self._fake_client(pd.DataFrame())
+    def test_empty_dataframe_result_preserves_schema(self) -> None:
+        """Empty DataFrame from client is returned with its columns intact."""
+        schema_df = pd.DataFrame(columns=["time", "symbol", "profit", "volume"])
+        client = self._fake_client(schema_df)
         result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
-        assert isinstance(result, pd.DataFrame)
         assert result.empty
+        assert list(result.columns) == ["time", "symbol", "profit", "volume"]
+
+    def test_none_result_returns_bare_empty_dataframe(self) -> None:
+        """None from client becomes a bare empty DataFrame (no columns)."""
+        client = self._fake_client(None)
+        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
+        assert result.empty
+        assert list(result.columns) == []
 
     def test_sorts_by_time_and_resets_index(self) -> None:
         """Unsorted time rows are sorted chronologically and index is reset."""

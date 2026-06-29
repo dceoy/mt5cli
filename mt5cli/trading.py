@@ -85,9 +85,11 @@ class _HistoryDealsClientProtocol(Protocol):
     """Minimal protocol for MT5 clients capable of retrieving history deals.
 
     Describes the single method required by
-    :func:`fetch_recent_history_deals_for_trading_client`. Both
-    ``pdmt5.Mt5DataClient`` (returned by :func:`create_trading_client`) and
-    ``mt5cli.sdk.Mt5CliClient`` satisfy this protocol structurally.
+    :func:`fetch_recent_history_deals_for_trading_client`. The raw
+    ``pdmt5.Mt5DataClient`` returned by :func:`create_trading_client`
+    satisfies this protocol. ``mt5cli.sdk.Mt5CliClient`` (used via
+    ``mt5_session()``) exposes ``history_deals()`` instead and does not
+    satisfy this protocol.
     """
 
     def history_deals_get_as_df(
@@ -1794,9 +1796,11 @@ def fetch_recent_history_deals_for_trading_client(
 
     Computes a trailing window ending at ``date_to`` (or ``datetime.now(UTC)``
     when omitted) and delegates to the client's ``history_deals_get_as_df``
-    method. Both ``pdmt5.Mt5DataClient`` (returned by
-    :func:`create_trading_client`) and ``mt5cli.sdk.Mt5CliClient`` satisfy the
-    required protocol.
+    method. The object returned by :func:`create_trading_client` (a raw
+    ``pdmt5.Mt5DataClient``) satisfies this protocol directly. Note that
+    ``mt5cli.sdk.Mt5CliClient`` (used via ``mt5_session()``) exposes
+    ``history_deals()``, not ``history_deals_get_as_df()``, and therefore does
+    not satisfy this protocol; use this helper with trading-client sessions only.
 
     The returned DataFrame preserves every column from the underlying client
     (``time``, ``symbol``, ``type``, ``entry``, ``volume``, ``profit``,
@@ -1805,8 +1809,9 @@ def fetch_recent_history_deals_for_trading_client(
     any other betting or signal semantics.
 
     Args:
-        client: Connected MT5 client with ``history_deals_get_as_df``
-            capability.
+        client: Connected ``pdmt5.Mt5DataClient`` (or compatible) with
+            ``history_deals_get_as_df`` capability, as returned by
+            :func:`create_trading_client`.
         symbol: Optional symbol filter passed to the underlying client.
         group: Optional symbol group filter passed to the underlying client.
         hours: Trailing window length in hours. Must be positive.
@@ -1814,8 +1819,10 @@ def fetch_recent_history_deals_for_trading_client(
 
     Returns:
         DataFrame ordered chronologically by ``time`` (when the column
-        exists) with a ``RangeIndex``. Returns an empty DataFrame when no
-        deals exist in the window or the underlying client returns ``None``.
+        exists) with a ``RangeIndex``. Schema-preserving empty DataFrames
+        (zero rows but columns present) are passed through with a reset
+        index. Returns a bare empty DataFrame only when the underlying
+        client returns ``None``.
 
     Raises:
         ValueError: If ``hours`` is not positive.
@@ -1848,8 +1855,10 @@ def fetch_recent_history_deals_for_trading_client(
         group=group,
         symbol=symbol,
     )
-    if raw is None or raw.empty:
+    if raw is None:
         return pd.DataFrame()
+    if raw.empty:
+        return raw.reset_index(drop=True)
     if "time" in raw.columns:
         raw = raw.sort_values("time")
     return raw.reset_index(drop=True)
