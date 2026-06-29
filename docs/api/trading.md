@@ -10,6 +10,11 @@ client supporting order execution and account management, use `Mt5Config.path`
 to launch the terminal when configured, and `mt5_trading_session()` always
 calls `shutdown()` on exit.
 
+`create_trading_client()` returns a raw `pdmt5.Mt5DataClient` instance, not the
+higher-level `MT5Client` wrapper. Use `mt5_session()` / `MT5Client` for
+read-only data collection; use `mt5_trading_session()` only where order
+placement or trading calculations are required.
+
 ```python
 from mt5cli import create_trading_client, mt5_trading_session
 
@@ -182,6 +187,55 @@ updates: list[OrderExecutionResult] = update_sltp_for_open_positions(
 Closes issue #33: strategy-neutral order planning and execution helpers exposed
 through the stable package root without embedding entry/exit policy.
 
+## Retrieving recent history deals
+
+`fetch_recent_history_deals_for_trading_client()` fetches history deals from an
+already-connected trading client over a trailing time window. It works directly
+with the object returned by `create_trading_client()` (a raw
+`pdmt5.Mt5DataClient`) without requiring any additional wrapping.
+
+The helper returns a chronologically sorted DataFrame with a `RangeIndex` and
+all columns from the underlying client (`time`, `symbol`, `type`, `entry`,
+`volume`, `profit`, `position_id`, etc.). It does **not** apply any
+strategy-specific transformations — entry/exit classification, Kelly fractions,
+and betting semantics belong in downstream applications.
+
+```python
+from mt5cli import (
+    create_trading_client,
+    fetch_recent_history_deals_for_trading_client,
+)
+
+client = create_trading_client(login=12345, server="Broker-Demo")
+try:
+    deals_df = fetch_recent_history_deals_for_trading_client(
+        client,
+        symbol="JP225",
+        hours=24,
+    )
+finally:
+    client.shutdown()
+```
+
+Or inside a managed session:
+
+```python
+from mt5cli import fetch_recent_history_deals_for_trading_client, mt5_trading_session
+
+with mt5_trading_session(login=12345, server="Broker-Demo") as client:
+    deals_df = fetch_recent_history_deals_for_trading_client(
+        client,
+        symbol="JP225",
+        hours=48,
+    )
+```
+
+`hours` must be positive; `date_to` defaults to `datetime.now(UTC)`. An empty
+or `None` result from the underlying client is normalized to an empty DataFrame.
+
+Downstream packages own all strategy-specific transformations. mt5cli does not
+provide entry-deal classification, Kelly sizing, or any betting-specific helpers.
+
 ## Migration from application-local helpers
 
 | Application-local concern                                | mt5cli replacement                                                                      |
@@ -192,6 +246,7 @@ through the stable package root without embedding entry/exit policy.
 | Local broker volume step normalization                   | `normalize_order_volume()`                                                              |
 | Local order or position margin estimation                | `estimate_order_margin()`, `calculate_positions_margin()`                               |
 | Local closed-bar fetch from a trading session            | `fetch_latest_closed_rates_for_trading_client()`, `fetch_latest_closed_rates_indexed()` |
+| Local recent deal history fetch from a trading session   | `fetch_recent_history_deals_for_trading_client()`                                       |
 | Local SL/TP price derivation                             | `determine_order_limits()`                                                              |
 | Throttled SQLite history loop with ad-hoc error handling | `ThrottledHistoryUpdater(suppress_errors=True)`                                         |
 

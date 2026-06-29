@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast, get_args
 from unittest.mock import MagicMock
@@ -41,6 +42,7 @@ from mt5cli.trading import (
     extract_tick_price,
     fetch_latest_closed_rates_for_trading_client,
     fetch_latest_closed_rates_indexed,
+    fetch_recent_history_deals_for_trading_client,
     get_account_snapshot,
     get_positions_frame,
     get_symbol_snapshot,
@@ -3817,3 +3819,177 @@ class TestCalculatePositionsMarginSafe:
         client = _mock_trade_client()
         total = calculate_positions_margin_safe(client, symbols=[])
         _assert_close(total, 0.0)
+
+
+class TestFetchRecentHistoryDealsForTradingClient:
+    """Tests for fetch_recent_history_deals_for_trading_client."""
+
+    def _fake_client(self, return_value: pd.DataFrame | None) -> MagicMock:
+        client = MagicMock()
+        client.history_deals_get_as_df.return_value = return_value
+        return client
+
+    def test_passes_correct_date_range_and_filters(self) -> None:
+        """Calls history_deals_get_as_df with derived date_from/date_to."""
+        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        client = self._fake_client(pd.DataFrame())
+
+        fetch_recent_history_deals_for_trading_client(
+            client,
+            symbol="JP225",
+            group="FX*",
+            hours=6.0,
+            date_to=anchor,
+        )
+
+        client.history_deals_get_as_df.assert_called_once_with(
+            date_from=anchor - timedelta(hours=6.0),
+            date_to=anchor,
+            group="FX*",
+            symbol="JP225",
+        )
+
+    def test_raises_for_zero_hours(self) -> None:
+        """hours=0 raises ValueError."""
+        client = self._fake_client(pd.DataFrame())
+        with pytest.raises(ValueError, match="hours must be finite and positive"):
+            fetch_recent_history_deals_for_trading_client(client, hours=0)
+
+    def test_raises_for_negative_hours(self) -> None:
+        """Negative hours raises ValueError."""
+        client = self._fake_client(pd.DataFrame())
+        with pytest.raises(ValueError, match="hours must be finite and positive"):
+            fetch_recent_history_deals_for_trading_client(client, hours=-1.0)
+
+    @pytest.mark.parametrize("bad_hours", [float("nan"), float("inf"), float("-inf")])
+    def test_raises_for_non_finite_hours(self, bad_hours: float) -> None:
+        """nan, inf, and -inf raise ValueError before reaching timedelta."""
+        client = self._fake_client(pd.DataFrame())
+        with pytest.raises(ValueError, match="hours must be finite and positive"):
+            fetch_recent_history_deals_for_trading_client(client, hours=bad_hours)
+
+    def test_none_result_returns_empty_dataframe(self) -> None:
+        """None from underlying client becomes an empty DataFrame."""
+        client = self._fake_client(None)
+        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
+        assert isinstance(result, pd.DataFrame)
+        assert result.empty
+
+    def test_empty_dataframe_result_preserves_schema(self) -> None:
+        """Empty DataFrame from client is returned with its columns intact."""
+        schema_df = pd.DataFrame(columns=["time", "symbol", "profit", "volume"])
+        client = self._fake_client(schema_df)
+        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
+        assert result.empty
+        assert list(result.columns) == ["time", "symbol", "profit", "volume"]
+
+    def test_none_result_returns_bare_empty_dataframe(self) -> None:
+        """None from client becomes a bare empty DataFrame (no columns)."""
+        client = self._fake_client(None)
+        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
+        assert result.empty
+        assert list(result.columns) == []
+
+    def test_sorts_by_time_and_resets_index(self) -> None:
+        """Unsorted time rows are sorted chronologically and index is reset."""
+        t1 = datetime(2024, 6, 1, 9, 0, tzinfo=UTC)
+        t2 = datetime(2024, 6, 1, 10, 0, tzinfo=UTC)
+        t3 = datetime(2024, 6, 1, 11, 0, tzinfo=UTC)
+        df = pd.DataFrame({"time": [t3, t1, t2], "profit": [3.0, 1.0, 2.0]})
+        client = self._fake_client(df)
+
+        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
+
+        assert list(result["time"]) == [t1, t2, t3]
+        assert list(result.index) == [0, 1, 2]
+
+    def test_preserves_all_columns(self) -> None:
+        """No columns are dropped from the underlying client result."""
+        anchor = datetime(2024, 6, 1, 12, 0, tzinfo=UTC)
+        df = pd.DataFrame({
+            "time": [anchor],
+            "symbol": ["JP225"],
+            "type": [0],
+            "entry": [1],
+            "volume": [0.1],
+            "profit": [50.0],
+            "position_id": [123456],
+            "commission": [-0.5],
+        })
+        client = self._fake_client(df)
+
+        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
+
+        assert set(result.columns) == {
+            "time",
+            "symbol",
+            "type",
+            "entry",
+            "volume",
+            "profit",
+            "position_id",
+            "commission",
+        }
+
+    def test_no_time_column_still_returns_data(self) -> None:
+        """DataFrames without a time column are returned with RangeIndex."""
+        df = pd.DataFrame({"profit": [1.0, 2.0], "ticket": [10, 11]})
+        client = self._fake_client(df)
+
+        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
+
+        assert list(result["profit"]) == [1.0, 2.0]
+        assert list(result.index) == [0, 1]
+
+    def test_defaults_date_to_to_utc_now(self, mocker: MockerFixture) -> None:
+        """When date_to is omitted, the window end is datetime.now(UTC)."""
+        frozen = datetime(2024, 6, 1, 0, 0, 0, tzinfo=UTC)
+        mock_dt = mocker.patch("mt5cli.trading.datetime")
+        mock_dt.now.return_value = frozen
+        client = self._fake_client(pd.DataFrame())
+
+        fetch_recent_history_deals_for_trading_client(client, hours=1.0)
+
+        mock_dt.now.assert_called_once_with(UTC)
+        client.history_deals_get_as_df.assert_called_once_with(
+            date_from=frozen - timedelta(hours=1.0),
+            date_to=frozen,
+            group=None,
+            symbol=None,
+        )
+
+
+class TestCreateTradingClientHistoryDealsIntegration:
+    """Verify create_trading_client() result satisfies fetch_recent_history_deals."""
+
+    def test_create_trading_client_result_usable_with_history_deals_helper(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """create_trading_client() result passes directly to fetch_recent_history_deals.
+
+        This exercises the intended SDK call path without a live MT5 terminal.
+        The mock satisfies both _Mt5ClientProtocol and _HistoryDealsClientProtocol.
+        """
+        mock_raw_client = MagicMock()
+        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_raw_client)
+
+        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        expected_df = pd.DataFrame({"time": [anchor], "profit": [10.0]})
+        mock_raw_client.history_deals_get_as_df.return_value = expected_df
+
+        client = create_trading_client(login=12345, server="Demo")
+        result = fetch_recent_history_deals_for_trading_client(
+            client,
+            symbol="EURUSD",
+            hours=6.0,
+            date_to=anchor,
+        )
+
+        mock_raw_client.history_deals_get_as_df.assert_called_once_with(
+            date_from=anchor - timedelta(hours=6.0),
+            date_to=anchor,
+            group=None,
+            symbol="EURUSD",
+        )
+        assert list(result["profit"]) == [10.0]

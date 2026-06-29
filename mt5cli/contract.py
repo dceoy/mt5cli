@@ -48,6 +48,7 @@ STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "fetch_latest_closed_rates",
     "fetch_latest_closed_rates_for_trading_client",
     "fetch_latest_closed_rates_indexed",
+    "fetch_recent_history_deals_for_trading_client",
     "get_account_snapshot",
     "get_positions_frame",
     "get_symbol_snapshot",

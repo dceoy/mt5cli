@@ -72,34 +72,29 @@ class TestExecuteExport:
 class TestCommands:
     """Tests for all CLI subcommands via CliRunner."""
 
-    def test_account_info(
+    @pytest.mark.parametrize(
+        ("command", "method"),
+        [
+            ("account-info", "account_info_as_df"),
+            ("terminal-info", "terminal_info_as_df"),
+            ("positions", "positions_get_as_df"),
+            ("version", "version_as_df"),
+            ("last-error", "last_error_as_df"),
+        ],
+    )
+    def test_simple_command(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
+        command: str,
+        method: str,
     ) -> None:
-        """Test account-info command."""
+        """Simple no-arg commands invoke the expected client method."""
         output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "account-info"],
-        )
+        result = runner.invoke(app, ["-o", str(output), command])
         assert result.exit_code == 0, result.output
-        mock_client.account_info_as_df.assert_called_once()
+        getattr(mock_client, method).assert_called_once()
         assert output.exists()
-
-    def test_terminal_info(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test terminal-info command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "terminal-info"],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.terminal_info_as_df.assert_called_once()
 
     def test_symbols(
         self,
@@ -398,20 +393,6 @@ class TestCommands:
         assert result.exit_code == 0, result.output
         mock_client.orders_get_as_df.assert_called_once()
 
-    def test_positions(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test positions command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "positions"],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.positions_get_as_df.assert_called_once()
-
     def test_history_orders(
         self,
         tmp_path: Path,
@@ -531,28 +512,6 @@ class TestCommands:
             "account_info": '{"limits":{"modes":["demo"]},"login":123}',
             "symbols_total": 42,
         }
-
-    def test_version(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test version command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(app, ["-o", str(output), "version"])
-        assert result.exit_code == 0, result.output
-        mock_client.version_as_df.assert_called_once()
-
-    def test_last_error(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test last-error command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(app, ["-o", str(output), "last-error"])
-        assert result.exit_code == 0, result.output
-        mock_client.last_error_as_df.assert_called_once()
 
     def test_symbol_info_tick(
         self,
@@ -755,38 +714,19 @@ class TestHelpText:
         output = normalize_cli_output(result.output)
         assert "execution" in output.lower()
 
-    def test_top_level_help_has_execution_panel(self) -> None:
-        """Top-level help must show an Execution command group."""
+    @pytest.mark.parametrize("panel", ["Execution", "Data / Export"])
+    def test_top_level_help_has_panel(self, panel: str) -> None:
+        """Top-level help must show all command group panels."""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "Execution" in result.output
+        assert panel in result.output
 
-    def test_top_level_help_has_data_export_panel(self) -> None:
-        """Top-level help must show a Data / Export command group."""
-        result = runner.invoke(app, ["--help"])
+    @pytest.mark.parametrize("keyword", ["raw", "expert", "live"])
+    def test_order_send_help_keywords(self, keyword: str) -> None:
+        """order-send help must mention raw, expert, and live."""
+        result = runner.invoke(app, ["-o", "out.csv", "order-send", "--help"])
         assert result.exit_code == 0
-        assert "Data / Export" in result.output
-
-    def test_order_send_help_mentions_expert_and_raw(self) -> None:
-        """order-send help must communicate it is the expert raw-request path."""
-        result2 = runner.invoke(
-            app,
-            ["-o", "out.csv", "order-send", "--help"],
-        )
-        assert result2.exit_code == 0
-        output = normalize_cli_output(result2.output)
-        assert "raw" in output.lower()
-        assert "expert" in output.lower()
-
-    def test_order_send_help_mentions_live_execution(self) -> None:
-        """order-send help must warn about live execution."""
-        result = runner.invoke(
-            app,
-            ["-o", "out.csv", "order-send", "--help"],
-        )
-        assert result.exit_code == 0
-        output = normalize_cli_output(result.output)
-        assert "live" in output.lower()
+        assert keyword in normalize_cli_output(result.output).lower()
 
     def test_close_positions_help_mentions_dry_run_and_yes(self) -> None:
         """close-positions help must document both safety gates."""
@@ -1952,75 +1892,31 @@ class TestSnapshotCommand:
         kwargs = updater.call_args.kwargs
         assert kwargs["symbols"] == ["EURUSD", "GBPUSD"]
 
-    def test_snapshot_with_no_account_flag(
+    @pytest.mark.parametrize(
+        ("flag", "kwarg"),
+        [
+            ("--no-account", "include_account"),
+            ("--no-positions", "include_positions"),
+            ("--no-orders", "include_orders"),
+            ("--no-terminal", "include_terminal"),
+            ("--no-grafana-schema", "with_grafana_schema"),
+        ],
+    )
+    def test_snapshot_with_no_flag(
         self,
         tmp_path: Path,
         mocker: MockerFixture,
+        flag: str,
+        kwarg: str,
     ) -> None:
-        """--no-account disables account snapshotting."""
+        """Snapshot --no-X flags disable the corresponding snapshot component."""
         updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
         result = runner.invoke(
             app,
-            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-account"],
+            ["-o", str(tmp_path / "out.db"), "snapshot", flag],
         )
         assert result.exit_code == 0, result.output
-        assert updater.call_args.kwargs["include_account"] is False
-
-    def test_snapshot_with_no_positions_flag(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """--no-positions disables position snapshotting."""
-        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
-        result = runner.invoke(
-            app,
-            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-positions"],
-        )
-        assert result.exit_code == 0, result.output
-        assert updater.call_args.kwargs["include_positions"] is False
-
-    def test_snapshot_with_no_orders_flag(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """--no-orders disables order snapshotting."""
-        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
-        result = runner.invoke(
-            app,
-            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-orders"],
-        )
-        assert result.exit_code == 0, result.output
-        assert updater.call_args.kwargs["include_orders"] is False
-
-    def test_snapshot_with_no_terminal_flag(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """--no-terminal disables terminal snapshotting."""
-        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
-        result = runner.invoke(
-            app,
-            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-terminal"],
-        )
-        assert result.exit_code == 0, result.output
-        assert updater.call_args.kwargs["include_terminal"] is False
-
-    def test_snapshot_with_no_grafana_schema_flag(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """--no-grafana-schema disables Grafana schema creation."""
-        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
-        result = runner.invoke(
-            app,
-            ["-o", str(tmp_path / "out.db"), "snapshot", "--no-grafana-schema"],
-        )
-        assert result.exit_code == 0, result.output
-        assert updater.call_args.kwargs["with_grafana_schema"] is False
+        assert updater.call_args.kwargs[kwarg] is False
 
     def test_snapshot_with_publish_copy(
         self,
