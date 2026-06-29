@@ -1857,8 +1857,8 @@ def fetch_recent_history_deals_for_trading_client(
         finally:
             client.shutdown()
     """
-    if hours <= 0:
-        msg = "hours must be positive."
+    if not isfinite(hours) or hours <= 0:
+        msg = "hours must be finite and positive."
         raise ValueError(msg)
     end = date_to if date_to is not None else datetime.now(UTC)
     start = end - timedelta(hours=hours)

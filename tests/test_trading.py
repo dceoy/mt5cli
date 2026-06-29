@@ -3852,14 +3852,21 @@ class TestFetchRecentHistoryDealsForTradingClient:
     def test_raises_for_zero_hours(self) -> None:
         """hours=0 raises ValueError."""
         client = self._fake_client(pd.DataFrame())
-        with pytest.raises(ValueError, match="hours must be positive"):
+        with pytest.raises(ValueError, match="hours must be finite and positive"):
             fetch_recent_history_deals_for_trading_client(client, hours=0)
 
     def test_raises_for_negative_hours(self) -> None:
         """Negative hours raises ValueError."""
         client = self._fake_client(pd.DataFrame())
-        with pytest.raises(ValueError, match="hours must be positive"):
+        with pytest.raises(ValueError, match="hours must be finite and positive"):
             fetch_recent_history_deals_for_trading_client(client, hours=-1.0)
+
+    @pytest.mark.parametrize("bad_hours", [float("nan"), float("inf"), float("-inf")])
+    def test_raises_for_non_finite_hours(self, bad_hours: float) -> None:
+        """nan, inf, and -inf raise ValueError before reaching timedelta."""
+        client = self._fake_client(pd.DataFrame())
+        with pytest.raises(ValueError, match="hours must be finite and positive"):
+            fetch_recent_history_deals_for_trading_client(client, hours=bad_hours)
 
     def test_none_result_returns_empty_dataframe(self) -> None:
         """None from underlying client becomes an empty DataFrame."""
