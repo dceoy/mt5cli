@@ -2861,57 +2861,29 @@ class TestUpdateObservability:
         )
         spy.assert_called_once()
 
-    def test_update_observability_skips_account_when_disabled(
+    @pytest.mark.parametrize(
+        ("kwarg", "method"),
+        [
+            ("include_account", "account_info_as_df"),
+            ("include_positions", "positions_get_as_df"),
+            ("include_orders", "orders_get_as_df"),
+            ("include_terminal", "terminal_info_as_df"),
+        ],
+    )
+    def test_update_observability_skips_when_disabled(
         self,
         mock_client: MagicMock,
         tmp_path: Path,
+        kwarg: str,
+        method: str,
     ) -> None:
-        """include_account=False does not call account_info_as_df."""
+        """include_X=False does not call the corresponding client method."""
         update_observability(
             client=mock_client,
             output=tmp_path / "obs.db",
-            include_account=False,
+            **{kwarg: False},  # type: ignore[arg-type]
         )
-        mock_client.account_info_as_df.assert_not_called()
-
-    def test_update_observability_skips_positions_when_disabled(
-        self,
-        mock_client: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """include_positions=False does not call positions_get_as_df."""
-        update_observability(
-            client=mock_client,
-            output=tmp_path / "obs.db",
-            include_positions=False,
-        )
-        mock_client.positions_get_as_df.assert_not_called()
-
-    def test_update_observability_skips_orders_when_disabled(
-        self,
-        mock_client: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """include_orders=False does not call orders_get_as_df."""
-        update_observability(
-            client=mock_client,
-            output=tmp_path / "obs.db",
-            include_orders=False,
-        )
-        mock_client.orders_get_as_df.assert_not_called()
-
-    def test_update_observability_skips_terminal_when_disabled(
-        self,
-        mock_client: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """include_terminal=False does not call terminal_info_as_df."""
-        update_observability(
-            client=mock_client,
-            output=tmp_path / "obs.db",
-            include_terminal=False,
-        )
-        mock_client.terminal_info_as_df.assert_not_called()
+        getattr(mock_client, method).assert_not_called()
 
     def test_update_observability_with_positions_rows(
         self,
