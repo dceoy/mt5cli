@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from math import floor, isfinite
 from numbers import Integral, Real
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
@@ -77,6 +78,28 @@ class _Mt5ClientProtocol(Protocol):
 
     def initialize_and_login_mt5(self) -> None:
         """Initialize and login to MT5."""
+        ...
+
+
+class _HistoryDealsClientProtocol(Protocol):
+    """Minimal protocol for MT5 clients capable of retrieving history deals.
+
+    Describes the single method required by
+    :func:`fetch_recent_history_deals_for_trading_client`. Both
+    ``pdmt5.Mt5DataClient`` (returned by :func:`create_trading_client`) and
+    ``mt5cli.sdk.Mt5CliClient`` satisfy this protocol structurally.
+    """
+
+    def history_deals_get_as_df(
+        self,
+        date_from: datetime,
+        date_to: datetime,
+        group: str | None = None,
+        symbol: str | None = None,
+        ticket: int | None = None,
+        position: int | None = None,
+    ) -> pd.DataFrame | None:
+        """Return historical deals as a DataFrame, or None when none exist."""
         ...
 
 
@@ -209,6 +232,7 @@ __all__ = [
     "extract_tick_price",
     "fetch_latest_closed_rates_for_trading_client",
     "fetch_latest_closed_rates_indexed",
+    "fetch_recent_history_deals_for_trading_client",
     "get_account_snapshot",
     "get_positions_frame",
     "get_symbol_snapshot",
@@ -582,8 +606,22 @@ def create_trading_client(
 ) -> _Mt5ClientProtocol:
     """Return an initialized and logged-in trading client.
 
+    The returned object is a raw ``pdmt5.Mt5DataClient`` instance, not the
+    higher-level ``mt5cli.MT5Client`` wrapper. Use ``mt5_session()`` /
+    ``MT5Client`` for read-only data collection. For live trading helpers
+    (margin, volume, order execution, position management) pass the returned
+    client to the strategy-agnostic helpers in this module.
+
+    For history deal retrieval use
+    :func:`fetch_recent_history_deals_for_trading_client`; the returned client
+    satisfies :class:`_HistoryDealsClientProtocol` so no additional wrapping is
+    required.
+
     Returns:
-        A client instance supporting the required MT5 trading methods.
+        A ``pdmt5.Mt5DataClient`` instance satisfying ``_Mt5ClientProtocol``
+        and ``_HistoryDealsClientProtocol``. Caller is responsible for calling
+        ``client.shutdown()`` when done; prefer ``mt5_trading_session()`` to
+        manage lifetime automatically.
     """
     mt5_config = _resolve_config(
         config=config,
@@ -1742,6 +1780,79 @@ def fetch_latest_closed_rates_indexed(
     result = frame.drop(columns=["time"])
     result.index = idx
     return result
+
+
+def fetch_recent_history_deals_for_trading_client(
+    client: _HistoryDealsClientProtocol,
+    *,
+    symbol: str | None = None,
+    group: str | None = None,
+    hours: float = 24.0,
+    date_to: datetime | None = None,
+) -> pd.DataFrame:
+    """Fetch recent history deals from an already-connected trading client.
+
+    Computes a trailing window ending at ``date_to`` (or ``datetime.now(UTC)``
+    when omitted) and delegates to the client's ``history_deals_get_as_df``
+    method. Both ``pdmt5.Mt5DataClient`` (returned by
+    :func:`create_trading_client`) and ``mt5cli.sdk.Mt5CliClient`` satisfy the
+    required protocol.
+
+    The returned DataFrame preserves every column from the underlying client
+    (``time``, ``symbol``, ``type``, ``entry``, ``volume``, ``profit``,
+    ``position_id``, etc.). No strategy-specific transformations are applied;
+    downstream packages own entry/exit classification, Kelly fractions, and
+    any other betting or signal semantics.
+
+    Args:
+        client: Connected MT5 client with ``history_deals_get_as_df``
+            capability.
+        symbol: Optional symbol filter passed to the underlying client.
+        group: Optional symbol group filter passed to the underlying client.
+        hours: Trailing window length in hours. Must be positive.
+        date_to: Window end timestamp. Defaults to ``datetime.now(UTC)``.
+
+    Returns:
+        DataFrame ordered chronologically by ``time`` (when the column
+        exists) with a ``RangeIndex``. Returns an empty DataFrame when no
+        deals exist in the window or the underlying client returns ``None``.
+
+    Raises:
+        ValueError: If ``hours`` is not positive.
+
+    Example::
+
+        from mt5cli import (
+            create_trading_client,
+            fetch_recent_history_deals_for_trading_client,
+        )
+
+        client = create_trading_client(login=12345, server="Broker-Demo")
+        try:
+            deals_df = fetch_recent_history_deals_for_trading_client(
+                client,
+                symbol="JP225",
+                hours=24,
+            )
+        finally:
+            client.shutdown()
+    """
+    if hours <= 0:
+        msg = "hours must be positive."
+        raise ValueError(msg)
+    end = date_to if date_to is not None else datetime.now(UTC)
+    start = end - timedelta(hours=hours)
+    raw = client.history_deals_get_as_df(
+        date_from=start,
+        date_to=end,
+        group=group,
+        symbol=symbol,
+    )
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+    if "time" in raw.columns:
+        raw = raw.sort_values("time")
+    return raw.reset_index(drop=True)
 
 
 @contextmanager

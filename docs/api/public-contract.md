@@ -45,7 +45,7 @@ These names are exported from `mt5cli` and enumerated in
 | `MT5Client`                                     | Read-only data client with optional `order_check` / `order_send`                                                                                                                                                                                                                  |
 | `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True` |
 | `mt5_session`                                   | Context manager: initialize, login, yield client, shutdown                                                                                                                                                                                                                        |
-| `create_trading_client`, `mt5_trading_session`  | Trading-capable MT5 client lifecycle; returns a client supporting order execution and account management                                                                                                                                                                          |
+| `create_trading_client`, `mt5_trading_session`  | Trading-capable MT5 client lifecycle; returns a raw `pdmt5.Mt5DataClient` (not `MT5Client`) supporting order execution, account management, and history deal retrieval                                                                                                            |
 | `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                          |
 | `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                            |
 
@@ -99,6 +99,7 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `determine_order_limits`                                                                                                       | SL/TP price levels from ratios                                    |
 | `calculate_trailing_stop_updates`                                                                                              | Per-ticket generic trailing stop-loss update plan                 |
 | `ensure_symbol_selected`                                                                                                       | Select/verify Market Watch visibility                             |
+| `fetch_recent_history_deals_for_trading_client`                                                                                | Recent deal history from a connected trading client               |
 | `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`, `update_trailing_stop_loss_for_open_positions` | Order execution helpers (`dry_run` supported)                     |
 | `MarginVolume`, `OrderLimits`, `OrderExecutionResult`                                                                          | Typed return contracts for order helpers                          |
 | `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`, `ExecutionStatus`                                            | Typed enums for order helpers                                     |
@@ -254,6 +255,9 @@ The following belong in consuming applications, not in mt5cli:
 - Backtesting, walk-forward analysis, or parameter optimization
 - Strategy-specific risk policy, position sizing systems, or Kelly fractions
 - Entry/exit decision logic or YAML strategy semantics
+- Entry-deal classification, Kelly fractions, or betting-specific deal transformations
+  (use `fetch_recent_history_deals_for_trading_client` to retrieve raw deal data, then
+  apply downstream transformations in your own adapter layer)
 - Application-specific credential schema keys wired into mt5cli internals
 
 mt5cli provides connection lifecycle, normalized data access, SQLite history
