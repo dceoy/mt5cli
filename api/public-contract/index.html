@@ -233,7 +233,7 @@ their owning modules (<code>mt5cli.schemas</code>, <code>mt5cli.utils</code>, <c
 </tr>
 <tr>
 <td><code>create_trading_client</code>, <code>mt5_trading_session</code></td>
-<td>Trading-capable MT5 client lifecycle; returns a client supporting order execution and account management</td>
+<td>Trading-capable MT5 client lifecycle; returns a raw <code>pdmt5.Mt5DataClient</code> (not <code>MT5Client</code>) supporting order execution, account management, and history deal retrieval</td>
 </tr>
 <tr>
 <td><code>AccountSpec</code></td>
@@ -386,6 +386,10 @@ strategy entries, exits, Kelly sizing, or signal logic.</p>
 <tr>
 <td><code>ensure_symbol_selected</code></td>
 <td>Select/verify Market Watch visibility</td>
+</tr>
+<tr>
+<td><code>fetch_recent_history_deals_for_trading_client</code></td>
+<td>Recent deal history from a connected trading client</td>
 </tr>
 <tr>
 <td><code>place_market_order</code>, <code>close_open_positions</code>, <code>update_sltp_for_open_positions</code>, <code>update_trailing_stop_loss_for_open_positions</code></td>
@@ -682,6 +686,9 @@ The following belong in consuming applications, not in mt5cli:</p>
 <li>Backtesting, walk-forward analysis, or parameter optimization</li>
 <li>Strategy-specific risk policy, position sizing systems, or Kelly fractions</li>
 <li>Entry/exit decision logic or YAML strategy semantics</li>
+<li>Entry-deal classification, Kelly fractions, or betting-specific deal transformations
+  (use <code>fetch_recent_history_deals_for_trading_client</code> to retrieve raw deal data, then
+  apply downstream transformations in your own adapter layer)</li>
 <li>Application-specific credential schema keys wired into mt5cli internals</li>
 </ul>
 <p>mt5cli provides connection lifecycle, normalized data access, SQLite history
