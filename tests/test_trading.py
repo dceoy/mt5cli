@@ -3950,3 +3950,39 @@ class TestFetchRecentHistoryDealsForTradingClient:
             group=None,
             symbol=None,
         )
+
+
+class TestCreateTradingClientHistoryDealsIntegration:
+    """Verify create_trading_client() result satisfies fetch_recent_history_deals."""
+
+    def test_create_trading_client_result_usable_with_history_deals_helper(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """create_trading_client() result passes directly to fetch_recent_history_deals.
+
+        This exercises the intended SDK call path without a live MT5 terminal.
+        The mock satisfies both _Mt5ClientProtocol and _HistoryDealsClientProtocol.
+        """
+        mock_raw_client = MagicMock()
+        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_raw_client)
+
+        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        expected_df = pd.DataFrame({"time": [anchor], "profit": [10.0]})
+        mock_raw_client.history_deals_get_as_df.return_value = expected_df
+
+        client = create_trading_client(login=12345, server="Demo")
+        result = fetch_recent_history_deals_for_trading_client(
+            client,
+            symbol="EURUSD",
+            hours=6.0,
+            date_to=anchor,
+        )
+
+        mock_raw_client.history_deals_get_as_df.assert_called_once_with(
+            date_from=anchor - timedelta(hours=6.0),
+            date_to=anchor,
+            group=None,
+            symbol="EURUSD",
+        )
+        assert list(result["profit"]) == [10.0]

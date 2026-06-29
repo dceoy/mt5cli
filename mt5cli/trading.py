@@ -105,6 +105,19 @@ class _HistoryDealsClientProtocol(Protocol):
         ...
 
 
+class _TradingHistoryDealsClientProtocol(
+    _Mt5ClientProtocol,
+    _HistoryDealsClientProtocol,
+    Protocol,
+):
+    """Combined protocol for trading clients that also support history deal retrieval.
+
+    The raw ``pdmt5.Mt5DataClient`` returned by :func:`create_trading_client`
+    satisfies both :class:`_Mt5ClientProtocol` and
+    :class:`_HistoryDealsClientProtocol`, so it satisfies this combined protocol.
+    """
+
+
 PositionSide = Literal["long", "short"]
 OrderSide = Literal["BUY", "SELL"]
 OrderFillingMode = Literal["IOC", "FOK", "RETURN"]
@@ -605,7 +618,7 @@ def create_trading_client(
     path: str | None = None,
     timeout: int | None = None,
     retry_count: int = 0,
-) -> _Mt5ClientProtocol:
+) -> _TradingHistoryDealsClientProtocol:
     """Return an initialized and logged-in trading client.
 
     The returned object is a raw ``pdmt5.Mt5DataClient`` instance, not the
@@ -1874,7 +1887,7 @@ def mt5_trading_session(
     path: str | None = None,
     timeout: int | None = None,
     retry_count: int = 0,
-) -> Iterator[_Mt5ClientProtocol]:
+) -> Iterator[_TradingHistoryDealsClientProtocol]:
     """Open a trading-capable MT5 session and always shut down safely.
 
     Launches the MetaTrader 5 terminal using ``Mt5Config.path`` when set,
