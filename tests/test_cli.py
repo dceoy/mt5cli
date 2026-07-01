@@ -112,21 +112,29 @@ class TestCommands:
             group="*USD*",
         )
 
-    def test_symbol_info(
+    @pytest.mark.parametrize(
+        ("command", "method"),
+        [
+            ("symbol-info", "symbol_info_as_df"),
+            ("symbol-info-tick", "symbol_info_tick_as_df"),
+            ("market-book", "market_book_get_as_df"),
+        ],
+    )
+    def test_symbol_command(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
+        command: str,
+        method: str,
     ) -> None:
-        """Test symbol-info command."""
+        """Test --symbol commands invoke the expected client method with symbol."""
         output = tmp_path / "out.csv"
         result = runner.invoke(
             app,
-            ["-o", str(output), "symbol-info", "--symbol", "EURUSD"],
+            ["-o", str(output), command, "--symbol", "EURUSD"],
         )
         assert result.exit_code == 0, result.output
-        mock_client.symbol_info_as_df.assert_called_once_with(
-            symbol="EURUSD",
-        )
+        getattr(mock_client, method).assert_called_once_with(symbol="EURUSD")
 
     def test_rates_from(
         self,
@@ -513,89 +521,79 @@ class TestCommands:
             "symbols_total": 42,
         }
 
-    def test_symbol_info_tick(
+    @pytest.mark.parametrize(
+        ("command", "method", "payload", "use_file"),
+        [
+            (
+                "order-check",
+                "order_check_as_df",
+                {"action": 1, "symbol": "EURUSD", "volume": 0.1},
+                False,
+            ),
+            (
+                "order-send",
+                "order_send_as_df",
+                {"action": 1, "symbol": "EURUSD", "volume": 0.1},
+                False,
+            ),
+            (
+                "order-check",
+                "order_check_as_df",
+                {"action": 2, "symbol": "EURUSD"},
+                True,
+            ),
+            ("order-send", "order_send_as_df", {"action": 2, "symbol": "EURUSD"}, True),
+        ],
+        ids=["check-inline", "send-inline", "check-file", "send-file"],
+    )
+    def test_order_request(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
+        command: str,
+        method: str,
+        payload: dict[str, object],
+        use_file: bool,
     ) -> None:
-        """Test symbol-info-tick command."""
+        """Test order-check/order-send accept inline and file-based JSON requests."""
         output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "symbol-info-tick", "--symbol", "EURUSD"],
-        )
+        args = ["-o", str(output), command]
+        if use_file:
+            req_path = tmp_path / "req.json"
+            req_path.write_text(json.dumps(payload), encoding="utf-8")
+            args += ["--request", f"@{req_path}"]
+        else:
+            args += ["--request", json.dumps(payload)]
+        if command == "order-send":
+            args.append("--yes")
+        result = runner.invoke(app, args)
         assert result.exit_code == 0, result.output
-        mock_client.symbol_info_tick_as_df.assert_called_once_with(
-            symbol="EURUSD",
-        )
+        getattr(mock_client, method).assert_called_once_with(request=payload)
 
-    def test_market_book(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test market-book command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "market-book", "--symbol", "EURUSD"],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.market_book_get_as_df.assert_called_once_with(
-            symbol="EURUSD",
-        )
-
-    def test_order_check(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test order-check command with inline JSON."""
-        output = tmp_path / "out.csv"
-        request = json.dumps({"action": 1, "symbol": "EURUSD", "volume": 0.1})
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "order-check", "--request", request],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.order_check_as_df.assert_called_once_with(
-            request={"action": 1, "symbol": "EURUSD", "volume": 0.1},
-        )
-
-    def test_order_check_file_reference(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test order-check command with file-based JSON."""
-        output = tmp_path / "out.csv"
-        req_path = tmp_path / "req.json"
-        req_path.write_text(
-            json.dumps({"action": 2, "symbol": "EURUSD"}),
-            encoding="utf-8",
-        )
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "order-check", "--request", f"@{req_path}"],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.order_check_as_df.assert_called_once_with(
-            request={"action": 2, "symbol": "EURUSD"},
-        )
-
-    def test_order_check_invalid_request(
+    @pytest.mark.parametrize(
+        ("command", "raw_request", "match"),
+        [
+            ("order-check", "not-json", "Invalid JSON request"),
+            ("order-send", "[1,2]", "must be a JSON object"),
+        ],
+        ids=["check-invalid-json", "send-non-object"],
+    )
+    def test_order_invalid_request(
         self,
         tmp_path: Path,
         mock_client: MagicMock,  # noqa: ARG002
+        command: str,
+        raw_request: str,
+        match: str,
     ) -> None:
-        """Test order-check rejects invalid JSON."""
+        """Test order-check/order-send reject malformed JSON requests."""
         output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "order-check", "--request", "not-json"],
-        )
+        args = ["-o", str(output), command, "--request", raw_request]
+        if command == "order-send":
+            args.append("--yes")
+        result = runner.invoke(app, args)
         assert result.exit_code != 0
-        assert "Invalid JSON request" in normalize_cli_output(result.output)
+        assert match in normalize_cli_output(result.output)
 
     def test_order_check_missing_request_file(
         self,
@@ -612,58 +610,6 @@ class TestCommands:
         assert result.exit_code != 0
         assert "Failed to read JSON request file" in normalize_cli_output(
             result.output,
-        )
-
-    def test_order_send(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test order-send command with file-based JSON."""
-        output = tmp_path / "out.csv"
-        req_path = tmp_path / "req.json"
-        req_path.write_text(
-            json.dumps({"action": 2, "symbol": "EURUSD"}),
-            encoding="utf-8",
-        )
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "order-send",
-                "--request",
-                f"@{req_path}",
-                "--yes",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.order_send_as_df.assert_called_once_with(
-            request={"action": 2, "symbol": "EURUSD"},
-        )
-
-    def test_order_send_inline_json(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test order-send command with inline JSON."""
-        output = tmp_path / "out.csv"
-        request = json.dumps({"action": 1, "symbol": "EURUSD", "volume": 0.1})
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "order-send",
-                "--request",
-                request,
-                "--yes",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.order_send_as_df.assert_called_once_with(
-            request={"action": 1, "symbol": "EURUSD", "volume": 0.1},
         )
 
     def test_order_send_requires_yes(
@@ -683,20 +629,6 @@ class TestCommands:
             result.output,
         )
         mock_client.order_send_as_df.assert_not_called()
-
-    def test_order_send_invalid_request(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,  # noqa: ARG002
-    ) -> None:
-        """Test order-send rejects invalid JSON."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "order-send", "--request", "[1,2]", "--yes"],
-        )
-        assert result.exit_code != 0
-        assert "must be a JSON object" in normalize_cli_output(result.output)
 
 
 # ---------------------------------------------------------------------------

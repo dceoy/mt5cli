@@ -20,23 +20,13 @@ from mt5cli.telemetry import (
 class TestNoOp:
     """Tests for _NoOp no-op instrument."""
 
-    def test_add_is_noop(self) -> None:
-        """_NoOp.add accepts amount and optional attributes without error."""
+    @pytest.mark.parametrize("method", ["add", "set", "record"])
+    def test_method_is_noop(self, method: str) -> None:
+        """_NoOp methods accept amount and optional attributes without error."""
         noop = _NoOp()
-        noop.add(1.0)
-        noop.add(1.0, {"key": "val"})
-
-    def test_set_is_noop(self) -> None:
-        """_NoOp.set accepts amount and optional attributes without error."""
-        noop = _NoOp()
-        noop.set(2.0)
-        noop.set(2.0, {"key": "val"})
-
-    def test_record_is_noop(self) -> None:
-        """_NoOp.record accepts amount and optional attributes without error."""
-        noop = _NoOp()
-        noop.record(3.0)
-        noop.record(3.0, {"key": "val"})
+        bound = getattr(noop, method)
+        bound(1.0)
+        bound(1.0, {"key": "val"})
 
 
 class TestMt5Metrics:
@@ -167,16 +157,21 @@ class TestMt5Metrics:
         # All five account gauges share the same gauge mock; set is called 5 times.
         assert m._account_balance.set.call_count == 5  # type: ignore[reportPrivateUsage]
 
-    def test_record_history_update_noop_before_configure(self) -> None:
-        """record_history_update works without configure (no-op instruments)."""
+    @pytest.mark.parametrize(
+        ("method", "kwargs"),
+        [
+            ("record_history_update", {"dataset": "ticks"}),
+            ("record_snapshot_update", {}),
+        ],
+    )
+    def test_record_update_noop_before_configure(
+        self,
+        method: str,
+        kwargs: dict[str, str],
+    ) -> None:
+        """record_*_update works without configure (no-op instruments)."""
         m = _Mt5Metrics()
-        with m.record_history_update(dataset="ticks"):
-            pass
-
-    def test_record_snapshot_update_noop_before_configure(self) -> None:
-        """record_snapshot_update works without configure (no-op instruments)."""
-        m = _Mt5Metrics()
-        with m.record_snapshot_update():
+        with getattr(m, method)(**kwargs):
             pass
 
 

@@ -204,111 +204,58 @@ class TestGrafanaViews:
             create_grafana_views(conn)
         assert "grafana_rates" not in _get_names(conn, "view")
 
-    def test_grafana_rates_skipped_when_required_cols_missing(
+    @pytest.mark.parametrize(
+        ("ddl", "view_name"),
+        [
+            ("CREATE TABLE rates (open REAL)", "grafana_rates"),
+            ("CREATE TABLE ticks (bid REAL)", "grafana_ticks"),
+            ("CREATE TABLE history_deals (symbol TEXT)", "grafana_history_deals"),
+            ("CREATE TABLE history_orders (symbol TEXT)", "grafana_history_orders"),
+            ("CREATE TABLE history_deals (symbol TEXT)", "grafana_trade_deals"),
+            ("CREATE TABLE history_deals (symbol TEXT)", "grafana_cash_events"),
+            (
+                "CREATE TABLE history_deals (time TEXT, type INTEGER)",
+                "grafana_realized_pnl",
+            ),
+            (
+                (
+                    "CREATE TABLE history_deals"
+                    " (time TEXT, symbol TEXT, profit REAL, type INTEGER)"
+                ),
+                "grafana_realized_pnl",
+            ),
+            (
+                "CREATE TABLE history_deals (time TEXT, type INTEGER)",
+                "grafana_symbol_pnl",
+            ),
+            ("CREATE TABLE history_deals (time TEXT)", "grafana_trade_stats"),
+        ],
+        ids=[
+            "rates-cols",
+            "ticks-cols",
+            "history_deals-time",
+            "history_orders-time_setup",
+            "trade_deals-cols",
+            "cash_events-cols",
+            "realized_pnl-cols",
+            "realized_pnl-entry",
+            "symbol_pnl-cols",
+            "trade_stats-cols",
+        ],
+    )
+    def test_grafana_view_skipped_when_required_cols_missing(
         self,
         conn: sqlite3.Connection,
         caplog: pytest.LogCaptureFixture,
+        ddl: str,
+        view_name: str,
     ) -> None:
-        """grafana_rates is skipped when rates table lacks required columns."""
-        conn.execute("CREATE TABLE rates (open REAL)")
+        """A grafana view is skipped (with warning) when source columns are missing."""
+        conn.execute(ddl)
         with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
             create_grafana_views(conn)
-        assert "grafana_rates" not in _get_names(conn, "view")
-        assert "Skipping grafana_rates" in caplog.text
-
-    def test_grafana_ticks_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_ticks is skipped when ticks table lacks required columns."""
-        conn.execute("CREATE TABLE ticks (bid REAL)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_ticks" not in _get_names(conn, "view")
-        assert "Skipping grafana_ticks" in caplog.text
-
-    def test_grafana_history_deals_skipped_when_time_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_history_deals is skipped when history_deals.time is missing."""
-        conn.execute("CREATE TABLE history_deals (symbol TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_history_deals" not in _get_names(conn, "view")
-        assert "Skipping grafana_history_deals" in caplog.text
-
-    def test_grafana_history_orders_skipped_when_time_setup_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_history_orders is skipped when time_setup is absent."""
-        conn.execute("CREATE TABLE history_orders (symbol TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_history_orders" not in _get_names(conn, "view")
-        assert "Skipping grafana_history_orders" in caplog.text
-
-    def test_grafana_trade_deals_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_trade_deals is skipped when history_deals missing time/type."""
-        conn.execute("CREATE TABLE history_deals (symbol TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_trade_deals" not in _get_names(conn, "view")
-
-    def test_grafana_cash_events_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_cash_events is skipped when history_deals missing time/type."""
-        conn.execute("CREATE TABLE history_deals (symbol TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_cash_events" not in _get_names(conn, "view")
-
-    def test_grafana_realized_pnl_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_realized_pnl is skipped when history_deals missing required cols."""
-        conn.execute("CREATE TABLE history_deals (time TEXT, type INTEGER)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_realized_pnl" not in _get_names(conn, "view")
-        assert "Skipping grafana_realized_pnl" in caplog.text
-
-    def test_grafana_realized_pnl_skipped_when_entry_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_realized_pnl is skipped when entry column is absent."""
-        _make_history_deals_minimal(conn)
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_realized_pnl" not in _get_names(conn, "view")
-        assert "Skipping grafana_realized_pnl" in caplog.text
-
-    def test_grafana_symbol_pnl_skipped_when_required_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_symbol_pnl is skipped when required columns are absent."""
-        conn.execute("CREATE TABLE history_deals (time TEXT, type INTEGER)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_symbol_pnl" not in _get_names(conn, "view")
-        assert "Skipping grafana_symbol_pnl" in caplog.text
+        assert view_name not in _get_names(conn, "view")
+        assert f"Skipping {view_name}" in caplog.text
 
     def test_grafana_symbol_pnl_without_volume_and_price(
         self,
@@ -569,45 +516,32 @@ class TestGrafanaIndexes:
         assert "idx_order_snapshots_time_symbol" not in indexes
         assert "idx_snapshot_runs_time_status" not in indexes
 
-    def test_rates_index_skipped_when_cols_missing(
+    @pytest.mark.parametrize(
+        ("ddl", "index_name"),
+        [
+            ("CREATE TABLE rates (open REAL)", "idx_rates_time_symbol_timeframe"),
+            ("CREATE TABLE ticks (bid REAL)", "idx_ticks_time_symbol"),
+            (
+                "CREATE TABLE history_deals (ticket INTEGER)",
+                "idx_history_deals_time_symbol",
+            ),
+            (
+                "CREATE TABLE history_orders (ticket INTEGER)",
+                "idx_history_orders_time_setup_symbol",
+            ),
+        ],
+        ids=["rates", "ticks", "deals", "orders"],
+    )
+    def test_index_skipped_when_cols_missing(
         self,
         conn: sqlite3.Connection,
+        ddl: str,
+        index_name: str,
     ) -> None:
-        """Rates index is skipped when required columns are absent."""
-        conn.execute("CREATE TABLE rates (open REAL)")
+        """An index is skipped when the source table lacks required columns."""
+        conn.execute(ddl)
         create_grafana_indexes(conn)
-        indexes = _get_names(conn, "index")
-        assert "idx_rates_time_symbol_timeframe" not in indexes
-
-    def test_ticks_index_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """Ticks index is skipped when required columns are absent."""
-        conn.execute("CREATE TABLE ticks (bid REAL)")
-        create_grafana_indexes(conn)
-        indexes = _get_names(conn, "index")
-        assert "idx_ticks_time_symbol" not in indexes
-
-    def test_deals_indexes_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """history_deals indexes are skipped when required columns are absent."""
-        conn.execute("CREATE TABLE history_deals (ticket INTEGER)")
-        create_grafana_indexes(conn)
-        indexes = _get_names(conn, "index")
-        assert "idx_history_deals_time_symbol" not in indexes
-
-    def test_orders_index_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """history_orders index is skipped when required columns are absent."""
-        conn.execute("CREATE TABLE history_orders (ticket INTEGER)")
-        create_grafana_indexes(conn)
-        indexes = _get_names(conn, "index")
-        assert "idx_history_orders_time_setup_symbol" not in indexes
+        assert index_name not in _get_names(conn, "index")
 
     def test_snapshot_indexes_skipped_when_cols_missing(
         self,
