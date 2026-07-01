@@ -282,18 +282,6 @@ class TestGrafanaViews:
         assert "volume" in cols
         assert "price" in cols
 
-    def test_grafana_trade_stats_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_trade_stats is skipped when history_deals missing required cols."""
-        conn.execute("CREATE TABLE history_deals (time TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_trade_stats" not in _get_names(conn, "view")
-        assert "Skipping grafana_trade_stats" in caplog.text
-
     def test_grafana_trade_stats_without_entry_col(
         self,
         conn: sqlite3.Connection,

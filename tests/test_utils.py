@@ -258,15 +258,17 @@ class TestExportDataframeToSqlite:
 class TestParseDatetime:
     """Tests for parse_datetime."""
 
-    def test_valid_date(self) -> None:
-        """Test parsing a date string."""
-        result = parse_datetime("2024-01-15")
-        assert result == datetime(2024, 1, 15, tzinfo=UTC)
-
-    def test_valid_datetime_with_tz(self) -> None:
-        """Test parsing a datetime with timezone."""
-        result = parse_datetime("2024-01-15T12:00:00+00:00")
-        assert result == datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("2024-01-15", datetime(2024, 1, 15, tzinfo=UTC)),
+            ("2024-01-15T12:00:00+00:00", datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)),
+        ],
+        ids=["date", "datetime-with-tz"],
+    )
+    def test_valid_inputs(self, value: str, expected: datetime) -> None:
+        """Test parsing valid date and datetime strings."""
+        assert parse_datetime(value) == expected
 
     def test_invalid_format_raises(self) -> None:
         """Test that invalid format raises ValueError."""
@@ -373,13 +375,10 @@ class TestParseRequest:
 class TestConstants:
     """Tests for module constants."""
 
-    def test_timeframe_map_is_private_in_utils(self) -> None:
-        """TIMEFRAME_MAP is a private implementation detail; not a public attribute."""
-        assert not hasattr(mt5cli.utils, "TIMEFRAME_MAP")
-
-    def test_tick_flag_map_absent_from_utils(self) -> None:
-        """TICK_FLAG_MAP is not exposed by mt5cli.utils."""
-        assert not hasattr(mt5cli.utils, "TICK_FLAG_MAP")
+    @pytest.mark.parametrize("name", ["TIMEFRAME_MAP", "TICK_FLAG_MAP"])
+    def test_private_maps_absent_from_utils(self, name: str) -> None:
+        """Private pdmt5 maps are not exposed as public mt5cli.utils attributes."""
+        assert not hasattr(mt5cli.utils, name)
 
     @pytest.mark.parametrize(
         ("dataset", "expected"),
@@ -422,23 +421,24 @@ class TestDateTimeType:
 class TestTimeframeType:
     """Tests for _TimeframeType."""
 
-    def test_convert_string(self) -> None:
-        """Test converting a string to timeframe integer."""
-        assert TIMEFRAME_TYPE.convert("H1", None, None) == 16385
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("H1", 16385), (16385, 16385)],
+        ids=["string", "int"],
+    )
+    def test_convert_valid(self, value: str | int, expected: int) -> None:
+        """Test converting valid string and integer timeframe values."""
+        assert TIMEFRAME_TYPE.convert(value, None, None) == expected
 
-    def test_convert_int(self) -> None:
-        """Test converting supported integer timeframe values."""
-        assert TIMEFRAME_TYPE.convert(16385, None, None) == 16385
-
-    def test_convert_unsupported_int(self) -> None:
-        """Test that unsupported integer values raise BadParameter."""
+    @pytest.mark.parametrize(
+        "value",
+        [42, "bad"],
+        ids=["unsupported-int", "invalid-string"],
+    )
+    def test_convert_invalid(self, value: object) -> None:
+        """Test that unsupported int and invalid string values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid timeframe"):
-            TIMEFRAME_TYPE.convert(42, None, None)
-
-    def test_convert_invalid(self) -> None:
-        """Test that invalid values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid timeframe"):
-            TIMEFRAME_TYPE.convert("bad", None, None)
+            TIMEFRAME_TYPE.convert(value, None, None)
 
     @pytest.mark.parametrize("value", [True, False, None, 1.5])
     def test_convert_invalid_types(self, value: object) -> None:
@@ -450,29 +450,30 @@ class TestTimeframeType:
 class TestTickFlagsType:
     """Tests for _TickFlagsType."""
 
-    def test_convert_string(self) -> None:
-        """Test converting a string to tick flags integer."""
-        assert TICK_FLAGS_TYPE.convert("ALL", None, None) == -1
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("ALL", -1), (2, 2)],
+        ids=["string", "int"],
+    )
+    def test_convert_valid(self, value: str | int, expected: int) -> None:
+        """Test converting valid string and integer tick flag values."""
+        assert TICK_FLAGS_TYPE.convert(value, None, None) == expected
 
-    def test_convert_int(self) -> None:
-        """Test converting supported integer tick flag values."""
-        assert TICK_FLAGS_TYPE.convert(2, None, None) == 2
-
-    def test_convert_unsupported_int(self) -> None:
-        """Test that unsupported integer values raise BadParameter."""
+    @pytest.mark.parametrize(
+        "value",
+        [7, "bad"],
+        ids=["unsupported-int", "invalid-string"],
+    )
+    def test_convert_invalid(self, value: object) -> None:
+        """Test that unsupported int and invalid string values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid tick flags"):
-            TICK_FLAGS_TYPE.convert(7, None, None)
+            TICK_FLAGS_TYPE.convert(value, None, None)
 
     @pytest.mark.parametrize("value", [True, False, None, 1.5])
     def test_convert_invalid_types(self, value: object) -> None:
         """Test that bool, float, and None values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid tick flags"):
             TICK_FLAGS_TYPE.convert(value, None, None)
-
-    def test_convert_invalid(self) -> None:
-        """Test that invalid values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid tick flags"):
-            TICK_FLAGS_TYPE.convert("bad", None, None)
 
 
 class TestRequestType:

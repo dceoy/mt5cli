@@ -587,28 +587,32 @@ class TestMt5CliClient:
             "symbols_total": 42,
         }
 
-    def test_mt5_summary_missing_method_raises_clear_error(self) -> None:
-        """Test mt5_summary fails clearly when a required method is missing."""
-        client = Mt5CliClient(
-            client=cast("Mt5DataClient", _MissingSummaryMethodClient()),
-        )
+    @pytest.mark.parametrize(
+        ("client_cls", "exc", "match"),
+        [
+            (
+                _MissingSummaryMethodClient,
+                AttributeError,
+                "MT5 client is missing required method: account_info",
+            ),
+            (
+                _NonCallableSummaryMethodClient,
+                TypeError,
+                "MT5 client attribute is not callable: version",
+            ),
+        ],
+        ids=["missing-method", "non-callable-method"],
+    )
+    def test_mt5_summary_rejects_bad_client(
+        self,
+        client_cls: type[object],
+        exc: type[BaseException],
+        match: str,
+    ) -> None:
+        """Test mt5_summary fails clearly when a required method is bad."""
+        client = Mt5CliClient(client=cast("Mt5DataClient", client_cls()))
 
-        with pytest.raises(
-            AttributeError,
-            match="MT5 client is missing required method: account_info",
-        ):
-            client.mt5_summary()
-
-    def test_mt5_summary_non_callable_method_raises_clear_error(self) -> None:
-        """Test mt5_summary fails clearly when a required method is not callable."""
-        client = Mt5CliClient(
-            client=cast("Mt5DataClient", _NonCallableSummaryMethodClient()),
-        )
-
-        with pytest.raises(
-            TypeError,
-            match="MT5 client attribute is not callable: version",
-        ):
+        with pytest.raises(exc, match=match):
             client.mt5_summary()
 
 
@@ -832,41 +836,47 @@ class TestUpdateHistory:
                 "SELECT name FROM sqlite_master WHERE name = 'cash_events'",
             ).fetchone() == ("cash_events",)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"symbols": []}, "At least one symbol"),
+            (
+                {"symbols": ["EURUSD"], "lookback_hours": 0},
+                "lookback_hours must be positive",
+            ),
+            (
+                {
+                    "symbols": ["EURUSD"],
+                    "datasets": {Dataset.rates},
+                    "timeframes": ["BAD"],
+                },
+                "Invalid timeframe",
+            ),
+            (
+                {
+                    "symbols": ["EURUSD"],
+                    "datasets": {Dataset.ticks},
+                    "flags": "BAD",
+                },
+                "Invalid tick flags",
+            ),
+        ],
+        ids=["empty-symbols", "non-positive-lookback", "bad-timeframe", "bad-flags"],
+    )
     def test_update_history_rejects_invalid_inputs(
         self,
         connected_client: MagicMock,
         tmp_path: Path,
+        kwargs: dict[str, object],
+        match: str,
     ) -> None:
         """Test validation errors for incremental history updates."""
         output = tmp_path / "invalid-update.db"
-        with pytest.raises(ValueError, match="At least one symbol"):
+        with pytest.raises(ValueError, match=match):
             update_history(
                 client=connected_client,
                 output=output,
-                symbols=[],
-            )
-        with pytest.raises(ValueError, match="lookback_hours must be positive"):
-            update_history(
-                client=connected_client,
-                output=output,
-                symbols=["EURUSD"],
-                lookback_hours=0,
-            )
-        with pytest.raises(ValueError, match="Invalid timeframe"):
-            update_history(
-                client=connected_client,
-                output=output,
-                symbols=["EURUSD"],
-                datasets={Dataset.rates},
-                timeframes=["BAD"],
-            )
-        with pytest.raises(ValueError, match="Invalid tick flags"):
-            update_history(
-                client=connected_client,
-                output=output,
-                symbols=["EURUSD"],
-                datasets={Dataset.ticks},
-                flags="BAD",
+                **kwargs,  # type: ignore[arg-type]
             )
 
     def test_update_history_noops_for_empty_datasets(
@@ -3022,36 +3032,40 @@ class TestUpdateObservability:
         assert row is not None
         assert row[0] is None
 
-    def test_update_observability_empty_account_logs_warning(
+    @pytest.mark.parametrize(
+        ("method", "table", "message"),
+        [
+            (
+                "account_info_as_df",
+                "account_snapshots",
+                "account_info_as_df returned empty frame",
+            ),
+            (
+                "terminal_info_as_df",
+                "terminal_snapshots",
+                "terminal_info_as_df returned empty frame",
+            ),
+        ],
+        ids=["account", "terminal"],
+    )
+    def test_update_observability_empty_logs_warning(
         self,
         mock_client: MagicMock,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
+        method: str,
+        table: str,
+        message: str,
     ) -> None:
-        """Empty account_info_as_df logs a warning and does not write account row."""
-        mock_client.account_info_as_df.return_value = pd.DataFrame()
+        """Empty snapshot frames log a warning and write no rows."""
+        getattr(mock_client, method).return_value = pd.DataFrame()
         with caplog.at_level(logging.WARNING, logger="mt5cli.sdk"):
             update_observability(client=mock_client, output=tmp_path / "obs.db")
-        assert "account_info_as_df returned empty frame" in caplog.text
+        assert message in caplog.text
         with sqlite3.connect(tmp_path / "obs.db") as conn:
-            count = conn.execute("SELECT COUNT(*) FROM account_snapshots").fetchone()[0]
-        assert count == 0
-
-    def test_update_observability_empty_terminal_logs_warning(
-        self,
-        mock_client: MagicMock,
-        tmp_path: Path,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Empty terminal_info_as_df logs a warning and does not write terminal row."""
-        mock_client.terminal_info_as_df.return_value = pd.DataFrame()
-        with caplog.at_level(logging.WARNING, logger="mt5cli.sdk"):
-            update_observability(client=mock_client, output=tmp_path / "obs.db")
-        assert "terminal_info_as_df returned empty frame" in caplog.text
-        with sqlite3.connect(tmp_path / "obs.db") as conn:
-            count = conn.execute("SELECT COUNT(*) FROM terminal_snapshots").fetchone()[
-                0
-            ]
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+            ).fetchone()[0]
         assert count == 0
 
     def test_update_observability_with_config_opens_and_closes_connection(

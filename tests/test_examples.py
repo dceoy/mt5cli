@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 _EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "grafana"
 _DASHBOARDS_DIR = _EXAMPLES_DIR / "dashboards"
 
@@ -56,20 +58,16 @@ class TestGrafanaExamples:
         assert "mt5cli-trades.json" in names
         assert "mt5cli-market.json" in names
 
-    def test_readme_exists(self) -> None:
-        """examples/grafana/README.md is present."""
-        assert (_EXAMPLES_DIR / "README.md").is_file()
-
-    def test_compose_file_exists(self) -> None:
-        """examples/grafana/compose.yml is present."""
-        assert (_EXAMPLES_DIR / "compose.yml").is_file()
-
-    def test_datasource_provisioning_exists(self) -> None:
-        """Datasource provisioning YAML is present."""
-        assert (
-            _EXAMPLES_DIR / "provisioning" / "datasources" / "mt5cli-sqlite.yml"
-        ).is_file()
-
-    def test_dashboard_provisioning_exists(self) -> None:
-        """Dashboard provisioning YAML is present."""
-        assert (_EXAMPLES_DIR / "provisioning" / "dashboards" / "mt5cli.yml").is_file()
+    @pytest.mark.parametrize(
+        "relative_path",
+        [
+            "README.md",
+            "compose.yml",
+            "provisioning/datasources/mt5cli-sqlite.yml",
+            "provisioning/dashboards/mt5cli.yml",
+        ],
+        ids=["readme", "compose", "datasource-provisioning", "dashboard-provisioning"],
+    )
+    def test_expected_file_exists(self, relative_path: str) -> None:
+        """Bundled Grafana example support files are present."""
+        assert (_EXAMPLES_DIR / relative_path).is_file()
