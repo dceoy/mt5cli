@@ -339,14 +339,22 @@ def test_ensure_utc_handles_naive_and_aware_datetimes() -> None:
     assert ensure_utc("2024-01-01T00:00:00+00:00").tzinfo == UTC
 
 
-def test_recent_window_validation_errors() -> None:
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({}, "exactly one"),
+        ({"hours": 1, "seconds": 1}, "exactly one"),
+        ({"hours": 0}, "positive"),
+    ],
+    ids=["no-duration", "both-hours-and-seconds", "non-positive-duration"],
+)
+def test_recent_window_validation_errors(
+    kwargs: dict[str, object],
+    match: str,
+) -> None:
     """Recent window helpers validate mutually exclusive length arguments."""
-    with pytest.raises(ValueError, match="exactly one"):
-        recent_window()
-    with pytest.raises(ValueError, match="exactly one"):
-        recent_window(hours=1, seconds=1)
-    with pytest.raises(ValueError, match="positive"):
-        recent_window(hours=0)
+    with pytest.raises(ValueError, match=match):
+        recent_window(**kwargs)  # type: ignore[arg-type]
 
 
 def test_recent_window_supports_seconds_argument() -> None:

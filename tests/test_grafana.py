@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 from mt5cli.grafana import (
     _build_snapshot_view,  # type: ignore[reportPrivateUsage]
@@ -285,26 +285,18 @@ class TestGrafanaViews:
         assert "volume" in cols
         assert "price" in cols
 
-    def test_grafana_trade_stats_without_entry_col(
+    @pytest.mark.parametrize(
+        "setup_deals",
+        [_make_history_deals_minimal, _make_history_deals_full],
+        ids=["minimal", "full"],
+    )
+    def test_grafana_trade_stats_static_summary(
         self,
         conn: sqlite3.Connection,
+        setup_deals: Callable[[sqlite3.Connection], None],
     ) -> None:
         """grafana_trade_stats is a static summary view with no time column."""
-        _make_history_deals_minimal(conn)
-        create_grafana_views(conn)
-        assert "grafana_trade_stats" in _get_names(conn, "view")
-        cols = {
-            row[1] for row in conn.execute("PRAGMA table_info(grafana_trade_stats)")
-        }
-        assert "time" not in cols
-        assert "symbol" in cols
-
-    def test_grafana_trade_stats_with_entry_col(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """grafana_trade_stats is a static summary view with no time column."""
-        _make_history_deals_full(conn)
+        setup_deals(conn)
         create_grafana_views(conn)
         assert "grafana_trade_stats" in _get_names(conn, "view")
         cols = {
@@ -635,52 +627,69 @@ class TestSnapshotInserts:
         ).fetchone()
         assert result == (1, None)
 
-    def test_insert_position_snapshots_with_rows(
+    @pytest.mark.parametrize(
+        ("insert_func", "table", "rows", "expected_count"),
+        [
+            (
+                insert_position_snapshots,
+                "position_snapshots",
+                [
+                    {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 10.0},
+                    {"ticket": 2, "symbol": "GBPUSD", "volume": 0.2, "profit": -5.0},
+                ],
+                2,
+            ),
+            (
+                insert_position_snapshots,
+                "position_snapshots",
+                [],
+                0,
+            ),
+            (
+                insert_order_snapshots,
+                "order_snapshots",
+                [
+                    {
+                        "ticket": 10,
+                        "symbol": "EURUSD",
+                        "type": 2,
+                        "volume_current": 0.1,
+                    },
+                ],
+                1,
+            ),
+            (
+                insert_order_snapshots,
+                "order_snapshots",
+                [],
+                0,
+            ),
+        ],
+        ids=[
+            "positions-with-rows",
+            "positions-empty-noop",
+            "orders-with-rows",
+            "orders-empty-noop",
+        ],
+    )
+    def test_insert_snapshot_rows(
         self,
         conn: sqlite3.Connection,
+        insert_func: Callable[
+            [sqlite3.Connection, int, int | None, list[dict[str, object]]],
+            None,
+        ],
+        table: str,
+        rows: list[dict[str, object]],
+        expected_count: int,
     ) -> None:
-        """insert_position_snapshots appends each position row."""
+        """insert_*_snapshots appends each row and is a no-op when empty."""
         run_id = start_snapshot_run(conn, 1700000000)
-        rows: list[dict[str, object]] = [
-            {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 10.0},
-            {"ticket": 2, "symbol": "GBPUSD", "volume": 0.2, "profit": -5.0},
-        ]
-        insert_position_snapshots(conn, run_id, 12345, rows)
-        count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[0]
-        assert count == 2
-
-    def test_insert_position_snapshots_noop_when_empty(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_position_snapshots is a no-op when rows is empty."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        insert_position_snapshots(conn, run_id, 12345, [])
-        count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[0]
-        assert count == 0
-
-    def test_insert_order_snapshots_with_rows(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_order_snapshots appends each order row."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        rows: list[dict[str, object]] = [
-            {"ticket": 10, "symbol": "EURUSD", "type": 2, "volume_current": 0.1},
-        ]
-        insert_order_snapshots(conn, run_id, 12345, rows)
-        count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
-        assert count == 1
-
-    def test_insert_order_snapshots_noop_when_empty(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_order_snapshots is a no-op when rows is empty."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        insert_order_snapshots(conn, run_id, 12345, [])
-        count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
-        assert count == 0
+        insert_func(conn, run_id, 12345, rows)
+        count = conn.execute(
+            f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+        ).fetchone()[0]
+        assert count == expected_count
 
     @pytest.mark.parametrize(
         ("time_setup", "expected_stored"),

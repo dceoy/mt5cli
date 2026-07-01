@@ -2450,35 +2450,32 @@ class TestThrottledHistoryUpdater:
 
         assert updater.last_update_monotonic is None
 
-    def test_custom_backend_suppresses_recoverable_errors_when_requested(
+    @pytest.mark.parametrize(
+        ("suppress_errors", "raises"),
+        [
+            (True, None),
+            (False, Mt5RuntimeError),
+        ],
+        ids=["suppress", "propagate"],
+    )
+    def test_custom_backend_error_suppression(
         self,
         mocker: MockerFixture,
+        suppress_errors: bool,
+        raises: type[BaseException] | None,
     ) -> None:
-        """Test suppress_errors swallows recoverable custom backend errors."""
+        """suppress_errors controls whether recoverable backend errors propagate."""
         backend = mocker.Mock(side_effect=Mt5RuntimeError("boom"))
         updater = ThrottledHistoryUpdater(
             output="history.db",
-            suppress_errors=True,
+            suppress_errors=suppress_errors,
             update_backend=backend,
         )
-
-        assert updater.update(MagicMock(), ["EURUSD"]) is False
-        assert updater.last_update_monotonic is None
-
-    def test_custom_backend_propagates_errors_when_not_suppressed(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test recoverable custom backend errors propagate by default."""
-        backend = mocker.Mock(side_effect=Mt5RuntimeError("boom"))
-        updater = ThrottledHistoryUpdater(
-            output="history.db",
-            update_backend=backend,
-        )
-
-        with pytest.raises(Mt5RuntimeError, match="boom"):
-            updater.update(MagicMock(), ["EURUSD"])
-
+        if raises is None:
+            assert updater.update(MagicMock(), ["EURUSD"]) is False
+        else:
+            with pytest.raises(raises, match="boom"):
+                updater.update(MagicMock(), ["EURUSD"])
         assert updater.last_update_monotonic is None
 
 
@@ -2877,103 +2874,109 @@ class TestUpdateObservability:
         )
         getattr(mock_client, method).assert_not_called()
 
-    def test_update_observability_with_positions_rows(
+    @pytest.mark.parametrize(
+        ("method", "table", "row", "expected_count"),
+        [
+            (
+                "positions_get_as_df",
+                "position_snapshots",
+                {
+                    "ticket": 1,
+                    "position_id": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "price_open": 1.1,
+                    "price_current": 1.1,
+                    "profit": 0.0,
+                    "swap": 0.0,
+                    "comment": "",
+                    "magic": 0,
+                },
+                1,
+            ),
+            (
+                "orders_get_as_df",
+                "order_snapshots",
+                {
+                    "ticket": 10,
+                    "symbol": "EURUSD",
+                    "type": 2,
+                    "volume_current": 0.1,
+                    "price_open": 1.2,
+                    "price_current": 1.1,
+                    "state": 1,
+                    "comment": "",
+                    "magic": 0,
+                    "time_setup": 1700000000,
+                },
+                1,
+            ),
+        ],
+        ids=["positions", "orders"],
+    )
+    def test_update_observability_writes_snapshot_rows(
         self,
         mock_client: MagicMock,
         tmp_path: Path,
+        method: str,
+        table: str,
+        row: dict[str, object],
+        expected_count: int,
     ) -> None:
-        """Non-empty positions are written to position_snapshots."""
-        mock_client.positions_get_as_df.return_value = pd.DataFrame([
-            {
-                "ticket": 1,
-                "position_id": 1,
-                "symbol": "EURUSD",
-                "type": 0,
-                "volume": 0.1,
-                "price_open": 1.1,
-                "price_current": 1.1,
-                "profit": 0.0,
-                "swap": 0.0,
-                "comment": "",
-                "magic": 0,
-            }
-        ])
+        """Non-empty snapshots are written to the corresponding snapshot table."""
+        getattr(mock_client, method).return_value = pd.DataFrame([row])
         output = tmp_path / "obs.db"
         update_observability(client=mock_client, output=output)
         with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[
-                0
-            ]
-        assert count == 1
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+            ).fetchone()[0]
+        assert count == expected_count
 
-    def test_update_observability_with_order_rows(
-        self,
-        mock_client: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Non-empty orders are written to order_snapshots."""
-        mock_client.orders_get_as_df.return_value = pd.DataFrame([
-            {
-                "ticket": 10,
-                "symbol": "EURUSD",
-                "type": 2,
-                "volume_current": 0.1,
-                "price_open": 1.2,
-                "price_current": 1.1,
-                "state": 1,
-                "comment": "",
-                "magic": 0,
-                "time_setup": 1700000000,
-            }
-        ])
-        output = tmp_path / "obs.db"
-        update_observability(client=mock_client, output=output)
-        with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
-        assert count == 1
-
-    def test_update_observability_symbol_filter_positions(
+    @pytest.mark.parametrize(
+        ("method", "table", "rows"),
+        [
+            (
+                "positions_get_as_df",
+                "position_snapshots",
+                [
+                    {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 0.0},
+                    {"ticket": 2, "symbol": "USDJPY", "volume": 0.2, "profit": 0.0},
+                ],
+            ),
+            (
+                "orders_get_as_df",
+                "order_snapshots",
+                [
+                    {"ticket": 10, "symbol": "EURUSD", "volume_current": 0.1},
+                    {"ticket": 11, "symbol": "USDJPY", "volume_current": 0.5},
+                ],
+            ),
+        ],
+        ids=["positions", "orders"],
+    )
+    def test_update_observability_symbol_filter(
         self,
         tmp_path: Path,
+        method: str,
+        table: str,
+        rows: list[dict[str, object]],
     ) -> None:
-        """Symbol filter fetches all positions in one call and filters client-side."""
-        client = MagicMock()
-        client.account_info_as_df.return_value = pd.DataFrame([{"login": 1}])
-        # All positions; only EURUSD matches the filter
-        client.positions_get_as_df.return_value = pd.DataFrame([
-            {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 0.0},
-            {"ticket": 2, "symbol": "USDJPY", "volume": 0.2, "profit": 0.0},
-        ])
-        client.orders_get_as_df.return_value = pd.DataFrame()
-        client.terminal_info_as_df.return_value = pd.DataFrame()
-        output = tmp_path / "obs.db"
-        update_observability(client=client, output=output, symbols=["EURUSD", "GBPUSD"])
-        assert client.positions_get_as_df.call_count == 1
-        with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[
-                0
-            ]
-        assert count == 1
-
-    def test_update_observability_symbol_filter_orders(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Symbol filter fetches all orders in one call and filters client-side."""
+        """Symbol filter fetches all rows in one call and filters client-side."""
         client = MagicMock()
         client.account_info_as_df.return_value = pd.DataFrame([{"login": 1}])
         client.positions_get_as_df.return_value = pd.DataFrame()
-        # All orders; only EURUSD matches the filter
-        client.orders_get_as_df.return_value = pd.DataFrame([
-            {"ticket": 10, "symbol": "EURUSD", "volume_current": 0.1},
-            {"ticket": 11, "symbol": "USDJPY", "volume_current": 0.5},
-        ])
+        client.orders_get_as_df.return_value = pd.DataFrame()
         client.terminal_info_as_df.return_value = pd.DataFrame()
+        getattr(client, method).return_value = pd.DataFrame(rows)
         output = tmp_path / "obs.db"
         update_observability(client=client, output=output, symbols=["EURUSD", "GBPUSD"])
-        assert client.orders_get_as_df.call_count == 1
+        assert getattr(client, method).call_count == 1
         with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+            ).fetchone()[0]
         assert count == 1
 
     def test_update_observability_symbol_filter_no_symbol_col(
