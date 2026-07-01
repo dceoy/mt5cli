@@ -959,29 +959,18 @@ class TestEstimateOrderMargin:
         client.symbol_info_tick_as_dict.assert_not_called()
         client.order_calc_margin.assert_not_called()
 
-    def test_rejects_missing_tick_prices(self) -> None:
-        """Test missing tick prices raise Mt5TradingError."""
+    @pytest.mark.parametrize(
+        "ask",
+        [None, 0.0, float("inf")],
+        ids=["missing", "non-positive", "non-finite"],
+    )
+    def test_rejects_invalid_tick_price(
+        self,
+        ask: float | None,
+    ) -> None:
+        """Test invalid ask prices raise Mt5OperationError."""
         client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1000}
-
-        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
-            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
-
-    def test_rejects_non_positive_tick_price(self) -> None:
-        """Test non-positive tick prices raise Mt5TradingError."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 0.0, "bid": 1.1000}
-
-        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
-            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
-
-    def test_rejects_non_finite_tick_price(self) -> None:
-        """Test non-finite tick prices raise Mt5TradingError."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {
-            "ask": float("inf"),
-            "bid": 1.1000,
-        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": ask, "bid": 1.1000}
 
         with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)

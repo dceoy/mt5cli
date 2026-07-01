@@ -342,67 +342,36 @@ class TestCommands:
         mock_client.order_calc_margin.assert_any_call(0, "EURUSD", 0.01, 1.1010)
         mock_client.order_calc_margin.assert_any_call(1, "EURUSD", 0.01, 1.1000)
 
-    def test_orders(
+    @pytest.mark.parametrize(
+        ("args", "method"),
+        [
+            (["orders", "--symbol", "EURUSD"], "orders_get_as_df"),
+            (
+                [
+                    "history-orders",
+                    "--date-from",
+                    "2024-01-01",
+                    "--date-to",
+                    "2024-02-01",
+                ],
+                "history_orders_get_as_df",
+            ),
+            (["history-deals", "--ticket", "12345"], "history_deals_get_as_df"),
+        ],
+        ids=["orders", "history-orders", "history-deals"],
+    )
+    def test_history_delegate(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
+        args: list[str],
+        method: str,
     ) -> None:
-        """Test orders command."""
+        """orders/history-orders/history-deals delegate to the client method."""
         output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "orders",
-                "--symbol",
-                "EURUSD",
-            ],
-        )
+        result = runner.invoke(app, ["-o", str(output), *args])
         assert result.exit_code == 0, result.output
-        mock_client.orders_get_as_df.assert_called_once()
-
-    def test_history_orders(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test history-orders command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "history-orders",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.history_orders_get_as_df.assert_called_once()
-
-    def test_history_deals(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test history-deals command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "history-deals",
-                "--ticket",
-                "12345",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.history_deals_get_as_df.assert_called_once()
+        getattr(mock_client, method).assert_called_once()
 
     def test_recent_history_deals(
         self,
@@ -1644,30 +1613,35 @@ class TestGrafanaSchemaCommand:
         assert result1.exit_code == 0, result1.output
         assert result2.exit_code == 0, result2.output
 
-    def test_grafana_schema_rejects_non_sqlite_output(
+
+class TestNonSqliteRejection:
+    """Tests that SQLite-only commands reject non-SQLite output."""
+
+    @pytest.mark.parametrize(
+        ("command", "match"),
+        [
+            ("grafana-schema", "grafana-schema requires SQLite3 output"),
+            ("snapshot", "snapshot requires SQLite3 output"),
+        ],
+        ids=["grafana-schema", "snapshot"],
+    )
+    def test_rejects_non_sqlite_output(
         self,
         tmp_path: Path,
+        command: str,
+        match: str,
     ) -> None:
-        """grafana-schema fails when output is not a SQLite3 format."""
+        """grafana-schema and snapshot reject non-SQLite output formats."""
         result = runner.invoke(
             app,
-            ["-o", str(tmp_path / "out.csv"), "grafana-schema"],
+            ["-o", str(tmp_path / "out.csv"), command],
         )
         assert result.exit_code != 0
-        assert "grafana-schema requires SQLite3 output" in result.output
+        assert match in result.output
 
 
 class TestSnapshotCommand:
     """Tests for the snapshot CLI command."""
-
-    def test_snapshot_rejects_non_sqlite_output(self, tmp_path: Path) -> None:
-        """Snapshot fails when output is not a SQLite3 format."""
-        result = runner.invoke(
-            app,
-            ["-o", str(tmp_path / "out.csv"), "snapshot"],
-        )
-        assert result.exit_code != 0
-        assert "snapshot requires SQLite3 output" in result.output
 
     def test_snapshot_delegates_to_update_observability_with_config(
         self,

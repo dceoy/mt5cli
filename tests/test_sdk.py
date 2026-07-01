@@ -65,7 +65,7 @@ from mt5cli.sdk import (
     update_observability_with_config,
     version,
 )
-from mt5cli.utils import Dataset, IfExists, coerce_login
+from mt5cli.utils import Dataset, IfExists, coerce_login, parse_timeframe
 
 
 class _TerminalInfo(NamedTuple):
@@ -897,13 +897,23 @@ class TestUpdateHistory:
         writer.assert_not_called()
         connect.assert_not_called()
 
-    def test_update_history_uses_all_default_timeframes(
+    @pytest.mark.parametrize(
+        ("timeframes", "expected"),
+        [
+            (None, [parse_timeframe(t) for t in DEFAULT_HISTORY_TIMEFRAMES]),
+            (["M1", "H1"], [1, 16385]),
+        ],
+        ids=["default", "specified"],
+    )
+    def test_update_history_resolves_timeframes(
         self,
         connected_client: MagicMock,
         mocker: MockerFixture,
         tmp_path: Path,
+        timeframes: list[str] | None,
+        expected: list[int],
     ) -> None:
-        """Test that timeframes=None writes rates for all default MT5 timeframes."""
+        """Test update_history writes all default or specified rate timeframes."""
         timeframes_written: list[int] = []
 
         def capture(
@@ -916,42 +926,14 @@ class TestUpdateHistory:
         mocker.patch("mt5cli.sdk.write_incremental_datasets", side_effect=capture)
         update_history(
             client=connected_client,
-            output=tmp_path / "default-timeframes.db",
+            output=tmp_path / "timeframes.db",
             symbols=["EURUSD"],
             datasets={Dataset.rates},
-            timeframes=None,
+            timeframes=timeframes,
             lookback_hours=1,
             date_to=datetime(2024, 1, 1, tzinfo=UTC),
         )
-        assert len(timeframes_written) == len(DEFAULT_HISTORY_TIMEFRAMES)
-
-    def test_update_history_uses_specified_timeframes(
-        self,
-        connected_client: MagicMock,
-        mocker: MockerFixture,
-        tmp_path: Path,
-    ) -> None:
-        """Test explicit timeframes limit rate updates."""
-        timeframes_written: list[int] = []
-
-        def capture(
-            *args: object,
-            **_kwargs: object,
-        ) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
-            timeframes_written.extend(args[4])  # type: ignore[arg-type]
-            return set(), {}
-
-        mocker.patch("mt5cli.sdk.write_incremental_datasets", side_effect=capture)
-        update_history(
-            client=connected_client,
-            output=tmp_path / "specific-timeframes.db",
-            symbols=["EURUSD"],
-            datasets={Dataset.rates},
-            timeframes=["M1", "H1"],
-            lookback_hours=1,
-            date_to=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert timeframes_written == [1, 16385]
+        assert timeframes_written == expected
 
     def test_update_history_updates_ticks_and_orders(
         self,

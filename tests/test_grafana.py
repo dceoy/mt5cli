@@ -82,6 +82,9 @@ def _make_history_orders_table(conn: sqlite3.Connection) -> None:
     )
 
 
+_TIMESTAMP_TIME_SETUP: pd.Timestamp = pd.Timestamp("2024-01-15 10:30:00", tz="UTC")
+
+
 # ---------------------------------------------------------------------------
 # TestSnapshotTables
 # ---------------------------------------------------------------------------
@@ -679,39 +682,27 @@ class TestSnapshotInserts:
         count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
         assert count == 0
 
-    def test_insert_order_snapshots_normalizes_timestamp_time_setup(
+    @pytest.mark.parametrize(
+        ("time_setup", "expected_stored"),
+        [
+            (_TIMESTAMP_TIME_SETUP, int(_TIMESTAMP_TIME_SETUP.timestamp())),
+            (1705314600, 1705314600),
+            ("not_a_time", None),
+        ],
+        ids=["timestamp", "int", "unknown-string"],
+    )
+    def test_insert_order_snapshots_normalizes_time_setup(
         self,
         conn: sqlite3.Connection,
+        time_setup: object,
+        expected_stored: int | None,
     ) -> None:
-        """insert_order_snapshots converts pd.Timestamp time_setup to epoch int."""
+        """insert_order_snapshots stores epoch int, int as-is, or None for unknown."""
         run_id = start_snapshot_run(conn, 1700000000)
-        ts = pd.Timestamp("2024-01-15 10:30:00", tz="UTC")
-        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": ts}]
+        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": time_setup}]
         insert_order_snapshots(conn, run_id, 12345, rows)
         stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
-        assert stored == int(ts.timestamp())
-
-    def test_insert_order_snapshots_stores_int_time_setup(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_order_snapshots stores an integer time_setup as-is."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": 1705314600}]
-        insert_order_snapshots(conn, run_id, 12345, rows)
-        stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
-        assert stored == 1705314600
-
-    def test_insert_order_snapshots_stores_null_for_unknown_time_setup_type(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_order_snapshots stores NULL for an unrecognized time_setup type."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": "not_a_time"}]
-        insert_order_snapshots(conn, run_id, 12345, rows)
-        stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
-        assert stored is None
+        assert stored == expected_stored
 
     def test_insert_terminal_snapshot(self, conn: sqlite3.Connection) -> None:
         """insert_terminal_snapshot appends a terminal info row."""

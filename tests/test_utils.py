@@ -89,28 +89,45 @@ class TestExportDataframe:
         """Create a sample DataFrame for testing."""
         return pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
 
-    def test_export_csv(self, tmp_path: Path, sample_df: pd.DataFrame) -> None:
-        """Test CSV export."""
-        output = tmp_path / "out.csv"
-        export_dataframe(sample_df, output, "csv")
-        result = pd.read_csv(output)
-        pd.testing.assert_frame_equal(result, sample_df)
-
-    def test_export_json(self, tmp_path: Path, sample_df: pd.DataFrame) -> None:
-        """Test JSON export."""
-        output = tmp_path / "out.json"
-        export_dataframe(sample_df, output, "json")
-        with output.open() as f:
-            records = json.load(f)
-        assert len(records) == 3
-        assert records[0]["a"] == 1
-
-    def test_export_parquet(self, tmp_path: Path, sample_df: pd.DataFrame) -> None:
-        """Test Parquet export."""
-        output = tmp_path / "out.parquet"
-        export_dataframe(sample_df, output, "parquet")
-        result = pd.read_parquet(output)
-        pd.testing.assert_frame_equal(result, sample_df)
+    @pytest.mark.parametrize(
+        ("filename", "output_format", "reader"),
+        [
+            ("out.csv", "csv", "csv"),
+            ("out.json", "json", "json"),
+            ("out.parquet", "parquet", "parquet"),
+            ("out.db", "sqlite3", "sqlite3"),
+        ],
+        ids=["csv", "json", "parquet", "sqlite3"],
+    )
+    def test_export_round_trip(
+        self,
+        tmp_path: Path,
+        sample_df: pd.DataFrame,
+        filename: str,
+        output_format: str,
+        reader: str,
+    ) -> None:
+        """Test CSV/JSON/Parquet/SQLite3 exports round-trip the sample DataFrame."""
+        output = tmp_path / filename
+        export_dataframe(sample_df, output, output_format, table_name="test_table")
+        if reader == "csv":
+            result = pd.read_csv(output)
+            pd.testing.assert_frame_equal(result, sample_df)
+        elif reader == "json":
+            with output.open() as f:
+                records = json.load(f)
+            assert len(records) == 3
+            assert records[0]["a"] == 1
+        elif reader == "sqlite3":
+            with sqlite3.connect(output) as conn:
+                result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
+                    "SELECT * FROM test_table",
+                    conn,
+                )
+            pd.testing.assert_frame_equal(result, sample_df)
+        else:
+            result = pd.read_parquet(output)
+            pd.testing.assert_frame_equal(result, sample_df)
 
     def test_export_parquet_without_pyarrow(
         self,
@@ -122,17 +139,6 @@ class TestExportDataframe:
         monkeypatch.setitem(sys.modules, "pyarrow", None)
         with pytest.raises(ImportError, match="mt5cli\\[parquet\\]"):
             export_dataframe(sample_df, tmp_path / "out.parquet", "parquet")
-
-    def test_export_sqlite3(self, tmp_path: Path, sample_df: pd.DataFrame) -> None:
-        """Test SQLite3 export."""
-        output = tmp_path / "out.db"
-        export_dataframe(sample_df, output, "sqlite3", table_name="test_table")
-        with sqlite3.connect(output) as conn:
-            result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
-                "SELECT * FROM test_table",
-                conn,
-            )
-        pd.testing.assert_frame_equal(result, sample_df)
 
     def test_unsupported_format_raises(
         self,
