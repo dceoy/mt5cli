@@ -279,16 +279,19 @@ class TestParseTimeframe:
 
     @pytest.mark.parametrize(
         ("value", "expected"),
-        [("M1", 1), ("h1", 16385), ("D1", 16408), ("MN1", 49153)],
+        [
+            ("M1", 1),
+            ("h1", 16385),
+            ("D1", 16408),
+            ("MN1", 49153),
+            ("1", 1),
+            (16385, 16385),
+        ],
+        ids=["M1", "h1", "D1", "MN1", "int-string-1", "int-16385"],
     )
-    def test_named_timeframe(self, value: str, expected: int) -> None:
-        """Test parsing named timeframes."""
+    def test_valid_timeframe(self, value: str | int, expected: int) -> None:
+        """Test parsing valid string and integer timeframe values."""
         assert parse_timeframe(value) == expected
-
-    def test_integer_timeframe(self) -> None:
-        """Test parsing supported integer timeframes."""
-        assert parse_timeframe("1") == 1
-        assert parse_timeframe(16385) == 16385
 
     @pytest.mark.parametrize(
         "value",
@@ -306,16 +309,19 @@ class TestParseTickFlags:
 
     @pytest.mark.parametrize(
         ("value", "expected"),
-        [("ALL", -1), ("info", 1), ("TRADE", 2), ("COPY_TICKS_ALL", -1)],
+        [
+            ("ALL", -1),
+            ("info", 1),
+            ("TRADE", 2),
+            ("COPY_TICKS_ALL", -1),
+            ("-1", -1),
+            (2, 2),
+        ],
+        ids=["ALL", "info", "TRADE", "COPY_TICKS_ALL", "int-string--1", "int-2"],
     )
-    def test_named_flag(self, value: str, expected: int) -> None:
-        """Test parsing named tick flags."""
+    def test_valid_flag(self, value: str | int, expected: int) -> None:
+        """Test parsing valid string and integer tick flag values."""
         assert parse_tick_flags(value) == expected
-
-    def test_integer_flag(self) -> None:
-        """Test parsing supported integer tick flags."""
-        assert parse_tick_flags("-1") == -1
-        assert parse_tick_flags(2) == 2
 
     @pytest.mark.parametrize(
         "value",

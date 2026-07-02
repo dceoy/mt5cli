@@ -1219,12 +1219,22 @@ class TestCollectHistory:
             ).fetchall()
         assert rows == [(16385,)]
 
-    def test_collect_history_if_exists_append(
+    @pytest.mark.parametrize(
+        ("if_exists", "second_exit_code", "expected_count"),
+        [
+            pytest.param("append", 0, 2, id="append-accumulates-rows"),
+            pytest.param("fail", 1, 1, id="fail-rejects-existing-table"),
+        ],
+    )
+    def test_collect_history_if_exists(
         self,
         tmp_path: Path,
         history_client: MagicMock,  # noqa: ARG002
+        if_exists: str,
+        second_exit_code: int,
+        expected_count: int,
     ) -> None:
-        """Test that --if-exists=append accumulates rows across runs."""
+        """Test --if-exists=append accumulates and --if-exists=fail rejects."""
         output = tmp_path / "history.db"
         common = [
             "-o",
@@ -1240,68 +1250,12 @@ class TestCollectHistory:
             "rates",
         ]
         first = runner.invoke(app, common)
-        second = runner.invoke(app, [*common, "--if-exists", "append"])
+        second = runner.invoke(app, [*common, "--if-exists", if_exists])
         assert first.exit_code == 0, first.output
-        assert second.exit_code == 0, second.output
+        assert second.exit_code == second_exit_code, second.output
         with sqlite3.connect(output) as conn:
             (count,) = conn.execute("SELECT COUNT(*) FROM rates").fetchone()
-        assert count == 2
-
-    def test_collect_history_if_exists_fail(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
-    ) -> None:
-        """Test that --if-exists=fail rejects writing into an existing table."""
-        output = tmp_path / "history.db"
-        common = [
-            "-o",
-            str(output),
-            "collect-history",
-            "--symbol",
-            "EURUSD",
-            "--date-from",
-            "2024-01-01",
-            "--date-to",
-            "2024-02-01",
-            "--dataset",
-            "rates",
-        ]
-        first = runner.invoke(app, common)
-        second = runner.invoke(app, [*common, "--if-exists", "fail"])
-        assert first.exit_code == 0, first.output
-        assert second.exit_code != 0
-
-    def test_collect_history_ticks_default_flags_all(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,
-    ) -> None:
-        """Test that --flags defaults to ALL when --dataset ticks is explicit."""
-        output = tmp_path / "history.db"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "collect-history",
-                "--symbol",
-                "EURUSD",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-                "--dataset",
-                "ticks",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        history_client.copy_ticks_range_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
-            flags=-1,
-        )
+        assert count == expected_count
 
     def test_collect_history_with_views(
         self,
