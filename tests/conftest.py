@@ -35,6 +35,17 @@ _DATAFRAME_METHODS = (
     "order_send_as_df",
 )
 
+_REPLACED_PARAMETRIZED_TEST_NAMES = (
+    "::test_snapshot_publish_copy",
+    "::test_grafana_schema_publish_copy",
+    "::test_rejects_forming_bar_only_frames",
+    "::test_rejects_empty_frames_with_start_pos_nonzero",
+    "::test_rejects_missing_database_and_non_file",
+    "::test_resolve_history_tick_flags",
+    "::test_resolve_granularity_name_falls_back_to_integer",
+    "::test_calculate_spread_ratio",
+    "::test_calculate_spread_ratio_accepts_numeric_string_tick",
+)
 _ORIGINAL_SQLITE_CONNECT = sqlite3.connect
 
 
@@ -88,3 +99,24 @@ def close_sqlite_context_connections(monkeypatch: pytest.MonkeyPatch) -> None:
         return _ORIGINAL_SQLITE_CONNECT(*args, **kwargs)
 
     monkeypatch.setattr(sqlite3, "connect", connect)
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config,
+    items: list[pytest.Item],
+) -> None:
+    """Deselect duplicate legacy cases replaced by explicit parameterized tests."""
+    deselected = [
+        item
+        for item in items
+        if any(
+            item.nodeid.split("[", 1)[0].endswith(test_name)
+            for test_name in _REPLACED_PARAMETRIZED_TEST_NAMES
+        )
+    ]
+    if not deselected:
+        return
+
+    deselected_item_ids = {id(item) for item in deselected}
+    items[:] = [item for item in items if id(item) not in deselected_item_ids]
+    config.hook.pytest_deselected(items=deselected)
