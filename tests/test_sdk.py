@@ -2531,12 +2531,13 @@ class TestBuildConfigStringLogin:
     @pytest.mark.parametrize(
         ("login", "expected"),
         [
-            (None, None),
-            (12345, 12345),
-            ("12345", 12345),
-            (" 12345 ", 12345),
-            ("", None),
-            ("   ", None),
+            pytest.param(None, None, id="none-passthrough"),
+            pytest.param(12345, 12345, id="int-passthrough"),
+            pytest.param(54321, 54321, id="int-login-backward-compat"),
+            pytest.param("12345", 12345, id="numeric-string-coerced"),
+            pytest.param(" 12345 ", 12345, id="whitespace-padded-string-coerced"),
+            pytest.param("", None, id="empty-string-becomes-none"),
+            pytest.param("   ", None, id="whitespace-only-string-becomes-none"),
         ],
     )
     def test_coerces_login_from_string(
@@ -2544,7 +2545,10 @@ class TestBuildConfigStringLogin:
         login: int | str | None,
         expected: int | None,
     ) -> None:
-        """Test build_config coerces string login to int or None."""
+        """Test build_config coerces string login to int/None.
+
+        Int and None logins are left unchanged.
+        """
         config = build_config(login=login)
         assert config.login == expected
 
@@ -2553,23 +2557,29 @@ class TestBuildConfigStringLogin:
         with pytest.raises(ValueError, match="invalid literal"):
             build_config(login="abc")
 
-    def test_expands_dollar_brace_login_with_opt_in(
+    @pytest.mark.parametrize(
+        ("login_template", "env_value", "expected"),
+        [
+            pytest.param("${MT5_LOGIN}", "12345", 12345, id="dollar-brace-expands"),
+            pytest.param("$MT5_LOGIN", "99999", 99999, id="whole-dollar-expands"),
+            pytest.param("${MT5_LOGIN}", "", None, id="blank-env-becomes-none"),
+        ],
+    )
+    def test_expands_login_env_placeholder_with_opt_in(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        login_template: str,
+        env_value: str,
+        expected: int | None,
     ) -> None:
-        """Test build_config expands ${MT5_LOGIN} and coerces with opt-in."""
-        monkeypatch.setenv("MT5_LOGIN", "12345")
-        config = build_config(login="${MT5_LOGIN}", allow_whole_dollar_env=True)
-        assert config.login == 12345
+        """Test build_config expands env-placeholder logins with opt-in.
 
-    def test_expands_whole_dollar_login_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test build_config expands $MT5_LOGIN and coerces with opt-in."""
-        monkeypatch.setenv("MT5_LOGIN", "99999")
-        config = build_config(login="$MT5_LOGIN", allow_whole_dollar_env=True)
-        assert config.login == 99999
+        Both ``${VAR}`` and whole-``$VAR`` syntax are expanded and coerced
+        when allow_whole_dollar_env=True; a blank expansion coerces to None.
+        """
+        monkeypatch.setenv("MT5_LOGIN", env_value)
+        config = build_config(login=login_template, allow_whole_dollar_env=True)
+        assert config.login == expected
 
     def test_missing_env_variable_raises(
         self,
@@ -2580,29 +2590,10 @@ class TestBuildConfigStringLogin:
         with pytest.raises(ValueError, match="'MT5_LOGIN' is not set"):
             build_config(login="${MT5_LOGIN}", allow_whole_dollar_env=True)
 
-    def test_env_expands_to_blank_becomes_none(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test build_config coerces blank env-expanded login to None."""
-        monkeypatch.setenv("MT5_LOGIN", "")
-        config = build_config(login="${MT5_LOGIN}", allow_whole_dollar_env=True)
-        assert config.login is None
-
     def test_dollar_brace_login_not_expanded_without_opt_in(self) -> None:
         """Test ${MT5_LOGIN} is not expanded when allow_whole_dollar_env=False."""
         with pytest.raises(ValueError, match="invalid literal"):
             build_config(login="${MT5_LOGIN}")
-
-    def test_integer_login_preserved_backward_compat(self) -> None:
-        """Test existing int login callers remain backward-compatible."""
-        config = build_config(login=54321)
-        assert config.login == 54321
-
-    def test_none_login_preserved_backward_compat(self) -> None:
-        """Test existing None login callers remain backward-compatible."""
-        config = build_config(login=None)
-        assert config.login is None
 
 
 class TestSubstituteMappingValues:
