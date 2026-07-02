@@ -657,19 +657,24 @@ class TestDropFormingRateBar:
         )
         assert df_rate.shape == (3, 2)
 
-    def test_returns_empty_frame_when_input_empty(self) -> None:
-        """Test empty frames stay empty."""
-        df_rate = pd.DataFrame(columns=["time", "close"])
-
-        result = drop_forming_rate_bar(df_rate)
-
-        assert result.empty
-        assert list(result.columns) == ["time", "close"]
-
-    def test_returns_empty_frame_when_only_forming_bar_present(self) -> None:
-        """Test a single-bar frame becomes empty after dropping the forming bar."""
-        df_rate = pd.DataFrame({"time": [1], "close": [1.1]})
-
+    @pytest.mark.parametrize(
+        "df_rate",
+        [
+            pytest.param(
+                pd.DataFrame(columns=["time", "close"]),
+                id="empty-input",
+            ),
+            pytest.param(
+                pd.DataFrame({"time": [1], "close": [1.1]}),
+                id="single-forming-bar",
+            ),
+        ],
+    )
+    def test_returns_empty_frame_for_empty_result_cases(
+        self,
+        df_rate: pd.DataFrame,
+    ) -> None:
+        """Test empty and single-bar frames stay empty after dropping."""
         result = drop_forming_rate_bar(df_rate)
 
         assert result.empty
@@ -679,16 +684,36 @@ class TestDropFormingRateBar:
 class TestParseSqliteTimestamp:
     """Tests for parse_sqlite_timestamp."""
 
-    def test_parses_iso_and_pandas_strings(self) -> None:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param(None, None, id="none"),
+            pytest.param(
+                1_704_067_200,
+                datetime(2024, 1, 1, tzinfo=UTC),
+                id="mt5-epoch-seconds",
+            ),
+            pytest.param(
+                datetime.fromisoformat("2024-01-01T00:00:00"),
+                datetime(2024, 1, 1, tzinfo=UTC),
+                id="naive-datetime",
+            ),
+            pytest.param(
+                "Jan 1 2024",
+                datetime(2024, 1, 1, tzinfo=UTC),
+                id="pandas-string",
+            ),
+            pytest.param("not-a-datetime", None, id="invalid-string"),
+            pytest.param(object(), None, id="unsupported-object"),
+        ],
+    )
+    def test_parses_various_inputs(
+        self,
+        value: object,
+        expected: datetime | None,
+    ) -> None:
         """Test ISO, pandas-compatible, numeric, and datetime values."""
-        assert parse_sqlite_timestamp(None) is None
-        assert parse_sqlite_timestamp(1_704_067_200) == datetime(2024, 1, 1, tzinfo=UTC)
-        assert parse_sqlite_timestamp(
-            datetime.fromisoformat("2024-01-01T00:00:00"),
-        ) == datetime(2024, 1, 1, tzinfo=UTC)
-        assert parse_sqlite_timestamp("Jan 1 2024") == datetime(2024, 1, 1, tzinfo=UTC)
-        assert parse_sqlite_timestamp("not-a-datetime") is None
-        assert parse_sqlite_timestamp(object()) is None
+        assert parse_sqlite_timestamp(value) == expected
 
 
 class TestIncrementalStart:
@@ -1393,22 +1418,6 @@ class TestIncrementalHistoryDealsHelpers:
         )
         assert filtered.empty
 
-    def test_filter_incremental_rejects_rows_without_parseable_time(self) -> None:
-        """Test incremental filtering drops rows when time cannot be parsed."""
-        frame = pd.DataFrame({
-            "ticket": [1],
-            "symbol": ["EURUSD"],
-            "time": ["not-a-datetime"],
-            "type": [0],
-        })
-        filtered = filter_incremental_history_deals_frame(
-            frame,
-            ["EURUSD"],
-            {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
-            datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert filtered.empty
-
     def test_filter_incremental_keeps_account_events_without_symbol_column(
         self,
     ) -> None:
@@ -1426,27 +1435,40 @@ class TestIncrementalHistoryDealsHelpers:
         )
         assert filtered["ticket"].tolist() == [1]
 
-    def test_filter_incremental_skips_trade_rows_without_symbol_column(self) -> None:
-        """Test trade rows are excluded when symbol column is unavailable."""
-        frame = pd.DataFrame({
-            "ticket": [1],
-            "time": ["2024-01-03T00:00:00+00:00"],
-        })
-        filtered = filter_incremental_history_deals_frame(
-            frame,
-            ["EURUSD"],
-            {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
-            datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert filtered.empty
-
-    def test_filter_incremental_rejects_rows_without_time_column(self) -> None:
-        """Test incremental filtering drops rows when time column is missing."""
-        frame = pd.DataFrame({
-            "ticket": [1],
-            "symbol": ["EURUSD"],
-            "type": [0],
-        })
+    @pytest.mark.parametrize(
+        "frame",
+        [
+            pytest.param(
+                pd.DataFrame({
+                    "ticket": [1],
+                    "symbol": ["EURUSD"],
+                    "time": ["not-a-datetime"],
+                    "type": [0],
+                }),
+                id="unparseable-time",
+            ),
+            pytest.param(
+                pd.DataFrame({
+                    "ticket": [1],
+                    "time": ["2024-01-03T00:00:00+00:00"],
+                }),
+                id="trade-rows-without-symbol-column",
+            ),
+            pytest.param(
+                pd.DataFrame({
+                    "ticket": [1],
+                    "symbol": ["EURUSD"],
+                    "type": [0],
+                }),
+                id="rows-without-time-column",
+            ),
+        ],
+    )
+    def test_filter_incremental_returns_empty_for_invalid_rows(
+        self,
+        frame: pd.DataFrame,
+    ) -> None:
+        """Test incremental filtering drops rows that cannot be evaluated."""
         filtered = filter_incremental_history_deals_frame(
             frame,
             ["EURUSD"],

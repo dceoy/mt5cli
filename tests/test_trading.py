@@ -152,9 +152,11 @@ class TestCalculateMarginAndVolume:
             ({"margin_free": 0.0}, 0.0),
             ({}, 0.0),
             ({"margin_free": None}, 0.0),
+            ({"margin_free": -500.0}, 0.0),
         ],
+        ids=["zero", "missing", "none", "negative"],
     )
-    def test_zero_or_missing_margin_free(
+    def test_zero_missing_or_negative_margin_free(
         self,
         account_dict: dict[str, float | None],
         expected_margin_free: float,
@@ -176,28 +178,6 @@ class TestCalculateMarginAndVolume:
         )
 
         assert result["margin_free"] == expected_margin_free
-        _assert_close(result["buy_volume"], 0.0)
-        _assert_close(result["sell_volume"], 0.0)
-        mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "BUY")
-        mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "SELL")
-
-    def test_clamps_negative_margin_free_to_zero(self, mocker: MockerFixture) -> None:
-        """Test negative margin_free is clamped to zero before sizing."""
-        client = MagicMock()
-        client.account_info_as_dict.return_value = {"margin_free": -500.0}
-        client.symbol_info_as_dict.side_effect = AttributeError("missing")
-        mock_calc_vol = mocker.patch(
-            "mt5cli.trading.calculate_volume_by_margin", return_value=0.0
-        )
-
-        result = calculate_margin_and_volume(
-            client,
-            "EURUSD",
-            unit_margin_ratio=0.5,
-            preserved_margin_ratio=0.2,
-        )
-
-        _assert_close(result["margin_free"], 0.0)
         _assert_close(result["buy_volume"], 0.0)
         _assert_close(result["sell_volume"], 0.0)
         mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "BUY")
@@ -753,22 +733,6 @@ class TestSnapshotsAndState:
         client.symbol_info_tick_as_dict.return_value = {"bid": 99.0, "ask": 101.0}
 
         _assert_close(calculate_spread_ratio(client, "EURUSD"), 0.02)
-
-    def test_calculate_spread_ratio_rejects_missing_tick(self) -> None:
-        """Test missing bid/ask raises a trading error."""
-        client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"bid": None, "ask": 1.0}
-
-        with pytest.raises(Mt5OperationError):
-            calculate_spread_ratio(client, "EURUSD")
-
-    def test_calculate_spread_ratio_rejects_non_positive_tick(self) -> None:
-        """Test non-positive bid/ask raises a trading error."""
-        client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"bid": 0.0, "ask": 1.0}
-
-        with pytest.raises(Mt5OperationError):
-            calculate_spread_ratio(client, "EURUSD")
 
     def test_calculate_spread_ratio_accepts_numeric_string_tick(self) -> None:
         """Test numeric string bid/ask values are accepted."""

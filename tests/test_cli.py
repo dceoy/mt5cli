@@ -638,20 +638,36 @@ class TestClosePositions:
         mocker.patch("mt5cli.cli.create_trading_client", return_value=client)
         return client
 
-    def test_dry_run_does_not_require_yes(
+    @pytest.mark.parametrize(
+        ("extra_args", "order_send_called"),
+        [
+            pytest.param(["--dry-run"], False, id="dry-run without --yes"),
+            pytest.param(["--dry-run", "--yes"], False, id="dry-run with --yes"),
+        ],
+    )
+    def test_dry_run_does_not_send_orders(
         self,
         tmp_path: Path,
         trading_client: MagicMock,
+        extra_args: list[str],
+        order_send_called: bool,
     ) -> None:
-        """Test --dry-run mode succeeds without --yes."""
+        """Test --dry-run mode succeeds and never sends orders."""
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
-            ["-o", str(output), "close-positions", "--symbol", "JP225", "--dry-run"],
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                *extra_args,
+            ],
         )
         assert result.exit_code == 0, result.output
         assert output.exists()
-        trading_client.order_send.assert_not_called()
+        assert trading_client.order_send.called == order_send_called
         trading_client.shutdown.assert_called_once()
 
     def test_live_requires_yes(
@@ -778,29 +794,6 @@ class TestClosePositions:
         )
         assert result.exit_code != 0
         client.shutdown.assert_called_once()
-
-    def test_dry_run_wins_over_yes(
-        self,
-        tmp_path: Path,
-        trading_client: MagicMock,
-    ) -> None:
-        """Test that --dry-run takes precedence when combined with --yes."""
-        output = tmp_path / "close.json"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "close-positions",
-                "--symbol",
-                "JP225",
-                "--dry-run",
-                "--yes",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        trading_client.order_send.assert_not_called()
-        trading_client.shutdown.assert_called_once()
 
     def test_no_matching_positions_exports_empty_result(
         self,
