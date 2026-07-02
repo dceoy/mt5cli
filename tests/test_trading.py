@@ -542,24 +542,32 @@ class TestDetermineOrderLimits:
 
     """Tests for ensure_symbol_selected."""
 
-    def test_skips_selection_when_symbol_is_visible(self) -> None:
-        """Test visible symbols do not call symbol_select."""
+    @pytest.mark.parametrize(
+        ("visible", "select_result", "expected_calls"),
+        [
+            (True, True, 0),
+            (False, True, 1),
+        ],
+        ids=["already-visible", "select-hidden"],
+    )
+    def test_ensure_symbol_selected_success_cases(
+        self,
+        visible: bool,
+        select_result: bool,
+        expected_calls: int,
+    ) -> None:
+        """Test symbol selection only occurs when the symbol is hidden."""
         client = MagicMock()
-        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.symbol_info_as_dict.return_value = {"visible": visible}
+        client.symbol_select.return_value = select_result
 
         ensure_symbol_selected(client, "EURUSD")
 
-        client.symbol_select.assert_not_called()
-
-    def test_selects_hidden_symbol_before_trading(self) -> None:
-        """Test hidden symbols are selected in Market Watch."""
-        client = MagicMock()
-        client.symbol_info_as_dict.return_value = {"visible": False}
-        client.symbol_select.return_value = True
-
-        ensure_symbol_selected(client, "EURUSD")
-
-        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        assert client.symbol_select.call_count == expected_calls
+        if expected_calls:
+            client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        else:
+            client.symbol_select.assert_not_called()
 
     def test_raises_when_symbol_selection_fails(self) -> None:
         """Test failed symbol selection raises Mt5TradingError."""
@@ -953,42 +961,6 @@ class TestCalculatePositionsMargin:
 
         _assert_close(calculate_positions_margin(client), 0.0)
 
-    def test_filters_by_symbols(self) -> None:
-        """Test optional symbol filter limits summed positions."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
-                {"symbol": "USDJPY", "type": 1, "volume": 0.2},
-            ],
-        )
-        client.symbol_info_tick_as_dict.side_effect = [
-            {"ask": 1.1010, "bid": 1.1000},
-            {"ask": 110.0, "bid": 109.0},
-        ]
-        client.order_calc_margin.side_effect = [12.5, 20.0]
-
-        margin = calculate_positions_margin(client, symbols=["EURUSD"])
-
-        _assert_close(margin, 12.5)
-        assert client.order_calc_margin.call_count == 1
-
-    def test_sums_mixed_buy_and_sell_positions(self) -> None:
-        """Test mixed buy/sell exposure sums each side independently."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
-                {"symbol": "EURUSD", "type": 1, "volume": 0.2},
-            ],
-        )
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.side_effect = [12.5, 24.8]
-
-        margin = calculate_positions_margin(client)
-
-        _assert_close(margin, 37.3)
-
     def test_groups_positions_by_symbol_and_side(self) -> None:
         """Test repeated symbol/side pairs use one margin call with summed volume."""
         client = _mock_trade_client()
@@ -1011,24 +983,80 @@ class TestCalculatePositionsMargin:
         _assert_close(args[2], 0.3)
         _assert_close(args[3], 1.1010)
 
-    def test_sums_multiple_symbols(self) -> None:
-        """Test positions across symbols are all included."""
+    @pytest.mark.parametrize(
+        (
+            "positions_records",
+            "tick_records",
+            "margin_values",
+            "symbols",
+            "expected",
+            "expected_margin_calls",
+        ),
+        [
+            (
+                [
+                    {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                    {"symbol": "USDJPY", "type": 1, "volume": 0.2},
+                ],
+                [
+                    {"ask": 1.1010, "bid": 1.1000},
+                    {"ask": 110.0, "bid": 109.0},
+                ],
+                [12.5, 20.0],
+                ["EURUSD"],
+                12.5,
+                1,
+            ),
+            (
+                [
+                    {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                    {"symbol": "EURUSD", "type": 1, "volume": 0.2},
+                ],
+                [
+                    {"ask": 1.1010, "bid": 1.1000},
+                    {"ask": 1.1010, "bid": 1.1000},
+                ],
+                [12.5, 24.8],
+                None,
+                37.3,
+                2,
+            ),
+            (
+                [
+                    {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                    {"symbol": "GBPUSD", "type": 1, "volume": 0.3},
+                ],
+                [
+                    {"ask": 1.1010, "bid": 1.1000},
+                    {"ask": 1.3010, "bid": 1.3000},
+                ],
+                [12.5, 30.0],
+                None,
+                42.5,
+                2,
+            ),
+        ],
+        ids=["filters-by-symbol", "mixed-buy-sell", "multiple-symbols"],
+    )
+    def test_sums_margin_for_normal_position_sets(
+        self,
+        positions_records: list[dict[str, object]],
+        tick_records: list[dict[str, float]],
+        margin_values: list[float],
+        symbols: list[str] | None,
+        expected: float,
+        expected_margin_calls: int,
+    ) -> None:
+        """Test standard valid position sets sum per-group margins correctly."""
         client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
-                {"symbol": "GBPUSD", "type": 1, "volume": 0.3},
-            ],
-        )
-        client.symbol_info_tick_as_dict.side_effect = [
-            {"ask": 1.1010, "bid": 1.1000},
-            {"ask": 1.3010, "bid": 1.3000},
-        ]
-        client.order_calc_margin.side_effect = [12.5, 30.0]
+        client.positions_get_as_df.return_value = pd.DataFrame(positions_records)
+        client.symbol_info_tick_as_dict.side_effect = tick_records
+        client.order_calc_margin.side_effect = margin_values
 
-        margin = calculate_positions_margin(client)
+        margin = calculate_positions_margin(client, symbols=symbols)
 
-        _assert_close(margin, 42.5)
+        _assert_close(margin, expected)
+        assert client.order_calc_margin.call_count == expected_margin_calls
 
     def test_propagates_invalid_tick_or_margin_errors(self) -> None:
         """Test invalid tick or margin data raises Mt5TradingError."""
@@ -1210,43 +1238,34 @@ class TestVolumeAndExecution:
         with pytest.raises(Mt5OperationError):
             calculate_volume_by_margin(client, "EURUSD", 100.0, "SELL")
 
-    def test_calculate_volume_by_margin_steps_down_when_margin_exceeds_budget(
+    @pytest.mark.parametrize(
+        ("volume_max", "budget", "margin_values", "expected"),
+        [
+            (1.0, 130.0, [25.0, 75.0, 100.0, 150.0], 0.4),
+            (0.5, 130.0, [10.0, 150.0, 150.0], 0.0),
+        ],
+        ids=["steps-down-to-affordable-boundary", "all-steps-unaffordable"],
+    )
+    def test_calculate_volume_by_margin_binary_search_affordability_boundaries(
         self,
+        volume_max: float,
+        budget: float,
+        margin_values: list[float],
+        expected: float,
     ) -> None:
-        """Tiered margin: binary search returns the largest affordable step."""
+        """Binary search returns the largest affordable step or zero when none fit."""
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {
             "volume_min": 0.1,
-            "volume_max": 1.0,
+            "volume_max": volume_max,
             "volume_step": 0.1,
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        # min_margin (0.1): 25.0 -> hi=4.
-        # Search: mid=2 (0.3)->75<=130, mid=3 (0.4)->100<=130, mid=4 (0.5)->150>130.
-        client.order_calc_margin.side_effect = [25.0, 75.0, 100.0, 150.0]
+        client.order_calc_margin.side_effect = margin_values
 
-        result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
+        result = calculate_volume_by_margin(client, "EURUSD", budget, "BUY")
 
-        _assert_close(result, 0.4)
-
-    def test_calculate_volume_by_margin_returns_zero_when_all_steps_unaffordable(
-        self,
-    ) -> None:
-        """If all binary-search probes exceed budget, returns zero."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {
-            "volume_min": 0.1,
-            "volume_max": 0.5,
-            "volume_step": 0.1,
-        }
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        # min_margin (0.1): 10.0 -> hi=4.
-        # Search: mid=2 (0.3)->150>130->hi=1, mid=0 (0.1)->150>130->hi=-1.
-        client.order_calc_margin.side_effect = [10.0, 150.0, 150.0]
-
-        result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
-
-        _assert_close(result, 0.0)
+        _assert_close(result, expected)
 
     def test_calculate_volume_by_margin_binary_search_is_bounded(self) -> None:
         """Binary search finds the largest affordable volume in O(log n) MT5 calls."""

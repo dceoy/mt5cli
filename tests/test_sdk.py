@@ -545,47 +545,58 @@ class TestMt5CliClient:
         with pytest.raises(ValueError, match="hours must be positive"):
             Mt5CliClient().recent_history_deals(0)
 
-    def test_mt5_summary_returns_status_mapping(
+    @pytest.mark.parametrize(
+        ("terminal_info_value", "account_info_value", "expected"),
+        [
+            (
+                {"connected": True},
+                {"login": 123},
+                {
+                    "version": [5, 0, 1],
+                    "terminal_info": {"connected": True},
+                    "account_info": {"login": 123},
+                    "symbols_total": 42,
+                },
+            ),
+            (
+                _TerminalInfo(
+                    connected=True,
+                    path="terminal.exe",
+                ),
+                _AccountInfo(
+                    login=123,
+                    limits={"modes": ("netting", "hedging"), "servers": ["demo"]},
+                ),
+                {
+                    "version": [5, 0, 1],
+                    "terminal_info": {"connected": True, "path": "terminal.exe"},
+                    "account_info": {
+                        "login": 123,
+                        "limits": {
+                            "modes": ["netting", "hedging"],
+                            "servers": ["demo"],
+                        },
+                    },
+                    "symbols_total": 42,
+                },
+            ),
+        ],
+        ids=["raw-mappings", "namedtuple-normalization"],
+    )
+    def test_mt5_summary_success_cases(
         self,
         mock_client: MagicMock,
+        terminal_info_value: object,
+        account_info_value: object,
+        expected: dict[str, object],
     ) -> None:
-        """Test mt5_summary calls raw terminal/account status methods."""
+        """Test mt5_summary returns normalized plain-Python status mappings."""
         mock_client.version.return_value = (5, 0, 1)
-        mock_client.terminal_info.return_value = {"connected": True}
-        mock_client.account_info.return_value = {"login": 123}
-        mock_client.symbols_total.return_value = 42
-        assert mt5_summary() == {
-            "version": [5, 0, 1],
-            "terminal_info": {"connected": True},
-            "account_info": {"login": 123},
-            "symbols_total": 42,
-        }
-
-    def test_mt5_summary_normalizes_namedtuple_values(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test mt5_summary returns structured plain Python values."""
-        mock_client.version.return_value = (5, 0, 1)
-        mock_client.terminal_info.return_value = _TerminalInfo(
-            connected=True,
-            path="terminal.exe",
-        )
-        mock_client.account_info.return_value = _AccountInfo(
-            login=123,
-            limits={"modes": ("netting", "hedging"), "servers": ["demo"]},
-        )
+        mock_client.terminal_info.return_value = terminal_info_value
+        mock_client.account_info.return_value = account_info_value
         mock_client.symbols_total.return_value = 42
 
-        assert mt5_summary() == {
-            "version": [5, 0, 1],
-            "terminal_info": {"connected": True, "path": "terminal.exe"},
-            "account_info": {
-                "login": 123,
-                "limits": {"modes": ["netting", "hedging"], "servers": ["demo"]},
-            },
-            "symbols_total": 42,
-        }
+        assert mt5_summary() == expected
 
     def test_mt5_summary_as_df_stringifies_nested_values(
         self,

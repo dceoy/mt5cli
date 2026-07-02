@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -594,23 +594,37 @@ class TestLoadRateData:
 class TestResolveHistorySettings:
     """Tests for history dataset and timeframe resolution."""
 
-    def test_resolve_history_datasets_defaults_and_empty(self) -> None:
-        """Test dataset resolution excludes ticks by default."""
-        resolved = resolve_history_datasets(None)
-        assert resolved == set(DEFAULT_HISTORY_DATASETS)
-        assert Dataset.ticks not in resolved
-        assert {
-            Dataset.rates,
-            Dataset.history_orders,
-            Dataset.history_deals,
-        } == resolved
-        assert resolve_history_datasets(set()) == set()
-
-    def test_resolve_history_datasets_explicit_ticks(self) -> None:
-        """Test that explicit ticks selection is honored."""
-        assert resolve_history_datasets({Dataset.ticks}) == {Dataset.ticks}
-        all_ds = resolve_history_datasets(set(Dataset))
-        assert Dataset.ticks in all_ds
+    @pytest.mark.parametrize(
+        ("datasets", "expected"),
+        [
+            (
+                None,
+                {
+                    Dataset.rates,
+                    Dataset.history_orders,
+                    Dataset.history_deals,
+                },
+            ),
+            (
+                cast("set[Dataset]", set()),
+                cast("set[Dataset]", set()),
+            ),
+            ({Dataset.ticks}, {Dataset.ticks}),
+            (set(Dataset), set(Dataset)),
+        ],
+        ids=["defaults", "empty", "explicit-ticks", "all-datasets"],
+    )
+    def test_resolve_history_datasets(
+        self,
+        datasets: set[Dataset] | None,
+        expected: set[Dataset],
+    ) -> None:
+        """Test dataset resolution defaults and explicit selections."""
+        resolved = resolve_history_datasets(datasets)
+        assert resolved == expected
+        if datasets is None:
+            assert resolved == set(DEFAULT_HISTORY_DATASETS)
+            assert Dataset.ticks not in resolved
 
     def test_resolve_history_timeframes_defaults(self) -> None:
         """Test default timeframes include all fixed MT5 values."""
