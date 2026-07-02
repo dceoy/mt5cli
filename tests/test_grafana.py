@@ -428,49 +428,42 @@ class TestGrafanaViews:
         else:
             assert rows == []
 
-    def test_snapshot_view_same_second_ok_and_error_no_cross_contamination(
+    @pytest.mark.parametrize(
+        ("observed_at", "runs", "expected_rows"),
+        [
+            pytest.param(
+                3000,
+                [("error", 99), ("ok", 12345)],
+                [(12345,)],
+                id="same-second-error-and-ok-exposes-only-ok-row",
+            ),
+            pytest.param(
+                4000,
+                [("ok", 1), ("ok", 2)],
+                [(1,), (2,)],
+                id="same-second-two-ok-runs-no-duplication",
+            ),
+        ],
+    )
+    def test_snapshot_view_same_second_runs(
         self,
         conn: sqlite3.Connection,
+        observed_at: int,
+        runs: list[tuple[str, int]],
+        expected_rows: list[tuple[int]],
     ) -> None:
-        """An ok and error run sharing observed_at expose only the ok run's rows."""
+        """Snapshot views join same-second rows by run_id."""
         create_snapshot_tables(conn)
-        run_err = start_snapshot_run(conn, 3000)
-        conn.execute(
-            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 99)",
-            (run_err,),
-        )
-        record_snapshot_run(conn, run_err, "error")
-        run_ok = start_snapshot_run(conn, 3000)
-        conn.execute(
-            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 12345)",
-            (run_ok,),
-        )
-        record_snapshot_run(conn, run_ok, "ok")
+        for status, login in runs:
+            run_id = start_snapshot_run(conn, observed_at)
+            conn.execute(
+                "INSERT INTO account_snapshots (run_id, login) VALUES (?, ?)",
+                (run_id, login),
+            )
+            record_snapshot_run(conn, run_id, status)
         create_grafana_views(conn)
         rows = conn.execute("SELECT login FROM grafana_account_snapshots").fetchall()
-        assert rows == [(12345,)]
-
-    def test_snapshot_view_two_ok_runs_same_second_no_duplication(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """Two ok runs sharing observed_at each produce exactly one row in the view."""
-        create_snapshot_tables(conn)
-        run1 = start_snapshot_run(conn, 4000)
-        conn.execute(
-            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 1)",
-            (run1,),
-        )
-        record_snapshot_run(conn, run1, "ok")
-        run2 = start_snapshot_run(conn, 4000)
-        conn.execute(
-            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 2)",
-            (run2,),
-        )
-        record_snapshot_run(conn, run2, "ok")
-        create_grafana_views(conn)
-        rows = conn.execute("SELECT login FROM grafana_account_snapshots").fetchall()
-        assert len(rows) == 2
+        assert rows == expected_rows
 
 
 # ---------------------------------------------------------------------------

@@ -2662,29 +2662,31 @@ class TestSubstituteMappingValues:
             ]
         }
 
-    def test_whole_dollar_expanded_with_opt_in(
+    @pytest.mark.parametrize(
+        ("allow_whole_dollar_env", "expected"),
+        [
+            pytest.param(None, "$MT5_PASSWORD", id="default-preserves-whole-dollar"),
+            pytest.param(True, "secret", id="opt-in-expands-whole-dollar"),
+        ],
+    )
+    def test_whole_dollar_env_handling(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        allow_whole_dollar_env: bool | None,
+        expected: str,
     ) -> None:
-        """Test $ENV_NAME is expanded when allow_whole_dollar_env=True."""
+        """Test $ENV_NAME handling for selected mapping keys."""
         monkeypatch.setenv("MT5_PASSWORD", "secret")
         data: dict[str, object] = {"mt5_password": "$MT5_PASSWORD"}
-        result = substitute_mapping_values(
-            data,
-            keys={"mt5_password"},
-            allow_whole_dollar_env=True,
-        )
-        assert result == {"mt5_password": "secret"}
-
-    def test_whole_dollar_not_expanded_by_default(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV_NAME in a selected key is preserved when opt-in is False."""
-        monkeypatch.setenv("MT5_PASSWORD", "secret")
-        data: dict[str, object] = {"mt5_password": "$MT5_PASSWORD"}
-        result = substitute_mapping_values(data, keys={"mt5_password"})
-        assert result == {"mt5_password": "$MT5_PASSWORD"}
+        if allow_whole_dollar_env is None:
+            result = substitute_mapping_values(data, keys={"mt5_password"})
+        else:
+            result = substitute_mapping_values(
+                data,
+                keys={"mt5_password"},
+                allow_whole_dollar_env=allow_whole_dollar_env,
+            )
+        assert result == {"mt5_password": expected}
 
     def test_blank_string_becomes_none_for_blank_keys(self) -> None:
         """Test blank strings are normalised to None for blank_string_keys_as_none."""
@@ -2857,35 +2859,29 @@ class TestUpdateObservability:
             row = conn.execute("SELECT status FROM snapshot_runs").fetchone()
         assert row == ("error",)
 
-    def test_update_observability_skips_ensure_grafana_schema_when_disabled(
+    @pytest.mark.parametrize(
+        ("with_grafana_schema", "expected_call_count"),
+        [
+            pytest.param(False, 0, id="grafana-schema-disabled"),
+            pytest.param(True, 1, id="grafana-schema-enabled"),
+        ],
+    )
+    def test_update_observability_grafana_schema_gate(
         self,
         mock_client: MagicMock,
         mocker: MockerFixture,
         tmp_path: Path,
+        with_grafana_schema: bool,
+        expected_call_count: int,
     ) -> None:
-        """with_grafana_schema=False does not call ensure_grafana_schema."""
+        """with_grafana_schema controls whether ensure_grafana_schema is called."""
         spy = mocker.spy(sdk, "ensure_grafana_schema")
         update_observability(
             client=mock_client,
             output=tmp_path / "obs.db",
-            with_grafana_schema=False,
+            with_grafana_schema=with_grafana_schema,
         )
-        spy.assert_not_called()
-
-    def test_update_observability_calls_ensure_grafana_schema_by_default(
-        self,
-        mock_client: MagicMock,
-        mocker: MockerFixture,
-        tmp_path: Path,
-    ) -> None:
-        """with_grafana_schema=True calls ensure_grafana_schema."""
-        spy = mocker.spy(sdk, "ensure_grafana_schema")
-        update_observability(
-            client=mock_client,
-            output=tmp_path / "obs.db",
-            with_grafana_schema=True,
-        )
-        spy.assert_called_once()
+        assert spy.call_count == expected_call_count
 
     @pytest.mark.parametrize(
         ("kwarg", "method"),
