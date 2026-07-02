@@ -75,6 +75,14 @@ def _make_history_deals_minimal(conn: sqlite3.Connection) -> None:
     )
 
 
+def _make_history_deals_symbol_pnl_minimal(conn: sqlite3.Connection) -> None:
+    """history_deals with entry but without volume and price columns."""
+    conn.execute(
+        "CREATE TABLE history_deals"
+        " (time TEXT, symbol TEXT, profit REAL, type INTEGER, entry INTEGER)"
+    )
+
+
 def _make_history_orders_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE TABLE history_orders"
@@ -260,30 +268,31 @@ class TestGrafanaViews:
         assert view_name not in _get_names(conn, "view")
         assert f"Skipping {view_name}" in caplog.text
 
-    def test_grafana_symbol_pnl_without_volume_and_price(
+    @pytest.mark.parametrize(
+        ("setup_deals", "optional_cols"),
+        [
+            pytest.param(
+                _make_history_deals_symbol_pnl_minimal, set[str](), id="minimal"
+            ),
+            pytest.param(
+                _make_history_deals_full,
+                {"volume", "price"},
+                id="full",
+            ),
+        ],
+    )
+    def test_grafana_symbol_pnl_schema(
         self,
         conn: sqlite3.Connection,
+        setup_deals: Callable[[sqlite3.Connection], None],
+        optional_cols: set[str],
     ) -> None:
-        """grafana_symbol_pnl is created with only required columns."""
-        conn.execute(
-            "CREATE TABLE history_deals"
-            " (time TEXT, symbol TEXT, profit REAL, type INTEGER, entry INTEGER)"
-        )
+        """grafana_symbol_pnl is created and includes optional columns when present."""
+        setup_deals(conn)
         create_grafana_views(conn)
         assert "grafana_symbol_pnl" in _get_names(conn, "view")
-
-    def test_grafana_symbol_pnl_with_volume_and_price(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """grafana_symbol_pnl includes volume and price columns when present."""
-        _make_history_deals_full(conn)
-        create_grafana_views(conn)
-        assert "grafana_symbol_pnl" in _get_names(conn, "view")
-        # View columns include volume and price
         cols = {row[1] for row in conn.execute("PRAGMA table_info(grafana_symbol_pnl)")}
-        assert "volume" in cols
-        assert "price" in cols
+        assert optional_cols.issubset(cols)
 
     @pytest.mark.parametrize(
         "setup_deals",

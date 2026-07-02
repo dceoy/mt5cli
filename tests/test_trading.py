@@ -1803,12 +1803,21 @@ class TestVolumeAndExecution:
         with pytest.raises(Mt5OperationError, match="Account equity"):
             calculate_projected_margin_ratio(client, symbol="EURUSD")
 
-    def test_symbol_group_margin_ratio_suppresses_projected_failure(
+    @pytest.mark.parametrize(
+        ("suppress_errors", "expected_ratio"),
+        [
+            pytest.param(True, 0.0, id="suppresses"),
+            pytest.param(False, None, id="reraises"),
+        ],
+    )
+    def test_symbol_group_margin_ratio_add_mode_projected_failure(
         self,
+        suppress_errors: bool,
+        expected_ratio: float | None,
         mocker: MockerFixture,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test projected margin failures can be skipped for safe group reads."""
+        """Test add-mode projected margin failures suppress or reraise."""
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"equity": 1000.0}
         mocker.patch(
@@ -1820,34 +1829,19 @@ class TestVolumeAndExecution:
             side_effect=Mt5OperationError("bad tick"),
         )
 
-        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
-            result = calculate_symbol_group_margin_ratio(
-                client,
-                symbols=["EURUSD"],
-                new_symbol="EURUSD",
-                new_position_side="BUY",
-                new_position_volume=0.1,
-                suppress_errors=True,
-            )
-
-        _assert_close(result, 0.0)
-        assert "Skipping projected margin" in caplog.text
-
-    def test_symbol_group_margin_ratio_reraises_projected_failure(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test projected margin failures raise when suppression is disabled."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0}
-        mocker.patch(
-            "mt5cli.trading.calculate_positions_margin_by_symbol",
-            return_value={},
-        )
-        mocker.patch(
-            "mt5cli.trading.estimate_order_margin",
-            side_effect=Mt5OperationError("bad tick"),
-        )
+        if suppress_errors:
+            with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+                result = calculate_symbol_group_margin_ratio(
+                    client,
+                    symbols=["EURUSD"],
+                    new_symbol="EURUSD",
+                    new_position_side="BUY",
+                    new_position_volume=0.1,
+                    suppress_errors=True,
+                )
+            _assert_close(result, cast("float", expected_ratio))
+            assert "Skipping projected margin" in caplog.text
+            return
 
         with pytest.raises(Mt5OperationError, match="bad tick"):
             calculate_symbol_group_margin_ratio(
@@ -1956,12 +1950,21 @@ class TestVolumeAndExecution:
 
         _assert_close(result, 0.04)
 
-    def test_symbol_group_margin_ratio_replace_suppresses_candidate_failure(
+    @pytest.mark.parametrize(
+        ("suppress_errors", "expected_ratio"),
+        [
+            pytest.param(True, 0.025, id="suppresses"),
+            pytest.param(False, None, id="reraises"),
+        ],
+    )
+    def test_symbol_group_margin_ratio_replace_mode_candidate_failure(
         self,
+        suppress_errors: bool,
+        expected_ratio: float | None,
         mocker: MockerFixture,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test replace mode skips both subtract and add when estimation fails."""
+        """Test replace-mode candidate failures suppress or reraise."""
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"equity": 1000.0}
         mocker.patch(
@@ -1973,36 +1976,21 @@ class TestVolumeAndExecution:
             side_effect=Mt5OperationError("bad tick"),
         )
 
-        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
-            result = calculate_symbol_group_margin_ratio(
-                client,
-                symbols=["EURUSD"],
-                new_symbol="EURUSD",
-                new_position_side="BUY",
-                new_position_volume=0.1,
-                projection_mode="replace_symbol",
-                suppress_errors=True,
-            )
-
-        # When candidate fails, neither subtraction nor addition is applied
-        _assert_close(result, 0.025)
-        assert "Skipping projected margin" in caplog.text
-
-    def test_symbol_group_margin_ratio_replace_reraises_candidate_failure(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test replace mode re-raises candidate failure when suppress_errors=False."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0}
-        mocker.patch(
-            "mt5cli.trading.calculate_positions_margin_by_symbol",
-            return_value={"EURUSD": 25.0},
-        )
-        mocker.patch(
-            "mt5cli.trading.estimate_order_margin",
-            side_effect=Mt5OperationError("bad tick"),
-        )
+        if suppress_errors:
+            with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+                result = calculate_symbol_group_margin_ratio(
+                    client,
+                    symbols=["EURUSD"],
+                    new_symbol="EURUSD",
+                    new_position_side="BUY",
+                    new_position_volume=0.1,
+                    projection_mode="replace_symbol",
+                    suppress_errors=True,
+                )
+            # When candidate fails, neither subtraction nor addition is applied
+            _assert_close(result, cast("float", expected_ratio))
+            assert "Skipping projected margin" in caplog.text
+            return
 
         with pytest.raises(Mt5OperationError, match="bad tick"):
             calculate_symbol_group_margin_ratio(
@@ -2242,7 +2230,29 @@ class TestVolumeAndExecution:
         assert result["retcode"] == expected_retcode
         assert result["status"] == "failed"
 
-    def test_close_open_positions_filters_and_dry_runs(self) -> None:
+    @pytest.mark.parametrize(
+        ("filter_kwargs", "expected_order_side", "expected_position"),
+        [
+            pytest.param(
+                {"symbols": "EURUSD"},
+                "SELL",
+                1,
+                id="filter-by-symbol",
+            ),
+            pytest.param(
+                {"tickets": [2]},
+                "BUY",
+                None,
+                id="filter-by-ticket",
+            ),
+        ],
+    )
+    def test_close_open_positions_filters_and_dry_runs(
+        self,
+        filter_kwargs: dict[str, object],
+        expected_order_side: str,
+        expected_position: int | None,
+    ) -> None:
         """Test close helper filters positions and builds opposite orders."""
         client = _mock_trade_client()
         client.positions_get_as_df.return_value = pd.DataFrame(
@@ -2253,27 +2263,14 @@ class TestVolumeAndExecution:
         )
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
 
-        result = close_open_positions(client, symbols="EURUSD", dry_run=True)
-
-        assert len(result) == 1
-        assert result[0]["order_side"] == "SELL"
-        assert _request_from_result(result[0])["position"] == 1
-
-    def test_close_open_positions_filters_by_ticket(self) -> None:
-        """Test close helper can filter by ticket."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1},
-                {"ticket": 2, "symbol": "USDJPY", "type": 1, "volume": 0.2},
-            ],
+        result = close_open_positions(
+            client, dry_run=True, **cast("Any", filter_kwargs)
         )
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-
-        result = close_open_positions(client, tickets=[2], dry_run=True)
 
         assert len(result) == 1
-        assert result[0]["order_side"] == "BUY"
+        assert result[0]["order_side"] == expected_order_side
+        if expected_position is not None:
+            assert _request_from_result(result[0])["position"] == expected_position
 
     def test_close_open_positions_sends_position_ticket(self) -> None:
         """Test live close orders include the position before order_send."""

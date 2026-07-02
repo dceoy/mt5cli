@@ -504,12 +504,24 @@ class TestLoadRateData:
             frame = load_rate_data_from_connection(conn, table)
         assert list(frame["close"]) == [1.0]
 
-    def test_rejects_missing_database_and_non_file(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("db_path", "match"),
+        [
+            pytest.param(
+                "missing.db", "SQLite database not found", id="missing-database"
+            ),
+            pytest.param(".", "not a file", id="non-file"),
+        ],
+    )
+    def test_rejects_missing_database_and_non_file(
+        self,
+        tmp_path: Path,
+        db_path: str,
+        match: str,
+    ) -> None:
         """Test path validation for SQLite database inputs."""
-        with pytest.raises(ValueError, match="SQLite database not found"):
-            load_rate_data(tmp_path / "missing.db", "rates")
-        with pytest.raises(ValueError, match="not a file"):
-            load_rate_data(tmp_path, "rates")
+        with pytest.raises(ValueError, match=match):
+            load_rate_data(tmp_path / db_path, "rates")
 
     @pytest.mark.parametrize(
         ("table", "count", "match"),
