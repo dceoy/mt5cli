@@ -157,21 +157,37 @@ class TestExportDataframeToSqlite:
         ("first_if_exists", "second_if_exists"),
         [
             pytest.param(IfExists.REPLACE, IfExists.APPEND, id="replace-then-append"),
-            pytest.param(IfExists.APPEND, IfExists.APPEND, id="default-append"),
+            pytest.param(None, None, id="default-append"),
         ],
     )
     def test_append_preserves_existing_rows(
         self,
         tmp_path: Path,
-        first_if_exists: IfExists,
-        second_if_exists: IfExists,
+        first_if_exists: IfExists | None,
+        second_if_exists: IfExists | None,
     ) -> None:
         """Test explicit append and default append modes keep prior rows."""
         output = tmp_path / "append.db"
         first = pd.DataFrame({"id": [1], "value": ["a"]})
         second = pd.DataFrame({"id": [2], "value": ["b"]})
-        export_dataframe_to_sqlite(first, output, "items", if_exists=first_if_exists)
-        export_dataframe_to_sqlite(second, output, "items", if_exists=second_if_exists)
+        if first_if_exists is None:
+            export_dataframe_to_sqlite(first, output, "items")
+        else:
+            export_dataframe_to_sqlite(
+                first,
+                output,
+                "items",
+                if_exists=first_if_exists,
+            )
+        if second_if_exists is None:
+            export_dataframe_to_sqlite(second, output, "items")
+        else:
+            export_dataframe_to_sqlite(
+                second,
+                output,
+                "items",
+                if_exists=second_if_exists,
+            )
         with sqlite3.connect(output) as conn:
             result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
                 "SELECT id, value FROM items ORDER BY id",
