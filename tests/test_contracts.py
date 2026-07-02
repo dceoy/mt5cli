@@ -224,10 +224,18 @@ def test_parse_date_range_rejects_inverted_bounds() -> None:
         parse_date_range("2024-02-01", "2024-01-01")
 
 
-def test_recent_window_builds_trailing_bounds() -> None:
-    """Recent windows end at the provided timestamp."""
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"hours": 24},
+        {"seconds": 3600},
+    ],
+    ids=["hours", "seconds"],
+)
+def test_recent_window_success_cases(kwargs: dict[str, int]) -> None:
+    """Recent windows end at the provided timestamp for both duration inputs."""
     end = datetime(2024, 1, 2, tzinfo=UTC)
-    start, resolved_end = recent_window(hours=24, date_to=end)
+    start, resolved_end = recent_window(date_to=end, **kwargs)
     assert resolved_end == end
     assert start < end
 
@@ -339,22 +347,22 @@ def test_ensure_utc_handles_naive_and_aware_datetimes() -> None:
     assert ensure_utc("2024-01-01T00:00:00+00:00").tzinfo == UTC
 
 
-def test_recent_window_validation_errors() -> None:
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({}, "exactly one"),
+        ({"hours": 1, "seconds": 1}, "exactly one"),
+        ({"hours": 0}, "positive"),
+    ],
+    ids=["no-duration", "both-hours-and-seconds", "non-positive-duration"],
+)
+def test_recent_window_validation_errors(
+    kwargs: dict[str, object],
+    match: str,
+) -> None:
     """Recent window helpers validate mutually exclusive length arguments."""
-    with pytest.raises(ValueError, match="exactly one"):
-        recent_window()
-    with pytest.raises(ValueError, match="exactly one"):
-        recent_window(hours=1, seconds=1)
-    with pytest.raises(ValueError, match="positive"):
-        recent_window(hours=0)
-
-
-def test_recent_window_supports_seconds_argument() -> None:
-    """Recent windows can be built from a seconds-based length."""
-    end = datetime(2024, 1, 2, tzinfo=UTC)
-    start, resolved_end = recent_window(seconds=3600, date_to=end)
-    assert resolved_end == end
-    assert start < end
+    with pytest.raises(ValueError, match=match):
+        recent_window(**kwargs)  # type: ignore[arg-type]
 
 
 def test_parse_date_range_returns_ordered_bounds() -> None:

@@ -14,6 +14,7 @@ from pdmt5 import Mt5RuntimeError, Mt5TradingError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from pdmt5 import Mt5Config, Mt5DataClient
@@ -65,7 +66,7 @@ from mt5cli.sdk import (
     update_observability_with_config,
     version,
 )
-from mt5cli.utils import Dataset, IfExists, coerce_login
+from mt5cli.utils import Dataset, IfExists, coerce_login, parse_timeframe
 
 
 class _TerminalInfo(NamedTuple):
@@ -171,6 +172,10 @@ def _build_history_client(mocker: MockerFixture) -> MagicMock:
     return client
 
 
+def _mt5_cli_client_with_injected_client(connected: MagicMock) -> Mt5CliClient:
+    return Mt5CliClient(client=connected)
+
+
 class TestConnectionLifecycle:
     """Tests for MT5 connection lifecycle helpers."""
 
@@ -254,12 +259,34 @@ class TestConnectionLifecycle:
         client = Mt5CliClient()
         client.__exit__(None, None, None)
 
-    def test_injected_client_is_reused_and_not_shutdown(self) -> None:
-        """Test injected connected clients are not initialized or shut down."""
+    @pytest.mark.parametrize(
+        "make_client",
+        [
+            pytest.param(
+                Mt5CliClient.from_connected_client,
+                id="from-connected-client-classmethod",
+            ),
+            pytest.param(
+                _mt5_cli_client_with_injected_client,
+                id="constructor-client-kwarg",
+            ),
+        ],
+    )
+    def test_injected_client_is_reused_and_not_shutdown(
+        self,
+        make_client: Callable[[MagicMock], Mt5CliClient],
+    ) -> None:
+        """Test injected connected clients are not initialized or shut down.
+
+        Both the from_connected_client classmethod and the constructor's
+        client kwarg must produce the same non-owning lifecycle: no login or
+        shutdown of the injected client, and continued usability after the
+        context manager exits.
+        """
         connected = MagicMock()
         connected.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
         connected.terminal_info_as_df.return_value = pd.DataFrame({"b": [2]})
-        with Mt5CliClient.from_connected_client(connected) as client:
+        with make_client(connected) as client:
             result = client.account_info()
         assert result.to_dict("list") == {"a": [1]}
         connected.initialize_and_login_mt5.assert_not_called()
@@ -268,17 +295,6 @@ class TestConnectionLifecycle:
         after_exit = client.terminal_info()
         assert after_exit.to_dict("list") == {"b": [2]}
         connected.terminal_info_as_df.assert_called_once()
-
-    def test_constructor_injected_client_is_reused_and_not_shutdown(self) -> None:
-        """Test constructor injection has the same non-owning lifecycle."""
-        connected = MagicMock()
-        connected.terminal_info_as_df.return_value = pd.DataFrame({"b": [2]})
-        client = Mt5CliClient(client=connected)
-        with client:
-            result = client.terminal_info()
-        assert result.to_dict("list") == {"b": [2]}
-        connected.initialize_and_login_mt5.assert_not_called()
-        connected.shutdown.assert_not_called()
 
 
 class TestModuleFunctions:
@@ -339,55 +355,81 @@ class TestModuleFunctions:
 class TestMt5CliClient:
     """Tests for Mt5CliClient SDK methods."""
 
-    def test_copy_rates_range_returns_dataframe(
+    @pytest.mark.parametrize(
+        ("call", "expected_method", "expected_kwargs"),
+        [
+            pytest.param(
+                lambda: Mt5CliClient().copy_rates_range(
+                    "EURUSD",
+                    "D1",
+                    "2024-01-01",
+                    "2024-02-01",
+                ),
+                "copy_rates_range_as_df",
+                {
+                    "symbol": "EURUSD",
+                    "timeframe": 16408,
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                },
+                id="copy_rates_range-normalizes-dates-and-timeframe",
+            ),
+            pytest.param(
+                lambda: Mt5CliClient().copy_ticks_from(
+                    "EURUSD",
+                    "2024-01-01",
+                    100,
+                    "INFO",
+                ),
+                "copy_ticks_from_as_df",
+                {
+                    "symbol": "EURUSD",
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "count": 100,
+                    "flags": 1,
+                },
+                id="copy_ticks_from-parses-string-flags",
+            ),
+            pytest.param(
+                lambda: Mt5CliClient().history_orders(
+                    date_from="2024-01-01",
+                    date_to="2024-02-01",
+                ),
+                "history_orders_get_as_df",
+                {
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                    "group": None,
+                    "symbol": None,
+                    "ticket": None,
+                    "position": None,
+                },
+                id="history_orders-parses-string-dates",
+            ),
+            pytest.param(
+                lambda: Mt5CliClient().latest_rates("EURUSD", "M1", 5, start_pos=2),
+                "copy_rates_from_pos_as_df",
+                {
+                    "symbol": "EURUSD",
+                    "timeframe": 1,
+                    "start_pos": 2,
+                    "count": 5,
+                },
+                id="latest_rates-wraps-copy_rates_from_pos",
+            ),
+        ],
+    )
+    def test_method_delegates_with_normalization(
         self,
         mock_client: MagicMock,
+        call: Callable[[], object],
+        expected_method: str,
+        expected_kwargs: dict[str, object],
     ) -> None:
-        """Test that copy_rates_range returns a DataFrame."""
-        df = Mt5CliClient().copy_rates_range(
-            "EURUSD",
-            "D1",
-            "2024-01-01",
-            "2024-02-01",
-        )
-        assert isinstance(df, pd.DataFrame)
-        mock_client.copy_rates_range_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            timeframe=16408,
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
-        )
-
-    def test_copy_ticks_from_parses_flags(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test that string tick flags are parsed."""
-        Mt5CliClient().copy_ticks_from("EURUSD", "2024-01-01", 100, "INFO")
-        mock_client.copy_ticks_from_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            count=100,
-            flags=1,
-        )
-
-    def test_history_orders_accepts_string_dates(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test that string datetime inputs are parsed."""
-        Mt5CliClient().history_orders(
-            date_from="2024-01-01",
-            date_to="2024-02-01",
-        )
-        mock_client.history_orders_get_as_df.assert_called_once_with(
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
-            group=None,
-            symbol=None,
-            ticket=None,
-            position=None,
-        )
+        """Mt5CliClient methods normalize inputs and forward them on."""
+        result = call()
+        assert isinstance(result, pd.DataFrame)
+        getattr(mock_client, expected_method).assert_called_once_with(**expected_kwargs)
 
     def test_module_function_delegates_to_client(
         self,
@@ -402,19 +444,6 @@ class TestMt5CliClient:
         )
         assert isinstance(df, pd.DataFrame)
         mock_client.copy_rates_range_as_df.assert_called_once()
-
-    def test_latest_rates_delegates_to_copy_rates_from_pos(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test latest_rates is a convenience wrapper for positional rates."""
-        Mt5CliClient().latest_rates("EURUSD", "M1", 5, start_pos=2)
-        mock_client.copy_rates_from_pos_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            timeframe=1,
-            start_pos=2,
-            count=5,
-        )
 
     def test_latest_rates_rejects_non_positive_count(self) -> None:
         """Test latest_rates validates count."""
@@ -516,47 +545,58 @@ class TestMt5CliClient:
         with pytest.raises(ValueError, match="hours must be positive"):
             Mt5CliClient().recent_history_deals(0)
 
-    def test_mt5_summary_returns_status_mapping(
+    @pytest.mark.parametrize(
+        ("terminal_info_value", "account_info_value", "expected"),
+        [
+            (
+                {"connected": True},
+                {"login": 123},
+                {
+                    "version": [5, 0, 1],
+                    "terminal_info": {"connected": True},
+                    "account_info": {"login": 123},
+                    "symbols_total": 42,
+                },
+            ),
+            (
+                _TerminalInfo(
+                    connected=True,
+                    path="terminal.exe",
+                ),
+                _AccountInfo(
+                    login=123,
+                    limits={"modes": ("netting", "hedging"), "servers": ["demo"]},
+                ),
+                {
+                    "version": [5, 0, 1],
+                    "terminal_info": {"connected": True, "path": "terminal.exe"},
+                    "account_info": {
+                        "login": 123,
+                        "limits": {
+                            "modes": ["netting", "hedging"],
+                            "servers": ["demo"],
+                        },
+                    },
+                    "symbols_total": 42,
+                },
+            ),
+        ],
+        ids=["raw-mappings", "namedtuple-normalization"],
+    )
+    def test_mt5_summary_success_cases(
         self,
         mock_client: MagicMock,
+        terminal_info_value: object,
+        account_info_value: object,
+        expected: dict[str, object],
     ) -> None:
-        """Test mt5_summary calls raw terminal/account status methods."""
+        """Test mt5_summary returns normalized plain-Python status mappings."""
         mock_client.version.return_value = (5, 0, 1)
-        mock_client.terminal_info.return_value = {"connected": True}
-        mock_client.account_info.return_value = {"login": 123}
-        mock_client.symbols_total.return_value = 42
-        assert mt5_summary() == {
-            "version": [5, 0, 1],
-            "terminal_info": {"connected": True},
-            "account_info": {"login": 123},
-            "symbols_total": 42,
-        }
-
-    def test_mt5_summary_normalizes_namedtuple_values(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test mt5_summary returns structured plain Python values."""
-        mock_client.version.return_value = (5, 0, 1)
-        mock_client.terminal_info.return_value = _TerminalInfo(
-            connected=True,
-            path="terminal.exe",
-        )
-        mock_client.account_info.return_value = _AccountInfo(
-            login=123,
-            limits={"modes": ("netting", "hedging"), "servers": ["demo"]},
-        )
+        mock_client.terminal_info.return_value = terminal_info_value
+        mock_client.account_info.return_value = account_info_value
         mock_client.symbols_total.return_value = 42
 
-        assert mt5_summary() == {
-            "version": [5, 0, 1],
-            "terminal_info": {"connected": True, "path": "terminal.exe"},
-            "account_info": {
-                "login": 123,
-                "limits": {"modes": ["netting", "hedging"], "servers": ["demo"]},
-            },
-            "symbols_total": 42,
-        }
+        assert mt5_summary() == expected
 
     def test_mt5_summary_as_df_stringifies_nested_values(
         self,
@@ -587,28 +627,32 @@ class TestMt5CliClient:
             "symbols_total": 42,
         }
 
-    def test_mt5_summary_missing_method_raises_clear_error(self) -> None:
-        """Test mt5_summary fails clearly when a required method is missing."""
-        client = Mt5CliClient(
-            client=cast("Mt5DataClient", _MissingSummaryMethodClient()),
-        )
+    @pytest.mark.parametrize(
+        ("client_cls", "exc", "match"),
+        [
+            (
+                _MissingSummaryMethodClient,
+                AttributeError,
+                "MT5 client is missing required method: account_info",
+            ),
+            (
+                _NonCallableSummaryMethodClient,
+                TypeError,
+                "MT5 client attribute is not callable: version",
+            ),
+        ],
+        ids=["missing-method", "non-callable-method"],
+    )
+    def test_mt5_summary_rejects_bad_client(
+        self,
+        client_cls: type[object],
+        exc: type[BaseException],
+        match: str,
+    ) -> None:
+        """Test mt5_summary fails clearly when a required method is bad."""
+        client = Mt5CliClient(client=cast("Mt5DataClient", client_cls()))
 
-        with pytest.raises(
-            AttributeError,
-            match="MT5 client is missing required method: account_info",
-        ):
-            client.mt5_summary()
-
-    def test_mt5_summary_non_callable_method_raises_clear_error(self) -> None:
-        """Test mt5_summary fails clearly when a required method is not callable."""
-        client = Mt5CliClient(
-            client=cast("Mt5DataClient", _NonCallableSummaryMethodClient()),
-        )
-
-        with pytest.raises(
-            TypeError,
-            match="MT5 client attribute is not callable: version",
-        ):
+        with pytest.raises(exc, match=match):
             client.mt5_summary()
 
 
@@ -620,21 +664,62 @@ class TestCollectHistory:
         """Create a mocked Mt5DataClient with history-style DataFrames."""
         return _build_history_client(mocker)
 
-    def test_collect_history_writes_default_tables(
+    @pytest.mark.parametrize(
+        (
+            "datasets",
+            "expected_rates_calls",
+            "expected_ticks_calls",
+            "required_tables",
+            "forbidden_table",
+        ),
+        [
+            pytest.param(
+                None,
+                2,
+                0,
+                {"rates", "history_orders", "history_deals"},
+                "ticks",
+                id="default-excludes-ticks",
+            ),
+            pytest.param(
+                {Dataset.ticks},
+                0,
+                2,
+                {"ticks"},
+                "rates",
+                id="explicit-ticks",
+            ),
+        ],
+    )
+    def test_collect_history_default_and_ticks_dataset(
         self,
         tmp_path: Path,
         history_client: MagicMock,
+        datasets: set[Dataset] | None,
+        expected_rates_calls: int,
+        expected_ticks_calls: int,
+        required_tables: set[str],
+        forbidden_table: str,
     ) -> None:
-        """Test that collect_history default excludes ticks."""
+        """Test default vs explicit ticks dataset selection for collect_history."""
         output = tmp_path / "history.db"
-        collect_history(
-            output,
-            ["EURUSD", "GBPUSD"],
-            "2024-01-01",
-            "2024-02-01",
-        )
-        assert history_client.copy_rates_range_as_df.call_count == 2
-        assert history_client.copy_ticks_range_as_df.call_count == 0
+        if datasets is None:
+            collect_history(
+                output,
+                ["EURUSD", "GBPUSD"],
+                "2024-01-01",
+                "2024-02-01",
+            )
+        else:
+            collect_history(
+                output,
+                ["EURUSD", "GBPUSD"],
+                "2024-01-01",
+                "2024-02-01",
+                datasets=datasets,
+            )
+        assert history_client.copy_rates_range_as_df.call_count == expected_rates_calls
+        assert history_client.copy_ticks_range_as_df.call_count == expected_ticks_calls
         with sqlite3.connect(output) as conn:
             tables = {
                 row[0]
@@ -642,34 +727,8 @@ class TestCollectHistory:
                     "SELECT name FROM sqlite_master WHERE type='table'",
                 ).fetchall()
             }
-        assert {"rates", "history_orders", "history_deals"} <= tables
-        assert "ticks" not in tables
-
-    def test_collect_history_explicit_ticks_dataset(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,
-    ) -> None:
-        """Test that explicit datasets={Dataset.ticks} writes the ticks table."""
-        output = tmp_path / "history.db"
-        collect_history(
-            output,
-            ["EURUSD", "GBPUSD"],
-            "2024-01-01",
-            "2024-02-01",
-            datasets={Dataset.ticks},
-        )
-        assert history_client.copy_ticks_range_as_df.call_count == 2
-        assert history_client.copy_rates_range_as_df.call_count == 0
-        with sqlite3.connect(output) as conn:
-            tables = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'",
-                ).fetchall()
-            }
-        assert "ticks" in tables
-        assert "rates" not in tables
+        assert required_tables <= tables
+        assert forbidden_table not in tables
 
     def test_collect_history_with_views(
         self,
@@ -832,41 +891,47 @@ class TestUpdateHistory:
                 "SELECT name FROM sqlite_master WHERE name = 'cash_events'",
             ).fetchone() == ("cash_events",)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"symbols": []}, "At least one symbol"),
+            (
+                {"symbols": ["EURUSD"], "lookback_hours": 0},
+                "lookback_hours must be positive",
+            ),
+            (
+                {
+                    "symbols": ["EURUSD"],
+                    "datasets": {Dataset.rates},
+                    "timeframes": ["BAD"],
+                },
+                "Invalid timeframe",
+            ),
+            (
+                {
+                    "symbols": ["EURUSD"],
+                    "datasets": {Dataset.ticks},
+                    "flags": "BAD",
+                },
+                "Invalid tick flags",
+            ),
+        ],
+        ids=["empty-symbols", "non-positive-lookback", "bad-timeframe", "bad-flags"],
+    )
     def test_update_history_rejects_invalid_inputs(
         self,
         connected_client: MagicMock,
         tmp_path: Path,
+        kwargs: dict[str, object],
+        match: str,
     ) -> None:
         """Test validation errors for incremental history updates."""
         output = tmp_path / "invalid-update.db"
-        with pytest.raises(ValueError, match="At least one symbol"):
+        with pytest.raises(ValueError, match=match):
             update_history(
                 client=connected_client,
                 output=output,
-                symbols=[],
-            )
-        with pytest.raises(ValueError, match="lookback_hours must be positive"):
-            update_history(
-                client=connected_client,
-                output=output,
-                symbols=["EURUSD"],
-                lookback_hours=0,
-            )
-        with pytest.raises(ValueError, match="Invalid timeframe"):
-            update_history(
-                client=connected_client,
-                output=output,
-                symbols=["EURUSD"],
-                datasets={Dataset.rates},
-                timeframes=["BAD"],
-            )
-        with pytest.raises(ValueError, match="Invalid tick flags"):
-            update_history(
-                client=connected_client,
-                output=output,
-                symbols=["EURUSD"],
-                datasets={Dataset.ticks},
-                flags="BAD",
+                **kwargs,  # type: ignore[arg-type]
             )
 
     def test_update_history_noops_for_empty_datasets(
@@ -887,13 +952,23 @@ class TestUpdateHistory:
         writer.assert_not_called()
         connect.assert_not_called()
 
-    def test_update_history_uses_all_default_timeframes(
+    @pytest.mark.parametrize(
+        ("timeframes", "expected"),
+        [
+            (None, [parse_timeframe(t) for t in DEFAULT_HISTORY_TIMEFRAMES]),
+            (["M1", "H1"], [1, 16385]),
+        ],
+        ids=["default", "specified"],
+    )
+    def test_update_history_resolves_timeframes(
         self,
         connected_client: MagicMock,
         mocker: MockerFixture,
         tmp_path: Path,
+        timeframes: list[str] | None,
+        expected: list[int],
     ) -> None:
-        """Test that timeframes=None writes rates for all default MT5 timeframes."""
+        """Test update_history writes all default or specified rate timeframes."""
         timeframes_written: list[int] = []
 
         def capture(
@@ -906,42 +981,14 @@ class TestUpdateHistory:
         mocker.patch("mt5cli.sdk.write_incremental_datasets", side_effect=capture)
         update_history(
             client=connected_client,
-            output=tmp_path / "default-timeframes.db",
+            output=tmp_path / "timeframes.db",
             symbols=["EURUSD"],
             datasets={Dataset.rates},
-            timeframes=None,
+            timeframes=timeframes,
             lookback_hours=1,
             date_to=datetime(2024, 1, 1, tzinfo=UTC),
         )
-        assert len(timeframes_written) == len(DEFAULT_HISTORY_TIMEFRAMES)
-
-    def test_update_history_uses_specified_timeframes(
-        self,
-        connected_client: MagicMock,
-        mocker: MockerFixture,
-        tmp_path: Path,
-    ) -> None:
-        """Test explicit timeframes limit rate updates."""
-        timeframes_written: list[int] = []
-
-        def capture(
-            *args: object,
-            **_kwargs: object,
-        ) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
-            timeframes_written.extend(args[4])  # type: ignore[arg-type]
-            return set(), {}
-
-        mocker.patch("mt5cli.sdk.write_incremental_datasets", side_effect=capture)
-        update_history(
-            client=connected_client,
-            output=tmp_path / "specific-timeframes.db",
-            symbols=["EURUSD"],
-            datasets={Dataset.rates},
-            timeframes=["M1", "H1"],
-            lookback_hours=1,
-            date_to=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert timeframes_written == [1, 16385]
+        assert timeframes_written == expected
 
     def test_update_history_updates_ticks_and_orders(
         self,
@@ -1601,18 +1648,31 @@ class TestCollectLatestClosedRatesForAccounts:
             pd.DataFrame({"time": [1, 2], "close": [1.1, 1.2]}),
         )
 
-    def test_rejects_forming_bar_only_frames(self, mocker: MockerFixture) -> None:
-        """Test empty results after dropping the forming bar raise ValueError."""
+    @pytest.mark.parametrize(
+        ("rates_frame", "kwargs"),
+        [
+            (pd.DataFrame({"time": [1], "close": [1.1]}), {"count": 1}),
+            (pd.DataFrame(columns=["time", "close"]), {"count": 1, "start_pos": 1}),
+        ],
+        ids=["forming-bar-only", "empty-start-pos-nonzero"],
+    )
+    def test_rejects_empty_effective_frames(
+        self,
+        mocker: MockerFixture,
+        rates_frame: pd.DataFrame,
+        kwargs: dict[str, object],
+    ) -> None:
+        """Test empty effective frames raise after start_pos/forming-bar handling."""
         mocker.patch(
             "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
-            return_value={("EURUSD", 1): pd.DataFrame({"time": [1], "close": [1.1]})},
+            return_value={("EURUSD", 1): rates_frame},
         )
 
         with pytest.raises(ValueError, match="Rate data is empty"):
             collect_latest_closed_rates_for_accounts(
                 [AccountSpec(symbols=["EURUSD"])],
                 ["M1"],
-                count=1,
+                **kwargs,  # type: ignore[arg-type]
             )
 
     def test_skips_extra_fetch_when_start_pos_nonzero(
@@ -1644,54 +1704,33 @@ class TestCollectLatestClosedRatesForAccounts:
         )
         pd.testing.assert_frame_equal(result["EURUSD", 1], df_rate)
 
-    def test_rejects_zero_count_before_fetching(self, mocker: MockerFixture) -> None:
-        """Test count=0 is rejected before any MT5 collection attempt."""
-        wrapped = mocker.patch(
-            "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
-        )
-
-        with pytest.raises(ValueError, match="count must be positive"):
-            collect_latest_closed_rates_for_accounts(
-                [AccountSpec(symbols=["EURUSD"])],
-                ["M1"],
-                count=0,
-            )
-
-        wrapped.assert_not_called()
-
-    def test_rejects_negative_start_pos(self, mocker: MockerFixture) -> None:
-        """Test negative start_pos is rejected before any MT5 collection attempt."""
-        wrapped = mocker.patch(
-            "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
-        )
-
-        with pytest.raises(ValueError, match="start_pos must be non-negative"):
-            collect_latest_closed_rates_for_accounts(
-                [AccountSpec(symbols=["EURUSD"])],
-                ["M1"],
-                count=1,
-                start_pos=-1,
-            )
-
-        wrapped.assert_not_called()
-
-    def test_rejects_empty_frames_with_start_pos_nonzero(
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"count": 0}, "count must be positive"),
+            ({"count": 1, "start_pos": -1}, "start_pos must be non-negative"),
+        ],
+        ids=["zero-count", "negative-start-pos"],
+    )
+    def test_rejects_invalid_inputs_before_fetching(
         self,
         mocker: MockerFixture,
+        kwargs: dict[str, object],
+        match: str,
     ) -> None:
-        """Test empty upstream frames raise ValueError when start_pos > 0."""
-        mocker.patch(
+        """Test invalid count/start_pos values are rejected before MT5 is called."""
+        wrapped = mocker.patch(
             "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
-            return_value={("EURUSD", 1): pd.DataFrame(columns=["time", "close"])},
         )
 
-        with pytest.raises(ValueError, match="Rate data is empty"):
+        with pytest.raises(ValueError, match=match):
             collect_latest_closed_rates_for_accounts(
                 [AccountSpec(symbols=["EURUSD"])],
                 ["M1"],
-                count=1,
-                start_pos=1,
+                **kwargs,  # type: ignore[arg-type]
             )
+
+        wrapped.assert_not_called()
 
     def test_processes_multiple_symbol_timeframe_pairs(
         self,
@@ -1816,104 +1855,114 @@ class TestCollectLatestClosedRatesByGranularity:
 class TestSubstituteEnvPlaceholders:
     """Tests for ${ENV_VAR} substitution."""
 
-    def test_substitutes_known_variables(
+    @pytest.mark.parametrize(
+        ("env", "input_", "allow_whole_dollar_env", "expected"),
+        [
+            pytest.param(
+                {"MT5_LOGIN": "12345", "MT5_SERVER": "Broker-Demo"},
+                "${MT5_LOGIN}",
+                False,
+                "12345",
+                id="brace-substitution",
+            ),
+            pytest.param(
+                {"MT5_LOGIN": "12345", "MT5_SERVER": "Broker-Demo"},
+                "srv=${MT5_SERVER}!",
+                False,
+                "srv=Broker-Demo!",
+                id="brace-substitution-embedded",
+            ),
+            pytest.param(
+                {},
+                "plain",
+                False,
+                "plain",
+                id="plain-string-unchanged",
+            ),
+            pytest.param(
+                {"MT5_PASSWORD": "secret"},
+                "$MT5_PASSWORD",
+                False,
+                "$MT5_PASSWORD",
+                id="whole-dollar-not-substituted-by-default",
+            ),
+            pytest.param(
+                {"MT5_PASSWORD": "secret"},
+                "$MT5_PASSWORD",
+                True,
+                "secret",
+                id="whole-dollar-substituted-with-opt-in",
+            ),
+            pytest.param(
+                {"pass": "secret", "ENV": "val"},
+                "plan$pass",
+                True,
+                "plan$pass",
+                id="partial-dollar-prefix-not-expanded",
+            ),
+            pytest.param(
+                {"pass": "secret", "ENV": "val"},
+                "abc$ENV",
+                True,
+                "abc$ENV",
+                id="partial-env-suffix-not-expanded",
+            ),
+            pytest.param(
+                {"ENV": "val"},
+                "$ENV-suffix",
+                True,
+                "$ENV-suffix",
+                id="whole-dollar-with-suffix-not-expanded",
+            ),
+            pytest.param(
+                {"MT5_LOGIN": "12345"},
+                "${MT5_LOGIN}",
+                True,
+                "12345",
+                id="brace-substitution-with-opt-in",
+            ),
+        ],
+    )
+    def test_substitute_env_placeholders(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        env: dict[str, str],
+        input_: str,
+        allow_whole_dollar_env: bool,
+        expected: str,
     ) -> None:
-        """Test placeholders are replaced with environment values."""
-        monkeypatch.setenv("MT5_LOGIN", "12345")
-        monkeypatch.setenv("MT5_SERVER", "Broker-Demo")
+        """Handle ${ENV}, $ENV, plain, and partial forms of substitution."""
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
 
-        assert substitute_env_placeholders("${MT5_LOGIN}") == "12345"
-        assert substitute_env_placeholders("srv=${MT5_SERVER}!") == "srv=Broker-Demo!"
+        result = substitute_env_placeholders(
+            input_,
+            allow_whole_dollar_env=allow_whole_dollar_env,
+        )
 
-    def test_returns_plain_strings_unchanged(self) -> None:
-        """Test strings without placeholders are returned as-is."""
-        assert substitute_env_placeholders("plain") == "plain"
+        assert result == expected
 
-    def test_raises_on_missing_variable(
+    @pytest.mark.parametrize(
+        ("input_", "allow_whole_dollar_env"),
+        [
+            pytest.param("${MT5_MISSING}", False, id="brace-missing"),
+            pytest.param("$MT5_MISSING", True, id="whole-dollar-missing"),
+        ],
+    )
+    def test_substitute_env_placeholders_raises_on_missing_env(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        input_: str,
+        allow_whole_dollar_env: bool,
     ) -> None:
-        """Test a missing environment variable raises a clear error."""
+        """Missing env vars raise ValueError for both ${ENV} and $ENV (opt-in) forms."""
         monkeypatch.delenv("MT5_MISSING", raising=False)
 
         with pytest.raises(ValueError, match="'MT5_MISSING' is not set"):
-            substitute_env_placeholders("${MT5_MISSING}")
-
-    def test_whole_dollar_not_substituted_by_default(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV_NAME is not expanded without allow_whole_dollar_env=True."""
-        monkeypatch.setenv("MT5_PASSWORD", "secret")
-
-        assert substitute_env_placeholders("$MT5_PASSWORD") == "$MT5_PASSWORD"
-
-    def test_whole_dollar_substituted_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV_NAME is expanded when allow_whole_dollar_env=True."""
-        monkeypatch.setenv("MT5_PASSWORD", "secret")
-
-        result = substitute_env_placeholders(
-            "$MT5_PASSWORD", allow_whole_dollar_env=True
-        )
-
-        assert result == "secret"
-
-    def test_whole_dollar_missing_variable_raises_value_error(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test missing $ENV_NAME raises ValueError when opt-in is enabled."""
-        monkeypatch.delenv("MT5_MISSING", raising=False)
-
-        with pytest.raises(ValueError, match="'MT5_MISSING' is not set"):
-            substitute_env_placeholders("$MT5_MISSING", allow_whole_dollar_env=True)
-
-    def test_partial_dollar_not_expanded_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV embedded in a larger string is not expanded."""
-        monkeypatch.setenv("pass", "secret")
-        monkeypatch.setenv("ENV", "val")
-
-        assert (
-            substitute_env_placeholders("plan$pass", allow_whole_dollar_env=True)
-            == "plan$pass"
-        )
-        assert (
-            substitute_env_placeholders("abc$ENV", allow_whole_dollar_env=True)
-            == "abc$ENV"
-        )
-
-    def test_dollar_with_suffix_not_expanded_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV-suffix is not expanded (not a whole-value placeholder)."""
-        monkeypatch.setenv("ENV", "val")
-
-        assert (
-            substitute_env_placeholders("$ENV-suffix", allow_whole_dollar_env=True)
-            == "$ENV-suffix"
-        )
-
-    def test_brace_format_works_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test ${ENV_VAR} substitution still works when allow_whole_dollar_env=True."""
-        monkeypatch.setenv("MT5_LOGIN", "12345")
-
-        result = substitute_env_placeholders(
-            "${MT5_LOGIN}", allow_whole_dollar_env=True
-        )
-
-        assert result == "12345"
+            substitute_env_placeholders(
+                input_,
+                allow_whole_dollar_env=allow_whole_dollar_env,
+            )
 
 
 class TestResolveAccountSpec:
@@ -2458,35 +2507,32 @@ class TestThrottledHistoryUpdater:
 
         assert updater.last_update_monotonic is None
 
-    def test_custom_backend_suppresses_recoverable_errors_when_requested(
+    @pytest.mark.parametrize(
+        ("suppress_errors", "raises"),
+        [
+            (True, None),
+            (False, Mt5RuntimeError),
+        ],
+        ids=["suppress", "propagate"],
+    )
+    def test_custom_backend_error_suppression(
         self,
         mocker: MockerFixture,
+        suppress_errors: bool,
+        raises: type[BaseException] | None,
     ) -> None:
-        """Test suppress_errors swallows recoverable custom backend errors."""
+        """suppress_errors controls whether recoverable backend errors propagate."""
         backend = mocker.Mock(side_effect=Mt5RuntimeError("boom"))
         updater = ThrottledHistoryUpdater(
             output="history.db",
-            suppress_errors=True,
+            suppress_errors=suppress_errors,
             update_backend=backend,
         )
-
-        assert updater.update(MagicMock(), ["EURUSD"]) is False
-        assert updater.last_update_monotonic is None
-
-    def test_custom_backend_propagates_errors_when_not_suppressed(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test recoverable custom backend errors propagate by default."""
-        backend = mocker.Mock(side_effect=Mt5RuntimeError("boom"))
-        updater = ThrottledHistoryUpdater(
-            output="history.db",
-            update_backend=backend,
-        )
-
-        with pytest.raises(Mt5RuntimeError, match="boom"):
-            updater.update(MagicMock(), ["EURUSD"])
-
+        if raises is None:
+            assert updater.update(MagicMock(), ["EURUSD"]) is False
+        else:
+            with pytest.raises(raises, match="boom"):
+                updater.update(MagicMock(), ["EURUSD"])
         assert updater.last_update_monotonic is None
 
 
@@ -2496,12 +2542,13 @@ class TestBuildConfigStringLogin:
     @pytest.mark.parametrize(
         ("login", "expected"),
         [
-            (None, None),
-            (12345, 12345),
-            ("12345", 12345),
-            (" 12345 ", 12345),
-            ("", None),
-            ("   ", None),
+            pytest.param(None, None, id="none-passthrough"),
+            pytest.param(12345, 12345, id="int-passthrough"),
+            pytest.param(54321, 54321, id="int-login-backward-compat"),
+            pytest.param("12345", 12345, id="numeric-string-coerced"),
+            pytest.param(" 12345 ", 12345, id="whitespace-padded-string-coerced"),
+            pytest.param("", None, id="empty-string-becomes-none"),
+            pytest.param("   ", None, id="whitespace-only-string-becomes-none"),
         ],
     )
     def test_coerces_login_from_string(
@@ -2509,7 +2556,10 @@ class TestBuildConfigStringLogin:
         login: int | str | None,
         expected: int | None,
     ) -> None:
-        """Test build_config coerces string login to int or None."""
+        """Test build_config coerces string login to int/None.
+
+        Int and None logins are left unchanged.
+        """
         config = build_config(login=login)
         assert config.login == expected
 
@@ -2518,23 +2568,29 @@ class TestBuildConfigStringLogin:
         with pytest.raises(ValueError, match="invalid literal"):
             build_config(login="abc")
 
-    def test_expands_dollar_brace_login_with_opt_in(
+    @pytest.mark.parametrize(
+        ("login_template", "env_value", "expected"),
+        [
+            pytest.param("${MT5_LOGIN}", "12345", 12345, id="dollar-brace-expands"),
+            pytest.param("$MT5_LOGIN", "99999", 99999, id="whole-dollar-expands"),
+            pytest.param("${MT5_LOGIN}", "", None, id="blank-env-becomes-none"),
+        ],
+    )
+    def test_expands_login_env_placeholder_with_opt_in(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        login_template: str,
+        env_value: str,
+        expected: int | None,
     ) -> None:
-        """Test build_config expands ${MT5_LOGIN} and coerces with opt-in."""
-        monkeypatch.setenv("MT5_LOGIN", "12345")
-        config = build_config(login="${MT5_LOGIN}", allow_whole_dollar_env=True)
-        assert config.login == 12345
+        """Test build_config expands env-placeholder logins with opt-in.
 
-    def test_expands_whole_dollar_login_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test build_config expands $MT5_LOGIN and coerces with opt-in."""
-        monkeypatch.setenv("MT5_LOGIN", "99999")
-        config = build_config(login="$MT5_LOGIN", allow_whole_dollar_env=True)
-        assert config.login == 99999
+        Both ``${VAR}`` and whole-``$VAR`` syntax are expanded and coerced
+        when allow_whole_dollar_env=True; a blank expansion coerces to None.
+        """
+        monkeypatch.setenv("MT5_LOGIN", env_value)
+        config = build_config(login=login_template, allow_whole_dollar_env=True)
+        assert config.login == expected
 
     def test_missing_env_variable_raises(
         self,
@@ -2545,29 +2601,10 @@ class TestBuildConfigStringLogin:
         with pytest.raises(ValueError, match="'MT5_LOGIN' is not set"):
             build_config(login="${MT5_LOGIN}", allow_whole_dollar_env=True)
 
-    def test_env_expands_to_blank_becomes_none(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test build_config coerces blank env-expanded login to None."""
-        monkeypatch.setenv("MT5_LOGIN", "")
-        config = build_config(login="${MT5_LOGIN}", allow_whole_dollar_env=True)
-        assert config.login is None
-
     def test_dollar_brace_login_not_expanded_without_opt_in(self) -> None:
         """Test ${MT5_LOGIN} is not expanded when allow_whole_dollar_env=False."""
         with pytest.raises(ValueError, match="invalid literal"):
             build_config(login="${MT5_LOGIN}")
-
-    def test_integer_login_preserved_backward_compat(self) -> None:
-        """Test existing int login callers remain backward-compatible."""
-        config = build_config(login=54321)
-        assert config.login == 54321
-
-    def test_none_login_preserved_backward_compat(self) -> None:
-        """Test existing None login callers remain backward-compatible."""
-        config = build_config(login=None)
-        assert config.login is None
 
 
 class TestSubstituteMappingValues:
@@ -2636,29 +2673,31 @@ class TestSubstituteMappingValues:
             ]
         }
 
-    def test_whole_dollar_expanded_with_opt_in(
+    @pytest.mark.parametrize(
+        ("allow_whole_dollar_env", "expected"),
+        [
+            pytest.param(None, "$MT5_PASSWORD", id="default-preserves-whole-dollar"),
+            pytest.param(True, "secret", id="opt-in-expands-whole-dollar"),
+        ],
+    )
+    def test_whole_dollar_env_handling(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        allow_whole_dollar_env: bool | None,
+        expected: str,
     ) -> None:
-        """Test $ENV_NAME is expanded when allow_whole_dollar_env=True."""
+        """Test $ENV_NAME handling for selected mapping keys."""
         monkeypatch.setenv("MT5_PASSWORD", "secret")
         data: dict[str, object] = {"mt5_password": "$MT5_PASSWORD"}
-        result = substitute_mapping_values(
-            data,
-            keys={"mt5_password"},
-            allow_whole_dollar_env=True,
-        )
-        assert result == {"mt5_password": "secret"}
-
-    def test_whole_dollar_not_expanded_by_default(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV_NAME in a selected key is preserved when opt-in is False."""
-        monkeypatch.setenv("MT5_PASSWORD", "secret")
-        data: dict[str, object] = {"mt5_password": "$MT5_PASSWORD"}
-        result = substitute_mapping_values(data, keys={"mt5_password"})
-        assert result == {"mt5_password": "$MT5_PASSWORD"}
+        if allow_whole_dollar_env is None:
+            result = substitute_mapping_values(data, keys={"mt5_password"})
+        else:
+            result = substitute_mapping_values(
+                data,
+                keys={"mt5_password"},
+                allow_whole_dollar_env=allow_whole_dollar_env,
+            )
+        assert result == {"mt5_password": expected}
 
     def test_blank_string_becomes_none_for_blank_keys(self) -> None:
         """Test blank strings are normalised to None for blank_string_keys_as_none."""
@@ -2831,35 +2870,29 @@ class TestUpdateObservability:
             row = conn.execute("SELECT status FROM snapshot_runs").fetchone()
         assert row == ("error",)
 
-    def test_update_observability_skips_ensure_grafana_schema_when_disabled(
+    @pytest.mark.parametrize(
+        ("with_grafana_schema", "expected_call_count"),
+        [
+            pytest.param(False, 0, id="grafana-schema-disabled"),
+            pytest.param(True, 1, id="grafana-schema-enabled"),
+        ],
+    )
+    def test_update_observability_grafana_schema_gate(
         self,
         mock_client: MagicMock,
         mocker: MockerFixture,
         tmp_path: Path,
+        with_grafana_schema: bool,
+        expected_call_count: int,
     ) -> None:
-        """with_grafana_schema=False does not call ensure_grafana_schema."""
+        """with_grafana_schema controls whether ensure_grafana_schema is called."""
         spy = mocker.spy(sdk, "ensure_grafana_schema")
         update_observability(
             client=mock_client,
             output=tmp_path / "obs.db",
-            with_grafana_schema=False,
+            with_grafana_schema=with_grafana_schema,
         )
-        spy.assert_not_called()
-
-    def test_update_observability_calls_ensure_grafana_schema_by_default(
-        self,
-        mock_client: MagicMock,
-        mocker: MockerFixture,
-        tmp_path: Path,
-    ) -> None:
-        """with_grafana_schema=True calls ensure_grafana_schema."""
-        spy = mocker.spy(sdk, "ensure_grafana_schema")
-        update_observability(
-            client=mock_client,
-            output=tmp_path / "obs.db",
-            with_grafana_schema=True,
-        )
-        spy.assert_called_once()
+        assert spy.call_count == expected_call_count
 
     @pytest.mark.parametrize(
         ("kwarg", "method"),
@@ -2885,103 +2918,109 @@ class TestUpdateObservability:
         )
         getattr(mock_client, method).assert_not_called()
 
-    def test_update_observability_with_positions_rows(
+    @pytest.mark.parametrize(
+        ("method", "table", "row", "expected_count"),
+        [
+            (
+                "positions_get_as_df",
+                "position_snapshots",
+                {
+                    "ticket": 1,
+                    "position_id": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "price_open": 1.1,
+                    "price_current": 1.1,
+                    "profit": 0.0,
+                    "swap": 0.0,
+                    "comment": "",
+                    "magic": 0,
+                },
+                1,
+            ),
+            (
+                "orders_get_as_df",
+                "order_snapshots",
+                {
+                    "ticket": 10,
+                    "symbol": "EURUSD",
+                    "type": 2,
+                    "volume_current": 0.1,
+                    "price_open": 1.2,
+                    "price_current": 1.1,
+                    "state": 1,
+                    "comment": "",
+                    "magic": 0,
+                    "time_setup": 1700000000,
+                },
+                1,
+            ),
+        ],
+        ids=["positions", "orders"],
+    )
+    def test_update_observability_writes_snapshot_rows(
         self,
         mock_client: MagicMock,
         tmp_path: Path,
+        method: str,
+        table: str,
+        row: dict[str, object],
+        expected_count: int,
     ) -> None:
-        """Non-empty positions are written to position_snapshots."""
-        mock_client.positions_get_as_df.return_value = pd.DataFrame([
-            {
-                "ticket": 1,
-                "position_id": 1,
-                "symbol": "EURUSD",
-                "type": 0,
-                "volume": 0.1,
-                "price_open": 1.1,
-                "price_current": 1.1,
-                "profit": 0.0,
-                "swap": 0.0,
-                "comment": "",
-                "magic": 0,
-            }
-        ])
+        """Non-empty snapshots are written to the corresponding snapshot table."""
+        getattr(mock_client, method).return_value = pd.DataFrame([row])
         output = tmp_path / "obs.db"
         update_observability(client=mock_client, output=output)
         with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[
-                0
-            ]
-        assert count == 1
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+            ).fetchone()[0]
+        assert count == expected_count
 
-    def test_update_observability_with_order_rows(
-        self,
-        mock_client: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Non-empty orders are written to order_snapshots."""
-        mock_client.orders_get_as_df.return_value = pd.DataFrame([
-            {
-                "ticket": 10,
-                "symbol": "EURUSD",
-                "type": 2,
-                "volume_current": 0.1,
-                "price_open": 1.2,
-                "price_current": 1.1,
-                "state": 1,
-                "comment": "",
-                "magic": 0,
-                "time_setup": 1700000000,
-            }
-        ])
-        output = tmp_path / "obs.db"
-        update_observability(client=mock_client, output=output)
-        with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
-        assert count == 1
-
-    def test_update_observability_symbol_filter_positions(
+    @pytest.mark.parametrize(
+        ("method", "table", "rows"),
+        [
+            (
+                "positions_get_as_df",
+                "position_snapshots",
+                [
+                    {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 0.0},
+                    {"ticket": 2, "symbol": "USDJPY", "volume": 0.2, "profit": 0.0},
+                ],
+            ),
+            (
+                "orders_get_as_df",
+                "order_snapshots",
+                [
+                    {"ticket": 10, "symbol": "EURUSD", "volume_current": 0.1},
+                    {"ticket": 11, "symbol": "USDJPY", "volume_current": 0.5},
+                ],
+            ),
+        ],
+        ids=["positions", "orders"],
+    )
+    def test_update_observability_symbol_filter(
         self,
         tmp_path: Path,
+        method: str,
+        table: str,
+        rows: list[dict[str, object]],
     ) -> None:
-        """Symbol filter fetches all positions in one call and filters client-side."""
-        client = MagicMock()
-        client.account_info_as_df.return_value = pd.DataFrame([{"login": 1}])
-        # All positions; only EURUSD matches the filter
-        client.positions_get_as_df.return_value = pd.DataFrame([
-            {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 0.0},
-            {"ticket": 2, "symbol": "USDJPY", "volume": 0.2, "profit": 0.0},
-        ])
-        client.orders_get_as_df.return_value = pd.DataFrame()
-        client.terminal_info_as_df.return_value = pd.DataFrame()
-        output = tmp_path / "obs.db"
-        update_observability(client=client, output=output, symbols=["EURUSD", "GBPUSD"])
-        assert client.positions_get_as_df.call_count == 1
-        with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[
-                0
-            ]
-        assert count == 1
-
-    def test_update_observability_symbol_filter_orders(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Symbol filter fetches all orders in one call and filters client-side."""
+        """Symbol filter fetches all rows in one call and filters client-side."""
         client = MagicMock()
         client.account_info_as_df.return_value = pd.DataFrame([{"login": 1}])
         client.positions_get_as_df.return_value = pd.DataFrame()
-        # All orders; only EURUSD matches the filter
-        client.orders_get_as_df.return_value = pd.DataFrame([
-            {"ticket": 10, "symbol": "EURUSD", "volume_current": 0.1},
-            {"ticket": 11, "symbol": "USDJPY", "volume_current": 0.5},
-        ])
+        client.orders_get_as_df.return_value = pd.DataFrame()
         client.terminal_info_as_df.return_value = pd.DataFrame()
+        getattr(client, method).return_value = pd.DataFrame(rows)
         output = tmp_path / "obs.db"
         update_observability(client=client, output=output, symbols=["EURUSD", "GBPUSD"])
-        assert client.orders_get_as_df.call_count == 1
+        assert getattr(client, method).call_count == 1
         with sqlite3.connect(output) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+            ).fetchone()[0]
         assert count == 1
 
     def test_update_observability_symbol_filter_no_symbol_col(
@@ -3022,36 +3061,40 @@ class TestUpdateObservability:
         assert row is not None
         assert row[0] is None
 
-    def test_update_observability_empty_account_logs_warning(
+    @pytest.mark.parametrize(
+        ("method", "table", "message"),
+        [
+            (
+                "account_info_as_df",
+                "account_snapshots",
+                "account_info_as_df returned empty frame",
+            ),
+            (
+                "terminal_info_as_df",
+                "terminal_snapshots",
+                "terminal_info_as_df returned empty frame",
+            ),
+        ],
+        ids=["account", "terminal"],
+    )
+    def test_update_observability_empty_logs_warning(
         self,
         mock_client: MagicMock,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
+        method: str,
+        table: str,
+        message: str,
     ) -> None:
-        """Empty account_info_as_df logs a warning and does not write account row."""
-        mock_client.account_info_as_df.return_value = pd.DataFrame()
+        """Empty snapshot frames log a warning and write no rows."""
+        getattr(mock_client, method).return_value = pd.DataFrame()
         with caplog.at_level(logging.WARNING, logger="mt5cli.sdk"):
             update_observability(client=mock_client, output=tmp_path / "obs.db")
-        assert "account_info_as_df returned empty frame" in caplog.text
+        assert message in caplog.text
         with sqlite3.connect(tmp_path / "obs.db") as conn:
-            count = conn.execute("SELECT COUNT(*) FROM account_snapshots").fetchone()[0]
-        assert count == 0
-
-    def test_update_observability_empty_terminal_logs_warning(
-        self,
-        mock_client: MagicMock,
-        tmp_path: Path,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Empty terminal_info_as_df logs a warning and does not write terminal row."""
-        mock_client.terminal_info_as_df.return_value = pd.DataFrame()
-        with caplog.at_level(logging.WARNING, logger="mt5cli.sdk"):
-            update_observability(client=mock_client, output=tmp_path / "obs.db")
-        assert "terminal_info_as_df returned empty frame" in caplog.text
-        with sqlite3.connect(tmp_path / "obs.db") as conn:
-            count = conn.execute("SELECT COUNT(*) FROM terminal_snapshots").fetchone()[
-                0
-            ]
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+            ).fetchone()[0]
         assert count == 0
 
     def test_update_observability_with_config_opens_and_closes_connection(

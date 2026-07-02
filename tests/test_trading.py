@@ -21,6 +21,7 @@ from mt5cli.trading import (
     MarginVolume,
     OrderExecutionResult,
     OrderLimits,
+    OrderSide,
     ProjectionMode,
     calculate_account_projected_margin_ratio,
     calculate_margin_and_volume,
@@ -87,54 +88,31 @@ _MISSING_RETCODE: object = (
 class TestDetectPositionSide:
     """Tests for detect_position_side."""
 
-    def test_returns_none_when_no_positions(self) -> None:
-        """Test None is returned when no open positions exist."""
-        client = MagicMock()
-        client.positions_get_as_df.return_value = pd.DataFrame()
-
-        assert detect_position_side(client, "EURUSD") is None
-
-    def test_returns_long_for_buy_only_exposure(self) -> None:
-        """Test long is returned when only buy positions exist."""
-        client = MagicMock()
-        client.mt5.POSITION_TYPE_BUY = 0
-        client.mt5.POSITION_TYPE_SELL = 1
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            {
-                "type": [0, 0],
-                "volume": [0.2, 0.1],
-            },
-        )
-
-        assert detect_position_side(client, "EURUSD") == "long"
-
-    def test_returns_short_for_net_sell_volume(self) -> None:
-        """Test short is returned when sell volume exceeds buy volume."""
+    @pytest.mark.parametrize(
+        ("types", "volumes", "expected"),
+        [
+            ([], [], None),
+            ([0, 0], [0.2, 0.1], "long"),
+            ([1, 1], [0.3, 0.1], "short"),
+            ([0, 1], [0.3, 0.2], None),
+        ],
+        ids=["no-positions", "buy-only", "sell-only", "mixed"],
+    )
+    def test_detect_position_side(
+        self,
+        types: list[int],
+        volumes: list[float],
+        expected: str | None,
+    ) -> None:
+        """detect_position_side reports net long/short/None from open positions."""
         client = MagicMock()
         client.mt5.POSITION_TYPE_BUY = 0
         client.mt5.POSITION_TYPE_SELL = 1
         client.positions_get_as_df.return_value = pd.DataFrame(
-            {
-                "type": [1, 1],
-                "volume": [0.3, 0.1],
-            },
+            {"type": types, "volume": volumes},
         )
 
-        assert detect_position_side(client, "EURUSD") == "short"
-
-    def test_returns_none_for_mixed_hedged_positions(self) -> None:
-        """Test None is returned for mixed buy and sell exposure."""
-        client = MagicMock()
-        client.mt5.POSITION_TYPE_BUY = 0
-        client.mt5.POSITION_TYPE_SELL = 1
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            {
-                "type": [0, 1],
-                "volume": [0.3, 0.2],
-            },
-        )
-
-        assert detect_position_side(client, "EURUSD") is None
+        assert detect_position_side(client, "EURUSD") == expected
 
 
 class TestCalculateMarginAndVolume:
@@ -175,9 +153,11 @@ class TestCalculateMarginAndVolume:
             ({"margin_free": 0.0}, 0.0),
             ({}, 0.0),
             ({"margin_free": None}, 0.0),
+            ({"margin_free": -500.0}, 0.0),
         ],
+        ids=["zero", "missing", "none", "negative"],
     )
-    def test_zero_or_missing_margin_free(
+    def test_zero_missing_or_negative_margin_free(
         self,
         account_dict: dict[str, float | None],
         expected_margin_free: float,
@@ -199,28 +179,6 @@ class TestCalculateMarginAndVolume:
         )
 
         assert result["margin_free"] == expected_margin_free
-        _assert_close(result["buy_volume"], 0.0)
-        _assert_close(result["sell_volume"], 0.0)
-        mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "BUY")
-        mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "SELL")
-
-    def test_clamps_negative_margin_free_to_zero(self, mocker: MockerFixture) -> None:
-        """Test negative margin_free is clamped to zero before sizing."""
-        client = MagicMock()
-        client.account_info_as_dict.return_value = {"margin_free": -500.0}
-        client.symbol_info_as_dict.side_effect = AttributeError("missing")
-        mock_calc_vol = mocker.patch(
-            "mt5cli.trading.calculate_volume_by_margin", return_value=0.0
-        )
-
-        result = calculate_margin_and_volume(
-            client,
-            "EURUSD",
-            unit_margin_ratio=0.5,
-            preserved_margin_ratio=0.2,
-        )
-
-        _assert_close(result["margin_free"], 0.0)
         _assert_close(result["buy_volume"], 0.0)
         _assert_close(result["sell_volume"], 0.0)
         mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "BUY")
@@ -286,8 +244,20 @@ class TestDetermineOrderLimits:
         assert result["stop_loss"] is None
         assert result["take_profit"] is None
 
-    def test_calculates_long_protective_levels(self) -> None:
-        """Test long stop loss and take profit are placed below/above entry."""
+    @pytest.mark.parametrize(
+        ("side", "expected"),
+        [
+            ("long", {"entry": 100.0, "stop_loss": 98.0, "take_profit": 103.0}),
+            ("short", {"entry": 99.0, "stop_loss": 100.98, "take_profit": 96.03}),
+        ],
+        ids=["long", "short"],
+    )
+    def test_calculates_protective_levels(
+        self,
+        side: str,
+        expected: dict[str, float | None],
+    ) -> None:
+        """Test long/short stop loss and take profit are placed below/above entry."""
         client = MagicMock()
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
         client.symbol_info_as_dict.return_value = {}
@@ -295,36 +265,12 @@ class TestDetermineOrderLimits:
         result = determine_order_limits(
             client,
             "EURUSD",
-            "long",
+            side,
             stop_loss_limit_ratio=0.02,
             take_profit_limit_ratio=0.03,
         )
 
-        assert result == {
-            "entry": 100.0,
-            "stop_loss": 98.0,
-            "take_profit": 103.0,
-        }
-
-    def test_calculates_short_protective_levels(self) -> None:
-        """Test short stop loss and take profit are placed above/below entry."""
-        client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.symbol_info_as_dict.return_value = {}
-
-        result = determine_order_limits(
-            client,
-            "EURUSD",
-            "short",
-            stop_loss_limit_ratio=0.02,
-            take_profit_limit_ratio=0.03,
-        )
-
-        assert result == {
-            "entry": 99.0,
-            "stop_loss": 100.98,
-            "take_profit": 96.03,
-        }
+        assert result == expected
 
     def test_rejects_unknown_side(self) -> None:
         """Test unsupported side values raise ValueError."""
@@ -596,24 +542,32 @@ class TestDetermineOrderLimits:
 
     """Tests for ensure_symbol_selected."""
 
-    def test_skips_selection_when_symbol_is_visible(self) -> None:
-        """Test visible symbols do not call symbol_select."""
+    @pytest.mark.parametrize(
+        ("visible", "select_result", "expected_calls"),
+        [
+            (True, True, 0),
+            (False, True, 1),
+        ],
+        ids=["already-visible", "select-hidden"],
+    )
+    def test_ensure_symbol_selected_success_cases(
+        self,
+        visible: bool,
+        select_result: bool,
+        expected_calls: int,
+    ) -> None:
+        """Test symbol selection only occurs when the symbol is hidden."""
         client = MagicMock()
-        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.symbol_info_as_dict.return_value = {"visible": visible}
+        client.symbol_select.return_value = select_result
 
         ensure_symbol_selected(client, "EURUSD")
 
-        client.symbol_select.assert_not_called()
-
-    def test_selects_hidden_symbol_before_trading(self) -> None:
-        """Test hidden symbols are selected in Market Watch."""
-        client = MagicMock()
-        client.symbol_info_as_dict.return_value = {"visible": False}
-        client.symbol_select.return_value = True
-
-        ensure_symbol_selected(client, "EURUSD")
-
-        client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        assert client.symbol_select.call_count == expected_calls
+        if expected_calls:
+            client.symbol_select.assert_called_once_with("EURUSD", enable=True)
+        else:
+            client.symbol_select.assert_not_called()
 
     def test_raises_when_symbol_selection_fails(self) -> None:
         """Test failed symbol selection raises Mt5TradingError."""
@@ -782,33 +736,18 @@ class TestSnapshotsAndState:
         assert "ticket" in result.columns
         assert "comment" in result.columns
 
-    def test_calculate_spread_ratio(self) -> None:
-        """Test spread ratio uses mid-price denominator."""
+    @pytest.mark.parametrize(
+        "tick",
+        [
+            {"bid": 99.0, "ask": 101.0},
+            {"bid": "99.0", "ask": "101.0"},
+        ],
+        ids=["numeric", "numeric-string"],
+    )
+    def test_calculate_spread_ratio(self, tick: dict[str, object]) -> None:
+        """Test spread ratio uses mid-price denominator for numeric ticks."""
         client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"bid": 99.0, "ask": 101.0}
-
-        _assert_close(calculate_spread_ratio(client, "EURUSD"), 0.02)
-
-    def test_calculate_spread_ratio_rejects_missing_tick(self) -> None:
-        """Test missing bid/ask raises a trading error."""
-        client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"bid": None, "ask": 1.0}
-
-        with pytest.raises(Mt5OperationError):
-            calculate_spread_ratio(client, "EURUSD")
-
-    def test_calculate_spread_ratio_rejects_non_positive_tick(self) -> None:
-        """Test non-positive bid/ask raises a trading error."""
-        client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"bid": 0.0, "ask": 1.0}
-
-        with pytest.raises(Mt5OperationError):
-            calculate_spread_ratio(client, "EURUSD")
-
-    def test_calculate_spread_ratio_accepts_numeric_string_tick(self) -> None:
-        """Test numeric string bid/ask values are accepted."""
-        client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"bid": "99.0", "ask": "101.0"}
+        client.symbol_info_tick_as_dict.return_value = tick
 
         _assert_close(calculate_spread_ratio(client, "EURUSD"), 0.02)
 
@@ -853,100 +792,48 @@ class TestSnapshotsAndState:
 class TestNormalizeOrderVolume:
     """Tests for normalize_order_volume."""
 
-    def test_returns_exact_minimum_volume(self) -> None:
-        """Test exact volume_min is returned unchanged."""
+    @pytest.mark.parametrize(
+        ("volume", "volume_min", "volume_max", "volume_step", "expected"),
+        [
+            (0.1, 0.1, 1.0, 0.1, 0.1),
+            (0.25, 0.1, 1.0, 0.1, 0.2),
+            (0.9, 0.1, 0.5, 0.1, 0.5),
+            (0.05, 0.1, 1.0, 0.1, 0.0),
+            (1.0, 0.0, 1.0, 0.1, 0.0),
+            (1.0, 0.1, 1.0, 0.0, 0.0),
+            (2.5, 0.1, 0.0, 0.1, 2.5),
+            (0.5, 0.1, 0.34, 0.12, 0.34),
+            (2.5, 0.1, float("nan"), 0.1, 2.5),
+        ],
+        ids=[
+            "exact-minimum",
+            "floor-to-step",
+            "clamp-to-max",
+            "below-minimum",
+            "invalid-volume-min",
+            "invalid-volume-step",
+            "non-positive-max-no-cap",
+            "max-reapplied-after-step",
+            "non-finite-max-no-cap",
+        ],
+    )
+    def test_normalize_order_volume_deterministic(
+        self,
+        volume: float,
+        volume_min: float,
+        volume_max: float,
+        volume_step: float,
+        expected: float,
+    ) -> None:
+        """normalize_order_volume floors, clamps, and validates constraints."""
         _assert_close(
             normalize_order_volume(
-                0.1,
-                volume_min=0.1,
-                volume_max=1.0,
-                volume_step=0.1,
+                volume,
+                volume_min=volume_min,
+                volume_max=volume_max,
+                volume_step=volume_step,
             ),
-            0.1,
-        )
-
-    def test_floors_to_step_between_boundaries(self) -> None:
-        """Test volume between steps floors down to the nearest valid step."""
-        _assert_close(
-            normalize_order_volume(
-                0.25,
-                volume_min=0.1,
-                volume_max=1.0,
-                volume_step=0.1,
-            ),
-            0.2,
-        )
-
-    def test_clamps_to_volume_max(self) -> None:
-        """Test positive volume_max caps the normalized result."""
-        _assert_close(
-            normalize_order_volume(
-                0.9,
-                volume_min=0.1,
-                volume_max=0.5,
-                volume_step=0.1,
-            ),
-            0.5,
-        )
-
-    def test_returns_zero_below_volume_min(self) -> None:
-        """Test sub-minimum requests return zero volume."""
-        _assert_close(
-            normalize_order_volume(
-                0.05,
-                volume_min=0.1,
-                volume_max=1.0,
-                volume_step=0.1,
-            ),
-            0.0,
-        )
-
-    def test_returns_zero_for_invalid_volume_min(self) -> None:
-        """Test non-positive volume_min returns zero volume."""
-        _assert_close(
-            normalize_order_volume(
-                1.0,
-                volume_min=0.0,
-                volume_max=1.0,
-                volume_step=0.1,
-            ),
-            0.0,
-        )
-
-    def test_returns_zero_for_invalid_volume_step(self) -> None:
-        """Test non-positive volume_step returns zero volume."""
-        _assert_close(
-            normalize_order_volume(
-                1.0,
-                volume_min=0.1,
-                volume_max=1.0,
-                volume_step=0.0,
-            ),
-            0.0,
-        )
-
-    def test_treats_non_positive_volume_max_as_no_cap(self) -> None:
-        """Test volume_max <= 0 disables the maximum cap."""
-        _assert_close(
-            normalize_order_volume(
-                2.5,
-                volume_min=0.1,
-                volume_max=0.0,
-                volume_step=0.1,
-            ),
-            2.5,
-        )
-
-    def test_reapplies_volume_max_after_step_normalization(self) -> None:
-        """Test post-step normalization cannot exceed volume_max."""
-        _assert_close(
-            normalize_order_volume(
-                0.5,
-                volume_min=0.1,
-                volume_max=0.34,
-                volume_step=0.12,
-            ),
-            0.34,
+            expected,
         )
 
     @pytest.mark.parametrize("volume", [float("nan"), float("inf")], ids=["nan", "inf"])
@@ -975,55 +862,41 @@ class TestNormalizeOrderVolume:
             0.0,
         )
 
-    def test_treats_non_finite_volume_max_as_no_cap(self) -> None:
-        """Test non-finite volume_max disables the maximum cap."""
-        _assert_close(
-            normalize_order_volume(
-                2.5,
-                volume_min=0.1,
-                volume_max=float("nan"),
-                volume_step=0.1,
-            ),
-            2.5,
-        )
-
 
 class TestEstimateOrderMargin:
     """Tests for estimate_order_margin."""
 
-    def test_estimates_buy_margin_at_ask(self) -> None:
-        """Test buy margin uses ask price and buy order type."""
+    @pytest.mark.parametrize(
+        ("side", "order_type", "expected_price", "expected_margin"),
+        [
+            ("BUY", 10, 1.1010, 12.5),
+            ("SELL", 11, 1.1000, 12.4),
+            ("long", 10, 1.1010, 12.5),
+            ("short", 11, 1.1000, 12.4),
+        ],
+        ids=["buy", "sell", "long", "short"],
+    )
+    def test_estimates_margin_for_side(
+        self,
+        side: str,
+        order_type: int,
+        expected_price: float,
+        expected_margin: float,
+    ) -> None:
+        """Test estimate_order_margin uses ask for buy/long and bid for sell/short."""
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.return_value = 12.5
+        client.order_calc_margin.return_value = expected_margin
 
-        margin = estimate_order_margin(client, "EURUSD", "BUY", 0.1)
+        margin = estimate_order_margin(client, "EURUSD", side, 0.1)
 
-        _assert_close(margin, 12.5)
-        client.order_calc_margin.assert_called_once_with(10, "EURUSD", 0.1, 1.1010)
-
-    def test_estimates_sell_margin_at_bid(self) -> None:
-        """Test sell margin uses bid price and sell order type."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.return_value = 12.4
-
-        margin = estimate_order_margin(client, "EURUSD", "SELL", 0.1)
-
-        _assert_close(margin, 12.4)
-        client.order_calc_margin.assert_called_once_with(11, "EURUSD", 0.1, 1.1000)
-
-    def test_accepts_long_and_short_aliases(self) -> None:
-        """Test long/short aliases normalize to buy/sell pricing."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.side_effect = [12.5, 12.4]
-
-        estimate_order_margin(client, "EURUSD", "long", 0.1)
-        estimate_order_margin(client, "EURUSD", "short", 0.1)
-
-        client.order_calc_margin.assert_any_call(10, "EURUSD", 0.1, 1.1010)
-        client.order_calc_margin.assert_any_call(11, "EURUSD", 0.1, 1.1000)
+        _assert_close(margin, expected_margin)
+        client.order_calc_margin.assert_called_once_with(
+            order_type,
+            "EURUSD",
+            0.1,
+            expected_price,
+        )
 
     def test_rejects_invalid_side(self) -> None:
         """Test unsupported order side raises ValueError."""
@@ -1032,16 +905,13 @@ class TestEstimateOrderMargin:
         with pytest.raises(ValueError, match="Unsupported order side"):
             estimate_order_margin(client, "EURUSD", "HOLD", 0.1)
 
-    def test_rejects_non_positive_volume(self) -> None:
-        """Test non-positive volume raises Mt5TradingError."""
-        client = _mock_trade_client()
-
-        with pytest.raises(Mt5OperationError, match="positive finite number"):
-            estimate_order_margin(client, "EURUSD", "BUY", 0.0)
-
-    @pytest.mark.parametrize("volume", [float("nan"), float("inf")], ids=["nan", "inf"])
-    def test_rejects_non_finite_volume(self, volume: float) -> None:
-        """Test NaN or infinite volume raises Mt5TradingError without broker calls."""
+    @pytest.mark.parametrize(
+        "volume",
+        [0.0, float("nan"), float("inf")],
+        ids=["zero", "nan", "inf"],
+    )
+    def test_rejects_invalid_volume(self, volume: float) -> None:
+        """Test non-positive or non-finite volume raises Mt5TradingError."""
         client = _mock_trade_client()
 
         with pytest.raises(Mt5OperationError, match="positive finite number"):
@@ -1050,29 +920,18 @@ class TestEstimateOrderMargin:
         client.symbol_info_tick_as_dict.assert_not_called()
         client.order_calc_margin.assert_not_called()
 
-    def test_rejects_missing_tick_prices(self) -> None:
-        """Test missing tick prices raise Mt5TradingError."""
+    @pytest.mark.parametrize(
+        "ask",
+        [None, 0.0, float("inf")],
+        ids=["missing", "non-positive", "non-finite"],
+    )
+    def test_rejects_invalid_tick_price(
+        self,
+        ask: float | None,
+    ) -> None:
+        """Test invalid ask prices raise Mt5OperationError."""
         client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1000}
-
-        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
-            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
-
-    def test_rejects_non_positive_tick_price(self) -> None:
-        """Test non-positive tick prices raise Mt5TradingError."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 0.0, "bid": 1.1000}
-
-        with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
-            estimate_order_margin(client, "EURUSD", "BUY", 0.1)
-
-    def test_rejects_non_finite_tick_price(self) -> None:
-        """Test non-finite tick prices raise Mt5TradingError."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {
-            "ask": float("inf"),
-            "bid": 1.1000,
-        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": ask, "bid": 1.1000}
 
         with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             estimate_order_margin(client, "EURUSD", "BUY", 0.1)
@@ -1102,42 +961,6 @@ class TestCalculatePositionsMargin:
 
         _assert_close(calculate_positions_margin(client), 0.0)
 
-    def test_filters_by_symbols(self) -> None:
-        """Test optional symbol filter limits summed positions."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
-                {"symbol": "USDJPY", "type": 1, "volume": 0.2},
-            ],
-        )
-        client.symbol_info_tick_as_dict.side_effect = [
-            {"ask": 1.1010, "bid": 1.1000},
-            {"ask": 110.0, "bid": 109.0},
-        ]
-        client.order_calc_margin.side_effect = [12.5, 20.0]
-
-        margin = calculate_positions_margin(client, symbols=["EURUSD"])
-
-        _assert_close(margin, 12.5)
-        assert client.order_calc_margin.call_count == 1
-
-    def test_sums_mixed_buy_and_sell_positions(self) -> None:
-        """Test mixed buy/sell exposure sums each side independently."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
-                {"symbol": "EURUSD", "type": 1, "volume": 0.2},
-            ],
-        )
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.side_effect = [12.5, 24.8]
-
-        margin = calculate_positions_margin(client)
-
-        _assert_close(margin, 37.3)
-
     def test_groups_positions_by_symbol_and_side(self) -> None:
         """Test repeated symbol/side pairs use one margin call with summed volume."""
         client = _mock_trade_client()
@@ -1160,24 +983,80 @@ class TestCalculatePositionsMargin:
         _assert_close(args[2], 0.3)
         _assert_close(args[3], 1.1010)
 
-    def test_sums_multiple_symbols(self) -> None:
-        """Test positions across symbols are all included."""
+    @pytest.mark.parametrize(
+        (
+            "positions_records",
+            "tick_records",
+            "margin_values",
+            "symbols",
+            "expected",
+            "expected_margin_calls",
+        ),
+        [
+            (
+                [
+                    {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                    {"symbol": "USDJPY", "type": 1, "volume": 0.2},
+                ],
+                [
+                    {"ask": 1.1010, "bid": 1.1000},
+                    {"ask": 110.0, "bid": 109.0},
+                ],
+                [12.5, 20.0],
+                ["EURUSD"],
+                12.5,
+                1,
+            ),
+            (
+                [
+                    {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                    {"symbol": "EURUSD", "type": 1, "volume": 0.2},
+                ],
+                [
+                    {"ask": 1.1010, "bid": 1.1000},
+                    {"ask": 1.1010, "bid": 1.1000},
+                ],
+                [12.5, 24.8],
+                None,
+                37.3,
+                2,
+            ),
+            (
+                [
+                    {"symbol": "EURUSD", "type": 0, "volume": 0.1},
+                    {"symbol": "GBPUSD", "type": 1, "volume": 0.3},
+                ],
+                [
+                    {"ask": 1.1010, "bid": 1.1000},
+                    {"ask": 1.3010, "bid": 1.3000},
+                ],
+                [12.5, 30.0],
+                None,
+                42.5,
+                2,
+            ),
+        ],
+        ids=["filters-by-symbol", "mixed-buy-sell", "multiple-symbols"],
+    )
+    def test_sums_margin_for_normal_position_sets(
+        self,
+        positions_records: list[dict[str, object]],
+        tick_records: list[dict[str, float]],
+        margin_values: list[float],
+        symbols: list[str] | None,
+        expected: float,
+        expected_margin_calls: int,
+    ) -> None:
+        """Test standard valid position sets sum per-group margins correctly."""
         client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"symbol": "EURUSD", "type": 0, "volume": 0.1},
-                {"symbol": "GBPUSD", "type": 1, "volume": 0.3},
-            ],
-        )
-        client.symbol_info_tick_as_dict.side_effect = [
-            {"ask": 1.1010, "bid": 1.1000},
-            {"ask": 1.3010, "bid": 1.3000},
-        ]
-        client.order_calc_margin.side_effect = [12.5, 30.0]
+        client.positions_get_as_df.return_value = pd.DataFrame(positions_records)
+        client.symbol_info_tick_as_dict.side_effect = tick_records
+        client.order_calc_margin.side_effect = margin_values
 
-        margin = calculate_positions_margin(client)
+        margin = calculate_positions_margin(client, symbols=symbols)
 
-        _assert_close(margin, 42.5)
+        _assert_close(margin, expected)
+        assert client.order_calc_margin.call_count == expected_margin_calls
 
     def test_propagates_invalid_tick_or_margin_errors(self) -> None:
         """Test invalid tick or margin data raises Mt5TradingError."""
@@ -1190,35 +1069,30 @@ class TestCalculatePositionsMargin:
         with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             calculate_positions_margin(client)
 
-    def test_skips_rows_with_invalid_symbol_volume_or_type(self) -> None:
-        """Test malformed position rows are ignored when summing margin."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
+    @pytest.mark.parametrize(
+        "positions_records",
+        [
             [
                 {"symbol": "", "type": 0, "volume": 0.1},
                 {"symbol": "EURUSD", "type": 0, "volume": 0.0},
                 {"symbol": "EURUSD", "type": 2, "volume": 0.1},
                 {"symbol": "EURUSD", "type": 0, "volume": 0.1},
             ],
-        )
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.return_value = 12.5
-
-        margin = calculate_positions_margin(client)
-
-        _assert_close(margin, 12.5)
-        client.order_calc_margin.assert_called_once()
-
-    def test_skips_rows_with_non_finite_volume(self) -> None:
-        """Test NaN and infinite position volumes are ignored."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
             [
                 {"symbol": "EURUSD", "type": 0, "volume": float("nan")},
                 {"symbol": "EURUSD", "type": 0, "volume": float("inf")},
                 {"symbol": "EURUSD", "type": 0, "volume": 0.1},
             ],
-        )
+        ],
+        ids=["invalid-symbol-volume-type", "non-finite-volume"],
+    )
+    def test_skips_invalid_rows_and_sums_remaining_valid_row(
+        self,
+        positions_records: list[dict[str, object]],
+    ) -> None:
+        """Test malformed or non-finite position rows are ignored when summing."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(positions_records)
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
         client.order_calc_margin.return_value = 12.5
 
@@ -1270,72 +1144,41 @@ class TestCalculatePositionsMargin:
 class TestVolumeAndExecution:
     """Tests for order planning and execution helpers."""
 
-    def test_calculate_volume_by_margin_rounds_down_to_step(self) -> None:
-        """Test affordable volume respects min, max, and step."""
+    @pytest.mark.parametrize(
+        ("volume_max", "margin_per_lot", "budget", "expected_volume"),
+        [
+            (1.0, 25.0, 130.0, 0.5),
+            (0.3, 10.0, 100.0, 0.3),
+            (0.0, 10.0, 35.0, 0.3),
+            (1.0, 25.0, 10.0, 0.0),
+        ],
+        ids=[
+            "rounds-down-to-step",
+            "caps-at-max-volume",
+            "ignores-zero-max-volume",
+            "returns-zero-when-unaffordable",
+        ],
+    )
+    def test_calculate_volume_by_margin_boundary(
+        self,
+        volume_max: float,
+        margin_per_lot: float,
+        budget: float,
+        expected_volume: float,
+    ) -> None:
+        """Test volume caps, step rounding, and affordability under min/max/step."""
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {
             "volume_min": 0.1,
-            "volume_max": 1.0,
+            "volume_max": volume_max,
             "volume_step": 0.1,
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.order_calc_margin.return_value = 25.0
+        client.order_calc_margin.return_value = margin_per_lot
 
         _assert_close(
-            calculate_volume_by_margin(
-                client,
-                "EURUSD",
-                130.0,
-                "BUY",
-            ),
-            0.5,
-        )
-
-    def test_calculate_volume_by_margin_caps_at_max_volume(self) -> None:
-        """Test positive volume_max caps raw affordable volume exactly."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {
-            "volume_min": 0.1,
-            "volume_max": 0.3,
-            "volume_step": 0.1,
-        }
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.order_calc_margin.return_value = 10.0
-
-        _assert_close(calculate_volume_by_margin(client, "EURUSD", 100.0, "BUY"), 0.3)
-
-    def test_calculate_volume_by_margin_ignores_zero_max_volume(self) -> None:
-        """Test zero volume_max means uncapped volume normalization."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {
-            "volume_min": 0.1,
-            "volume_max": 0.0,
-            "volume_step": 0.1,
-        }
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.order_calc_margin.return_value = 10.0
-
-        _assert_close(calculate_volume_by_margin(client, "EURUSD", 35.0, "BUY"), 0.3)
-
-    def test_calculate_volume_by_margin_returns_zero_when_unaffordable(self) -> None:
-        """Test unaffordable minimum volume returns zero."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {
-            "volume_min": 0.1,
-            "volume_max": 1.0,
-            "volume_step": 0.1,
-        }
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.order_calc_margin.return_value = 25.0
-
-        _assert_close(
-            calculate_volume_by_margin(
-                client,
-                "EURUSD",
-                10.0,
-                "BUY",
-            ),
-            0.0,
+            calculate_volume_by_margin(client, "EURUSD", budget, "BUY"),
+            expected_volume,
         )
 
     def test_calculate_volume_by_margin_never_returns_nonzero_below_volume_min(
@@ -1395,43 +1238,34 @@ class TestVolumeAndExecution:
         with pytest.raises(Mt5OperationError):
             calculate_volume_by_margin(client, "EURUSD", 100.0, "SELL")
 
-    def test_calculate_volume_by_margin_steps_down_when_margin_exceeds_budget(
+    @pytest.mark.parametrize(
+        ("volume_max", "budget", "margin_values", "expected"),
+        [
+            (1.0, 130.0, [25.0, 75.0, 100.0, 150.0], 0.4),
+            (0.5, 130.0, [10.0, 150.0, 150.0], 0.0),
+        ],
+        ids=["steps-down-to-affordable-boundary", "all-steps-unaffordable"],
+    )
+    def test_calculate_volume_by_margin_binary_search_affordability_boundaries(
         self,
+        volume_max: float,
+        budget: float,
+        margin_values: list[float],
+        expected: float,
     ) -> None:
-        """Tiered margin: binary search returns the largest affordable step."""
+        """Binary search returns the largest affordable step or zero when none fit."""
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {
             "volume_min": 0.1,
-            "volume_max": 1.0,
+            "volume_max": volume_max,
             "volume_step": 0.1,
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        # min_margin (0.1): 25.0 -> hi=4.
-        # Search: mid=2 (0.3)->75<=130, mid=3 (0.4)->100<=130, mid=4 (0.5)->150>130.
-        client.order_calc_margin.side_effect = [25.0, 75.0, 100.0, 150.0]
+        client.order_calc_margin.side_effect = margin_values
 
-        result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
+        result = calculate_volume_by_margin(client, "EURUSD", budget, "BUY")
 
-        _assert_close(result, 0.4)
-
-    def test_calculate_volume_by_margin_returns_zero_when_all_steps_unaffordable(
-        self,
-    ) -> None:
-        """If all binary-search probes exceed budget, returns zero."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {
-            "volume_min": 0.1,
-            "volume_max": 0.5,
-            "volume_step": 0.1,
-        }
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        # min_margin (0.1): 10.0 -> hi=4.
-        # Search: mid=2 (0.3)->150>130->hi=1, mid=0 (0.1)->150>130->hi=-1.
-        client.order_calc_margin.side_effect = [10.0, 150.0, 150.0]
-
-        result = calculate_volume_by_margin(client, "EURUSD", 130.0, "BUY")
-
-        _assert_close(result, 0.0)
+        _assert_close(result, expected)
 
     def test_calculate_volume_by_margin_binary_search_is_bounded(self) -> None:
         """Binary search finds the largest affordable volume in O(log n) MT5 calls."""
@@ -1496,81 +1330,57 @@ class TestVolumeAndExecution:
         _assert_close(result["buy_volume"], 0.5)
         _assert_close(result["sell_volume"], 0.5)
 
-    def test_calculate_margin_and_volume_zero_ratio_uses_minimum_volume(
+    @pytest.mark.parametrize(
+        (
+            "margin_free",
+            "preserved_margin_ratio",
+            "order_calc_margins",
+            "expected_available_margin",
+            "expected_buy_volume",
+            "expected_sell_volume",
+        ),
+        [
+            (100.0, 0.0, [10.0, 20.0], 100.0, 0.1, 0.1),
+            (15.0, 0.0, [10.0, 20.0], 15.0, 0.1, 0.0),
+            (100.0, 0.9, [11.0, 9.0], 10.0, 0.0, 0.1),
+        ],
+        ids=[
+            "uses-minimum-volume",
+            "rejects-unaffordable-side",
+            "preserves-margin-first",
+        ],
+    )
+    def test_calculate_margin_and_volume_zero_ratio_sizes_minimum_lots(
         self,
+        margin_free: float,
+        preserved_margin_ratio: float,
+        order_calc_margins: list[float],
+        expected_available_margin: float,
+        expected_buy_volume: float,
+        expected_sell_volume: float,
     ) -> None:
-        """Test zero unit ratio requests one minimum volume when affordable."""
+        """Test zero unit ratio sizes minimum lots against available margin."""
         client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"margin_free": 100.0}
+        client.account_info_as_dict.return_value = {"margin_free": margin_free}
         client.symbol_info_as_dict.return_value = {
             "volume_min": 0.1,
             "volume_max": 1.0,
             "volume_step": 0.1,
         }
         client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.order_calc_margin.side_effect = [10.0, 20.0]
+        client.order_calc_margin.side_effect = order_calc_margins
 
         result = calculate_margin_and_volume(
             client,
             "EURUSD",
             unit_margin_ratio=0.0,
-            preserved_margin_ratio=0.0,
+            preserved_margin_ratio=preserved_margin_ratio,
         )
 
-        _assert_close(result["available_margin"], 100.0)
-        _assert_close(result["trade_margin"], 0.0)
-        _assert_close(result["buy_volume"], 0.1)
-        _assert_close(result["sell_volume"], 0.1)
+        _assert_close(result["available_margin"], expected_available_margin)
+        _assert_close(result["buy_volume"], expected_buy_volume)
+        _assert_close(result["sell_volume"], expected_sell_volume)
         client.calculate_volume_by_margin.assert_not_called()
-
-    def test_calculate_margin_and_volume_zero_ratio_rejects_unaffordable_side(
-        self,
-    ) -> None:
-        """Test zero unit ratio returns zero for unaffordable minimum lots."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"margin_free": 15.0}
-        client.symbol_info_as_dict.return_value = {
-            "volume_min": 0.1,
-            "volume_max": 1.0,
-            "volume_step": 0.1,
-        }
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.order_calc_margin.side_effect = [10.0, 20.0]
-
-        result = calculate_margin_and_volume(
-            client,
-            "EURUSD",
-            unit_margin_ratio=0.0,
-            preserved_margin_ratio=0.0,
-        )
-
-        _assert_close(result["buy_volume"], 0.1)
-        _assert_close(result["sell_volume"], 0.0)
-
-    def test_calculate_margin_and_volume_zero_ratio_preserves_margin_first(
-        self,
-    ) -> None:
-        """Test preserved margin reduces affordability before min sizing."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"margin_free": 100.0}
-        client.symbol_info_as_dict.return_value = {
-            "volume_min": 0.1,
-            "volume_max": 1.0,
-            "volume_step": 0.1,
-        }
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.order_calc_margin.side_effect = [11.0, 9.0]
-
-        result = calculate_margin_and_volume(
-            client,
-            "EURUSD",
-            unit_margin_ratio=0.0,
-            preserved_margin_ratio=0.9,
-        )
-
-        _assert_close(result["available_margin"], 10.0)
-        _assert_close(result["buy_volume"], 0.0)
-        _assert_close(result["sell_volume"], 0.1)
 
     def test_calculate_margin_and_volume_zero_ratio_without_available_margin(
         self,
@@ -1762,41 +1572,40 @@ class TestVolumeAndExecution:
 
         _assert_close(calculate_projected_margin_ratio(client, symbol="EURUSD"), 0.05)
 
-    def test_projected_margin_ratio_adds_buy_exposure(self) -> None:
-        """Test projected buy margin is added to current symbol exposure."""
+    @pytest.mark.parametrize(
+        ("side", "order_type", "price", "margin_return", "expected_ratio"),
+        [
+            ("BUY", 10, 1.101, 25.0, 0.025),
+            ("SELL", 11, 1.1, 24.0, 0.024),
+        ],
+        ids=["buy", "sell"],
+    )
+    def test_projected_margin_ratio_adds_side_exposure(
+        self,
+        side: OrderSide,
+        order_type: int,
+        price: float,
+        margin_return: float,
+        expected_ratio: float,
+    ) -> None:
+        """Test projected buy/sell margin uses ask/bid pricing and adds to exposure."""
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"equity": 1000.0}
         client.positions_get_as_df.return_value = pd.DataFrame()
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.101, "bid": 1.1}
-        client.order_calc_margin.return_value = 25.0
+        client.order_calc_margin.return_value = margin_return
 
         result = calculate_projected_margin_ratio(
             client,
             symbol="EURUSD",
-            new_position_side="BUY",
+            new_position_side=side,
             new_position_volume=0.1,
         )
 
-        _assert_close(result, 0.025)
-        client.order_calc_margin.assert_called_once_with(10, "EURUSD", 0.1, 1.101)
-
-    def test_projected_margin_ratio_adds_sell_exposure(self) -> None:
-        """Test projected sell margin uses bid pricing."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0}
-        client.positions_get_as_df.return_value = pd.DataFrame()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.101, "bid": 1.1}
-        client.order_calc_margin.return_value = 24.0
-
-        result = calculate_projected_margin_ratio(
-            client,
-            symbol="EURUSD",
-            new_position_side="SELL",
-            new_position_volume=0.1,
+        _assert_close(result, expected_ratio)
+        client.order_calc_margin.assert_called_once_with(
+            order_type, "EURUSD", 0.1, price
         )
-
-        _assert_close(result, 0.024)
-        client.order_calc_margin.assert_called_once_with(11, "EURUSD", 0.1, 1.1)
 
     @pytest.mark.parametrize(
         ("account", "kwargs", "candidate_margin", "expected_ratio"),
@@ -2013,12 +1822,21 @@ class TestVolumeAndExecution:
         with pytest.raises(Mt5OperationError, match="Account equity"):
             calculate_projected_margin_ratio(client, symbol="EURUSD")
 
-    def test_symbol_group_margin_ratio_suppresses_projected_failure(
+    @pytest.mark.parametrize(
+        ("suppress_errors", "expected_outcome"),
+        [
+            pytest.param(True, "suppressed", id="suppresses-projected-failure"),
+            pytest.param(False, "raised", id="reraises-projected-failure"),
+        ],
+    )
+    def test_symbol_group_margin_ratio_projected_failure(
         self,
+        suppress_errors: bool,
+        expected_outcome: str,
         mocker: MockerFixture,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test projected margin failures can be skipped for safe group reads."""
+        """Test add-mode projected margin failures suppress or reraise."""
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"equity": 1000.0}
         mocker.patch(
@@ -2030,35 +1848,22 @@ class TestVolumeAndExecution:
             side_effect=Mt5OperationError("bad tick"),
         )
 
-        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
-            result = calculate_symbol_group_margin_ratio(
-                client,
-                symbols=["EURUSD"],
-                new_symbol="EURUSD",
-                new_position_side="BUY",
-                new_position_volume=0.1,
-                suppress_errors=True,
-            )
+        if suppress_errors:
+            assert expected_outcome == "suppressed"
+            with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+                result = calculate_symbol_group_margin_ratio(
+                    client,
+                    symbols=["EURUSD"],
+                    new_symbol="EURUSD",
+                    new_position_side="BUY",
+                    new_position_volume=0.1,
+                    suppress_errors=True,
+                )
+            _assert_close(result, 0.0)
+            assert "Skipping projected margin" in caplog.text
+            return
 
-        _assert_close(result, 0.0)
-        assert "Skipping projected margin" in caplog.text
-
-    def test_symbol_group_margin_ratio_reraises_projected_failure(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test projected margin failures raise when suppression is disabled."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0}
-        mocker.patch(
-            "mt5cli.trading.calculate_positions_margin_by_symbol",
-            return_value={},
-        )
-        mocker.patch(
-            "mt5cli.trading.estimate_order_margin",
-            side_effect=Mt5OperationError("bad tick"),
-        )
-
+        assert expected_outcome == "raised"
         with pytest.raises(Mt5OperationError, match="bad tick"):
             calculate_symbol_group_margin_ratio(
                 client,
@@ -2166,12 +1971,21 @@ class TestVolumeAndExecution:
 
         _assert_close(result, 0.04)
 
-    def test_symbol_group_margin_ratio_replace_suppresses_candidate_failure(
+    @pytest.mark.parametrize(
+        ("suppress_errors", "expected_ratio"),
+        [
+            pytest.param(True, 0.025, id="suppresses"),
+            pytest.param(False, None, id="reraises"),
+        ],
+    )
+    def test_symbol_group_margin_ratio_replace_mode_candidate_failure(
         self,
+        suppress_errors: bool,
+        expected_ratio: float | None,
         mocker: MockerFixture,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test replace mode skips both subtract and add when estimation fails."""
+        """Test replace-mode candidate failures suppress or reraise."""
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"equity": 1000.0}
         mocker.patch(
@@ -2183,36 +1997,21 @@ class TestVolumeAndExecution:
             side_effect=Mt5OperationError("bad tick"),
         )
 
-        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
-            result = calculate_symbol_group_margin_ratio(
-                client,
-                symbols=["EURUSD"],
-                new_symbol="EURUSD",
-                new_position_side="BUY",
-                new_position_volume=0.1,
-                projection_mode="replace_symbol",
-                suppress_errors=True,
-            )
-
-        # When candidate fails, neither subtraction nor addition is applied
-        _assert_close(result, 0.025)
-        assert "Skipping projected margin" in caplog.text
-
-    def test_symbol_group_margin_ratio_replace_reraises_candidate_failure(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test replace mode re-raises candidate failure when suppress_errors=False."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0}
-        mocker.patch(
-            "mt5cli.trading.calculate_positions_margin_by_symbol",
-            return_value={"EURUSD": 25.0},
-        )
-        mocker.patch(
-            "mt5cli.trading.estimate_order_margin",
-            side_effect=Mt5OperationError("bad tick"),
-        )
+        if suppress_errors:
+            with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+                result = calculate_symbol_group_margin_ratio(
+                    client,
+                    symbols=["EURUSD"],
+                    new_symbol="EURUSD",
+                    new_position_side="BUY",
+                    new_position_volume=0.1,
+                    projection_mode="replace_symbol",
+                    suppress_errors=True,
+                )
+            # When candidate fails, neither subtraction nor addition is applied
+            _assert_close(result, cast("float", expected_ratio))
+            assert "Skipping projected margin" in caplog.text
+            return
 
         with pytest.raises(Mt5OperationError, match="bad tick"):
             calculate_symbol_group_margin_ratio(
@@ -2302,33 +2101,30 @@ class TestVolumeAndExecution:
         _assert_close(_request_from_result(result)["sl"], 1.0)
         _assert_close(_request_from_result(result)["tp"], 1.4)
 
-    def test_place_market_order_rejects_invalid_filling_mode(self) -> None:
-        """Test MT5 filling mode names are validated before getattr."""
+    @pytest.mark.parametrize(
+        ("mode_kwarg", "match"),
+        [
+            ("order_filling_mode", "Unsupported order_filling mode"),
+            ("order_time_mode", "Unsupported order_time mode"),
+        ],
+        ids=["filling-mode", "time-mode"],
+    )
+    def test_place_market_order_rejects_invalid_mode(
+        self,
+        mode_kwarg: str,
+        match: str,
+    ) -> None:
+        """Test MT5 filling and time mode names are validated before getattr."""
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
 
-        with pytest.raises(ValueError, match="Unsupported order_filling mode"):
+        with pytest.raises(ValueError, match=match):
             place_market_order(
                 client,
                 symbol="EURUSD",
                 volume=0.1,
                 order_side="BUY",
-                order_filling_mode=cast("Any", "BAD"),
-                dry_run=True,
-            )
-
-    def test_place_market_order_rejects_invalid_time_mode(self) -> None:
-        """Test MT5 time mode names are validated before getattr."""
-        client = _mock_trade_client()
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-
-        with pytest.raises(ValueError, match="Unsupported order_time mode"):
-            place_market_order(
-                client,
-                symbol="EURUSD",
-                volume=0.1,
-                order_side="BUY",
-                order_time_mode=cast("Any", "BAD"),
+                **{mode_kwarg: cast("Any", "BAD")},
                 dry_run=True,
             )
 
@@ -2455,7 +2251,29 @@ class TestVolumeAndExecution:
         assert result["retcode"] == expected_retcode
         assert result["status"] == "failed"
 
-    def test_close_open_positions_filters_and_dry_runs(self) -> None:
+    @pytest.mark.parametrize(
+        ("filter_kwargs", "expected_order_side", "expected_position"),
+        [
+            pytest.param(
+                {"symbols": "EURUSD"},
+                "SELL",
+                1,
+                id="filter-by-symbol",
+            ),
+            pytest.param(
+                {"tickets": [2]},
+                "BUY",
+                2,
+                id="filter-by-ticket",
+            ),
+        ],
+    )
+    def test_close_open_positions_filters_and_dry_runs(
+        self,
+        filter_kwargs: dict[str, object],
+        expected_order_side: str,
+        expected_position: int,
+    ) -> None:
         """Test close helper filters positions and builds opposite orders."""
         client = _mock_trade_client()
         client.positions_get_as_df.return_value = pd.DataFrame(
@@ -2466,27 +2284,13 @@ class TestVolumeAndExecution:
         )
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
 
-        result = close_open_positions(client, symbols="EURUSD", dry_run=True)
-
-        assert len(result) == 1
-        assert result[0]["order_side"] == "SELL"
-        assert _request_from_result(result[0])["position"] == 1
-
-    def test_close_open_positions_filters_by_ticket(self) -> None:
-        """Test close helper can filter by ticket."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1},
-                {"ticket": 2, "symbol": "USDJPY", "type": 1, "volume": 0.2},
-            ],
+        result = close_open_positions(
+            client, dry_run=True, **cast("Any", filter_kwargs)
         )
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-
-        result = close_open_positions(client, tickets=[2], dry_run=True)
 
         assert len(result) == 1
-        assert result[0]["order_side"] == "BUY"
+        assert result[0]["order_side"] == expected_order_side
+        assert _request_from_result(result[0])["position"] == expected_position
 
     def test_close_open_positions_sends_position_ticket(self) -> None:
         """Test live close orders include the position before order_send."""
@@ -2515,41 +2319,63 @@ class TestVolumeAndExecution:
             == {}
         )
 
-    def test_calculate_trailing_stop_updates_buy_positions(self) -> None:
-        """Test buy trailing stops use bid and improve only upward."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0},
-                {
-                    "ticket": 2,
-                    "symbol": "EURUSD",
-                    "type": 0,
-                    "volume": 0.1,
-                    "sl": 1.19,
-                },
-            ],
-        )
-        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 1.201}
-        client.symbol_info_as_dict.return_value = {"digits": 4}
-
-        result = calculate_trailing_stop_updates(
-            client,
-            symbol="EURUSD",
-            trailing_stop_ratio=0.01,
-        )
-
-        assert result == {1: 1.188}
-
-    def test_calculate_trailing_stop_updates_buy_positions_ignore_invalid_ask(
+    @pytest.mark.parametrize(
+        ("positions", "tick", "expected"),
+        [
+            pytest.param(
+                [
+                    {
+                        "ticket": 1,
+                        "symbol": "EURUSD",
+                        "type": 0,
+                        "volume": 0.1,
+                        "sl": 1.0,
+                    },
+                    {
+                        "ticket": 2,
+                        "symbol": "EURUSD",
+                        "type": 0,
+                        "volume": 0.1,
+                        "sl": 1.19,
+                    },
+                ],
+                {"bid": 1.2, "ask": 1.201},
+                {1: 1.188},
+                id="buy-uses-bid-skips-already-favorable",
+            ),
+            pytest.param(
+                [
+                    {
+                        "ticket": 3,
+                        "symbol": "EURUSD",
+                        "type": 1,
+                        "volume": 0.1,
+                        "sl": 1.3,
+                    },
+                    {
+                        "ticket": 4,
+                        "symbol": "EURUSD",
+                        "type": 1,
+                        "volume": 0.1,
+                        "sl": 1.21,
+                    },
+                ],
+                {"bid": 1.198, "ask": 1.2},
+                {3: 1.212},
+                id="sell-uses-ask-skips-already-favorable",
+            ),
+        ],
+    )
+    def test_calculate_trailing_stop_updates_by_side(
         self,
+        positions: list[dict[str, object]],
+        tick: dict[str, float],
+        expected: dict[int, float],
     ) -> None:
-        """Test buy trailing stops do not require an ask price."""
+        """Buy uses bid (improves up); sell uses ask (improves down)."""
         client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1, "sl": 1.0}],
-        )
-        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 0.0}
+        client.positions_get_as_df.return_value = pd.DataFrame(positions)
+        client.symbol_info_tick_as_dict.return_value = tick
         client.symbol_info_as_dict.return_value = {"digits": 4}
 
         result = calculate_trailing_stop_updates(
@@ -2558,43 +2384,51 @@ class TestVolumeAndExecution:
             trailing_stop_ratio=0.01,
         )
 
-        assert result == {1: 1.188}
+        assert result == expected
 
-    def test_calculate_trailing_stop_updates_sell_positions(self) -> None:
-        """Test sell trailing stops use ask and improve only downward."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [
-                {"ticket": 3, "symbol": "EURUSD", "type": 1, "volume": 0.1, "sl": 1.3},
-                {
-                    "ticket": 4,
-                    "symbol": "EURUSD",
-                    "type": 1,
-                    "volume": 0.1,
-                    "sl": 1.21,
-                },
-            ],
-        )
-        client.symbol_info_tick_as_dict.return_value = {"bid": 1.198, "ask": 1.2}
-        client.symbol_info_as_dict.return_value = {"digits": 4}
-
-        result = calculate_trailing_stop_updates(
-            client,
-            symbol="EURUSD",
-            trailing_stop_ratio=0.01,
-        )
-
-        assert result == {3: 1.212}
-
-    def test_calculate_trailing_stop_updates_sell_positions_ignore_invalid_bid(
+    @pytest.mark.parametrize(
+        ("positions", "tick", "expected"),
+        [
+            pytest.param(
+                [
+                    {
+                        "ticket": 1,
+                        "symbol": "EURUSD",
+                        "type": 0,
+                        "volume": 0.1,
+                        "sl": 1.0,
+                    },
+                ],
+                {"bid": 1.2, "ask": 0.0},
+                {1: 1.188},
+                id="buy-ignores-invalid-ask",
+            ),
+            pytest.param(
+                [
+                    {
+                        "ticket": 3,
+                        "symbol": "EURUSD",
+                        "type": 1,
+                        "volume": 0.1,
+                        "sl": 1.3,
+                    },
+                ],
+                {"bid": 0.0, "ask": 1.2},
+                {3: 1.212},
+                id="sell-ignores-invalid-bid",
+            ),
+        ],
+    )
+    def test_calculate_trailing_stop_updates_ignores_opposite_side_price(
         self,
+        positions: list[dict[str, object]],
+        tick: dict[str, object],
+        expected: dict[int, float],
     ) -> None:
-        """Test sell trailing stops do not require a bid price."""
+        """Buy uses bid only; sell uses ask only (other-side price may be invalid)."""
         client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
-            [{"ticket": 3, "symbol": "EURUSD", "type": 1, "volume": 0.1, "sl": 1.3}],
-        )
-        client.symbol_info_tick_as_dict.return_value = {"bid": 0.0, "ask": 1.2}
+        client.positions_get_as_df.return_value = pd.DataFrame(positions)
+        client.symbol_info_tick_as_dict.return_value = tick
         client.symbol_info_as_dict.return_value = {"digits": 4}
 
         result = calculate_trailing_stop_updates(
@@ -2603,7 +2437,7 @@ class TestVolumeAndExecution:
             trailing_stop_ratio=0.01,
         )
 
-        assert result == {3: 1.212}
+        assert result == expected
 
     def test_calculate_trailing_stop_updates_invalid_bid_or_ask(self) -> None:
         """Test invalid side-specific tick prices fail safely without updates."""
@@ -2627,8 +2461,25 @@ class TestVolumeAndExecution:
             == {}
         )
 
+    @pytest.mark.parametrize(
+        ("tick", "expected"),
+        [
+            pytest.param(
+                {"bid": 1.2, "ask": 0.0},
+                {1: 1.188},
+                id="invalid-ask-skips-sell-updates",
+            ),
+            pytest.param(
+                {"bid": None, "ask": 1.2},
+                {2: 1.212},
+                id="invalid-bid-skips-buy-updates",
+            ),
+        ],
+    )
     def test_calculate_trailing_stop_updates_mixed_positions_skip_invalid_side(
         self,
+        tick: dict[str, object],
+        expected: dict[int, float],
     ) -> None:
         """Test one invalid side price does not block the valid side."""
         client = _mock_trade_client()
@@ -2639,20 +2490,15 @@ class TestVolumeAndExecution:
             ],
         )
         client.symbol_info_as_dict.return_value = {"digits": 4}
+        client.symbol_info_tick_as_dict.return_value = tick
 
-        client.symbol_info_tick_as_dict.return_value = {"bid": 1.2, "ask": 0.0}
-        assert calculate_trailing_stop_updates(
+        result = calculate_trailing_stop_updates(
             client,
             symbol="EURUSD",
             trailing_stop_ratio=0.01,
-        ) == {1: 1.188}
+        )
 
-        client.symbol_info_tick_as_dict.return_value = {"bid": None, "ask": 1.2}
-        assert calculate_trailing_stop_updates(
-            client,
-            symbol="EURUSD",
-            trailing_stop_ratio=0.01,
-        ) == {2: 1.212}
+        assert result == expected
 
     def test_calculate_trailing_stop_updates_invalid_symbol_digits(self) -> None:
         """Test invalid symbol metadata fails safely without updates."""

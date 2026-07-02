@@ -20,23 +20,13 @@ from mt5cli.telemetry import (
 class TestNoOp:
     """Tests for _NoOp no-op instrument."""
 
-    def test_add_is_noop(self) -> None:
-        """_NoOp.add accepts amount and optional attributes without error."""
+    @pytest.mark.parametrize("method", ["add", "set", "record"])
+    def test_method_is_noop(self, method: str) -> None:
+        """_NoOp methods accept amount and optional attributes without error."""
         noop = _NoOp()
-        noop.add(1.0)
-        noop.add(1.0, {"key": "val"})
-
-    def test_set_is_noop(self) -> None:
-        """_NoOp.set accepts amount and optional attributes without error."""
-        noop = _NoOp()
-        noop.set(2.0)
-        noop.set(2.0, {"key": "val"})
-
-    def test_record_is_noop(self) -> None:
-        """_NoOp.record accepts amount and optional attributes without error."""
-        noop = _NoOp()
-        noop.record(3.0)
-        noop.record(3.0, {"key": "val"})
+        bound = getattr(noop, method)
+        bound(1.0)
+        bound(1.0, {"key": "val"})
 
 
 class TestMt5Metrics:
@@ -64,32 +54,105 @@ class TestMt5Metrics:
         assert meter.create_counter.called
         assert meter.create_gauge.called
 
-    def test_record_history_update_success(self) -> None:
-        """record_history_update records duration and timestamp on success."""
+    @pytest.mark.parametrize(
+        (
+            "method",
+            "kwargs",
+            "duration_attr",
+            "failures_attr",
+            "last_success_attr",
+        ),
+        [
+            pytest.param(
+                "record_history_update",
+                {"dataset": "rates"},
+                "_history_duration",
+                "_history_failures",
+                "_last_successful_update",
+                id="history-update",
+            ),
+            pytest.param(
+                "record_snapshot_update",
+                {},
+                "_snapshot_duration",
+                "_snapshot_failures",
+                None,
+                id="snapshot-update",
+            ),
+        ],
+    )
+    def test_record_update_success(
+        self,
+        method: str,
+        kwargs: dict[str, str],
+        duration_attr: str,
+        failures_attr: str,
+        last_success_attr: str | None,
+    ) -> None:
+        """record_*_update records duration and timestamp on success."""
         meter = MagicMock()
         m = _Mt5Metrics()
         m.configure(meter)
-        with m.record_history_update(dataset="rates"):
+        with getattr(m, method)(**kwargs):
             pass
-        m._history_duration.record.assert_called_once()  # type: ignore[reportPrivateUsage]
-        m._last_successful_update.set.assert_called_once()  # type: ignore[reportPrivateUsage]
-        m._history_failures.add.assert_not_called()  # type: ignore[reportPrivateUsage]
+        getattr(m, duration_attr).record.assert_called_once()  # type: ignore[reportPrivateUsage]
+        getattr(m, failures_attr).add.assert_not_called()  # type: ignore[reportPrivateUsage]
+        if last_success_attr is not None:
+            getattr(m, last_success_attr).set.assert_called_once()  # type: ignore[reportPrivateUsage]
 
-    def test_record_history_update_failure(self) -> None:
-        """record_history_update increments failure counter and re-raises on error."""
+    @pytest.mark.parametrize(
+        (
+            "method",
+            "kwargs",
+            "exc",
+            "duration_attr",
+            "failures_attr",
+            "failure_labels",
+        ),
+        [
+            pytest.param(
+                "record_history_update",
+                {"dataset": "rates"},
+                ValueError("boom"),
+                "_history_duration",
+                "_history_failures",
+                {"dataset": "rates"},
+                id="history-update",
+            ),
+            pytest.param(
+                "record_snapshot_update",
+                {},
+                RuntimeError("snap fail"),
+                "_snapshot_duration",
+                "_snapshot_failures",
+                {},
+                id="snapshot-update",
+            ),
+        ],
+    )
+    def test_record_update_failure(
+        self,
+        method: str,
+        kwargs: dict[str, str],
+        exc: BaseException,
+        duration_attr: str,
+        failures_attr: str,
+        failure_labels: dict[str, str],
+    ) -> None:
+        """record_*_update increments failure counter and re-raises on error."""
         meter = MagicMock()
         m = _Mt5Metrics()
         m.configure(meter)
-        exc = ValueError("boom")
         with (
-            pytest.raises(ValueError, match="boom"),
-            m.record_history_update(dataset="rates"),
+            pytest.raises(type(exc), match=str(exc)),
+            getattr(m, method)(**kwargs),
         ):
             raise exc
-        m._history_failures.add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
-            1, {"dataset": "rates"}
+        getattr(m, failures_attr).add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
+            1,
+            failure_labels,
         )
-        m._history_duration.record.assert_not_called()  # type: ignore[reportPrivateUsage]
+        getattr(m, duration_attr).record.assert_not_called()  # type: ignore[reportPrivateUsage]
 
     def test_add_history_rows(self) -> None:
         """add_history_rows increments the rows-written counter."""
@@ -101,82 +164,82 @@ class TestMt5Metrics:
             42, {"dataset": "rates"}
         )
 
-    def test_record_snapshot_update_success(self) -> None:
-        """record_snapshot_update records duration on success."""
+    @pytest.mark.parametrize(
+        ("method", "kwargs", "gauge_attr", "expected_set_count"),
+        [
+            pytest.param(
+                "record_position_state",
+                {
+                    "login": "42",
+                    "server": "demo",
+                    "symbol": "EURUSD",
+                    "profit": 12.5,
+                    "volume": 0.01,
+                },
+                "_position_profit",
+                2,
+                id="position-state",
+            ),
+            pytest.param(
+                "record_terminal_state",
+                {
+                    "connected": 1.0,
+                    "trade_allowed": 1.0,
+                    "trade_expert": 0.0,
+                },
+                "_terminal_connected",
+                3,
+                id="terminal-state",
+            ),
+            pytest.param(
+                "record_account_state",
+                {
+                    "login": "99",
+                    "server": "live",
+                    "balance": 5000.0,
+                    "equity": 5100.0,
+                    "margin": 200.0,
+                    "margin_free": 4800.0,
+                    "margin_level": 2550.0,
+                },
+                "_account_balance",
+                5,
+                id="account-state",
+            ),
+        ],
+    )
+    def test_record_state_emits_gauges(
+        self,
+        method: str,
+        kwargs: dict[str, float | str],
+        gauge_attr: str,
+        expected_set_count: int,
+    ) -> None:
+        """record_*_state emits the expected gauge set calls after configure."""
         meter = MagicMock()
         m = _Mt5Metrics()
         m.configure(meter)
-        with m.record_snapshot_update():
-            pass
-        m._snapshot_duration.record.assert_called_once()  # type: ignore[reportPrivateUsage]
-        m._snapshot_failures.add.assert_not_called()  # type: ignore[reportPrivateUsage]
-
-    def test_record_snapshot_update_failure(self) -> None:
-        """record_snapshot_update increments failure counter and re-raises on error."""
-        meter = MagicMock()
-        m = _Mt5Metrics()
-        m.configure(meter)
-        exc = RuntimeError("snap fail")
-        with (
-            pytest.raises(RuntimeError, match="snap fail"),
-            m.record_snapshot_update(),
-        ):
-            raise exc
-        m._snapshot_failures.add.assert_called_once_with(1, {})  # type: ignore[reportPrivateUsage]
-        m._snapshot_duration.record.assert_not_called()  # type: ignore[reportPrivateUsage]
-
-    def test_record_position_state(self) -> None:
-        """record_position_state emits profit and volume gauges."""
-        meter = MagicMock()
-        m = _Mt5Metrics()
-        m.configure(meter)
-        m.record_position_state(
-            login="42",
-            server="demo",
-            symbol="EURUSD",
-            profit=12.5,
-            volume=0.01,
+        getattr(m, method)(**kwargs)
+        # Related gauges share the same create_gauge mock; verify total set calls.
+        assert (  # type: ignore[reportPrivateUsage]
+            getattr(m, gauge_attr).set.call_count == expected_set_count
         )
-        # Both profit and volume share the same gauge mock via create_gauge.
-        # Verify that set was called exactly twice (once each).
-        assert m._position_profit.set.call_count == 2  # type: ignore[reportPrivateUsage]
 
-    def test_record_terminal_state(self) -> None:
-        """record_terminal_state emits connected, trade_allowed, trade_expert gauges."""
-        meter = MagicMock()
+    @pytest.mark.parametrize(
+        ("method", "kwargs"),
+        [
+            ("record_history_update", {"dataset": "ticks"}),
+            ("record_snapshot_update", {}),
+        ],
+    )
+    def test_record_update_noop_before_configure(
+        self,
+        method: str,
+        kwargs: dict[str, str],
+    ) -> None:
+        """record_*_update works without configure (no-op instruments)."""
         m = _Mt5Metrics()
-        m.configure(meter)
-        m.record_terminal_state(connected=1.0, trade_allowed=1.0, trade_expert=0.0)
-        # All three terminal gauges share the same mock; set is called 3 times.
-        assert m._terminal_connected.set.call_count == 3  # type: ignore[reportPrivateUsage]
-
-    def test_record_account_state_after_configure(self) -> None:
-        """record_account_state emits all five account gauges."""
-        meter = MagicMock()
-        m = _Mt5Metrics()
-        m.configure(meter)
-        m.record_account_state(
-            login="99",
-            server="live",
-            balance=5000.0,
-            equity=5100.0,
-            margin=200.0,
-            margin_free=4800.0,
-            margin_level=2550.0,
-        )
-        # All five account gauges share the same gauge mock; set is called 5 times.
-        assert m._account_balance.set.call_count == 5  # type: ignore[reportPrivateUsage]
-
-    def test_record_history_update_noop_before_configure(self) -> None:
-        """record_history_update works without configure (no-op instruments)."""
-        m = _Mt5Metrics()
-        with m.record_history_update(dataset="ticks"):
-            pass
-
-    def test_record_snapshot_update_noop_before_configure(self) -> None:
-        """record_snapshot_update works without configure (no-op instruments)."""
-        m = _Mt5Metrics()
-        with m.record_snapshot_update():
+        with getattr(m, method)(**kwargs):
             pass
 
 

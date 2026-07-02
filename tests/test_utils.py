@@ -89,28 +89,45 @@ class TestExportDataframe:
         """Create a sample DataFrame for testing."""
         return pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
 
-    def test_export_csv(self, tmp_path: Path, sample_df: pd.DataFrame) -> None:
-        """Test CSV export."""
-        output = tmp_path / "out.csv"
-        export_dataframe(sample_df, output, "csv")
-        result = pd.read_csv(output)
-        pd.testing.assert_frame_equal(result, sample_df)
-
-    def test_export_json(self, tmp_path: Path, sample_df: pd.DataFrame) -> None:
-        """Test JSON export."""
-        output = tmp_path / "out.json"
-        export_dataframe(sample_df, output, "json")
-        with output.open() as f:
-            records = json.load(f)
-        assert len(records) == 3
-        assert records[0]["a"] == 1
-
-    def test_export_parquet(self, tmp_path: Path, sample_df: pd.DataFrame) -> None:
-        """Test Parquet export."""
-        output = tmp_path / "out.parquet"
-        export_dataframe(sample_df, output, "parquet")
-        result = pd.read_parquet(output)
-        pd.testing.assert_frame_equal(result, sample_df)
+    @pytest.mark.parametrize(
+        ("filename", "output_format", "reader"),
+        [
+            ("out.csv", "csv", "csv"),
+            ("out.json", "json", "json"),
+            ("out.parquet", "parquet", "parquet"),
+            ("out.db", "sqlite3", "sqlite3"),
+        ],
+        ids=["csv", "json", "parquet", "sqlite3"],
+    )
+    def test_export_round_trip(
+        self,
+        tmp_path: Path,
+        sample_df: pd.DataFrame,
+        filename: str,
+        output_format: str,
+        reader: str,
+    ) -> None:
+        """Test CSV/JSON/Parquet/SQLite3 exports round-trip the sample DataFrame."""
+        output = tmp_path / filename
+        export_dataframe(sample_df, output, output_format, table_name="test_table")
+        if reader == "csv":
+            result = pd.read_csv(output)
+            pd.testing.assert_frame_equal(result, sample_df)
+        elif reader == "json":
+            with output.open() as f:
+                records = json.load(f)
+            assert len(records) == 3
+            assert records[0]["a"] == 1
+        elif reader == "sqlite3":
+            with sqlite3.connect(output) as conn:
+                result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
+                    "SELECT * FROM test_table",
+                    conn,
+                )
+            pd.testing.assert_frame_equal(result, sample_df)
+        else:
+            result = pd.read_parquet(output)
+            pd.testing.assert_frame_equal(result, sample_df)
 
     def test_export_parquet_without_pyarrow(
         self,
@@ -122,17 +139,6 @@ class TestExportDataframe:
         monkeypatch.setitem(sys.modules, "pyarrow", None)
         with pytest.raises(ImportError, match="mt5cli\\[parquet\\]"):
             export_dataframe(sample_df, tmp_path / "out.parquet", "parquet")
-
-    def test_export_sqlite3(self, tmp_path: Path, sample_df: pd.DataFrame) -> None:
-        """Test SQLite3 export."""
-        output = tmp_path / "out.db"
-        export_dataframe(sample_df, output, "sqlite3", table_name="test_table")
-        with sqlite3.connect(output) as conn:
-            result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
-                "SELECT * FROM test_table",
-                conn,
-            )
-        pd.testing.assert_frame_equal(result, sample_df)
 
     def test_unsupported_format_raises(
         self,
@@ -147,13 +153,41 @@ class TestExportDataframe:
 class TestExportDataframeToSqlite:
     """Tests for export_dataframe_to_sqlite."""
 
-    def test_append_preserves_existing_rows(self, tmp_path: Path) -> None:
-        """Test append mode keeps prior rows in the SQLite table."""
+    @pytest.mark.parametrize(
+        ("first_if_exists", "second_if_exists"),
+        [
+            pytest.param(IfExists.REPLACE, IfExists.APPEND, id="replace-then-append"),
+            pytest.param(None, None, id="default-append"),
+        ],
+    )
+    def test_append_preserves_existing_rows(
+        self,
+        tmp_path: Path,
+        first_if_exists: IfExists | None,
+        second_if_exists: IfExists | None,
+    ) -> None:
+        """Test explicit append and default append modes keep prior rows."""
         output = tmp_path / "append.db"
         first = pd.DataFrame({"id": [1], "value": ["a"]})
         second = pd.DataFrame({"id": [2], "value": ["b"]})
-        export_dataframe_to_sqlite(first, output, "items", if_exists=IfExists.REPLACE)
-        export_dataframe_to_sqlite(second, output, "items", if_exists=IfExists.APPEND)
+        if first_if_exists is None:
+            export_dataframe_to_sqlite(first, output, "items")
+        else:
+            export_dataframe_to_sqlite(
+                first,
+                output,
+                "items",
+                if_exists=first_if_exists,
+            )
+        if second_if_exists is None:
+            export_dataframe_to_sqlite(second, output, "items")
+        else:
+            export_dataframe_to_sqlite(
+                second,
+                output,
+                "items",
+                if_exists=second_if_exists,
+            )
         with sqlite3.connect(output) as conn:
             result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
                 "SELECT id, value FROM items ORDER BY id",
@@ -205,26 +239,6 @@ class TestExportDataframeToSqlite:
             }),
         )
 
-    def test_default_if_exists_appends_without_dropping_rows(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test the default append mode keeps prior rows."""
-        output = tmp_path / "default-append.db"
-        first = pd.DataFrame({"id": [1], "value": ["a"]})
-        second = pd.DataFrame({"id": [2], "value": ["b"]})
-        export_dataframe_to_sqlite(first, output, "items")
-        export_dataframe_to_sqlite(second, output, "items")
-        with sqlite3.connect(output) as conn:
-            result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
-                "SELECT id, value FROM items ORDER BY id",
-                conn,
-            )
-        pd.testing.assert_frame_equal(
-            result,
-            pd.DataFrame({"id": [1, 2], "value": ["a", "b"]}),
-        )
-
     def test_writes_index_with_label(self, tmp_path: Path) -> None:
         """Test optional index export with a custom label."""
         output = tmp_path / "index.db"
@@ -258,15 +272,17 @@ class TestExportDataframeToSqlite:
 class TestParseDatetime:
     """Tests for parse_datetime."""
 
-    def test_valid_date(self) -> None:
-        """Test parsing a date string."""
-        result = parse_datetime("2024-01-15")
-        assert result == datetime(2024, 1, 15, tzinfo=UTC)
-
-    def test_valid_datetime_with_tz(self) -> None:
-        """Test parsing a datetime with timezone."""
-        result = parse_datetime("2024-01-15T12:00:00+00:00")
-        assert result == datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("2024-01-15", datetime(2024, 1, 15, tzinfo=UTC)),
+            ("2024-01-15T12:00:00+00:00", datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)),
+        ],
+        ids=["date", "datetime-with-tz"],
+    )
+    def test_valid_inputs(self, value: str, expected: datetime) -> None:
+        """Test parsing valid date and datetime strings."""
+        assert parse_datetime(value) == expected
 
     def test_invalid_format_raises(self) -> None:
         """Test that invalid format raises ValueError."""
@@ -279,26 +295,29 @@ class TestParseTimeframe:
 
     @pytest.mark.parametrize(
         ("value", "expected"),
-        [("M1", 1), ("h1", 16385), ("D1", 16408), ("MN1", 49153)],
+        [
+            ("M1", 1),
+            ("h1", 16385),
+            ("D1", 16408),
+            ("MN1", 49153),
+            ("1", 1),
+            (16385, 16385),
+        ],
+        ids=["M1", "h1", "D1", "MN1", "int-string-1", "int-16385"],
     )
-    def test_named_timeframe(self, value: str, expected: int) -> None:
-        """Test parsing named timeframes."""
+    def test_valid_timeframe(self, value: str | int, expected: int) -> None:
+        """Test parsing valid string and integer timeframe values."""
         assert parse_timeframe(value) == expected
 
-    def test_integer_timeframe(self) -> None:
-        """Test parsing supported integer timeframes."""
-        assert parse_timeframe("1") == 1
-        assert parse_timeframe(16385) == 16385
-
-    def test_unsupported_integer_timeframe_raises(self) -> None:
-        """Test that unsupported integer timeframes raise ValueError."""
+    @pytest.mark.parametrize(
+        "value",
+        ["42", "INVALID"],
+        ids=["unsupported-integer", "invalid-string"],
+    )
+    def test_invalid_timeframe_raises(self, value: str) -> None:
+        """Test that invalid timeframe values raise ValueError."""
         with pytest.raises(ValueError, match="Invalid timeframe"):
-            parse_timeframe("42")
-
-    def test_invalid_timeframe_raises(self) -> None:
-        """Test that invalid timeframe raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid timeframe"):
-            parse_timeframe("INVALID")
+            parse_timeframe(value)
 
 
 class TestParseTickFlags:
@@ -306,26 +325,29 @@ class TestParseTickFlags:
 
     @pytest.mark.parametrize(
         ("value", "expected"),
-        [("ALL", -1), ("info", 1), ("TRADE", 2), ("COPY_TICKS_ALL", -1)],
+        [
+            ("ALL", -1),
+            ("info", 1),
+            ("TRADE", 2),
+            ("COPY_TICKS_ALL", -1),
+            ("-1", -1),
+            (2, 2),
+        ],
+        ids=["ALL", "info", "TRADE", "COPY_TICKS_ALL", "int-string--1", "int-2"],
     )
-    def test_named_flag(self, value: str, expected: int) -> None:
-        """Test parsing named tick flags."""
+    def test_valid_flag(self, value: str | int, expected: int) -> None:
+        """Test parsing valid string and integer tick flag values."""
         assert parse_tick_flags(value) == expected
 
-    def test_integer_flag(self) -> None:
-        """Test parsing supported integer tick flags."""
-        assert parse_tick_flags("-1") == -1
-        assert parse_tick_flags(2) == 2
-
-    def test_unsupported_integer_flag_raises(self) -> None:
-        """Test that unsupported integer tick flags raise ValueError."""
+    @pytest.mark.parametrize(
+        "value",
+        ["7", "INVALID"],
+        ids=["unsupported-integer", "invalid-string"],
+    )
+    def test_invalid_flag_raises(self, value: str) -> None:
+        """Test that invalid tick flag values raise ValueError."""
         with pytest.raises(ValueError, match="Invalid tick flags"):
-            parse_tick_flags("7")
-
-    def test_invalid_flag_raises(self) -> None:
-        """Test that invalid flag raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid tick flags"):
-            parse_tick_flags("INVALID")
+            parse_tick_flags(value)
 
 
 # ---------------------------------------------------------------------------
@@ -348,15 +370,17 @@ class TestParseRequest:
         result = parse_request(f"@{path}")
         assert result == {"action": 2}
 
-    def test_invalid_json_raises(self) -> None:
-        """Test that invalid JSON raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid JSON request"):
-            parse_request("not json")
-
-    def test_non_object_raises(self) -> None:
-        """Test that a non-object JSON raises ValueError."""
-        with pytest.raises(ValueError, match="must be a JSON object"):
-            parse_request("[1, 2, 3]")
+    @pytest.mark.parametrize(
+        ("value", "match"),
+        [
+            pytest.param("not json", "Invalid JSON request", id="invalid-json"),
+            pytest.param("[1, 2, 3]", "must be a JSON object", id="non-object"),
+        ],
+    )
+    def test_invalid_request_raises(self, value: str, match: str) -> None:
+        """Test that invalid JSON and non-object requests raise ValueError."""
+        with pytest.raises(ValueError, match=match):
+            parse_request(value)
 
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         """Test that a missing request file raises ValueError."""
@@ -373,13 +397,10 @@ class TestParseRequest:
 class TestConstants:
     """Tests for module constants."""
 
-    def test_timeframe_map_is_private_in_utils(self) -> None:
-        """TIMEFRAME_MAP is a private implementation detail; not a public attribute."""
-        assert not hasattr(mt5cli.utils, "TIMEFRAME_MAP")
-
-    def test_tick_flag_map_absent_from_utils(self) -> None:
-        """TICK_FLAG_MAP is not exposed by mt5cli.utils."""
-        assert not hasattr(mt5cli.utils, "TICK_FLAG_MAP")
+    @pytest.mark.parametrize("name", ["TIMEFRAME_MAP", "TICK_FLAG_MAP"])
+    def test_private_maps_absent_from_utils(self, name: str) -> None:
+        """Private pdmt5 maps are not exposed as public mt5cli.utils attributes."""
+        assert not hasattr(mt5cli.utils, name)
 
     @pytest.mark.parametrize(
         ("dataset", "expected"),
@@ -422,23 +443,24 @@ class TestDateTimeType:
 class TestTimeframeType:
     """Tests for _TimeframeType."""
 
-    def test_convert_string(self) -> None:
-        """Test converting a string to timeframe integer."""
-        assert TIMEFRAME_TYPE.convert("H1", None, None) == 16385
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("H1", 16385), (16385, 16385)],
+        ids=["string", "int"],
+    )
+    def test_convert_valid(self, value: str | int, expected: int) -> None:
+        """Test converting valid string and integer timeframe values."""
+        assert TIMEFRAME_TYPE.convert(value, None, None) == expected
 
-    def test_convert_int(self) -> None:
-        """Test converting supported integer timeframe values."""
-        assert TIMEFRAME_TYPE.convert(16385, None, None) == 16385
-
-    def test_convert_unsupported_int(self) -> None:
-        """Test that unsupported integer values raise BadParameter."""
+    @pytest.mark.parametrize(
+        "value",
+        [42, "bad"],
+        ids=["unsupported-int", "invalid-string"],
+    )
+    def test_convert_invalid(self, value: object) -> None:
+        """Test that unsupported int and invalid string values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid timeframe"):
-            TIMEFRAME_TYPE.convert(42, None, None)
-
-    def test_convert_invalid(self) -> None:
-        """Test that invalid values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid timeframe"):
-            TIMEFRAME_TYPE.convert("bad", None, None)
+            TIMEFRAME_TYPE.convert(value, None, None)
 
     @pytest.mark.parametrize("value", [True, False, None, 1.5])
     def test_convert_invalid_types(self, value: object) -> None:
@@ -450,29 +472,30 @@ class TestTimeframeType:
 class TestTickFlagsType:
     """Tests for _TickFlagsType."""
 
-    def test_convert_string(self) -> None:
-        """Test converting a string to tick flags integer."""
-        assert TICK_FLAGS_TYPE.convert("ALL", None, None) == -1
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("ALL", -1), (2, 2)],
+        ids=["string", "int"],
+    )
+    def test_convert_valid(self, value: str | int, expected: int) -> None:
+        """Test converting valid string and integer tick flag values."""
+        assert TICK_FLAGS_TYPE.convert(value, None, None) == expected
 
-    def test_convert_int(self) -> None:
-        """Test converting supported integer tick flag values."""
-        assert TICK_FLAGS_TYPE.convert(2, None, None) == 2
-
-    def test_convert_unsupported_int(self) -> None:
-        """Test that unsupported integer values raise BadParameter."""
+    @pytest.mark.parametrize(
+        "value",
+        [7, "bad"],
+        ids=["unsupported-int", "invalid-string"],
+    )
+    def test_convert_invalid(self, value: object) -> None:
+        """Test that unsupported int and invalid string values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid tick flags"):
-            TICK_FLAGS_TYPE.convert(7, None, None)
+            TICK_FLAGS_TYPE.convert(value, None, None)
 
     @pytest.mark.parametrize("value", [True, False, None, 1.5])
     def test_convert_invalid_types(self, value: object) -> None:
         """Test that bool, float, and None values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid tick flags"):
             TICK_FLAGS_TYPE.convert(value, None, None)
-
-    def test_convert_invalid(self) -> None:
-        """Test that invalid values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid tick flags"):
-            TICK_FLAGS_TYPE.convert("bad", None, None)
 
 
 class TestRequestType:

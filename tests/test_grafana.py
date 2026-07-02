@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 from mt5cli.grafana import (
     _build_snapshot_view,  # type: ignore[reportPrivateUsage]
@@ -75,11 +75,22 @@ def _make_history_deals_minimal(conn: sqlite3.Connection) -> None:
     )
 
 
+def _make_history_deals_symbol_pnl_minimal(conn: sqlite3.Connection) -> None:
+    """history_deals with entry but without volume and price columns."""
+    conn.execute(
+        "CREATE TABLE history_deals"
+        " (time TEXT, symbol TEXT, profit REAL, type INTEGER, entry INTEGER)"
+    )
+
+
 def _make_history_orders_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE TABLE history_orders"
         " (time_setup TEXT, symbol TEXT, ticket INTEGER, type INTEGER)"
     )
+
+
+_TIMESTAMP_TIME_SETUP: pd.Timestamp = pd.Timestamp("2024-01-15 10:30:00", tz="UTC")
 
 
 # ---------------------------------------------------------------------------
@@ -204,169 +215,97 @@ class TestGrafanaViews:
             create_grafana_views(conn)
         assert "grafana_rates" not in _get_names(conn, "view")
 
-    def test_grafana_rates_skipped_when_required_cols_missing(
+    @pytest.mark.parametrize(
+        ("ddl", "view_name"),
+        [
+            ("CREATE TABLE rates (open REAL)", "grafana_rates"),
+            ("CREATE TABLE ticks (bid REAL)", "grafana_ticks"),
+            ("CREATE TABLE history_deals (symbol TEXT)", "grafana_history_deals"),
+            ("CREATE TABLE history_orders (symbol TEXT)", "grafana_history_orders"),
+            ("CREATE TABLE history_deals (symbol TEXT)", "grafana_trade_deals"),
+            ("CREATE TABLE history_deals (symbol TEXT)", "grafana_cash_events"),
+            (
+                "CREATE TABLE history_deals (time TEXT, type INTEGER)",
+                "grafana_realized_pnl",
+            ),
+            (
+                (
+                    "CREATE TABLE history_deals"
+                    " (time TEXT, symbol TEXT, profit REAL, type INTEGER)"
+                ),
+                "grafana_realized_pnl",
+            ),
+            (
+                "CREATE TABLE history_deals (time TEXT, type INTEGER)",
+                "grafana_symbol_pnl",
+            ),
+            ("CREATE TABLE history_deals (time TEXT)", "grafana_trade_stats"),
+        ],
+        ids=[
+            "rates-cols",
+            "ticks-cols",
+            "history_deals-time",
+            "history_orders-time_setup",
+            "trade_deals-cols",
+            "cash_events-cols",
+            "realized_pnl-cols",
+            "realized_pnl-entry",
+            "symbol_pnl-cols",
+            "trade_stats-cols",
+        ],
+    )
+    def test_grafana_view_skipped_when_required_cols_missing(
         self,
         conn: sqlite3.Connection,
         caplog: pytest.LogCaptureFixture,
+        ddl: str,
+        view_name: str,
     ) -> None:
-        """grafana_rates is skipped when rates table lacks required columns."""
-        conn.execute("CREATE TABLE rates (open REAL)")
+        """A grafana view is skipped (with warning) when source columns are missing."""
+        conn.execute(ddl)
         with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
             create_grafana_views(conn)
-        assert "grafana_rates" not in _get_names(conn, "view")
-        assert "Skipping grafana_rates" in caplog.text
+        assert view_name not in _get_names(conn, "view")
+        assert f"Skipping {view_name}" in caplog.text
 
-    def test_grafana_ticks_skipped_when_cols_missing(
+    @pytest.mark.parametrize(
+        ("setup_deals", "optional_cols"),
+        [
+            pytest.param(
+                _make_history_deals_symbol_pnl_minimal, set[str](), id="minimal"
+            ),
+            pytest.param(
+                _make_history_deals_full,
+                {"volume", "price"},
+                id="full",
+            ),
+        ],
+    )
+    def test_grafana_symbol_pnl_schema(
         self,
         conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
+        setup_deals: Callable[[sqlite3.Connection], None],
+        optional_cols: set[str],
     ) -> None:
-        """grafana_ticks is skipped when ticks table lacks required columns."""
-        conn.execute("CREATE TABLE ticks (bid REAL)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_ticks" not in _get_names(conn, "view")
-        assert "Skipping grafana_ticks" in caplog.text
-
-    def test_grafana_history_deals_skipped_when_time_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_history_deals is skipped when history_deals.time is missing."""
-        conn.execute("CREATE TABLE history_deals (symbol TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_history_deals" not in _get_names(conn, "view")
-        assert "Skipping grafana_history_deals" in caplog.text
-
-    def test_grafana_history_orders_skipped_when_time_setup_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_history_orders is skipped when time_setup is absent."""
-        conn.execute("CREATE TABLE history_orders (symbol TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_history_orders" not in _get_names(conn, "view")
-        assert "Skipping grafana_history_orders" in caplog.text
-
-    def test_grafana_trade_deals_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_trade_deals is skipped when history_deals missing time/type."""
-        conn.execute("CREATE TABLE history_deals (symbol TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_trade_deals" not in _get_names(conn, "view")
-
-    def test_grafana_cash_events_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_cash_events is skipped when history_deals missing time/type."""
-        conn.execute("CREATE TABLE history_deals (symbol TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_cash_events" not in _get_names(conn, "view")
-
-    def test_grafana_realized_pnl_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_realized_pnl is skipped when history_deals missing required cols."""
-        conn.execute("CREATE TABLE history_deals (time TEXT, type INTEGER)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_realized_pnl" not in _get_names(conn, "view")
-        assert "Skipping grafana_realized_pnl" in caplog.text
-
-    def test_grafana_realized_pnl_skipped_when_entry_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_realized_pnl is skipped when entry column is absent."""
-        _make_history_deals_minimal(conn)
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_realized_pnl" not in _get_names(conn, "view")
-        assert "Skipping grafana_realized_pnl" in caplog.text
-
-    def test_grafana_symbol_pnl_skipped_when_required_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_symbol_pnl is skipped when required columns are absent."""
-        conn.execute("CREATE TABLE history_deals (time TEXT, type INTEGER)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_symbol_pnl" not in _get_names(conn, "view")
-        assert "Skipping grafana_symbol_pnl" in caplog.text
-
-    def test_grafana_symbol_pnl_without_volume_and_price(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """grafana_symbol_pnl is created with only required columns."""
-        conn.execute(
-            "CREATE TABLE history_deals"
-            " (time TEXT, symbol TEXT, profit REAL, type INTEGER, entry INTEGER)"
-        )
+        """grafana_symbol_pnl is created and includes optional columns when present."""
+        setup_deals(conn)
         create_grafana_views(conn)
         assert "grafana_symbol_pnl" in _get_names(conn, "view")
-
-    def test_grafana_symbol_pnl_with_volume_and_price(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """grafana_symbol_pnl includes volume and price columns when present."""
-        _make_history_deals_full(conn)
-        create_grafana_views(conn)
-        assert "grafana_symbol_pnl" in _get_names(conn, "view")
-        # View columns include volume and price
         cols = {row[1] for row in conn.execute("PRAGMA table_info(grafana_symbol_pnl)")}
-        assert "volume" in cols
-        assert "price" in cols
+        assert optional_cols.issubset(cols)
 
-    def test_grafana_trade_stats_skipped_when_cols_missing(
+    @pytest.mark.parametrize(
+        "setup_deals",
+        [_make_history_deals_minimal, _make_history_deals_full],
+        ids=["minimal", "full"],
+    )
+    def test_grafana_trade_stats_static_summary(
         self,
         conn: sqlite3.Connection,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """grafana_trade_stats is skipped when history_deals missing required cols."""
-        conn.execute("CREATE TABLE history_deals (time TEXT)")
-        with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            create_grafana_views(conn)
-        assert "grafana_trade_stats" not in _get_names(conn, "view")
-        assert "Skipping grafana_trade_stats" in caplog.text
-
-    def test_grafana_trade_stats_without_entry_col(
-        self,
-        conn: sqlite3.Connection,
+        setup_deals: Callable[[sqlite3.Connection], None],
     ) -> None:
         """grafana_trade_stats is a static summary view with no time column."""
-        _make_history_deals_minimal(conn)
-        create_grafana_views(conn)
-        assert "grafana_trade_stats" in _get_names(conn, "view")
-        cols = {
-            row[1] for row in conn.execute("PRAGMA table_info(grafana_trade_stats)")
-        }
-        assert "time" not in cols
-        assert "symbol" in cols
-
-    def test_grafana_trade_stats_with_entry_col(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """grafana_trade_stats is a static summary view with no time column."""
-        _make_history_deals_full(conn)
+        setup_deals(conn)
         create_grafana_views(conn)
         assert "grafana_trade_stats" in _get_names(conn, "view")
         cols = {
@@ -405,116 +344,126 @@ class TestGrafanaViews:
         assert "time" in cols
         assert "run_id" in cols
 
-    def test_build_snapshot_view_skips_when_snapshot_runs_missing(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """_build_snapshot_view skips view when snapshot_runs has wrong columns."""
-        conn.execute("CREATE TABLE only_run (run_id INTEGER NOT NULL)")
-        conn.execute("CREATE TABLE snapshot_runs (foo TEXT)")
-        _build_snapshot_view(conn, "test_view", "only_run")
-        views = _get_names(conn, "view")
-        assert "test_view" not in views
-
-    def test_build_snapshot_view_skips_when_run_id_col_missing(
+    @pytest.mark.parametrize(
+        ("use_snapshot_tables", "table_ddl", "table_name", "log_fragment"),
+        [
+            pytest.param(
+                False,
+                "CREATE TABLE only_run (run_id INTEGER NOT NULL)",
+                "only_run",
+                "snapshot_runs missing required columns",
+                id="snapshot-runs-wrong-columns",
+            ),
+            pytest.param(
+                True,
+                "CREATE TABLE no_run_id (symbol TEXT)",
+                "no_run_id",
+                "missing run_id column",
+                id="table-missing-run-id",
+            ),
+        ],
+    )
+    def test_build_snapshot_view_skips_negative_cases(
         self,
         conn: sqlite3.Connection,
         caplog: pytest.LogCaptureFixture,
+        use_snapshot_tables: bool,
+        table_ddl: str,
+        table_name: str,
+        log_fragment: str,
     ) -> None:
-        """_build_snapshot_view skips view when the table lacks run_id."""
-        create_snapshot_tables(conn)
-        conn.execute("CREATE TABLE no_run_id (symbol TEXT)")
+        """_build_snapshot_view skips view creation for invalid table/run metadata."""
+        if use_snapshot_tables:
+            create_snapshot_tables(conn)
+        else:
+            conn.execute("CREATE TABLE snapshot_runs (foo TEXT)")
+        conn.execute(table_ddl)
         with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            _build_snapshot_view(conn, "test_view", "no_run_id")
+            _build_snapshot_view(conn, "test_view", table_name)
         assert "test_view" not in _get_names(conn, "view")
-        assert "missing run_id column" in caplog.text
+        assert log_fragment in caplog.text
 
-    def test_snapshot_view_excludes_failed_run_rows(
+    @pytest.mark.parametrize(
+        ("started_at", "status", "message", "keep_row"),
+        [
+            pytest.param(
+                1000,
+                "error",
+                "terminal offline",
+                False,
+                id="excludes-failed-run-rows",
+            ),
+            pytest.param(2000, "ok", None, True, id="includes-ok-run-rows"),
+        ],
+    )
+    def test_snapshot_view_filters_rows_by_run_status(
         self,
         conn: sqlite3.Connection,
+        started_at: int,
+        status: str,
+        message: str | None,
+        keep_row: bool,
     ) -> None:
-        """Snapshot views hide rows from failed runs."""
+        """Snapshot views expose rows only from successful runs."""
         create_snapshot_tables(conn)
-        run_id = start_snapshot_run(conn, 1000)
+        run_id = start_snapshot_run(conn, started_at)
         conn.execute(
             "INSERT INTO account_snapshots"
             " (run_id, login, balance, equity, margin, margin_free, profit)"
             " VALUES (?, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
             (run_id,),
         )
-        record_snapshot_run(conn, run_id, "error", "terminal offline")
-        create_grafana_views(conn)
-        rows = conn.execute("SELECT * FROM grafana_account_snapshots").fetchall()
-        assert rows == []
-
-    def test_snapshot_view_includes_ok_run_rows(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """Snapshot views show rows from successful runs and expose run_id."""
-        create_snapshot_tables(conn)
-        run_id = start_snapshot_run(conn, 2000)
-        conn.execute(
-            "INSERT INTO account_snapshots"
-            " (run_id, login, balance, equity, margin, margin_free, profit)"
-            " VALUES (?, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
-            (run_id,),
-        )
-        record_snapshot_run(conn, run_id, "ok")
+        record_snapshot_run(conn, run_id, status, message)
         create_grafana_views(conn)
         rows = conn.execute(
             "SELECT time, run_id, login FROM grafana_account_snapshots"
         ).fetchall()
-        assert rows == [(2000, run_id, 12345)]
-        cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(grafana_account_snapshots)")
-        }
-        assert "run_id" in cols
+        if keep_row:
+            assert rows == [(started_at, run_id, 12345)]
+            cols = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(grafana_account_snapshots)")
+            }
+            assert "run_id" in cols
+        else:
+            assert rows == []
 
-    def test_snapshot_view_same_second_ok_and_error_no_cross_contamination(
+    @pytest.mark.parametrize(
+        ("observed_at", "runs", "expected_rows"),
+        [
+            pytest.param(
+                3000,
+                [("error", 99), ("ok", 12345)],
+                [(12345,)],
+                id="same-second-error-and-ok-exposes-only-ok-row",
+            ),
+            pytest.param(
+                4000,
+                [("ok", 1), ("ok", 2)],
+                [(1,), (2,)],
+                id="same-second-two-ok-runs-no-duplication",
+            ),
+        ],
+    )
+    def test_snapshot_view_same_second_runs(
         self,
         conn: sqlite3.Connection,
+        observed_at: int,
+        runs: list[tuple[str, int]],
+        expected_rows: list[tuple[int]],
     ) -> None:
-        """An ok and error run sharing observed_at expose only the ok run's rows."""
+        """Snapshot views join same-second rows by run_id."""
         create_snapshot_tables(conn)
-        run_err = start_snapshot_run(conn, 3000)
-        conn.execute(
-            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 99)",
-            (run_err,),
-        )
-        record_snapshot_run(conn, run_err, "error")
-        run_ok = start_snapshot_run(conn, 3000)
-        conn.execute(
-            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 12345)",
-            (run_ok,),
-        )
-        record_snapshot_run(conn, run_ok, "ok")
+        for status, login in runs:
+            run_id = start_snapshot_run(conn, observed_at)
+            conn.execute(
+                "INSERT INTO account_snapshots (run_id, login) VALUES (?, ?)",
+                (run_id, login),
+            )
+            record_snapshot_run(conn, run_id, status)
         create_grafana_views(conn)
         rows = conn.execute("SELECT login FROM grafana_account_snapshots").fetchall()
-        assert rows == [(12345,)]
-
-    def test_snapshot_view_two_ok_runs_same_second_no_duplication(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """Two ok runs sharing observed_at each produce exactly one row in the view."""
-        create_snapshot_tables(conn)
-        run1 = start_snapshot_run(conn, 4000)
-        conn.execute(
-            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 1)",
-            (run1,),
-        )
-        record_snapshot_run(conn, run1, "ok")
-        run2 = start_snapshot_run(conn, 4000)
-        conn.execute(
-            "INSERT INTO account_snapshots (run_id, login) VALUES (?, 2)",
-            (run2,),
-        )
-        record_snapshot_run(conn, run2, "ok")
-        create_grafana_views(conn)
-        rows = conn.execute("SELECT login FROM grafana_account_snapshots").fetchall()
-        assert len(rows) == 2
+        assert rows == expected_rows
 
 
 # ---------------------------------------------------------------------------
@@ -569,45 +518,32 @@ class TestGrafanaIndexes:
         assert "idx_order_snapshots_time_symbol" not in indexes
         assert "idx_snapshot_runs_time_status" not in indexes
 
-    def test_rates_index_skipped_when_cols_missing(
+    @pytest.mark.parametrize(
+        ("ddl", "index_name"),
+        [
+            ("CREATE TABLE rates (open REAL)", "idx_rates_time_symbol_timeframe"),
+            ("CREATE TABLE ticks (bid REAL)", "idx_ticks_time_symbol"),
+            (
+                "CREATE TABLE history_deals (ticket INTEGER)",
+                "idx_history_deals_time_symbol",
+            ),
+            (
+                "CREATE TABLE history_orders (ticket INTEGER)",
+                "idx_history_orders_time_setup_symbol",
+            ),
+        ],
+        ids=["rates", "ticks", "deals", "orders"],
+    )
+    def test_index_skipped_when_cols_missing(
         self,
         conn: sqlite3.Connection,
+        ddl: str,
+        index_name: str,
     ) -> None:
-        """Rates index is skipped when required columns are absent."""
-        conn.execute("CREATE TABLE rates (open REAL)")
+        """An index is skipped when the source table lacks required columns."""
+        conn.execute(ddl)
         create_grafana_indexes(conn)
-        indexes = _get_names(conn, "index")
-        assert "idx_rates_time_symbol_timeframe" not in indexes
-
-    def test_ticks_index_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """Ticks index is skipped when required columns are absent."""
-        conn.execute("CREATE TABLE ticks (bid REAL)")
-        create_grafana_indexes(conn)
-        indexes = _get_names(conn, "index")
-        assert "idx_ticks_time_symbol" not in indexes
-
-    def test_deals_indexes_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """history_deals indexes are skipped when required columns are absent."""
-        conn.execute("CREATE TABLE history_deals (ticket INTEGER)")
-        create_grafana_indexes(conn)
-        indexes = _get_names(conn, "index")
-        assert "idx_history_deals_time_symbol" not in indexes
-
-    def test_orders_index_skipped_when_cols_missing(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """history_orders index is skipped when required columns are absent."""
-        conn.execute("CREATE TABLE history_orders (ticket INTEGER)")
-        create_grafana_indexes(conn)
-        indexes = _get_names(conn, "index")
-        assert "idx_history_orders_time_setup_symbol" not in indexes
+        assert index_name not in _get_names(conn, "index")
 
     def test_snapshot_indexes_skipped_when_cols_missing(
         self,
@@ -678,25 +614,56 @@ class TestSnapshotInserts:
         """Create snapshot tables before each insert test."""
         create_snapshot_tables(conn)
 
-    def test_insert_account_snapshot(self, conn: sqlite3.Connection) -> None:
-        """insert_account_snapshot appends a row with correct values."""
+    @pytest.mark.parametrize(
+        ("insert_func", "row", "select_sql", "expected"),
+        [
+            (
+                insert_account_snapshot,
+                {
+                    "login": 12345,
+                    "currency": "USD",
+                    "balance": 10000.0,
+                    "equity": 9800.0,
+                    "margin": 200.0,
+                    "margin_free": 9800.0,
+                    "margin_level": 4900.0,
+                    "profit": -200.0,
+                    "leverage": 100,
+                },
+                "SELECT login, currency, balance FROM account_snapshots",
+                (12345, "USD", 10000.0),
+            ),
+            (
+                insert_terminal_snapshot,
+                {
+                    "name": "MetaTrader 5",
+                    "connected": 1,
+                    "community_account": 0,
+                    "trade_allowed": 1,
+                    "trade_expert": 1,
+                    "path": "/mt5",
+                    "company": "Broker",
+                    "language": "en",
+                },
+                "SELECT name, connected FROM terminal_snapshots",
+                ("MetaTrader 5", 1),
+            ),
+        ],
+        ids=["account", "terminal"],
+    )
+    def test_insert_single_snapshot(
+        self,
+        conn: sqlite3.Connection,
+        insert_func: Callable[[sqlite3.Connection, int, dict[str, object]], None],
+        row: dict[str, object],
+        select_sql: str,
+        expected: tuple[object, ...],
+    ) -> None:
+        """insert_account_snapshot and insert_terminal_snapshot append one row."""
         run_id = start_snapshot_run(conn, 1700000000)
-        row: dict[str, object] = {
-            "login": 12345,
-            "currency": "USD",
-            "balance": 10000.0,
-            "equity": 9800.0,
-            "margin": 200.0,
-            "margin_free": 9800.0,
-            "margin_level": 4900.0,
-            "profit": -200.0,
-            "leverage": 100,
-        }
-        insert_account_snapshot(conn, run_id, row)
-        result = conn.execute(
-            "SELECT login, currency, balance FROM account_snapshots"
-        ).fetchone()
-        assert result == (12345, "USD", 10000.0)
+        insert_func(conn, run_id, row)
+        result = conn.execute(select_sql).fetchone()
+        assert result == expected
 
     def test_insert_account_snapshot_partial_row(
         self,
@@ -710,105 +677,91 @@ class TestSnapshotInserts:
         ).fetchone()
         assert result == (1, None)
 
-    def test_insert_position_snapshots_with_rows(
+    @pytest.mark.parametrize(
+        ("insert_func", "table", "rows", "expected_count"),
+        [
+            (
+                insert_position_snapshots,
+                "position_snapshots",
+                [
+                    {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 10.0},
+                    {"ticket": 2, "symbol": "GBPUSD", "volume": 0.2, "profit": -5.0},
+                ],
+                2,
+            ),
+            (
+                insert_position_snapshots,
+                "position_snapshots",
+                [],
+                0,
+            ),
+            (
+                insert_order_snapshots,
+                "order_snapshots",
+                [
+                    {
+                        "ticket": 10,
+                        "symbol": "EURUSD",
+                        "type": 2,
+                        "volume_current": 0.1,
+                    },
+                ],
+                1,
+            ),
+            (
+                insert_order_snapshots,
+                "order_snapshots",
+                [],
+                0,
+            ),
+        ],
+        ids=[
+            "positions-with-rows",
+            "positions-empty-noop",
+            "orders-with-rows",
+            "orders-empty-noop",
+        ],
+    )
+    def test_insert_snapshot_rows(
         self,
         conn: sqlite3.Connection,
+        insert_func: Callable[
+            [sqlite3.Connection, int, int | None, list[dict[str, object]]],
+            None,
+        ],
+        table: str,
+        rows: list[dict[str, object]],
+        expected_count: int,
     ) -> None:
-        """insert_position_snapshots appends each position row."""
+        """insert_*_snapshots appends each row and is a no-op when empty."""
         run_id = start_snapshot_run(conn, 1700000000)
-        rows: list[dict[str, object]] = [
-            {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 10.0},
-            {"ticket": 2, "symbol": "GBPUSD", "volume": 0.2, "profit": -5.0},
-        ]
-        insert_position_snapshots(conn, run_id, 12345, rows)
-        count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[0]
-        assert count == 2
+        insert_func(conn, run_id, 12345, rows)
+        count = conn.execute(
+            f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+        ).fetchone()[0]
+        assert count == expected_count
 
-    def test_insert_position_snapshots_noop_when_empty(
+    @pytest.mark.parametrize(
+        ("time_setup", "expected_stored"),
+        [
+            (_TIMESTAMP_TIME_SETUP, int(_TIMESTAMP_TIME_SETUP.timestamp())),
+            (1705314600, 1705314600),
+            ("not_a_time", None),
+        ],
+        ids=["timestamp", "int", "unknown-string"],
+    )
+    def test_insert_order_snapshots_normalizes_time_setup(
         self,
         conn: sqlite3.Connection,
+        time_setup: object,
+        expected_stored: int | None,
     ) -> None:
-        """insert_position_snapshots is a no-op when rows is empty."""
+        """insert_order_snapshots stores epoch int, int as-is, or None for unknown."""
         run_id = start_snapshot_run(conn, 1700000000)
-        insert_position_snapshots(conn, run_id, 12345, [])
-        count = conn.execute("SELECT COUNT(*) FROM position_snapshots").fetchone()[0]
-        assert count == 0
-
-    def test_insert_order_snapshots_with_rows(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_order_snapshots appends each order row."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        rows: list[dict[str, object]] = [
-            {"ticket": 10, "symbol": "EURUSD", "type": 2, "volume_current": 0.1},
-        ]
-        insert_order_snapshots(conn, run_id, 12345, rows)
-        count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
-        assert count == 1
-
-    def test_insert_order_snapshots_noop_when_empty(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_order_snapshots is a no-op when rows is empty."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        insert_order_snapshots(conn, run_id, 12345, [])
-        count = conn.execute("SELECT COUNT(*) FROM order_snapshots").fetchone()[0]
-        assert count == 0
-
-    def test_insert_order_snapshots_normalizes_timestamp_time_setup(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_order_snapshots converts pd.Timestamp time_setup to epoch int."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        ts = pd.Timestamp("2024-01-15 10:30:00", tz="UTC")
-        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": ts}]
+        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": time_setup}]
         insert_order_snapshots(conn, run_id, 12345, rows)
         stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
-        assert stored == int(ts.timestamp())
-
-    def test_insert_order_snapshots_stores_int_time_setup(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_order_snapshots stores an integer time_setup as-is."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": 1705314600}]
-        insert_order_snapshots(conn, run_id, 12345, rows)
-        stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
-        assert stored == 1705314600
-
-    def test_insert_order_snapshots_stores_null_for_unknown_time_setup_type(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """insert_order_snapshots stores NULL for an unrecognized time_setup type."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": "not_a_time"}]
-        insert_order_snapshots(conn, run_id, 12345, rows)
-        stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
-        assert stored is None
-
-    def test_insert_terminal_snapshot(self, conn: sqlite3.Connection) -> None:
-        """insert_terminal_snapshot appends a terminal info row."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        row: dict[str, object] = {
-            "name": "MetaTrader 5",
-            "connected": 1,
-            "community_account": 0,
-            "trade_allowed": 1,
-            "trade_expert": 1,
-            "path": "/mt5",
-            "company": "Broker",
-            "language": "en",
-        }
-        insert_terminal_snapshot(conn, run_id, row)
-        result = conn.execute(
-            "SELECT name, connected FROM terminal_snapshots"
-        ).fetchone()
-        assert result == ("MetaTrader 5", 1)
+        assert stored == expected_stored
 
     def test_start_snapshot_run_returns_incrementing_ids(
         self,
@@ -819,25 +772,30 @@ class TestSnapshotInserts:
         run2 = start_snapshot_run(conn, 1700000000)
         assert run1 != run2
 
-    def test_record_snapshot_run_with_detail(
+    @pytest.mark.parametrize(
+        ("status", "detail", "expected"),
+        [
+            pytest.param(
+                "error",
+                "RuntimeError: boom",
+                ("error", "RuntimeError: boom"),
+                id="with-detail",
+            ),
+            pytest.param("ok", None, ("ok", None), id="without-detail"),
+        ],
+    )
+    def test_record_snapshot_run(
         self,
         conn: sqlite3.Connection,
+        status: str,
+        detail: str | None,
+        expected: tuple[str, str | None],
     ) -> None:
-        """record_snapshot_run stores status and detail text."""
+        """record_snapshot_run stores status and optional detail text."""
         run_id = start_snapshot_run(conn, 1700000000)
-        record_snapshot_run(conn, run_id, "error", "RuntimeError: boom")
+        record_snapshot_run(conn, run_id, status, detail)
         row = conn.execute("SELECT status, detail FROM snapshot_runs").fetchone()
-        assert row == ("error", "RuntimeError: boom")
-
-    def test_record_snapshot_run_without_detail(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """record_snapshot_run stores None for detail when omitted."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        record_snapshot_run(conn, run_id, "ok")
-        row = conn.execute("SELECT status, detail FROM snapshot_runs").fetchone()
-        assert row == ("ok", None)
+        assert row == expected
 
 
 # ---------------------------------------------------------------------------
@@ -859,23 +817,40 @@ def _make_source_db(path: Path) -> None:
 class TestPublishGrafanaCopy:
     """Tests for publish_grafana_copy."""
 
-    def test_publish_to_fresh_target(self, tmp_path: Path) -> None:
-        """publish_grafana_copy creates the target file."""
+    @pytest.mark.parametrize(
+        ("target_rel", "stale_content", "required_tables"),
+        [
+            pytest.param(
+                Path("out") / "grafana.db",
+                None,
+                frozenset({"snapshot_runs", "account_snapshots"}),
+                id="fresh-target",
+            ),
+            pytest.param(
+                Path("grafana.db"),
+                b"stale",
+                frozenset({"snapshot_runs"}),
+                id="overwrite-stale-target",
+            ),
+        ],
+    )
+    def test_publish_creates_valid_sqlite_target(
+        self,
+        tmp_path: Path,
+        target_rel: Path,
+        stale_content: bytes | None,
+        required_tables: frozenset[str],
+    ) -> None:
+        """publish_grafana_copy creates or replaces a valid SQLite target."""
         source = tmp_path / "src.db"
-        target = tmp_path / "out" / "grafana.db"
+        target = tmp_path / target_rel
         _make_source_db(source)
+        if stale_content is not None:
+            target.write_bytes(stale_content)
         result = publish_grafana_copy(source, target)
         assert target.exists()
+        assert isinstance(result, Path)
         assert result == target.resolve()
-
-    def test_overwrite_existing_target(self, tmp_path: Path) -> None:
-        """publish_grafana_copy replaces an existing target without error."""
-        source = tmp_path / "src.db"
-        target = tmp_path / "grafana.db"
-        _make_source_db(source)
-        target.write_bytes(b"stale")
-        publish_grafana_copy(source, target)
-        # Target must now be a valid SQLite file from source
         with sqlite3.connect(target) as conn:
             tables = {
                 row[0]
@@ -883,22 +858,7 @@ class TestPublishGrafanaCopy:
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
-        assert "snapshot_runs" in tables
-
-    def test_target_contains_source_tables(self, tmp_path: Path) -> None:
-        """Published target contains the same tables as the source."""
-        source = tmp_path / "src.db"
-        target = tmp_path / "grafana.db"
-        _make_source_db(source)
-        publish_grafana_copy(source, target)
-        with sqlite3.connect(target) as conn:
-            tables = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-        assert {"snapshot_runs", "account_snapshots"}.issubset(tables)
+        assert required_tables <= tables
 
     def test_target_can_be_opened_readonly(self, tmp_path: Path) -> None:
         """Published target can be opened with uri=True in read-only mode."""
@@ -955,14 +915,6 @@ class TestPublishGrafanaCopy:
                 publish_grafana_copy(source, target)
         tmp_files = list(tmp_path.glob("grafana.db.*.tmp"))
         assert not tmp_files, "Temp file should be cleaned up on failure"
-
-    def test_returns_path_object(self, tmp_path: Path) -> None:
-        """publish_grafana_copy returns a Path instance."""
-        source = tmp_path / "src.db"
-        target = tmp_path / "grafana.db"
-        _make_source_db(source)
-        result = publish_grafana_copy(source, target)
-        assert isinstance(result, Path)
 
     def test_fresh_target_has_readable_permissions(self, tmp_path: Path) -> None:
         """Published copy is readable by the owner."""

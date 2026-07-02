@@ -112,207 +112,176 @@ class TestCommands:
             group="*USD*",
         )
 
-    def test_symbol_info(
+    @pytest.mark.parametrize(
+        ("command", "method"),
+        [
+            ("symbol-info", "symbol_info_as_df"),
+            ("symbol-info-tick", "symbol_info_tick_as_df"),
+            ("market-book", "market_book_get_as_df"),
+        ],
+    )
+    def test_symbol_command(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
+        command: str,
+        method: str,
     ) -> None:
-        """Test symbol-info command."""
+        """Test --symbol commands invoke the expected client method with symbol."""
         output = tmp_path / "out.csv"
         result = runner.invoke(
             app,
-            ["-o", str(output), "symbol-info", "--symbol", "EURUSD"],
+            ["-o", str(output), command, "--symbol", "EURUSD"],
         )
         assert result.exit_code == 0, result.output
-        mock_client.symbol_info_as_df.assert_called_once_with(
-            symbol="EURUSD",
-        )
+        getattr(mock_client, method).assert_called_once_with(symbol="EURUSD")
 
-    def test_rates_from(
+    @pytest.mark.parametrize(
+        ("args", "method", "expected_kwargs"),
+        [
+            (
+                [
+                    "rates-from",
+                    "--symbol",
+                    "EURUSD",
+                    "--timeframe",
+                    "M1",
+                    "--date-from",
+                    "2024-01-01",
+                    "--count",
+                    "100",
+                ],
+                "copy_rates_from_as_df",
+                {
+                    "symbol": "EURUSD",
+                    "timeframe": 1,
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "count": 100,
+                },
+            ),
+            (
+                [
+                    "rates-from-pos",
+                    "--symbol",
+                    "GBPUSD",
+                    "--timeframe",
+                    "H1",
+                    "--start-pos",
+                    "0",
+                    "--count",
+                    "50",
+                ],
+                "copy_rates_from_pos_as_df",
+                {
+                    "symbol": "GBPUSD",
+                    "timeframe": 16385,
+                    "start_pos": 0,
+                    "count": 50,
+                },
+            ),
+            (
+                [
+                    "latest-rates",
+                    "--symbol",
+                    "GBPUSD",
+                    "--timeframe",
+                    "H1",
+                    "--count",
+                    "50",
+                    "--start-pos",
+                    "2",
+                ],
+                "copy_rates_from_pos_as_df",
+                {
+                    "symbol": "GBPUSD",
+                    "timeframe": 16385,
+                    "start_pos": 2,
+                    "count": 50,
+                },
+            ),
+            (
+                [
+                    "rates-range",
+                    "--symbol",
+                    "USDJPY",
+                    "--timeframe",
+                    "D1",
+                    "--date-from",
+                    "2024-01-01",
+                    "--date-to",
+                    "2024-02-01",
+                ],
+                "copy_rates_range_as_df",
+                {
+                    "symbol": "USDJPY",
+                    "timeframe": 16408,
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                },
+            ),
+            (
+                [
+                    "ticks-from",
+                    "--symbol",
+                    "EURUSD",
+                    "--date-from",
+                    "2024-01-01",
+                    "--count",
+                    "100",
+                    "--flags",
+                    "ALL",
+                ],
+                "copy_ticks_from_as_df",
+                {
+                    "symbol": "EURUSD",
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "count": 100,
+                    "flags": -1,
+                },
+            ),
+            (
+                [
+                    "ticks-range",
+                    "--symbol",
+                    "EURUSD",
+                    "--date-from",
+                    "2024-01-01",
+                    "--date-to",
+                    "2024-02-01",
+                    "--flags",
+                    "INFO",
+                ],
+                "copy_ticks_range_as_df",
+                {
+                    "symbol": "EURUSD",
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                    "flags": 1,
+                },
+            ),
+        ],
+        ids=[
+            "rates-from",
+            "rates-from-pos",
+            "latest-rates",
+            "rates-range",
+            "ticks-from",
+            "ticks-range",
+        ],
+    )
+    def test_rates_ticks_delegate(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
+        args: list[str],
+        method: str,
+        expected_kwargs: dict[str, object],
     ) -> None:
-        """Test rates-from command."""
+        """Rate/tick delegate commands invoke the expected client method with kwargs."""
         output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "rates-from",
-                "--symbol",
-                "EURUSD",
-                "--timeframe",
-                "M1",
-                "--date-from",
-                "2024-01-01",
-                "--count",
-                "100",
-            ],
-        )
+        result = runner.invoke(app, ["-o", str(output), *args])
         assert result.exit_code == 0, result.output
-        mock_client.copy_rates_from_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            timeframe=1,
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            count=100,
-        )
-
-    def test_rates_from_pos(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test rates-from-pos command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "rates-from-pos",
-                "--symbol",
-                "GBPUSD",
-                "--timeframe",
-                "H1",
-                "--start-pos",
-                "0",
-                "--count",
-                "50",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.copy_rates_from_pos_as_df.assert_called_once_with(
-            symbol="GBPUSD",
-            timeframe=16385,
-            start_pos=0,
-            count=50,
-        )
-
-    def test_latest_rates(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test latest-rates command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "latest-rates",
-                "--symbol",
-                "GBPUSD",
-                "--timeframe",
-                "H1",
-                "--count",
-                "50",
-                "--start-pos",
-                "2",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.copy_rates_from_pos_as_df.assert_called_once_with(
-            symbol="GBPUSD",
-            timeframe=16385,
-            start_pos=2,
-            count=50,
-        )
-
-    def test_rates_range(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test rates-range command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "rates-range",
-                "--symbol",
-                "USDJPY",
-                "--timeframe",
-                "D1",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.copy_rates_range_as_df.assert_called_once_with(
-            symbol="USDJPY",
-            timeframe=16408,
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
-        )
-
-    def test_ticks_from(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test ticks-from command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "ticks-from",
-                "--symbol",
-                "EURUSD",
-                "--date-from",
-                "2024-01-01",
-                "--count",
-                "100",
-                "--flags",
-                "ALL",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.copy_ticks_from_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            count=100,
-            flags=-1,
-        )
-
-    def test_ticks_range(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test ticks-range command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "ticks-range",
-                "--symbol",
-                "EURUSD",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-                "--flags",
-                "INFO",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.copy_ticks_range_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
-            flags=1,
-        )
+        getattr(mock_client, method).assert_called_once_with(**expected_kwargs)
 
     def test_ticks_recent(
         self,
@@ -373,67 +342,36 @@ class TestCommands:
         mock_client.order_calc_margin.assert_any_call(0, "EURUSD", 0.01, 1.1010)
         mock_client.order_calc_margin.assert_any_call(1, "EURUSD", 0.01, 1.1000)
 
-    def test_orders(
+    @pytest.mark.parametrize(
+        ("args", "method"),
+        [
+            (["orders", "--symbol", "EURUSD"], "orders_get_as_df"),
+            (
+                [
+                    "history-orders",
+                    "--date-from",
+                    "2024-01-01",
+                    "--date-to",
+                    "2024-02-01",
+                ],
+                "history_orders_get_as_df",
+            ),
+            (["history-deals", "--ticket", "12345"], "history_deals_get_as_df"),
+        ],
+        ids=["orders", "history-orders", "history-deals"],
+    )
+    def test_history_delegate(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
+        args: list[str],
+        method: str,
     ) -> None:
-        """Test orders command."""
+        """orders/history-orders/history-deals delegate to the client method."""
         output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "orders",
-                "--symbol",
-                "EURUSD",
-            ],
-        )
+        result = runner.invoke(app, ["-o", str(output), *args])
         assert result.exit_code == 0, result.output
-        mock_client.orders_get_as_df.assert_called_once()
-
-    def test_history_orders(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test history-orders command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "history-orders",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.history_orders_get_as_df.assert_called_once()
-
-    def test_history_deals(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test history-deals command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "history-deals",
-                "--ticket",
-                "12345",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.history_deals_get_as_df.assert_called_once()
+        getattr(mock_client, method).assert_called_once()
 
     def test_recent_history_deals(
         self,
@@ -513,89 +451,79 @@ class TestCommands:
             "symbols_total": 42,
         }
 
-    def test_symbol_info_tick(
+    @pytest.mark.parametrize(
+        ("command", "method", "payload", "use_file"),
+        [
+            (
+                "order-check",
+                "order_check_as_df",
+                {"action": 1, "symbol": "EURUSD", "volume": 0.1},
+                False,
+            ),
+            (
+                "order-send",
+                "order_send_as_df",
+                {"action": 1, "symbol": "EURUSD", "volume": 0.1},
+                False,
+            ),
+            (
+                "order-check",
+                "order_check_as_df",
+                {"action": 2, "symbol": "EURUSD"},
+                True,
+            ),
+            ("order-send", "order_send_as_df", {"action": 2, "symbol": "EURUSD"}, True),
+        ],
+        ids=["check-inline", "send-inline", "check-file", "send-file"],
+    )
+    def test_order_request(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
+        command: str,
+        method: str,
+        payload: dict[str, object],
+        use_file: bool,
     ) -> None:
-        """Test symbol-info-tick command."""
+        """Test order-check/order-send accept inline and file-based JSON requests."""
         output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "symbol-info-tick", "--symbol", "EURUSD"],
-        )
+        args = ["-o", str(output), command]
+        if use_file:
+            req_path = tmp_path / "req.json"
+            req_path.write_text(json.dumps(payload), encoding="utf-8")
+            args += ["--request", f"@{req_path}"]
+        else:
+            args += ["--request", json.dumps(payload)]
+        if command == "order-send":
+            args.append("--yes")
+        result = runner.invoke(app, args)
         assert result.exit_code == 0, result.output
-        mock_client.symbol_info_tick_as_df.assert_called_once_with(
-            symbol="EURUSD",
-        )
+        getattr(mock_client, method).assert_called_once_with(request=payload)
 
-    def test_market_book(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test market-book command."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "market-book", "--symbol", "EURUSD"],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.market_book_get_as_df.assert_called_once_with(
-            symbol="EURUSD",
-        )
-
-    def test_order_check(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test order-check command with inline JSON."""
-        output = tmp_path / "out.csv"
-        request = json.dumps({"action": 1, "symbol": "EURUSD", "volume": 0.1})
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "order-check", "--request", request],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.order_check_as_df.assert_called_once_with(
-            request={"action": 1, "symbol": "EURUSD", "volume": 0.1},
-        )
-
-    def test_order_check_file_reference(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test order-check command with file-based JSON."""
-        output = tmp_path / "out.csv"
-        req_path = tmp_path / "req.json"
-        req_path.write_text(
-            json.dumps({"action": 2, "symbol": "EURUSD"}),
-            encoding="utf-8",
-        )
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "order-check", "--request", f"@{req_path}"],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.order_check_as_df.assert_called_once_with(
-            request={"action": 2, "symbol": "EURUSD"},
-        )
-
-    def test_order_check_invalid_request(
+    @pytest.mark.parametrize(
+        ("command", "raw_request", "match"),
+        [
+            ("order-check", "not-json", "Invalid JSON request"),
+            ("order-send", "[1,2]", "must be a JSON object"),
+        ],
+        ids=["check-invalid-json", "send-non-object"],
+    )
+    def test_order_invalid_request(
         self,
         tmp_path: Path,
         mock_client: MagicMock,  # noqa: ARG002
+        command: str,
+        raw_request: str,
+        match: str,
     ) -> None:
-        """Test order-check rejects invalid JSON."""
+        """Test order-check/order-send reject malformed JSON requests."""
         output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "order-check", "--request", "not-json"],
-        )
+        args = ["-o", str(output), command, "--request", raw_request]
+        if command == "order-send":
+            args.append("--yes")
+        result = runner.invoke(app, args)
         assert result.exit_code != 0
-        assert "Invalid JSON request" in normalize_cli_output(result.output)
+        assert match in normalize_cli_output(result.output)
 
     def test_order_check_missing_request_file(
         self,
@@ -612,58 +540,6 @@ class TestCommands:
         assert result.exit_code != 0
         assert "Failed to read JSON request file" in normalize_cli_output(
             result.output,
-        )
-
-    def test_order_send(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test order-send command with file-based JSON."""
-        output = tmp_path / "out.csv"
-        req_path = tmp_path / "req.json"
-        req_path.write_text(
-            json.dumps({"action": 2, "symbol": "EURUSD"}),
-            encoding="utf-8",
-        )
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "order-send",
-                "--request",
-                f"@{req_path}",
-                "--yes",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.order_send_as_df.assert_called_once_with(
-            request={"action": 2, "symbol": "EURUSD"},
-        )
-
-    def test_order_send_inline_json(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test order-send command with inline JSON."""
-        output = tmp_path / "out.csv"
-        request = json.dumps({"action": 1, "symbol": "EURUSD", "volume": 0.1})
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "order-send",
-                "--request",
-                request,
-                "--yes",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_client.order_send_as_df.assert_called_once_with(
-            request={"action": 1, "symbol": "EURUSD", "volume": 0.1},
         )
 
     def test_order_send_requires_yes(
@@ -683,20 +559,6 @@ class TestCommands:
             result.output,
         )
         mock_client.order_send_as_df.assert_not_called()
-
-    def test_order_send_invalid_request(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,  # noqa: ARG002
-    ) -> None:
-        """Test order-send rejects invalid JSON."""
-        output = tmp_path / "out.csv"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "order-send", "--request", "[1,2]", "--yes"],
-        )
-        assert result.exit_code != 0
-        assert "must be a JSON object" in normalize_cli_output(result.output)
 
 
 # ---------------------------------------------------------------------------
@@ -776,153 +638,95 @@ class TestClosePositions:
         mocker.patch("mt5cli.cli.create_trading_client", return_value=client)
         return client
 
-    def test_dry_run_does_not_require_yes(
+    @pytest.mark.parametrize(
+        ("extra_args", "order_send_called"),
+        [
+            pytest.param(["--dry-run"], False, id="dry-run without --yes"),
+            pytest.param(["--dry-run", "--yes"], False, id="dry-run with --yes"),
+        ],
+    )
+    def test_dry_run_does_not_send_orders(
         self,
         tmp_path: Path,
         trading_client: MagicMock,
+        extra_args: list[str],
+        order_send_called: bool,
     ) -> None:
-        """Test --dry-run mode succeeds without --yes."""
+        """Test --dry-run mode succeeds and never sends orders."""
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
-            ["-o", str(output), "close-positions", "--symbol", "JP225", "--dry-run"],
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                *extra_args,
+            ],
         )
         assert result.exit_code == 0, result.output
         assert output.exists()
-        trading_client.order_send.assert_not_called()
+        assert trading_client.order_send.called == order_send_called
         trading_client.shutdown.assert_called_once()
 
-    def test_live_requires_yes(
+    @pytest.mark.parametrize(
+        ("extra_args", "yes_included"),
+        [
+            pytest.param([], False, id="live-requires-yes"),
+            pytest.param(["--yes"], True, id="live-with-yes-calls-order-send"),
+        ],
+    )
+    def test_close_positions_yes_gate(
         self,
         tmp_path: Path,
         trading_client: MagicMock,
+        extra_args: list[str],
+        yes_included: bool,
     ) -> None:
-        """Test live close-positions fails without --yes."""
-        output = tmp_path / "close.json"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "close-positions", "--symbol", "JP225"],
-        )
-        assert result.exit_code != 0
-        assert "Pass --yes" in normalize_cli_output(result.output)
-        trading_client.order_send.assert_not_called()
-
-    def test_live_with_yes_calls_order_send(
-        self,
-        tmp_path: Path,
-        trading_client: MagicMock,
-    ) -> None:
-        """Test --yes triggers live execution for matching positions."""
+        """Test --yes gates live close-positions execution."""
         trading_client.order_send.return_value = {"retcode": 10009, "comment": "ok"}
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
-            ["-o", str(output), "close-positions", "--symbol", "JP225", "--yes"],
+            ["-o", str(output), "close-positions", "--symbol", "JP225", *extra_args],
         )
-        assert result.exit_code == 0, result.output
-        trading_client.order_send.assert_called_once()
-        trading_client.shutdown.assert_called_once()
+        if yes_included:
+            assert result.exit_code == 0, result.output
+            trading_client.order_send.assert_called_once()
+            trading_client.shutdown.assert_called_once()
+        else:
+            assert result.exit_code != 0
+            assert "Pass --yes" in normalize_cli_output(result.output)
+            trading_client.order_send.assert_not_called()
 
-    def test_symbol_filter_passed_through(
+    @pytest.mark.parametrize(
+        ("extra_args", "expected_symbols"),
+        [
+            (["--symbol", "JP225"], {"JP225"}),
+            (["--symbol", "JP225", "--symbol", "EURUSD"], {"JP225", "EURUSD"}),
+            (["--ticket", "2"], {"EURUSD"}),
+            (["--symbol", "JP225", "--ticket", "1"], {"JP225"}),
+        ],
+        ids=["single-symbol", "multiple-symbols", "ticket", "symbol-and-ticket"],
+    )
+    def test_close_positions_filter(
         self,
         tmp_path: Path,
         trading_client: MagicMock,
+        extra_args: list[str],
+        expected_symbols: set[str],
     ) -> None:
-        """Test --symbol values are used to filter positions."""
+        """--symbol/--ticket filters select the expected positions under --dry-run."""
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
-            [
-                "-o",
-                str(output),
-                "close-positions",
-                "--symbol",
-                "JP225",
-                "--dry-run",
-            ],
+            ["-o", str(output), "close-positions", "--dry-run", *extra_args],
         )
         assert result.exit_code == 0, result.output
         data = json.loads(output.read_text())
-        assert len(data) == 1
-        assert data[0]["symbol"] == "JP225"
-        trading_client.shutdown.assert_called_once()
-
-    def test_multiple_symbols_filter(
-        self,
-        tmp_path: Path,
-        trading_client: MagicMock,
-    ) -> None:
-        """Test multiple --symbol options are combined."""
-        output = tmp_path / "close.json"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "close-positions",
-                "--symbol",
-                "JP225",
-                "--symbol",
-                "EURUSD",
-                "--dry-run",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        data = json.loads(output.read_text())
-        assert len(data) == 2
-        symbols = {row["symbol"] for row in data}
-        assert symbols == {"JP225", "EURUSD"}
-        trading_client.shutdown.assert_called_once()
-
-    def test_ticket_filter_passed_through(
-        self,
-        tmp_path: Path,
-        trading_client: MagicMock,
-    ) -> None:
-        """Test --ticket values are used to filter positions."""
-        output = tmp_path / "close.json"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "close-positions",
-                "--ticket",
-                "2",
-                "--dry-run",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        data = json.loads(output.read_text())
-        assert len(data) == 1
-        assert data[0]["symbol"] == "EURUSD"
-        trading_client.shutdown.assert_called_once()
-
-    def test_symbol_and_ticket_combined(
-        self,
-        tmp_path: Path,
-        trading_client: MagicMock,
-    ) -> None:
-        """Test --symbol and --ticket apply AND semantics when combined."""
-        output = tmp_path / "close.json"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "close-positions",
-                "--symbol",
-                "JP225",
-                "--ticket",
-                "1",
-                "--dry-run",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        data = json.loads(output.read_text())
-        # symbol=JP225 AND ticket=1 → exactly one match
-        assert len(data) == 1
-        assert data[0]["symbol"] == "JP225"
+        assert {row["symbol"] for row in data} == expected_symbols
+        assert len(data) == len(expected_symbols)
         trading_client.shutdown.assert_called_once()
 
     def test_missing_symbol_and_ticket_fails(
@@ -989,29 +793,6 @@ class TestClosePositions:
         )
         assert result.exit_code != 0
         client.shutdown.assert_called_once()
-
-    def test_dry_run_wins_over_yes(
-        self,
-        tmp_path: Path,
-        trading_client: MagicMock,
-    ) -> None:
-        """Test that --dry-run takes precedence when combined with --yes."""
-        output = tmp_path / "close.json"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "close-positions",
-                "--symbol",
-                "JP225",
-                "--dry-run",
-                "--yes",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        trading_client.order_send.assert_not_called()
-        trading_client.shutdown.assert_called_once()
 
     def test_no_matching_positions_exports_empty_result(
         self,
@@ -1238,72 +1019,76 @@ class TestCollectHistory:
         """Create a mocked Mt5DataClient with history-style DataFrames."""
         return _build_history_client(mocker)
 
-    def test_collect_history_writes_default_tables(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,
-    ) -> None:
-        """Test that collect-history default excludes ticks."""
-        output = tmp_path / "history.db"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "collect-history",
-                "--symbol",
-                "EURUSD",
-                "--symbol",
-                "GBPUSD",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert history_client.copy_rates_range_as_df.call_count == 2
-        assert history_client.copy_ticks_range_as_df.call_count == 0
-        with sqlite3.connect(output) as conn:
-            tables = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'",
-                ).fetchall()
-            }
-        assert {"rates", "history_orders", "history_deals"} <= tables
-        assert "ticks" not in tables
-
-    def test_collect_history_explicit_ticks_dataset(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,
-    ) -> None:
-        """Test that --dataset ticks writes the ticks table with the correct flags."""
-        output = tmp_path / "history.db"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "collect-history",
-                "--symbol",
-                "EURUSD",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-                "--dataset",
+    @pytest.mark.parametrize(
+        (
+            "extra_args",
+            "symbols",
+            "expected_rates_calls",
+            "expected_ticks_calls",
+            "required_tables",
+            "forbidden_table",
+            "verify_ticks_call",
+        ),
+        [
+            pytest.param(
+                [],
+                ["EURUSD", "GBPUSD"],
+                2,
+                0,
+                {"rates", "history_orders", "history_deals"},
                 "ticks",
-            ],
-        )
+                False,
+                id="default-excludes-ticks",
+            ),
+            pytest.param(
+                ["--dataset", "ticks"],
+                ["EURUSD"],
+                0,
+                1,
+                {"ticks"},
+                "rates",
+                True,
+                id="explicit-ticks",
+            ),
+        ],
+    )
+    def test_collect_history_default_and_ticks_dataset(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,
+        extra_args: list[str],
+        symbols: list[str],
+        expected_rates_calls: int,
+        expected_ticks_calls: int,
+        required_tables: set[str],
+        forbidden_table: str,
+        verify_ticks_call: bool,
+    ) -> None:
+        """Test default vs --dataset ticks selection for collect-history."""
+        output = tmp_path / "history.db"
+        args = [
+            "-o",
+            str(output),
+            "collect-history",
+            "--date-from",
+            "2024-01-01",
+            "--date-to",
+            "2024-02-01",
+        ]
+        for symbol in symbols:
+            args.extend(["--symbol", symbol])
+        args.extend(extra_args)
+        result = runner.invoke(app, args)
         assert result.exit_code == 0, result.output
-        history_client.copy_ticks_range_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
-            flags=-1,
-        )
+        assert history_client.copy_rates_range_as_df.call_count == expected_rates_calls
+        assert history_client.copy_ticks_range_as_df.call_count == expected_ticks_calls
+        if verify_ticks_call:
+            history_client.copy_ticks_range_as_df.assert_called_once_with(
+                symbol="EURUSD",
+                date_from=datetime(2024, 1, 1, tzinfo=UTC),
+                date_to=datetime(2024, 2, 1, tzinfo=UTC),
+                flags=-1,
+            )
         with sqlite3.connect(output) as conn:
             tables = {
                 row[0]
@@ -1311,8 +1096,8 @@ class TestCollectHistory:
                     "SELECT name FROM sqlite_master WHERE type='table'",
                 ).fetchall()
             }
-        assert "ticks" in tables
-        assert "rates" not in tables
+        assert required_tables <= tables
+        assert forbidden_table not in tables
 
     def test_collect_history_history_fetched_per_symbol(
         self,
@@ -1437,12 +1222,22 @@ class TestCollectHistory:
             ).fetchall()
         assert rows == [(16385,)]
 
-    def test_collect_history_if_exists_append(
+    @pytest.mark.parametrize(
+        ("if_exists", "second_exit_code", "expected_count"),
+        [
+            pytest.param("append", 0, 2, id="append-accumulates-rows"),
+            pytest.param("fail", 1, 1, id="fail-rejects-existing-table"),
+        ],
+    )
+    def test_collect_history_if_exists(
         self,
         tmp_path: Path,
         history_client: MagicMock,  # noqa: ARG002
+        if_exists: str,
+        second_exit_code: int,
+        expected_count: int,
     ) -> None:
-        """Test that --if-exists=append accumulates rows across runs."""
+        """Test --if-exists=append accumulates and --if-exists=fail rejects."""
         output = tmp_path / "history.db"
         common = [
             "-o",
@@ -1458,68 +1253,12 @@ class TestCollectHistory:
             "rates",
         ]
         first = runner.invoke(app, common)
-        second = runner.invoke(app, [*common, "--if-exists", "append"])
+        second = runner.invoke(app, [*common, "--if-exists", if_exists])
         assert first.exit_code == 0, first.output
-        assert second.exit_code == 0, second.output
+        assert second.exit_code == second_exit_code, second.output
         with sqlite3.connect(output) as conn:
             (count,) = conn.execute("SELECT COUNT(*) FROM rates").fetchone()
-        assert count == 2
-
-    def test_collect_history_if_exists_fail(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
-    ) -> None:
-        """Test that --if-exists=fail rejects writing into an existing table."""
-        output = tmp_path / "history.db"
-        common = [
-            "-o",
-            str(output),
-            "collect-history",
-            "--symbol",
-            "EURUSD",
-            "--date-from",
-            "2024-01-01",
-            "--date-to",
-            "2024-02-01",
-            "--dataset",
-            "rates",
-        ]
-        first = runner.invoke(app, common)
-        second = runner.invoke(app, [*common, "--if-exists", "fail"])
-        assert first.exit_code == 0, first.output
-        assert second.exit_code != 0
-
-    def test_collect_history_ticks_default_flags_all(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,
-    ) -> None:
-        """Test that --flags defaults to ALL when --dataset ticks is explicit."""
-        output = tmp_path / "history.db"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "collect-history",
-                "--symbol",
-                "EURUSD",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-                "--dataset",
-                "ticks",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        history_client.copy_ticks_range_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
-            flags=-1,
-        )
+        assert count == expected_count
 
     def test_collect_history_with_views(
         self,
@@ -1635,50 +1374,42 @@ class TestCollectHistory:
         assert order_symbols == [("EURUSD",)]
         assert deal_symbols == [("EURUSD",)]
 
-    def test_collect_history_requires_sqlite_format(
+    @pytest.mark.parametrize(
+        ("output_name", "extra_args", "expected_fragment"),
+        [
+            pytest.param(
+                "history.csv",
+                ["--symbol", "EURUSD"],
+                "requires SQLite3",
+                id="non-sqlite-format",
+            ),
+            pytest.param("history.db", [], None, id="missing-symbol"),
+        ],
+    )
+    def test_collect_history_validation_failures(
         self,
         tmp_path: Path,
         history_client: MagicMock,  # noqa: ARG002
+        output_name: str,
+        extra_args: list[str],
+        expected_fragment: str | None,
     ) -> None:
-        """Test that non-SQLite output is rejected."""
-        output = tmp_path / "history.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "collect-history",
-                "--symbol",
-                "EURUSD",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-            ],
-        )
+        """Test collect-history rejects invalid output format and missing symbols."""
+        output = tmp_path / output_name
+        args = [
+            "-o",
+            str(output),
+            "collect-history",
+            "--date-from",
+            "2024-01-01",
+            "--date-to",
+            "2024-02-01",
+            *extra_args,
+        ]
+        result = runner.invoke(app, args)
         assert result.exit_code != 0
-        assert "requires SQLite3" in normalize_cli_output(result.output)
-
-    def test_collect_history_requires_symbol(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
-    ) -> None:
-        """Test that at least one --symbol is required."""
-        output = tmp_path / "history.db"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "collect-history",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-            ],
-        )
-        assert result.exit_code != 0
+        if expected_fragment is not None:
+            assert expected_fragment in normalize_cli_output(result.output)
 
     def test_collect_history_views_skipped_when_columns_missing(
         self,
@@ -1824,73 +1555,68 @@ class TestGrafanaSchemaCommand:
         assert result1.exit_code == 0, result1.output
         assert result2.exit_code == 0, result2.output
 
-    def test_grafana_schema_rejects_non_sqlite_output(
+
+class TestNonSqliteRejection:
+    """Tests that SQLite-only commands reject non-SQLite output."""
+
+    @pytest.mark.parametrize(
+        ("command", "match"),
+        [
+            ("grafana-schema", "grafana-schema requires SQLite3 output"),
+            ("snapshot", "snapshot requires SQLite3 output"),
+        ],
+        ids=["grafana-schema", "snapshot"],
+    )
+    def test_rejects_non_sqlite_output(
         self,
         tmp_path: Path,
+        command: str,
+        match: str,
     ) -> None:
-        """grafana-schema fails when output is not a SQLite3 format."""
+        """grafana-schema and snapshot reject non-SQLite output formats."""
         result = runner.invoke(
             app,
-            ["-o", str(tmp_path / "out.csv"), "grafana-schema"],
+            ["-o", str(tmp_path / "out.csv"), command],
         )
         assert result.exit_code != 0
-        assert "grafana-schema requires SQLite3 output" in result.output
+        assert match in result.output
 
 
 class TestSnapshotCommand:
     """Tests for the snapshot CLI command."""
 
-    def test_snapshot_rejects_non_sqlite_output(self, tmp_path: Path) -> None:
-        """Snapshot fails when output is not a SQLite3 format."""
-        result = runner.invoke(
-            app,
-            ["-o", str(tmp_path / "out.csv"), "snapshot"],
-        )
-        assert result.exit_code != 0
-        assert "snapshot requires SQLite3 output" in result.output
-
+    @pytest.mark.parametrize(
+        ("extra_args", "expected_symbols"),
+        [
+            pytest.param([], None, id="no-symbol-filter"),
+            pytest.param(
+                ["--symbol", "EURUSD", "--symbol", "GBPUSD"],
+                ["EURUSD", "GBPUSD"],
+                id="with-symbol-filter",
+            ),
+        ],
+    )
     def test_snapshot_delegates_to_update_observability_with_config(
         self,
         tmp_path: Path,
         mocker: MockerFixture,
+        extra_args: list[str],
+        expected_symbols: list[str] | None,
     ) -> None:
-        """Snapshot calls sdk.update_observability_with_config."""
+        """Snapshot calls sdk.update_observability_with_config with forwarded kwargs."""
         updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
         output = tmp_path / "out.db"
-        result = runner.invoke(app, ["-o", str(output), "snapshot"])
+        result = runner.invoke(app, ["-o", str(output), "snapshot", *extra_args])
         assert result.exit_code == 0, result.output
         updater.assert_called_once()
         kwargs = updater.call_args.kwargs
         assert kwargs["output"] == output
-        assert kwargs["symbols"] is None
+        assert kwargs["symbols"] == expected_symbols
         assert kwargs["include_account"] is True
         assert kwargs["include_positions"] is True
         assert kwargs["include_orders"] is True
         assert kwargs["include_terminal"] is True
         assert kwargs["with_grafana_schema"] is False
-
-    def test_snapshot_with_symbol_filter(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """Snapshot passes symbol list to update_observability_with_config."""
-        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(tmp_path / "out.db"),
-                "snapshot",
-                "--symbol",
-                "EURUSD",
-                "--symbol",
-                "GBPUSD",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        kwargs = updater.call_args.kwargs
-        assert kwargs["symbols"] == ["EURUSD", "GBPUSD"]
 
     @pytest.mark.parametrize(
         ("flag", "kwarg"),
@@ -1918,75 +1644,40 @@ class TestSnapshotCommand:
         assert result.exit_code == 0, result.output
         assert updater.call_args.kwargs[kwarg] is False
 
-    def test_snapshot_with_publish_copy(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """--publish-copy calls publish_grafana_copy after update_observability."""
+
+@pytest.mark.parametrize(
+    ("command", "patch_update_observability"),
+    [
+        ("snapshot", True),
+        ("grafana-schema", False),
+    ],
+    ids=["snapshot", "grafana-schema"],
+)
+@pytest.mark.parametrize(
+    ("use_publish_copy", "expect_called"),
+    [(True, True), (False, False)],
+    ids=["with-publish-copy", "no-publish-copy"],
+)
+def test_publish_copy_option_gates_grafana_copy(
+    tmp_path: Path,
+    mocker: MockerFixture,
+    command: str,
+    patch_update_observability: bool,
+    use_publish_copy: bool,
+    expect_called: bool,
+) -> None:
+    """--publish-copy gates publish_grafana_copy for copy-capable commands."""
+    if patch_update_observability:
         mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
-        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
-        copy_path = tmp_path / "grafana.db"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(tmp_path / "out.db"),
-                "snapshot",
-                "--publish-copy",
-                str(copy_path),
-            ],
-        )
-        assert result.exit_code == 0, result.output
+    mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
+    args = ["-o", str(tmp_path / "out.db"), command]
+    if use_publish_copy:
+        args += ["--publish-copy", str(tmp_path / "grafana.db")]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    if expect_called:
         mock_publish.assert_called_once()
-
-    def test_snapshot_no_publish_copy_by_default(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """Snapshot does not call publish_grafana_copy without --publish-copy."""
-        mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
-        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
-        result = runner.invoke(app, ["-o", str(tmp_path / "out.db"), "snapshot"])
-        assert result.exit_code == 0, result.output
-        mock_publish.assert_not_called()
-
-
-class TestGrafanaSchemaPublishCopy:
-    """Tests for grafana-schema --publish-copy option."""
-
-    def test_grafana_schema_with_publish_copy(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """grafana-schema --publish-copy calls publish_grafana_copy."""
-        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
-        output = tmp_path / "out.db"
-        copy_path = tmp_path / "grafana.db"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "grafana-schema",
-                "--publish-copy",
-                str(copy_path),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        mock_publish.assert_called_once()
-
-    def test_grafana_schema_no_publish_copy_by_default(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """grafana-schema does not call publish_grafana_copy by default."""
-        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
-        result = runner.invoke(app, ["-o", str(tmp_path / "out.db"), "grafana-schema"])
-        assert result.exit_code == 0, result.output
+    else:
         mock_publish.assert_not_called()
 
 
