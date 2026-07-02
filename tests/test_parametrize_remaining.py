@@ -29,22 +29,16 @@ runner = CliRunner()
 @pytest.mark.parametrize(
     ("command", "patch_snapshot_update", "use_publish_copy", "expect_called"),
     [
-        pytest.param("snapshot", True, True, True, id="snapshot-with-publish-copy"),
-        pytest.param("snapshot", True, False, False, id="snapshot-no-publish-copy"),
-        pytest.param(
-            "grafana-schema",
-            False,
-            True,
-            True,
-            id="grafana-schema-with-publish-copy",
-        ),
-        pytest.param(
-            "grafana-schema",
-            False,
-            False,
-            False,
-            id="grafana-schema-no-publish-copy",
-        ),
+        ("snapshot", True, True, True),
+        ("snapshot", True, False, False),
+        ("grafana-schema", False, True, True),
+        ("grafana-schema", False, False, False),
+    ],
+    ids=[
+        "snapshot-with-publish-copy",
+        "snapshot-no-publish-copy",
+        "grafana-schema-with-publish-copy",
+        "grafana-schema-no-publish-copy",
     ],
 )
 def test_publish_copy_option_gates_grafana_copy(
