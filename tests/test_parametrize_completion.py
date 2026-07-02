@@ -203,7 +203,7 @@ def test_calculate_spread_ratio(
 @pytest.mark.parametrize(
     ("setup_deals", "expected_present_cols"),
     [
-        (_make_symbol_pnl_required_deals, set()),
+        (_make_symbol_pnl_required_deals, set[str]()),
         (_make_symbol_pnl_full_deals, {"volume", "price"}),
     ],
     ids=["required-only", "with-volume-price"],
@@ -218,8 +218,7 @@ def test_grafana_symbol_pnl_optional_columns(
         create_grafana_views(conn)
         assert "grafana_symbol_pnl" in _get_names(conn, "view")
         cols = {
-            str(row[1])
-            for row in conn.execute("PRAGMA table_info(grafana_symbol_pnl)")
+            str(row[1]) for row in conn.execute("PRAGMA table_info(grafana_symbol_pnl)")
         }
     assert expected_present_cols <= cols
 
