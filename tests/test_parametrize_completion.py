@@ -70,9 +70,7 @@ def _select_account_snapshot(conn: sqlite3.Connection) -> tuple[object, ...]:
 
 def _select_terminal_snapshot(conn: sqlite3.Connection) -> tuple[object, ...]:
     """Return the stable terminal snapshot assertion tuple."""
-    return conn.execute(
-        "SELECT name, connected FROM terminal_snapshots"
-    ).fetchone()
+    return conn.execute("SELECT name, connected FROM terminal_snapshots").fetchone()
 
 
 @pytest.mark.parametrize(
@@ -215,9 +213,7 @@ def test_grafana_symbol_pnl_optional_columns(
         setup_deals(conn)
         create_grafana_views(conn)
         assert "grafana_symbol_pnl" in _get_names(conn, "view")
-        cols = {
-            row[1] for row in conn.execute("PRAGMA table_info(grafana_symbol_pnl)")
-        }
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(grafana_symbol_pnl)")}
     assert expected_present_cols <= cols
 
 
