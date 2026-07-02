@@ -49,7 +49,7 @@ def test_publish_copy_option_gates_grafana_copy(
     use_publish_copy: bool,
     expect_called: bool,
 ) -> None:
-    """snapshot and grafana-schema gate publish-copy with the same option semantics."""
+    """Snapshot and grafana-schema gate publish-copy with the same option semantics."""
     if patch_snapshot_update:
         mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
     mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")

@@ -23,7 +23,7 @@ def _dashboard_json_files() -> list[Path]:
 @pytest.fixture(params=_dashboard_json_files(), ids=lambda path: path.name)
 def dashboard_path(request: pytest.FixtureRequest) -> Iterator[Path]:
     """Yield one bundled Grafana dashboard JSON file per test case."""
-    yield request.param
+    return request.param
 
 
 class TestGrafanaExamples:
@@ -37,7 +37,9 @@ class TestGrafanaExamples:
         """Each dashboard JSON file parses to a JSON object."""
         content = dashboard_path.read_text(encoding="utf-8")
         obj = json.loads(content)
-        assert isinstance(obj, dict), f"{dashboard_path.name} root must be a JSON object"
+        assert isinstance(obj, dict), (
+            f"{dashboard_path.name} root must be a JSON object"
+        )
 
     @pytest.mark.parametrize("private_pattern", ["password", "api_key", "apikey"])
     def test_dashboard_json_has_no_private_placeholders(
