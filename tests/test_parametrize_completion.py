@@ -61,6 +61,20 @@ def _make_symbol_pnl_full_deals(conn: sqlite3.Connection) -> None:
     )
 
 
+def _select_account_snapshot(conn: sqlite3.Connection) -> tuple[object, ...]:
+    """Return the stable account snapshot assertion tuple."""
+    return conn.execute(
+        "SELECT login, currency, balance FROM account_snapshots"
+    ).fetchone()
+
+
+def _select_terminal_snapshot(conn: sqlite3.Connection) -> tuple[object, ...]:
+    """Return the stable terminal snapshot assertion tuple."""
+    return conn.execute(
+        "SELECT name, connected FROM terminal_snapshots"
+    ).fetchone()
+
+
 @pytest.mark.parametrize(
     ("command", "patch_update_observability"),
     [
@@ -208,7 +222,7 @@ def test_grafana_symbol_pnl_optional_columns(
 
 
 @pytest.mark.parametrize(
-    ("insert_func", "row", "select_sql", "expected"),
+    ("insert_func", "row", "selector", "expected"),
     [
         (
             insert_account_snapshot,
@@ -223,7 +237,7 @@ def test_grafana_symbol_pnl_optional_columns(
                 "profit": -200.0,
                 "leverage": 100,
             },
-            "SELECT login, currency, balance FROM account_snapshots",
+            _select_account_snapshot,
             (12345, "USD", 10000.0),
         ),
         (
@@ -238,7 +252,7 @@ def test_grafana_symbol_pnl_optional_columns(
                 "company": "Broker",
                 "language": "en",
             },
-            "SELECT name, connected FROM terminal_snapshots",
+            _select_terminal_snapshot,
             ("MetaTrader 5", 1),
         ),
     ],
@@ -247,7 +261,7 @@ def test_grafana_symbol_pnl_optional_columns(
 def test_insert_single_snapshot(
     insert_func: Callable[[sqlite3.Connection, int, dict[str, object]], None],
     row: dict[str, object],
-    select_sql: str,
+    selector: Callable[[sqlite3.Connection], tuple[object, ...]],
     expected: tuple[object, ...],
 ) -> None:
     """Test account and terminal snapshot helpers append one row."""
@@ -255,5 +269,5 @@ def test_insert_single_snapshot(
         create_snapshot_tables(conn)
         run_id = start_snapshot_run(conn, 1700000000)
         insert_func(conn, run_id, row)
-        result = conn.execute(select_sql).fetchone()  # noqa: S608
+        result = selector(conn)
     assert result == expected
