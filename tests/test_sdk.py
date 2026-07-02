@@ -638,21 +638,62 @@ class TestCollectHistory:
         """Create a mocked Mt5DataClient with history-style DataFrames."""
         return _build_history_client(mocker)
 
-    def test_collect_history_writes_default_tables(
+    @pytest.mark.parametrize(
+        (
+            "datasets",
+            "expected_rates_calls",
+            "expected_ticks_calls",
+            "required_tables",
+            "forbidden_table",
+        ),
+        [
+            pytest.param(
+                None,
+                2,
+                0,
+                {"rates", "history_orders", "history_deals"},
+                "ticks",
+                id="default-excludes-ticks",
+            ),
+            pytest.param(
+                {Dataset.ticks},
+                0,
+                2,
+                {"ticks"},
+                "rates",
+                id="explicit-ticks",
+            ),
+        ],
+    )
+    def test_collect_history_default_and_ticks_dataset(
         self,
         tmp_path: Path,
         history_client: MagicMock,
+        datasets: set[Dataset] | None,
+        expected_rates_calls: int,
+        expected_ticks_calls: int,
+        required_tables: set[str],
+        forbidden_table: str,
     ) -> None:
-        """Test that collect_history default excludes ticks."""
+        """Test default vs explicit ticks dataset selection for collect_history."""
         output = tmp_path / "history.db"
-        collect_history(
-            output,
-            ["EURUSD", "GBPUSD"],
-            "2024-01-01",
-            "2024-02-01",
-        )
-        assert history_client.copy_rates_range_as_df.call_count == 2
-        assert history_client.copy_ticks_range_as_df.call_count == 0
+        if datasets is None:
+            collect_history(
+                output,
+                ["EURUSD", "GBPUSD"],
+                "2024-01-01",
+                "2024-02-01",
+            )
+        else:
+            collect_history(
+                output,
+                ["EURUSD", "GBPUSD"],
+                "2024-01-01",
+                "2024-02-01",
+                datasets=datasets,
+            )
+        assert history_client.copy_rates_range_as_df.call_count == expected_rates_calls
+        assert history_client.copy_ticks_range_as_df.call_count == expected_ticks_calls
         with sqlite3.connect(output) as conn:
             tables = {
                 row[0]
@@ -660,34 +701,8 @@ class TestCollectHistory:
                     "SELECT name FROM sqlite_master WHERE type='table'",
                 ).fetchall()
             }
-        assert {"rates", "history_orders", "history_deals"} <= tables
-        assert "ticks" not in tables
-
-    def test_collect_history_explicit_ticks_dataset(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,
-    ) -> None:
-        """Test that explicit datasets={Dataset.ticks} writes the ticks table."""
-        output = tmp_path / "history.db"
-        collect_history(
-            output,
-            ["EURUSD", "GBPUSD"],
-            "2024-01-01",
-            "2024-02-01",
-            datasets={Dataset.ticks},
-        )
-        assert history_client.copy_ticks_range_as_df.call_count == 2
-        assert history_client.copy_rates_range_as_df.call_count == 0
-        with sqlite3.connect(output) as conn:
-            tables = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'",
-                ).fetchall()
-            }
-        assert "ticks" in tables
-        assert "rates" not in tables
+        assert required_tables <= tables
+        assert forbidden_table not in tables
 
     def test_collect_history_with_views(
         self,

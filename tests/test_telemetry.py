@@ -54,32 +54,105 @@ class TestMt5Metrics:
         assert meter.create_counter.called
         assert meter.create_gauge.called
 
-    def test_record_history_update_success(self) -> None:
-        """record_history_update records duration and timestamp on success."""
+    @pytest.mark.parametrize(
+        (
+            "method",
+            "kwargs",
+            "duration_attr",
+            "failures_attr",
+            "last_success_attr",
+        ),
+        [
+            pytest.param(
+                "record_history_update",
+                {"dataset": "rates"},
+                "_history_duration",
+                "_history_failures",
+                "_last_successful_update",
+                id="history-update",
+            ),
+            pytest.param(
+                "record_snapshot_update",
+                {},
+                "_snapshot_duration",
+                "_snapshot_failures",
+                None,
+                id="snapshot-update",
+            ),
+        ],
+    )
+    def test_record_update_success(
+        self,
+        method: str,
+        kwargs: dict[str, str],
+        duration_attr: str,
+        failures_attr: str,
+        last_success_attr: str | None,
+    ) -> None:
+        """record_*_update records duration and timestamp on success."""
         meter = MagicMock()
         m = _Mt5Metrics()
         m.configure(meter)
-        with m.record_history_update(dataset="rates"):
+        with getattr(m, method)(**kwargs):
             pass
-        m._history_duration.record.assert_called_once()  # type: ignore[reportPrivateUsage]
-        m._last_successful_update.set.assert_called_once()  # type: ignore[reportPrivateUsage]
-        m._history_failures.add.assert_not_called()  # type: ignore[reportPrivateUsage]
+        getattr(m, duration_attr).record.assert_called_once()  # type: ignore[reportPrivateUsage]
+        getattr(m, failures_attr).add.assert_not_called()  # type: ignore[reportPrivateUsage]
+        if last_success_attr is not None:
+            getattr(m, last_success_attr).set.assert_called_once()  # type: ignore[reportPrivateUsage]
 
-    def test_record_history_update_failure(self) -> None:
-        """record_history_update increments failure counter and re-raises on error."""
+    @pytest.mark.parametrize(
+        (
+            "method",
+            "kwargs",
+            "exc",
+            "duration_attr",
+            "failures_attr",
+            "failure_labels",
+        ),
+        [
+            pytest.param(
+                "record_history_update",
+                {"dataset": "rates"},
+                ValueError("boom"),
+                "_history_duration",
+                "_history_failures",
+                {"dataset": "rates"},
+                id="history-update",
+            ),
+            pytest.param(
+                "record_snapshot_update",
+                {},
+                RuntimeError("snap fail"),
+                "_snapshot_duration",
+                "_snapshot_failures",
+                {},
+                id="snapshot-update",
+            ),
+        ],
+    )
+    def test_record_update_failure(
+        self,
+        method: str,
+        kwargs: dict[str, str],
+        exc: BaseException,
+        duration_attr: str,
+        failures_attr: str,
+        failure_labels: dict[str, str],
+    ) -> None:
+        """record_*_update increments failure counter and re-raises on error."""
         meter = MagicMock()
         m = _Mt5Metrics()
         m.configure(meter)
-        exc = ValueError("boom")
         with (
-            pytest.raises(ValueError, match="boom"),
-            m.record_history_update(dataset="rates"),
+            pytest.raises(type(exc), match=str(exc)),
+            getattr(m, method)(**kwargs),
         ):
             raise exc
-        m._history_failures.add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
-            1, {"dataset": "rates"}
+        getattr(m, failures_attr).add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
+            1,
+            failure_labels,
         )
-        m._history_duration.record.assert_not_called()  # type: ignore[reportPrivateUsage]
+        getattr(m, duration_attr).record.assert_not_called()  # type: ignore[reportPrivateUsage]
 
     def test_add_history_rows(self) -> None:
         """add_history_rows increments the rows-written counter."""
@@ -90,30 +163,6 @@ class TestMt5Metrics:
         m._history_rows.add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
             42, {"dataset": "rates"}
         )
-
-    def test_record_snapshot_update_success(self) -> None:
-        """record_snapshot_update records duration on success."""
-        meter = MagicMock()
-        m = _Mt5Metrics()
-        m.configure(meter)
-        with m.record_snapshot_update():
-            pass
-        m._snapshot_duration.record.assert_called_once()  # type: ignore[reportPrivateUsage]
-        m._snapshot_failures.add.assert_not_called()  # type: ignore[reportPrivateUsage]
-
-    def test_record_snapshot_update_failure(self) -> None:
-        """record_snapshot_update increments failure counter and re-raises on error."""
-        meter = MagicMock()
-        m = _Mt5Metrics()
-        m.configure(meter)
-        exc = RuntimeError("snap fail")
-        with (
-            pytest.raises(RuntimeError, match="snap fail"),
-            m.record_snapshot_update(),
-        ):
-            raise exc
-        m._snapshot_failures.add.assert_called_once_with(1, {})  # type: ignore[reportPrivateUsage]
-        m._snapshot_duration.record.assert_not_called()  # type: ignore[reportPrivateUsage]
 
     def test_record_position_state(self) -> None:
         """record_position_state emits profit and volume gauges."""
