@@ -14,6 +14,7 @@ from pdmt5 import Mt5RuntimeError, Mt5TradingError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from pdmt5 import Mt5Config, Mt5DataClient
@@ -339,55 +340,81 @@ class TestModuleFunctions:
 class TestMt5CliClient:
     """Tests for Mt5CliClient SDK methods."""
 
-    def test_copy_rates_range_returns_dataframe(
+    @pytest.mark.parametrize(
+        ("call", "expected_method", "expected_kwargs"),
+        [
+            pytest.param(
+                lambda: Mt5CliClient().copy_rates_range(
+                    "EURUSD",
+                    "D1",
+                    "2024-01-01",
+                    "2024-02-01",
+                ),
+                "copy_rates_range_as_df",
+                {
+                    "symbol": "EURUSD",
+                    "timeframe": 16408,
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                },
+                id="copy_rates_range-normalizes-dates-and-timeframe",
+            ),
+            pytest.param(
+                lambda: Mt5CliClient().copy_ticks_from(
+                    "EURUSD",
+                    "2024-01-01",
+                    100,
+                    "INFO",
+                ),
+                "copy_ticks_from_as_df",
+                {
+                    "symbol": "EURUSD",
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "count": 100,
+                    "flags": 1,
+                },
+                id="copy_ticks_from-parses-string-flags",
+            ),
+            pytest.param(
+                lambda: Mt5CliClient().history_orders(
+                    date_from="2024-01-01",
+                    date_to="2024-02-01",
+                ),
+                "history_orders_get_as_df",
+                {
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                    "group": None,
+                    "symbol": None,
+                    "ticket": None,
+                    "position": None,
+                },
+                id="history_orders-parses-string-dates",
+            ),
+            pytest.param(
+                lambda: Mt5CliClient().latest_rates("EURUSD", "M1", 5, start_pos=2),
+                "copy_rates_from_pos_as_df",
+                {
+                    "symbol": "EURUSD",
+                    "timeframe": 1,
+                    "start_pos": 2,
+                    "count": 5,
+                },
+                id="latest_rates-wraps-copy_rates_from_pos",
+            ),
+        ],
+    )
+    def test_method_delegates_with_normalization(
         self,
         mock_client: MagicMock,
+        call: Callable[[], object],
+        expected_method: str,
+        expected_kwargs: dict[str, object],
     ) -> None:
-        """Test that copy_rates_range returns a DataFrame."""
-        df = Mt5CliClient().copy_rates_range(
-            "EURUSD",
-            "D1",
-            "2024-01-01",
-            "2024-02-01",
-        )
-        assert isinstance(df, pd.DataFrame)
-        mock_client.copy_rates_range_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            timeframe=16408,
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
-        )
-
-    def test_copy_ticks_from_parses_flags(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test that string tick flags are parsed."""
-        Mt5CliClient().copy_ticks_from("EURUSD", "2024-01-01", 100, "INFO")
-        mock_client.copy_ticks_from_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            count=100,
-            flags=1,
-        )
-
-    def test_history_orders_accepts_string_dates(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test that string datetime inputs are parsed."""
-        Mt5CliClient().history_orders(
-            date_from="2024-01-01",
-            date_to="2024-02-01",
-        )
-        mock_client.history_orders_get_as_df.assert_called_once_with(
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
-            group=None,
-            symbol=None,
-            ticket=None,
-            position=None,
-        )
+        """Mt5CliClient methods normalize inputs and forward them on."""
+        result = call()
+        assert isinstance(result, pd.DataFrame)
+        getattr(mock_client, expected_method).assert_called_once_with(**expected_kwargs)
 
     def test_module_function_delegates_to_client(
         self,
@@ -402,19 +429,6 @@ class TestMt5CliClient:
         )
         assert isinstance(df, pd.DataFrame)
         mock_client.copy_rates_range_as_df.assert_called_once()
-
-    def test_latest_rates_delegates_to_copy_rates_from_pos(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test latest_rates is a convenience wrapper for positional rates."""
-        Mt5CliClient().latest_rates("EURUSD", "M1", 5, start_pos=2)
-        mock_client.copy_rates_from_pos_as_df.assert_called_once_with(
-            symbol="EURUSD",
-            timeframe=1,
-            start_pos=2,
-            count=5,
-        )
 
     def test_latest_rates_rejects_non_positive_count(self) -> None:
         """Test latest_rates validates count."""
@@ -1805,104 +1819,114 @@ class TestCollectLatestClosedRatesByGranularity:
 class TestSubstituteEnvPlaceholders:
     """Tests for ${ENV_VAR} substitution."""
 
-    def test_substitutes_known_variables(
+    @pytest.mark.parametrize(
+        ("env", "input_", "allow_whole_dollar_env", "expected"),
+        [
+            pytest.param(
+                {"MT5_LOGIN": "12345", "MT5_SERVER": "Broker-Demo"},
+                "${MT5_LOGIN}",
+                False,
+                "12345",
+                id="brace-substitution",
+            ),
+            pytest.param(
+                {"MT5_LOGIN": "12345", "MT5_SERVER": "Broker-Demo"},
+                "srv=${MT5_SERVER}!",
+                False,
+                "srv=Broker-Demo!",
+                id="brace-substitution-embedded",
+            ),
+            pytest.param(
+                {},
+                "plain",
+                False,
+                "plain",
+                id="plain-string-unchanged",
+            ),
+            pytest.param(
+                {"MT5_PASSWORD": "secret"},
+                "$MT5_PASSWORD",
+                False,
+                "$MT5_PASSWORD",
+                id="whole-dollar-not-substituted-by-default",
+            ),
+            pytest.param(
+                {"MT5_PASSWORD": "secret"},
+                "$MT5_PASSWORD",
+                True,
+                "secret",
+                id="whole-dollar-substituted-with-opt-in",
+            ),
+            pytest.param(
+                {"pass": "secret", "ENV": "val"},
+                "plan$pass",
+                True,
+                "plan$pass",
+                id="partial-dollar-prefix-not-expanded",
+            ),
+            pytest.param(
+                {"pass": "secret", "ENV": "val"},
+                "abc$ENV",
+                True,
+                "abc$ENV",
+                id="partial-env-suffix-not-expanded",
+            ),
+            pytest.param(
+                {"ENV": "val"},
+                "$ENV-suffix",
+                True,
+                "$ENV-suffix",
+                id="whole-dollar-with-suffix-not-expanded",
+            ),
+            pytest.param(
+                {"MT5_LOGIN": "12345"},
+                "${MT5_LOGIN}",
+                True,
+                "12345",
+                id="brace-substitution-with-opt-in",
+            ),
+        ],
+    )
+    def test_substitute_env_placeholders(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        env: dict[str, str],
+        input_: str,
+        allow_whole_dollar_env: bool,
+        expected: str,
     ) -> None:
-        """Test placeholders are replaced with environment values."""
-        monkeypatch.setenv("MT5_LOGIN", "12345")
-        monkeypatch.setenv("MT5_SERVER", "Broker-Demo")
+        """Handle ${ENV}, $ENV, plain, and partial forms of substitution."""
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
 
-        assert substitute_env_placeholders("${MT5_LOGIN}") == "12345"
-        assert substitute_env_placeholders("srv=${MT5_SERVER}!") == "srv=Broker-Demo!"
+        result = substitute_env_placeholders(
+            input_,
+            allow_whole_dollar_env=allow_whole_dollar_env,
+        )
 
-    def test_returns_plain_strings_unchanged(self) -> None:
-        """Test strings without placeholders are returned as-is."""
-        assert substitute_env_placeholders("plain") == "plain"
+        assert result == expected
 
-    def test_raises_on_missing_variable(
+    @pytest.mark.parametrize(
+        ("input_", "allow_whole_dollar_env"),
+        [
+            pytest.param("${MT5_MISSING}", False, id="brace-missing"),
+            pytest.param("$MT5_MISSING", True, id="whole-dollar-missing"),
+        ],
+    )
+    def test_substitute_env_placeholders_raises_on_missing_env(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        input_: str,
+        allow_whole_dollar_env: bool,
     ) -> None:
-        """Test a missing environment variable raises a clear error."""
+        """Missing env vars raise ValueError for both ${ENV} and $ENV (opt-in) forms."""
         monkeypatch.delenv("MT5_MISSING", raising=False)
 
         with pytest.raises(ValueError, match="'MT5_MISSING' is not set"):
-            substitute_env_placeholders("${MT5_MISSING}")
-
-    def test_whole_dollar_not_substituted_by_default(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV_NAME is not expanded without allow_whole_dollar_env=True."""
-        monkeypatch.setenv("MT5_PASSWORD", "secret")
-
-        assert substitute_env_placeholders("$MT5_PASSWORD") == "$MT5_PASSWORD"
-
-    def test_whole_dollar_substituted_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV_NAME is expanded when allow_whole_dollar_env=True."""
-        monkeypatch.setenv("MT5_PASSWORD", "secret")
-
-        result = substitute_env_placeholders(
-            "$MT5_PASSWORD", allow_whole_dollar_env=True
-        )
-
-        assert result == "secret"
-
-    def test_whole_dollar_missing_variable_raises_value_error(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test missing $ENV_NAME raises ValueError when opt-in is enabled."""
-        monkeypatch.delenv("MT5_MISSING", raising=False)
-
-        with pytest.raises(ValueError, match="'MT5_MISSING' is not set"):
-            substitute_env_placeholders("$MT5_MISSING", allow_whole_dollar_env=True)
-
-    def test_partial_dollar_not_expanded_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV embedded in a larger string is not expanded."""
-        monkeypatch.setenv("pass", "secret")
-        monkeypatch.setenv("ENV", "val")
-
-        assert (
-            substitute_env_placeholders("plan$pass", allow_whole_dollar_env=True)
-            == "plan$pass"
-        )
-        assert (
-            substitute_env_placeholders("abc$ENV", allow_whole_dollar_env=True)
-            == "abc$ENV"
-        )
-
-    def test_dollar_with_suffix_not_expanded_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test $ENV-suffix is not expanded (not a whole-value placeholder)."""
-        monkeypatch.setenv("ENV", "val")
-
-        assert (
-            substitute_env_placeholders("$ENV-suffix", allow_whole_dollar_env=True)
-            == "$ENV-suffix"
-        )
-
-    def test_brace_format_works_with_opt_in(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test ${ENV_VAR} substitution still works when allow_whole_dollar_env=True."""
-        monkeypatch.setenv("MT5_LOGIN", "12345")
-
-        result = substitute_env_placeholders(
-            "${MT5_LOGIN}", allow_whole_dollar_env=True
-        )
-
-        assert result == "12345"
+            substitute_env_placeholders(
+                input_,
+                allow_whole_dollar_env=allow_whole_dollar_env,
+            )
 
 
 class TestResolveAccountSpec:
