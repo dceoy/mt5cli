@@ -4,51 +4,73 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "grafana"
 _DASHBOARDS_DIR = _EXAMPLES_DIR / "dashboards"
 
 
+def _dashboard_json_files() -> list[Path]:
+    """Return bundled Grafana dashboard JSON files in deterministic order."""
+    return sorted(_DASHBOARDS_DIR.glob("*.json"))
+
+
+@pytest.fixture(params=_dashboard_json_files(), ids=lambda path: path.name)
+def dashboard_path(request: pytest.FixtureRequest) -> Iterator[Path]:
+    """Yield one bundled Grafana dashboard JSON file per test case."""
+    yield request.param
+
+
 class TestGrafanaExamples:
     """Validate structure and content of bundled Grafana example files."""
 
-    def test_dashboard_json_files_are_valid_json(self) -> None:
-        """All dashboard JSON files parse without error."""
-        paths = list(_DASHBOARDS_DIR.glob("*.json"))
-        assert paths, "No dashboard JSON files found"
-        for path in paths:
-            content = path.read_text(encoding="utf-8")
-            obj = json.loads(content)
-            assert isinstance(obj, dict), f"{path.name} root must be a JSON object"
+    def test_dashboard_json_files_are_present(self) -> None:
+        """At least one dashboard JSON file is bundled."""
+        assert _dashboard_json_files(), "No dashboard JSON files found"
 
-    def test_dashboard_json_has_no_private_placeholders(self) -> None:
+    def test_dashboard_json_file_is_valid_json(self, dashboard_path: Path) -> None:
+        """Each dashboard JSON file parses to a JSON object."""
+        content = dashboard_path.read_text(encoding="utf-8")
+        obj = json.loads(content)
+        assert isinstance(obj, dict), f"{dashboard_path.name} root must be a JSON object"
+
+    @pytest.mark.parametrize("private_pattern", ["password", "api_key", "apikey"])
+    def test_dashboard_json_has_no_private_placeholders(
+        self,
+        dashboard_path: Path,
+        private_pattern: str,
+    ) -> None:
         """Dashboard JSON files contain no obvious credential placeholders."""
-        private_patterns = ["password", "api_key", "apikey"]
-        for path in _DASHBOARDS_DIR.glob("*.json"):
-            content = path.read_text(encoding="utf-8").lower()
-            for pat in private_patterns:
-                assert pat not in content, f"{path.name} contains {pat!r}"
+        content = dashboard_path.read_text(encoding="utf-8").lower()
+        assert private_pattern not in content, (
+            f"{dashboard_path.name} contains {private_pattern!r}"
+        )
 
-    def test_dashboard_json_uses_grafana_views(self) -> None:
-        """All dashboard JSON files query grafana_* views."""
-        for path in _DASHBOARDS_DIR.glob("*.json"):
-            content = path.read_text(encoding="utf-8")
-            assert "grafana_" in content, (
-                f"{path.name} must contain queries against grafana_* views"
-            )
+    def test_dashboard_json_uses_grafana_views(self, dashboard_path: Path) -> None:
+        """Each dashboard JSON file queries grafana_* views."""
+        content = dashboard_path.read_text(encoding="utf-8")
+        assert "grafana_" in content, (
+            f"{dashboard_path.name} must contain queries against grafana_* views"
+        )
 
     @pytest.mark.parametrize("field", ["uid", "title"])
-    def test_dashboard_json_has_required_field(self, field: str) -> None:
-        """All dashboard JSON files have a non-empty uid and title field."""
-        for path in _DASHBOARDS_DIR.glob("*.json"):
-            obj = json.loads(path.read_text(encoding="utf-8"))
-            assert obj.get(field), f"{path.name} must have a {field}"
+    def test_dashboard_json_has_required_field(
+        self,
+        dashboard_path: Path,
+        field: str,
+    ) -> None:
+        """Each dashboard JSON file has a non-empty uid and title field."""
+        obj = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        assert obj.get(field), f"{dashboard_path.name} must have a {field}"
 
     def test_expected_dashboards_present(self) -> None:
         """The three expected dashboard files are present."""
-        names = {p.name for p in _DASHBOARDS_DIR.glob("*.json")}
+        names = {p.name for p in _dashboard_json_files()}
         assert "mt5cli-overview.json" in names
         assert "mt5cli-trades.json" in names
         assert "mt5cli-market.json" in names
