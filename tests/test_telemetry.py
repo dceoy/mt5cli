@@ -164,47 +164,66 @@ class TestMt5Metrics:
             42, {"dataset": "rates"}
         )
 
-    def test_record_position_state(self) -> None:
-        """record_position_state emits profit and volume gauges."""
+    @pytest.mark.parametrize(
+        ("method", "kwargs", "gauge_attr", "expected_set_count"),
+        [
+            pytest.param(
+                "record_position_state",
+                {
+                    "login": "42",
+                    "server": "demo",
+                    "symbol": "EURUSD",
+                    "profit": 12.5,
+                    "volume": 0.01,
+                },
+                "_position_profit",
+                2,
+                id="position-state",
+            ),
+            pytest.param(
+                "record_terminal_state",
+                {
+                    "connected": 1.0,
+                    "trade_allowed": 1.0,
+                    "trade_expert": 0.0,
+                },
+                "_terminal_connected",
+                3,
+                id="terminal-state",
+            ),
+            pytest.param(
+                "record_account_state",
+                {
+                    "login": "99",
+                    "server": "live",
+                    "balance": 5000.0,
+                    "equity": 5100.0,
+                    "margin": 200.0,
+                    "margin_free": 4800.0,
+                    "margin_level": 2550.0,
+                },
+                "_account_balance",
+                5,
+                id="account-state",
+            ),
+        ],
+    )
+    def test_record_state_emits_gauges(
+        self,
+        method: str,
+        kwargs: dict[str, float | str],
+        gauge_attr: str,
+        expected_set_count: int,
+    ) -> None:
+        """record_*_state emits the expected gauge set calls after configure."""
         meter = MagicMock()
         m = _Mt5Metrics()
         m.configure(meter)
-        m.record_position_state(
-            login="42",
-            server="demo",
-            symbol="EURUSD",
-            profit=12.5,
-            volume=0.01,
+        getattr(m, method)(**kwargs)
+        # Related gauges share the same create_gauge mock; verify total set calls.
+        assert (  # type: ignore[reportPrivateUsage]
+            getattr(m, gauge_attr).set.call_count == expected_set_count
         )
-        # Both profit and volume share the same gauge mock via create_gauge.
-        # Verify that set was called exactly twice (once each).
-        assert m._position_profit.set.call_count == 2  # type: ignore[reportPrivateUsage]
-
-    def test_record_terminal_state(self) -> None:
-        """record_terminal_state emits connected, trade_allowed, trade_expert gauges."""
-        meter = MagicMock()
-        m = _Mt5Metrics()
-        m.configure(meter)
-        m.record_terminal_state(connected=1.0, trade_allowed=1.0, trade_expert=0.0)
-        # All three terminal gauges share the same mock; set is called 3 times.
-        assert m._terminal_connected.set.call_count == 3  # type: ignore[reportPrivateUsage]
-
-    def test_record_account_state_after_configure(self) -> None:
-        """record_account_state emits all five account gauges."""
-        meter = MagicMock()
-        m = _Mt5Metrics()
-        m.configure(meter)
-        m.record_account_state(
-            login="99",
-            server="live",
-            balance=5000.0,
-            equity=5100.0,
-            margin=200.0,
-            margin_free=4800.0,
-            margin_level=2550.0,
-        )
-        # All five account gauges share the same gauge mock; set is called 5 times.
-        assert m._account_balance.set.call_count == 5  # type: ignore[reportPrivateUsage]
 
     @pytest.mark.parametrize(
         ("method", "kwargs"),
