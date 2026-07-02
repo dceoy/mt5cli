@@ -846,25 +846,73 @@ class TestIncrementalStart:
             assert "timeframe" in message
             assert "time" in message
 
+    @pytest.mark.parametrize(
+        (
+            "dataset",
+            "ddl",
+            "insert_sql",
+            "insert_args",
+            "symbols",
+            "timeframes",
+            "start_key",
+            "db_name",
+        ),
+        [
+            pytest.param(
+                Dataset.ticks,
+                "CREATE TABLE ticks(symbol TEXT, time TEXT)",
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                ("EURUSD", "not-a-datetime"),
+                ["EURUSD"],
+                None,
+                ("EURUSD", None),
+                "bad-max-time",
+                id="ticks-unparseable-max-time",
+            ),
+            pytest.param(
+                Dataset.rates,
+                (
+                    "CREATE TABLE rates("
+                    " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)"
+                ),
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
+                ("EURUSD", 1, "not-a-datetime", 1.0),
+                ["EURUSD"],
+                [1],
+                ("EURUSD", 1),
+                "bad-rates-max-time",
+                id="rates-unparseable-max-time",
+            ),
+        ],
+    )
     def test_load_incremental_start_skips_unparseable_max_time(
         self,
         tmp_path: Path,
+        dataset: Dataset,
+        ddl: str,
+        insert_sql: str,
+        insert_args: tuple[object, ...],
+        symbols: list[str],
+        timeframes: list[int] | None,
+        start_key: tuple[str, int | None],
+        db_name: str,
     ) -> None:
         """Test grouped resume ignores rows whose MAX(time) cannot be parsed."""
         fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "bad-max-time.db") as conn:
-            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
-            conn.execute(
-                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
-                ("EURUSD", "not-a-datetime"),
-            )
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.execute(insert_sql, insert_args)
             starts = load_incremental_start_datetimes(
                 conn,
-                Dataset.ticks,
-                symbols=["EURUSD"],
+                dataset,
+                symbols=symbols,
+                timeframes=timeframes,
                 fallback_start=fallback,
             )
-        assert starts["EURUSD", None] == fallback
+        assert starts[start_key] == fallback
 
     def test_load_incremental_start_uses_table_max_without_symbol_column(
         self,
@@ -887,30 +935,6 @@ class TestIncrementalStart:
         expected = datetime(2024, 1, 2, tzinfo=UTC)
         assert starts["EURUSD", None] == expected
         assert starts["GBPUSD", None] == expected
-
-    def test_load_incremental_start_skips_unparseable_rates_max_time(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test grouped rates resume ignores unparseable MAX(time) values."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "bad-rates-max-time.db") as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
-            )
-            conn.execute(
-                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
-                ("EURUSD", 1, "not-a-datetime", 1.0),
-            )
-            starts = load_incremental_start_datetimes(
-                conn,
-                Dataset.rates,
-                symbols=["EURUSD"],
-                timeframes=[1],
-                fallback_start=fallback,
-            )
-        assert starts["EURUSD", 1] == fallback
 
 
 class TestDeduplication:
@@ -939,13 +963,24 @@ class TestDeduplication:
             assert conn.execute("SELECT COUNT(*) FROM rates").fetchone() == (1,)
             assert conn.execute("SELECT open FROM rates").fetchone() == (9.9,)
 
-    def test_drop_duplicates_rejects_invalid_identifiers(self) -> None:
+    @pytest.mark.parametrize(
+        ("table", "columns", "match"),
+        [
+            ("bad table", ["id"], "Invalid table name"),
+            ("rates", ["bad column"], "Invalid column names"),
+        ],
+        ids=["invalid-table", "invalid-columns"],
+    )
+    def test_drop_duplicates_rejects_invalid_identifiers(
+        self,
+        table: str,
+        columns: list[str],
+        match: str,
+    ) -> None:
         """Test invalid table or column names raise ValueError."""
         cursor = sqlite3.connect(":memory:").cursor()
-        with pytest.raises(ValueError, match="Invalid table name"):
-            drop_duplicates_in_table(cursor, "bad table", ["id"])
-        with pytest.raises(ValueError, match="Invalid column names"):
-            drop_duplicates_in_table(cursor, "rates", ["bad column"])
+        with pytest.raises(ValueError, match=match):
+            drop_duplicates_in_table(cursor, table, columns)
 
     @pytest.mark.parametrize(
         ("dataset", "table_sql", "insert_sql", "rows", "columns"),

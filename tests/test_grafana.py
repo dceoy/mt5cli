@@ -335,29 +335,44 @@ class TestGrafanaViews:
         assert "time" in cols
         assert "run_id" in cols
 
-    def test_build_snapshot_view_skips_when_snapshot_runs_missing(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """_build_snapshot_view skips view when snapshot_runs has wrong columns."""
-        conn.execute("CREATE TABLE only_run (run_id INTEGER NOT NULL)")
-        conn.execute("CREATE TABLE snapshot_runs (foo TEXT)")
-        _build_snapshot_view(conn, "test_view", "only_run")
-        views = _get_names(conn, "view")
-        assert "test_view" not in views
-
-    def test_build_snapshot_view_skips_when_run_id_col_missing(
+    @pytest.mark.parametrize(
+        ("use_snapshot_tables", "table_ddl", "table_name", "log_fragment"),
+        [
+            pytest.param(
+                False,
+                "CREATE TABLE only_run (run_id INTEGER NOT NULL)",
+                "only_run",
+                "snapshot_runs missing required columns",
+                id="snapshot-runs-wrong-columns",
+            ),
+            pytest.param(
+                True,
+                "CREATE TABLE no_run_id (symbol TEXT)",
+                "no_run_id",
+                "missing run_id column",
+                id="table-missing-run-id",
+            ),
+        ],
+    )
+    def test_build_snapshot_view_skips_negative_cases(
         self,
         conn: sqlite3.Connection,
         caplog: pytest.LogCaptureFixture,
+        use_snapshot_tables: bool,
+        table_ddl: str,
+        table_name: str,
+        log_fragment: str,
     ) -> None:
-        """_build_snapshot_view skips view when the table lacks run_id."""
-        create_snapshot_tables(conn)
-        conn.execute("CREATE TABLE no_run_id (symbol TEXT)")
+        """_build_snapshot_view skips view creation for invalid table/run metadata."""
+        if use_snapshot_tables:
+            create_snapshot_tables(conn)
+        else:
+            conn.execute("CREATE TABLE snapshot_runs (foo TEXT)")
+        conn.execute(table_ddl)
         with caplog.at_level(logging.WARNING, logger="mt5cli.grafana"):
-            _build_snapshot_view(conn, "test_view", "no_run_id")
+            _build_snapshot_view(conn, "test_view", table_name)
         assert "test_view" not in _get_names(conn, "view")
-        assert "missing run_id column" in caplog.text
+        assert log_fragment in caplog.text
 
     @pytest.mark.parametrize(
         ("started_at", "status", "message", "keep_row"),
@@ -800,23 +815,40 @@ def _make_source_db(path: Path) -> None:
 class TestPublishGrafanaCopy:
     """Tests for publish_grafana_copy."""
 
-    def test_publish_to_fresh_target(self, tmp_path: Path) -> None:
-        """publish_grafana_copy creates the target file."""
+    @pytest.mark.parametrize(
+        ("target_rel", "stale_content", "required_tables"),
+        [
+            pytest.param(
+                Path("out") / "grafana.db",
+                None,
+                frozenset({"snapshot_runs", "account_snapshots"}),
+                id="fresh-target",
+            ),
+            pytest.param(
+                Path("grafana.db"),
+                b"stale",
+                frozenset({"snapshot_runs"}),
+                id="overwrite-stale-target",
+            ),
+        ],
+    )
+    def test_publish_creates_valid_sqlite_target(
+        self,
+        tmp_path: Path,
+        target_rel: Path,
+        stale_content: bytes | None,
+        required_tables: frozenset[str],
+    ) -> None:
+        """publish_grafana_copy creates or replaces a valid SQLite target."""
         source = tmp_path / "src.db"
-        target = tmp_path / "out" / "grafana.db"
+        target = tmp_path / target_rel
         _make_source_db(source)
+        if stale_content is not None:
+            target.write_bytes(stale_content)
         result = publish_grafana_copy(source, target)
         assert target.exists()
+        assert isinstance(result, Path)
         assert result == target.resolve()
-
-    def test_overwrite_existing_target(self, tmp_path: Path) -> None:
-        """publish_grafana_copy replaces an existing target without error."""
-        source = tmp_path / "src.db"
-        target = tmp_path / "grafana.db"
-        _make_source_db(source)
-        target.write_bytes(b"stale")
-        publish_grafana_copy(source, target)
-        # Target must now be a valid SQLite file from source
         with sqlite3.connect(target) as conn:
             tables = {
                 row[0]
@@ -824,22 +856,7 @@ class TestPublishGrafanaCopy:
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
-        assert "snapshot_runs" in tables
-
-    def test_target_contains_source_tables(self, tmp_path: Path) -> None:
-        """Published target contains the same tables as the source."""
-        source = tmp_path / "src.db"
-        target = tmp_path / "grafana.db"
-        _make_source_db(source)
-        publish_grafana_copy(source, target)
-        with sqlite3.connect(target) as conn:
-            tables = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-        assert {"snapshot_runs", "account_snapshots"}.issubset(tables)
+        assert required_tables <= tables
 
     def test_target_can_be_opened_readonly(self, tmp_path: Path) -> None:
         """Published target can be opened with uri=True in read-only mode."""
@@ -896,14 +913,6 @@ class TestPublishGrafanaCopy:
                 publish_grafana_copy(source, target)
         tmp_files = list(tmp_path.glob("grafana.db.*.tmp"))
         assert not tmp_files, "Temp file should be cleaned up on failure"
-
-    def test_returns_path_object(self, tmp_path: Path) -> None:
-        """publish_grafana_copy returns a Path instance."""
-        source = tmp_path / "src.db"
-        target = tmp_path / "grafana.db"
-        _make_source_db(source)
-        result = publish_grafana_copy(source, target)
-        assert isinstance(result, Path)
 
     def test_fresh_target_has_readable_permissions(self, tmp_path: Path) -> None:
         """Published copy is readable by the owner."""

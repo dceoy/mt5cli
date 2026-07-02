@@ -1374,50 +1374,42 @@ class TestCollectHistory:
         assert order_symbols == [("EURUSD",)]
         assert deal_symbols == [("EURUSD",)]
 
-    def test_collect_history_requires_sqlite_format(
+    @pytest.mark.parametrize(
+        ("output_name", "extra_args", "expected_fragment"),
+        [
+            pytest.param(
+                "history.csv",
+                ["--symbol", "EURUSD"],
+                "requires SQLite3",
+                id="non-sqlite-format",
+            ),
+            pytest.param("history.db", [], None, id="missing-symbol"),
+        ],
+    )
+    def test_collect_history_validation_failures(
         self,
         tmp_path: Path,
         history_client: MagicMock,  # noqa: ARG002
+        output_name: str,
+        extra_args: list[str],
+        expected_fragment: str | None,
     ) -> None:
-        """Test that non-SQLite output is rejected."""
-        output = tmp_path / "history.csv"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "collect-history",
-                "--symbol",
-                "EURUSD",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-            ],
-        )
+        """Test collect-history rejects invalid output format and missing symbols."""
+        output = tmp_path / output_name
+        args = [
+            "-o",
+            str(output),
+            "collect-history",
+            "--date-from",
+            "2024-01-01",
+            "--date-to",
+            "2024-02-01",
+            *extra_args,
+        ]
+        result = runner.invoke(app, args)
         assert result.exit_code != 0
-        assert "requires SQLite3" in normalize_cli_output(result.output)
-
-    def test_collect_history_requires_symbol(
-        self,
-        tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
-    ) -> None:
-        """Test that at least one --symbol is required."""
-        output = tmp_path / "history.db"
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "collect-history",
-                "--date-from",
-                "2024-01-01",
-                "--date-to",
-                "2024-02-01",
-            ],
-        )
-        assert result.exit_code != 0
+        if expected_fragment is not None:
+            assert expected_fragment in normalize_cli_output(result.output)
 
     def test_collect_history_views_skipped_when_columns_missing(
         self,
