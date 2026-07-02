@@ -36,7 +36,7 @@ runner = CliRunner()
 
 def _get_names(conn: sqlite3.Connection, type_: str) -> set[str]:
     return {
-        row[0]
+        str(row[0])
         for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type=?",
             (type_,),
@@ -63,14 +63,18 @@ def _make_symbol_pnl_full_deals(conn: sqlite3.Connection) -> None:
 
 def _select_account_snapshot(conn: sqlite3.Connection) -> tuple[object, ...]:
     """Return the stable account snapshot assertion tuple."""
-    return conn.execute(
+    row = conn.execute(
         "SELECT login, currency, balance FROM account_snapshots"
     ).fetchone()
+    assert row is not None
+    return tuple(row)
 
 
 def _select_terminal_snapshot(conn: sqlite3.Connection) -> tuple[object, ...]:
     """Return the stable terminal snapshot assertion tuple."""
-    return conn.execute("SELECT name, connected FROM terminal_snapshots").fetchone()
+    row = conn.execute("SELECT name, connected FROM terminal_snapshots").fetchone()
+    assert row is not None
+    return tuple(row)
 
 
 @pytest.mark.parametrize(
@@ -213,7 +217,10 @@ def test_grafana_symbol_pnl_optional_columns(
         setup_deals(conn)
         create_grafana_views(conn)
         assert "grafana_symbol_pnl" in _get_names(conn, "view")
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(grafana_symbol_pnl)")}
+        cols = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(grafana_symbol_pnl)")
+        }
     assert expected_present_cols <= cols
 
 
