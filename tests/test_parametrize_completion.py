@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 from pytest_mock import MockerFixture  # noqa: TC002
 from typer.testing import CliRunner
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
 
 from mt5cli.cli import app
 from mt5cli.grafana import (
@@ -79,7 +82,7 @@ def test_publish_copy_option_gates_grafana_copy(
     use_publish_copy: bool,
     expect_called: bool,
 ) -> None:
-    """--publish-copy gates publish_grafana_copy for copy-capable commands."""
+    """Test --publish-copy gates publish_grafana_copy for copy-capable commands."""
     if patch_update_observability:
         mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
     mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
@@ -109,7 +112,7 @@ def test_collect_latest_closed_rates_rejects_empty_effective_frames(
     rates_frame: pd.DataFrame,
     kwargs: dict[str, object],
 ) -> None:
-    """Empty effective frames raise ValueError after start_pos/forming-bar handling."""
+    """Test empty effective frames raise after start_pos/forming-bar handling."""
     mocker.patch(
         "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
         return_value={("EURUSD", 1): rates_frame},
@@ -124,21 +127,22 @@ def test_collect_latest_closed_rates_rejects_empty_effective_frames(
 
 
 @pytest.mark.parametrize(
-    ("path_factory", "match"),
+    ("path_kind", "match"),
     [
-        (lambda tmp_path: tmp_path / "missing.db", "SQLite database not found"),
-        (lambda tmp_path: tmp_path, "not a file"),
+        ("missing-file", "SQLite database not found"),
+        ("directory", "not a file"),
     ],
     ids=["missing-file", "directory"],
 )
 def test_load_rate_data_rejects_invalid_database_paths(
     tmp_path: Path,
-    path_factory: Callable[[Path], Path],
+    path_kind: str,
     match: str,
 ) -> None:
-    """load_rate_data validates missing and non-file SQLite paths consistently."""
+    """Test load_rate_data validates missing and non-file SQLite paths."""
+    db_path = tmp_path if path_kind == "directory" else tmp_path / "missing.db"
     with pytest.raises(ValueError, match=match):
-        load_rate_data(path_factory(tmp_path), "rates")
+        load_rate_data(db_path, "rates")
 
 
 @pytest.mark.parametrize(
@@ -147,7 +151,7 @@ def test_load_rate_data_rejects_invalid_database_paths(
     ids=["all", "numeric"],
 )
 def test_resolve_history_tick_flags(flags: str | int, expected: int) -> None:
-    """resolve_history_tick_flags accepts named and numeric tick flags."""
+    """Test resolve_history_tick_flags accepts named and numeric tick flags."""
     assert resolve_history_tick_flags(flags) == expected
 
 
@@ -157,7 +161,7 @@ def test_resolve_history_tick_flags(flags: str | int, expected: int) -> None:
     ids=["unknown-integer", "known-m1"],
 )
 def test_resolve_granularity_name(timeframe: int, expected: str) -> None:
-    """resolve_granularity_name handles known aliases and unknown integer fallback."""
+    """Test resolve_granularity_name handles known names and integer fallback."""
     assert resolve_granularity_name(timeframe) == expected
 
 
@@ -173,7 +177,7 @@ def test_calculate_spread_ratio(
     tick: dict[str, object],
     expected: float,
 ) -> None:
-    """calculate_spread_ratio accepts numeric and numeric-string bid/ask values."""
+    """Test calculate_spread_ratio accepts numeric and numeric-string ticks."""
     client = MagicMock()
     client.symbol_info_tick_as_dict.return_value = tick
 
@@ -183,7 +187,7 @@ def test_calculate_spread_ratio(
 @pytest.mark.parametrize(
     ("setup_deals", "expected_present_cols"),
     [
-        (_make_symbol_pnl_required_deals, set[str]()),
+        (_make_symbol_pnl_required_deals, set()),
         (_make_symbol_pnl_full_deals, {"volume", "price"}),
     ],
     ids=["required-only", "with-volume-price"],
@@ -192,7 +196,7 @@ def test_grafana_symbol_pnl_optional_columns(
     setup_deals: Callable[[sqlite3.Connection], None],
     expected_present_cols: set[str],
 ) -> None:
-    """grafana_symbol_pnl is created and exposes optional columns when present."""
+    """Test grafana_symbol_pnl exposes optional columns when present."""
     with sqlite3.connect(":memory:") as conn:
         setup_deals(conn)
         create_grafana_views(conn)
@@ -246,10 +250,10 @@ def test_insert_single_snapshot(
     select_sql: str,
     expected: tuple[object, ...],
 ) -> None:
-    """insert_account_snapshot and insert_terminal_snapshot append one row."""
+    """Test account and terminal snapshot helpers append one row."""
     with sqlite3.connect(":memory:") as conn:
         create_snapshot_tables(conn)
         run_id = start_snapshot_run(conn, 1700000000)
         insert_func(conn, run_id, row)
-        result = conn.execute(select_sql).fetchone()
+        result = conn.execute(select_sql).fetchone()  # noqa: S608
     assert result == expected
