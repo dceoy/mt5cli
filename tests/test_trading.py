@@ -728,17 +728,18 @@ class TestSnapshotsAndState:
         assert "ticket" in result.columns
         assert "comment" in result.columns
 
-    def test_calculate_spread_ratio(self) -> None:
-        """Test spread ratio uses mid-price denominator."""
+    @pytest.mark.parametrize(
+        "tick",
+        [
+            {"bid": 99.0, "ask": 101.0},
+            {"bid": "99.0", "ask": "101.0"},
+        ],
+        ids=["numeric", "numeric-string"],
+    )
+    def test_calculate_spread_ratio(self, tick: dict[str, object]) -> None:
+        """Test spread ratio uses mid-price denominator for numeric ticks."""
         client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"bid": 99.0, "ask": 101.0}
-
-        _assert_close(calculate_spread_ratio(client, "EURUSD"), 0.02)
-
-    def test_calculate_spread_ratio_accepts_numeric_string_tick(self) -> None:
-        """Test numeric string bid/ask values are accepted."""
-        client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"bid": "99.0", "ask": "101.0"}
+        client.symbol_info_tick_as_dict.return_value = tick
 
         _assert_close(calculate_spread_ratio(client, "EURUSD"), 0.02)
 
@@ -794,6 +795,7 @@ class TestNormalizeOrderVolume:
             (1.0, 0.1, 1.0, 0.0, 0.0),
             (2.5, 0.1, 0.0, 0.1, 2.5),
             (0.5, 0.1, 0.34, 0.12, 0.34),
+            (2.5, 0.1, float("nan"), 0.1, 2.5),
         ],
         ids=[
             "exact-minimum",
@@ -804,6 +806,7 @@ class TestNormalizeOrderVolume:
             "invalid-volume-step",
             "non-positive-max-no-cap",
             "max-reapplied-after-step",
+            "non-finite-max-no-cap",
         ],
     )
     def test_normalize_order_volume_deterministic(
@@ -851,18 +854,6 @@ class TestNormalizeOrderVolume:
             0.0,
         )
 
-    def test_treats_non_finite_volume_max_as_no_cap(self) -> None:
-        """Test non-finite volume_max disables the maximum cap."""
-        _assert_close(
-            normalize_order_volume(
-                2.5,
-                volume_min=0.1,
-                volume_max=float("nan"),
-                volume_step=0.1,
-            ),
-            2.5,
-        )
-
 
 class TestEstimateOrderMargin:
     """Tests for estimate_order_margin."""
@@ -906,16 +897,13 @@ class TestEstimateOrderMargin:
         with pytest.raises(ValueError, match="Unsupported order side"):
             estimate_order_margin(client, "EURUSD", "HOLD", 0.1)
 
-    def test_rejects_non_positive_volume(self) -> None:
-        """Test non-positive volume raises Mt5TradingError."""
-        client = _mock_trade_client()
-
-        with pytest.raises(Mt5OperationError, match="positive finite number"):
-            estimate_order_margin(client, "EURUSD", "BUY", 0.0)
-
-    @pytest.mark.parametrize("volume", [float("nan"), float("inf")], ids=["nan", "inf"])
-    def test_rejects_non_finite_volume(self, volume: float) -> None:
-        """Test NaN or infinite volume raises Mt5TradingError without broker calls."""
+    @pytest.mark.parametrize(
+        "volume",
+        [0.0, float("nan"), float("inf")],
+        ids=["zero", "nan", "inf"],
+    )
+    def test_rejects_invalid_volume(self, volume: float) -> None:
+        """Test non-positive or non-finite volume raises Mt5TradingError."""
         client = _mock_trade_client()
 
         with pytest.raises(Mt5OperationError, match="positive finite number"):
@@ -1053,35 +1041,30 @@ class TestCalculatePositionsMargin:
         with pytest.raises(Mt5OperationError, match="Tick price is unavailable"):
             calculate_positions_margin(client)
 
-    def test_skips_rows_with_invalid_symbol_volume_or_type(self) -> None:
-        """Test malformed position rows are ignored when summing margin."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
+    @pytest.mark.parametrize(
+        "positions_records",
+        [
             [
                 {"symbol": "", "type": 0, "volume": 0.1},
                 {"symbol": "EURUSD", "type": 0, "volume": 0.0},
                 {"symbol": "EURUSD", "type": 2, "volume": 0.1},
                 {"symbol": "EURUSD", "type": 0, "volume": 0.1},
             ],
-        )
-        client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
-        client.order_calc_margin.return_value = 12.5
-
-        margin = calculate_positions_margin(client)
-
-        _assert_close(margin, 12.5)
-        client.order_calc_margin.assert_called_once()
-
-    def test_skips_rows_with_non_finite_volume(self) -> None:
-        """Test NaN and infinite position volumes are ignored."""
-        client = _mock_trade_client()
-        client.positions_get_as_df.return_value = pd.DataFrame(
             [
                 {"symbol": "EURUSD", "type": 0, "volume": float("nan")},
                 {"symbol": "EURUSD", "type": 0, "volume": float("inf")},
                 {"symbol": "EURUSD", "type": 0, "volume": 0.1},
             ],
-        )
+        ],
+        ids=["invalid-symbol-volume-type", "non-finite-volume"],
+    )
+    def test_skips_invalid_rows_and_sums_remaining_valid_row(
+        self,
+        positions_records: list[dict[str, object]],
+    ) -> None:
+        """Test malformed or non-finite position rows are ignored when summing."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(positions_records)
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.1010, "bid": 1.1000}
         client.order_calc_margin.return_value = 12.5
 

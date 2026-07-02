@@ -614,15 +614,31 @@ class TestResolveHistorySettings:
         """Test duplicate aliases for the same timeframe are deduplicated."""
         assert resolve_history_timeframes(["M1", "1", "H1"]) == [1, TIMEFRAME_MAP["H1"]]
 
-    def test_resolve_history_tick_flags(self) -> None:
-        """Test tick flag resolution."""
-        assert resolve_history_tick_flags("ALL") == -1
-        assert resolve_history_tick_flags(2) == 2
+    @pytest.mark.parametrize(
+        ("flags", "expected"),
+        [("ALL", -1), (2, 2)],
+        ids=["named-all", "numeric"],
+    )
+    def test_resolve_history_tick_flags(
+        self,
+        flags: str | int,
+        expected: int,
+    ) -> None:
+        """Test tick flag resolution accepts named and numeric flags."""
+        assert resolve_history_tick_flags(flags) == expected
 
-    def test_resolve_granularity_name_falls_back_to_integer(self) -> None:
+    @pytest.mark.parametrize(
+        ("timeframe", "expected"),
+        [(999, "999"), (1, "M1")],
+        ids=["unknown-integer-fallback", "known-m1"],
+    )
+    def test_resolve_granularity_name_falls_back_to_integer(
+        self,
+        timeframe: int,
+        expected: str,
+    ) -> None:
         """Test unknown timeframe constants fall back to integer text."""
-        assert resolve_granularity_name(999) == "999"
-        assert resolve_granularity_name(1) == "M1"
+        assert resolve_granularity_name(timeframe) == expected
 
     def test_resolve_granularity_name_strips_official_prefix(
         self,

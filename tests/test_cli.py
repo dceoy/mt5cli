@@ -1663,58 +1663,41 @@ class TestSnapshotCommand:
         assert result.exit_code == 0, result.output
         assert updater.call_args.kwargs[kwarg] is False
 
-    @pytest.mark.parametrize(
-        ("use_publish_copy", "expect_called"),
-        [(True, True), (False, False)],
-        ids=["with-publish-copy", "no-publish-copy"],
-    )
-    def test_snapshot_publish_copy(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-        use_publish_copy: bool,
-        expect_called: bool,
-    ) -> None:
-        """--publish-copy gates publish_grafana_copy after update_observability."""
+
+@pytest.mark.parametrize(
+    ("command", "patch_update_observability"),
+    [
+        ("snapshot", True),
+        ("grafana-schema", False),
+    ],
+    ids=["snapshot", "grafana-schema"],
+)
+@pytest.mark.parametrize(
+    ("use_publish_copy", "expect_called"),
+    [(True, True), (False, False)],
+    ids=["with-publish-copy", "no-publish-copy"],
+)
+def test_publish_copy_option_gates_grafana_copy(
+    tmp_path: Path,
+    mocker: MockerFixture,
+    command: str,
+    patch_update_observability: bool,
+    use_publish_copy: bool,
+    expect_called: bool,
+) -> None:
+    """--publish-copy gates publish_grafana_copy for copy-capable commands."""
+    if patch_update_observability:
         mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
-        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
-        args = ["-o", str(tmp_path / "out.db"), "snapshot"]
-        if use_publish_copy:
-            args += ["--publish-copy", str(tmp_path / "grafana.db")]
-        result = runner.invoke(app, args)
-        assert result.exit_code == 0, result.output
-        if expect_called:
-            mock_publish.assert_called_once()
-        else:
-            mock_publish.assert_not_called()
-
-
-class TestGrafanaSchemaPublishCopy:
-    """Tests for grafana-schema --publish-copy option."""
-
-    @pytest.mark.parametrize(
-        ("use_publish_copy", "expect_called"),
-        [(True, True), (False, False)],
-        ids=["with-publish-copy", "no-publish-copy"],
-    )
-    def test_grafana_schema_publish_copy(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-        use_publish_copy: bool,
-        expect_called: bool,
-    ) -> None:
-        """--publish-copy gates publish_grafana_copy for grafana-schema."""
-        mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
-        args = ["-o", str(tmp_path / "out.db"), "grafana-schema"]
-        if use_publish_copy:
-            args += ["--publish-copy", str(tmp_path / "grafana.db")]
-        result = runner.invoke(app, args)
-        assert result.exit_code == 0, result.output
-        if expect_called:
-            mock_publish.assert_called_once()
-        else:
-            mock_publish.assert_not_called()
+    mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
+    args = ["-o", str(tmp_path / "out.db"), command]
+    if use_publish_copy:
+        args += ["--publish-copy", str(tmp_path / "grafana.db")]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    if expect_called:
+        mock_publish.assert_called_once()
+    else:
+        mock_publish.assert_not_called()
 
 
 class TestMain:

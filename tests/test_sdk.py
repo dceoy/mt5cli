@@ -1622,18 +1622,31 @@ class TestCollectLatestClosedRatesForAccounts:
             pd.DataFrame({"time": [1, 2], "close": [1.1, 1.2]}),
         )
 
-    def test_rejects_forming_bar_only_frames(self, mocker: MockerFixture) -> None:
-        """Test empty results after dropping the forming bar raise ValueError."""
+    @pytest.mark.parametrize(
+        ("rates_frame", "kwargs"),
+        [
+            (pd.DataFrame({"time": [1], "close": [1.1]}), {"count": 1}),
+            (pd.DataFrame(columns=["time", "close"]), {"count": 1, "start_pos": 1}),
+        ],
+        ids=["forming-bar-only", "empty-start-pos-nonzero"],
+    )
+    def test_rejects_empty_effective_frames(
+        self,
+        mocker: MockerFixture,
+        rates_frame: pd.DataFrame,
+        kwargs: dict[str, object],
+    ) -> None:
+        """Test empty effective frames raise after start_pos/forming-bar handling."""
         mocker.patch(
             "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
-            return_value={("EURUSD", 1): pd.DataFrame({"time": [1], "close": [1.1]})},
+            return_value={("EURUSD", 1): rates_frame},
         )
 
         with pytest.raises(ValueError, match="Rate data is empty"):
             collect_latest_closed_rates_for_accounts(
                 [AccountSpec(symbols=["EURUSD"])],
                 ["M1"],
-                count=1,
+                **kwargs,  # type: ignore[arg-type]
             )
 
     def test_skips_extra_fetch_when_start_pos_nonzero(
@@ -1692,24 +1705,6 @@ class TestCollectLatestClosedRatesForAccounts:
             )
 
         wrapped.assert_not_called()
-
-    def test_rejects_empty_frames_with_start_pos_nonzero(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test empty upstream frames raise ValueError when start_pos > 0."""
-        mocker.patch(
-            "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
-            return_value={("EURUSD", 1): pd.DataFrame(columns=["time", "close"])},
-        )
-
-        with pytest.raises(ValueError, match="Rate data is empty"):
-            collect_latest_closed_rates_for_accounts(
-                [AccountSpec(symbols=["EURUSD"])],
-                ["M1"],
-                count=1,
-                start_pos=1,
-            )
 
     def test_processes_multiple_symbol_timeframe_pairs(
         self,

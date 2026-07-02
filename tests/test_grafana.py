@@ -595,25 +595,56 @@ class TestSnapshotInserts:
         """Create snapshot tables before each insert test."""
         create_snapshot_tables(conn)
 
-    def test_insert_account_snapshot(self, conn: sqlite3.Connection) -> None:
-        """insert_account_snapshot appends a row with correct values."""
+    @pytest.mark.parametrize(
+        ("insert_func", "row", "select_sql", "expected"),
+        [
+            (
+                insert_account_snapshot,
+                {
+                    "login": 12345,
+                    "currency": "USD",
+                    "balance": 10000.0,
+                    "equity": 9800.0,
+                    "margin": 200.0,
+                    "margin_free": 9800.0,
+                    "margin_level": 4900.0,
+                    "profit": -200.0,
+                    "leverage": 100,
+                },
+                "SELECT login, currency, balance FROM account_snapshots",
+                (12345, "USD", 10000.0),
+            ),
+            (
+                insert_terminal_snapshot,
+                {
+                    "name": "MetaTrader 5",
+                    "connected": 1,
+                    "community_account": 0,
+                    "trade_allowed": 1,
+                    "trade_expert": 1,
+                    "path": "/mt5",
+                    "company": "Broker",
+                    "language": "en",
+                },
+                "SELECT name, connected FROM terminal_snapshots",
+                ("MetaTrader 5", 1),
+            ),
+        ],
+        ids=["account", "terminal"],
+    )
+    def test_insert_single_snapshot(
+        self,
+        conn: sqlite3.Connection,
+        insert_func: Callable[[sqlite3.Connection, int, dict[str, object]], None],
+        row: dict[str, object],
+        select_sql: str,
+        expected: tuple[object, ...],
+    ) -> None:
+        """insert_account_snapshot and insert_terminal_snapshot append one row."""
         run_id = start_snapshot_run(conn, 1700000000)
-        row: dict[str, object] = {
-            "login": 12345,
-            "currency": "USD",
-            "balance": 10000.0,
-            "equity": 9800.0,
-            "margin": 200.0,
-            "margin_free": 9800.0,
-            "margin_level": 4900.0,
-            "profit": -200.0,
-            "leverage": 100,
-        }
-        insert_account_snapshot(conn, run_id, row)
-        result = conn.execute(
-            "SELECT login, currency, balance FROM account_snapshots"
-        ).fetchone()
-        assert result == (12345, "USD", 10000.0)
+        insert_func(conn, run_id, row)
+        result = conn.execute(select_sql).fetchone()
+        assert result == expected
 
     def test_insert_account_snapshot_partial_row(
         self,
@@ -712,25 +743,6 @@ class TestSnapshotInserts:
         insert_order_snapshots(conn, run_id, 12345, rows)
         stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
         assert stored == expected_stored
-
-    def test_insert_terminal_snapshot(self, conn: sqlite3.Connection) -> None:
-        """insert_terminal_snapshot appends a terminal info row."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        row: dict[str, object] = {
-            "name": "MetaTrader 5",
-            "connected": 1,
-            "community_account": 0,
-            "trade_allowed": 1,
-            "trade_expert": 1,
-            "path": "/mt5",
-            "company": "Broker",
-            "language": "en",
-        }
-        insert_terminal_snapshot(conn, run_id, row)
-        result = conn.execute(
-            "SELECT name, connected FROM terminal_snapshots"
-        ).fetchone()
-        assert result == ("MetaTrader 5", 1)
 
     def test_start_snapshot_run_returns_incrementing_ids(
         self,
