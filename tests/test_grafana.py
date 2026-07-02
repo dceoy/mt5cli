@@ -359,48 +359,50 @@ class TestGrafanaViews:
         assert "test_view" not in _get_names(conn, "view")
         assert "missing run_id column" in caplog.text
 
-    def test_snapshot_view_excludes_failed_run_rows(
+    @pytest.mark.parametrize(
+        ("started_at", "status", "message", "keep_row"),
+        [
+            pytest.param(
+                1000,
+                "error",
+                "terminal offline",
+                False,
+                id="excludes-failed-run-rows",
+            ),
+            pytest.param(2000, "ok", None, True, id="includes-ok-run-rows"),
+        ],
+    )
+    def test_snapshot_view_filters_rows_by_run_status(
         self,
         conn: sqlite3.Connection,
+        started_at: int,
+        status: str,
+        message: str | None,
+        keep_row: bool,
     ) -> None:
-        """Snapshot views hide rows from failed runs."""
+        """Snapshot views expose rows only from successful runs."""
         create_snapshot_tables(conn)
-        run_id = start_snapshot_run(conn, 1000)
+        run_id = start_snapshot_run(conn, started_at)
         conn.execute(
             "INSERT INTO account_snapshots"
             " (run_id, login, balance, equity, margin, margin_free, profit)"
             " VALUES (?, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
             (run_id,),
         )
-        record_snapshot_run(conn, run_id, "error", "terminal offline")
-        create_grafana_views(conn)
-        rows = conn.execute("SELECT * FROM grafana_account_snapshots").fetchall()
-        assert rows == []
-
-    def test_snapshot_view_includes_ok_run_rows(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """Snapshot views show rows from successful runs and expose run_id."""
-        create_snapshot_tables(conn)
-        run_id = start_snapshot_run(conn, 2000)
-        conn.execute(
-            "INSERT INTO account_snapshots"
-            " (run_id, login, balance, equity, margin, margin_free, profit)"
-            " VALUES (?, 12345, 10000.0, 9800.0, 200.0, 9600.0, -200.0)",
-            (run_id,),
-        )
-        record_snapshot_run(conn, run_id, "ok")
+        record_snapshot_run(conn, run_id, status, message)
         create_grafana_views(conn)
         rows = conn.execute(
             "SELECT time, run_id, login FROM grafana_account_snapshots"
         ).fetchall()
-        assert rows == [(2000, run_id, 12345)]
-        cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(grafana_account_snapshots)")
-        }
-        assert "run_id" in cols
+        if keep_row:
+            assert rows == [(started_at, run_id, 12345)]
+            cols = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(grafana_account_snapshots)")
+            }
+            assert "run_id" in cols
+        else:
+            assert rows == []
 
     def test_snapshot_view_same_second_ok_and_error_no_cross_contamination(
         self,

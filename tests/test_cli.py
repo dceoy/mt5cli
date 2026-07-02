@@ -670,36 +670,35 @@ class TestClosePositions:
         assert trading_client.order_send.called == order_send_called
         trading_client.shutdown.assert_called_once()
 
-    def test_live_requires_yes(
+    @pytest.mark.parametrize(
+        ("extra_args", "yes_included"),
+        [
+            pytest.param([], False, id="live-requires-yes"),
+            pytest.param(["--yes"], True, id="live-with-yes-calls-order-send"),
+        ],
+    )
+    def test_close_positions_yes_gate(
         self,
         tmp_path: Path,
         trading_client: MagicMock,
+        extra_args: list[str],
+        yes_included: bool,
     ) -> None:
-        """Test live close-positions fails without --yes."""
-        output = tmp_path / "close.json"
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "close-positions", "--symbol", "JP225"],
-        )
-        assert result.exit_code != 0
-        assert "Pass --yes" in normalize_cli_output(result.output)
-        trading_client.order_send.assert_not_called()
-
-    def test_live_with_yes_calls_order_send(
-        self,
-        tmp_path: Path,
-        trading_client: MagicMock,
-    ) -> None:
-        """Test --yes triggers live execution for matching positions."""
+        """Test --yes gates live close-positions execution."""
         trading_client.order_send.return_value = {"retcode": 10009, "comment": "ok"}
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
-            ["-o", str(output), "close-positions", "--symbol", "JP225", "--yes"],
+            ["-o", str(output), "close-positions", "--symbol", "JP225", *extra_args],
         )
-        assert result.exit_code == 0, result.output
-        trading_client.order_send.assert_called_once()
-        trading_client.shutdown.assert_called_once()
+        if yes_included:
+            assert result.exit_code == 0, result.output
+            trading_client.order_send.assert_called_once()
+            trading_client.shutdown.assert_called_once()
+        else:
+            assert result.exit_code != 0
+            assert "Pass --yes" in normalize_cli_output(result.output)
+            trading_client.order_send.assert_not_called()
 
     @pytest.mark.parametrize(
         ("extra_args", "expected_symbols"),
@@ -1594,48 +1593,38 @@ class TestNonSqliteRejection:
 class TestSnapshotCommand:
     """Tests for the snapshot CLI command."""
 
+    @pytest.mark.parametrize(
+        ("extra_args", "expected_symbols"),
+        [
+            pytest.param([], None, id="no-symbol-filter"),
+            pytest.param(
+                ["--symbol", "EURUSD", "--symbol", "GBPUSD"],
+                ["EURUSD", "GBPUSD"],
+                id="with-symbol-filter",
+            ),
+        ],
+    )
     def test_snapshot_delegates_to_update_observability_with_config(
         self,
         tmp_path: Path,
         mocker: MockerFixture,
+        extra_args: list[str],
+        expected_symbols: list[str] | None,
     ) -> None:
-        """Snapshot calls sdk.update_observability_with_config."""
+        """Snapshot calls sdk.update_observability_with_config with forwarded kwargs."""
         updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
         output = tmp_path / "out.db"
-        result = runner.invoke(app, ["-o", str(output), "snapshot"])
+        result = runner.invoke(app, ["-o", str(output), "snapshot", *extra_args])
         assert result.exit_code == 0, result.output
         updater.assert_called_once()
         kwargs = updater.call_args.kwargs
         assert kwargs["output"] == output
-        assert kwargs["symbols"] is None
+        assert kwargs["symbols"] == expected_symbols
         assert kwargs["include_account"] is True
         assert kwargs["include_positions"] is True
         assert kwargs["include_orders"] is True
         assert kwargs["include_terminal"] is True
         assert kwargs["with_grafana_schema"] is False
-
-    def test_snapshot_with_symbol_filter(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """Snapshot passes symbol list to update_observability_with_config."""
-        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(tmp_path / "out.db"),
-                "snapshot",
-                "--symbol",
-                "EURUSD",
-                "--symbol",
-                "GBPUSD",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        kwargs = updater.call_args.kwargs
-        assert kwargs["symbols"] == ["EURUSD", "GBPUSD"]
 
     @pytest.mark.parametrize(
         ("flag", "kwarg"),

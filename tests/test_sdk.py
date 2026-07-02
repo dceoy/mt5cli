@@ -172,6 +172,10 @@ def _build_history_client(mocker: MockerFixture) -> MagicMock:
     return client
 
 
+def _mt5_cli_client_with_injected_client(connected: MagicMock) -> Mt5CliClient:
+    return Mt5CliClient(client=connected)
+
+
 class TestConnectionLifecycle:
     """Tests for MT5 connection lifecycle helpers."""
 
@@ -255,12 +259,34 @@ class TestConnectionLifecycle:
         client = Mt5CliClient()
         client.__exit__(None, None, None)
 
-    def test_injected_client_is_reused_and_not_shutdown(self) -> None:
-        """Test injected connected clients are not initialized or shut down."""
+    @pytest.mark.parametrize(
+        "make_client",
+        [
+            pytest.param(
+                Mt5CliClient.from_connected_client,
+                id="from-connected-client-classmethod",
+            ),
+            pytest.param(
+                _mt5_cli_client_with_injected_client,
+                id="constructor-client-kwarg",
+            ),
+        ],
+    )
+    def test_injected_client_is_reused_and_not_shutdown(
+        self,
+        make_client: Callable[[MagicMock], Mt5CliClient],
+    ) -> None:
+        """Test injected connected clients are not initialized or shut down.
+
+        Both the from_connected_client classmethod and the constructor's
+        client kwarg must produce the same non-owning lifecycle: no login or
+        shutdown of the injected client, and continued usability after the
+        context manager exits.
+        """
         connected = MagicMock()
         connected.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
         connected.terminal_info_as_df.return_value = pd.DataFrame({"b": [2]})
-        with Mt5CliClient.from_connected_client(connected) as client:
+        with make_client(connected) as client:
             result = client.account_info()
         assert result.to_dict("list") == {"a": [1]}
         connected.initialize_and_login_mt5.assert_not_called()
@@ -269,17 +295,6 @@ class TestConnectionLifecycle:
         after_exit = client.terminal_info()
         assert after_exit.to_dict("list") == {"b": [2]}
         connected.terminal_info_as_df.assert_called_once()
-
-    def test_constructor_injected_client_is_reused_and_not_shutdown(self) -> None:
-        """Test constructor injection has the same non-owning lifecycle."""
-        connected = MagicMock()
-        connected.terminal_info_as_df.return_value = pd.DataFrame({"b": [2]})
-        client = Mt5CliClient(client=connected)
-        with client:
-            result = client.terminal_info()
-        assert result.to_dict("list") == {"b": [2]}
-        connected.initialize_and_login_mt5.assert_not_called()
-        connected.shutdown.assert_not_called()
 
 
 class TestModuleFunctions:

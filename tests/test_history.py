@@ -1408,48 +1408,55 @@ class TestIncrementalHistoryDealsHelpers:
         )
         assert filtered["ticket"].tolist() == [2, 3, 5]
 
-    def test_filter_incremental_excludes_symbolized_account_events_from_trade_cursor(
+    @pytest.mark.parametrize(
+        ("frame", "start_by_symbol", "account_event_start", "expected_tickets"),
+        [
+            pytest.param(
+                pd.DataFrame({
+                    "ticket": [1],
+                    "symbol": ["EURUSD"],
+                    "time": [datetime(2024, 1, 5, tzinfo=UTC).isoformat()],
+                    "type": [2],
+                }),
+                {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
+                datetime(2024, 1, 10, tzinfo=UTC),
+                [],
+                id="excludes-symbolized-account-events-from-trade-cursor",
+            ),
+            pytest.param(
+                pd.DataFrame({
+                    "ticket": [1],
+                    "time": ["2024-01-03T00:00:00+00:00"],
+                    "type": [2],
+                }),
+                {"EURUSD": datetime(2024, 1, 10, tzinfo=UTC)},
+                datetime(2024, 1, 2, tzinfo=UTC),
+                [1],
+                id="keeps-account-events-without-symbol-column",
+            ),
+        ],
+    )
+    def test_filter_incremental_account_event_edge_cases(
         self,
+        frame: pd.DataFrame,
+        start_by_symbol: dict[str, datetime],
+        account_event_start: datetime,
+        expected_tickets: list[int],
     ) -> None:
-        """Test symbolized account events follow only account_event_start.
+        """Test account-event rows are scoped by symbol column presence.
 
-        An account-event row with a matching symbol must not be kept by the
-        EURUSD trade cursor when its time is after the trade start but before
+        A symbolized account-event row follows only the EURUSD trade cursor
+        and is excluded when its time falls before account_event_start; when
+        history_deals has no symbol column, account events are kept using
         account_event_start.
         """
-        trade_cursor = datetime(2024, 1, 1, tzinfo=UTC)
-        account_event_start = datetime(2024, 1, 10, tzinfo=UTC)
-        row_time = datetime(2024, 1, 5, tzinfo=UTC)
-        frame = pd.DataFrame({
-            "ticket": [1],
-            "symbol": ["EURUSD"],
-            "time": [row_time.isoformat()],
-            "type": [2],
-        })
         filtered = filter_incremental_history_deals_frame(
             frame,
             ["EURUSD"],
-            {"EURUSD": trade_cursor},
+            start_by_symbol,
             account_event_start,
         )
-        assert filtered.empty
-
-    def test_filter_incremental_keeps_account_events_without_symbol_column(
-        self,
-    ) -> None:
-        """Test account events are kept when history_deals has no symbol column."""
-        frame = pd.DataFrame({
-            "ticket": [1],
-            "time": ["2024-01-03T00:00:00+00:00"],
-            "type": [2],
-        })
-        filtered = filter_incremental_history_deals_frame(
-            frame,
-            ["EURUSD"],
-            {"EURUSD": datetime(2024, 1, 10, tzinfo=UTC)},
-            datetime(2024, 1, 2, tzinfo=UTC),
-        )
-        assert filtered["ticket"].tolist() == [1]
+        assert filtered["ticket"].tolist() == expected_tickets
 
     @pytest.mark.parametrize(
         "frame",
@@ -2002,56 +2009,50 @@ class TestIncrementalHistoryDeals:
         assert rows == [(1, "EURUSD", 0), (2, "GBPUSD", 0), (4, "", 2)]
         assert row_count == (3,)
 
-    def test_records_account_event_dedup_scope_without_type_column(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test account-event dedup scope falls back to empty symbols."""
-        client = MagicMock()
-        client.history_deals_get_as_df.return_value = pd.DataFrame({
-            "ticket": [1],
-            "symbol": [""],
-            "time": ["2024-01-02T00:00:00+00:00"],
-        })
-        start = datetime(2024, 1, 1, tzinfo=UTC)
-        end = datetime(2024, 1, 3, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "deals-without-type.db") as conn:
-            conn.execute(
+    @pytest.mark.parametrize(
+        ("frame", "ddl", "db_name"),
+        [
+            pytest.param(
+                pd.DataFrame({
+                    "ticket": [1],
+                    "symbol": [""],
+                    "time": ["2024-01-02T00:00:00+00:00"],
+                }),
                 "CREATE TABLE history_deals( ticket INTEGER, symbol TEXT, time TEXT)",
-            )
-            write_incremental_datasets(
-                conn,
-                client,
-                ["EURUSD"],
-                {Dataset.history_deals},
-                [],
-                0,
-                start,
-                end,
-                deduplicate=True,
-                create_rate_views=False,
-                with_views=False,
-                include_account_events=True,
-            )
-            assert conn.execute("SELECT COUNT(*) FROM history_deals").fetchone() == (1,)
-
-    def test_skips_symbol_dedup_scope_when_symbol_column_missing(
+                "deals-without-type.db",
+                id="dedup-scope-without-type-column",
+            ),
+            pytest.param(
+                pd.DataFrame({
+                    "ticket": [1],
+                    "time": ["2024-01-02T00:00:00+00:00"],
+                    "type": [2],
+                }),
+                "CREATE TABLE history_deals(ticket INTEGER, time TEXT, type INTEGER)",
+                "no-symbol-deals.db",
+                id="dedup-scope-without-symbol-column",
+            ),
+        ],
+    )
+    def test_account_event_dedup_scope_with_missing_column(
         self,
         tmp_path: Path,
+        frame: pd.DataFrame,
+        ddl: str,
+        db_name: str,
     ) -> None:
-        """Test account-event writes skip per-symbol dedup without symbol column."""
+        """Test account-event dedup falls back safely when a scope column is missing.
+
+        Without a type column, dedup scope falls back to empty symbols; without
+        a symbol column, per-symbol dedup scope is skipped. Both still write
+        the row.
+        """
         client = MagicMock()
-        client.history_deals_get_as_df.return_value = pd.DataFrame({
-            "ticket": [1],
-            "time": ["2024-01-02T00:00:00+00:00"],
-            "type": [2],
-        })
+        client.history_deals_get_as_df.return_value = frame
         start = datetime(2024, 1, 1, tzinfo=UTC)
         end = datetime(2024, 1, 3, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "no-symbol-deals.db") as conn:
-            conn.execute(
-                "CREATE TABLE history_deals(ticket INTEGER, time TEXT, type INTEGER)",
-            )
+        with sqlite3.connect(tmp_path / db_name) as conn:
+            conn.execute(ddl)
             write_incremental_datasets(
                 conn,
                 client,
