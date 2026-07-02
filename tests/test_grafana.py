@@ -741,25 +741,30 @@ class TestSnapshotInserts:
         run2 = start_snapshot_run(conn, 1700000000)
         assert run1 != run2
 
-    def test_record_snapshot_run_with_detail(
+    @pytest.mark.parametrize(
+        ("status", "detail", "expected"),
+        [
+            pytest.param(
+                "error",
+                "RuntimeError: boom",
+                ("error", "RuntimeError: boom"),
+                id="with-detail",
+            ),
+            pytest.param("ok", None, ("ok", None), id="without-detail"),
+        ],
+    )
+    def test_record_snapshot_run(
         self,
         conn: sqlite3.Connection,
+        status: str,
+        detail: str | None,
+        expected: tuple[str, str | None],
     ) -> None:
-        """record_snapshot_run stores status and detail text."""
+        """record_snapshot_run stores status and optional detail text."""
         run_id = start_snapshot_run(conn, 1700000000)
-        record_snapshot_run(conn, run_id, "error", "RuntimeError: boom")
+        record_snapshot_run(conn, run_id, status, detail)
         row = conn.execute("SELECT status, detail FROM snapshot_runs").fetchone()
-        assert row == ("error", "RuntimeError: boom")
-
-    def test_record_snapshot_run_without_detail(
-        self,
-        conn: sqlite3.Connection,
-    ) -> None:
-        """record_snapshot_run stores None for detail when omitted."""
-        run_id = start_snapshot_run(conn, 1700000000)
-        record_snapshot_run(conn, run_id, "ok")
-        row = conn.execute("SELECT status, detail FROM snapshot_runs").fetchone()
-        assert row == ("ok", None)
+        assert row == expected
 
 
 # ---------------------------------------------------------------------------

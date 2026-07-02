@@ -13,6 +13,7 @@ import pytest
 from pytest_mock import MockerFixture  # noqa: TC002
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 from pdmt5 import TIMEFRAME_MAP
@@ -64,6 +65,36 @@ from mt5cli.history import (
 from mt5cli.utils import Dataset, IfExists
 
 
+def _resolve_rate_view_single(
+    conn_or_path: sqlite3.Connection | Path | str | None,
+    *,
+    granularity: str = "M1",
+    require_existing: bool = False,
+) -> str:
+    """Resolve a single EURUSD rate view name via resolve_rate_view_name."""
+    return resolve_rate_view_name(
+        conn_or_path,
+        "EURUSD",
+        granularity,
+        require_existing=require_existing,
+    )
+
+
+def _resolve_rate_view_batch(
+    conn_or_path: sqlite3.Connection | Path | str | None,
+    *,
+    granularity: str = "M1",
+    require_existing: bool = False,
+) -> list[str]:
+    """Resolve batch EURUSD rate view names via resolve_rate_view_names."""
+    return resolve_rate_view_names(
+        conn_or_path,
+        ["EURUSD"],
+        [granularity],
+        require_existing=require_existing,
+    )
+
+
 class TestResolveRateViewName:
     """Tests for resolve_rate_view_name and resolve_rate_view_names."""
 
@@ -90,12 +121,18 @@ class TestResolveRateViewName:
             "rate_EURUSD__16385",
         ]
 
-    def test_none_path_with_require_existing_raises(self) -> None:
+    @pytest.mark.parametrize(
+        "resolve",
+        [_resolve_rate_view_single, _resolve_rate_view_batch],
+        ids=["single", "batch"],
+    )
+    def test_none_path_with_require_existing_raises(
+        self,
+        resolve: Callable[..., object],
+    ) -> None:
         """Test a None path under strict mode raises a clear error."""
         with pytest.raises(ValueError, match="SQLite database not found"):
-            resolve_rate_view_name(None, "EURUSD", "M1", require_existing=True)
-        with pytest.raises(ValueError, match="SQLite database not found"):
-            resolve_rate_view_names(None, ["EURUSD"], ["M1"], require_existing=True)
+            resolve(None, require_existing=True)
 
     def test_no_rates_table_falls_back_to_single_timeframe_name(
         self,
@@ -214,12 +251,19 @@ class TestResolveRateViewName:
             conn.execute('CREATE VIEW "rate_summary" AS SELECT 1 AS close')
         assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
 
-    def test_invalid_granularity_propagates_value_error(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "resolve",
+        [_resolve_rate_view_single, _resolve_rate_view_batch],
+        ids=["single", "batch"],
+    )
+    def test_invalid_granularity_propagates_value_error(
+        self,
+        tmp_path: Path,
+        resolve: Callable[..., object],
+    ) -> None:
         """Test invalid granularities raise ValueError from parse_timeframe."""
         with pytest.raises(ValueError, match="Invalid timeframe"):
-            resolve_rate_view_name(tmp_path / "unused.db", "EURUSD", "BAD")
-        with pytest.raises(ValueError, match="Invalid timeframe"):
-            resolve_rate_view_names(tmp_path / "unused.db", ["EURUSD"], ["BAD"])
+            resolve(tmp_path / "unused.db", granularity="BAD")
 
     def test_resolve_rate_view_names_for_multiple_pairs(self, tmp_path: Path) -> None:
         """Test batch resolution returns row-major symbol/granularity pairs."""
@@ -292,46 +336,37 @@ class TestResolveRateViewName:
             create_rate_compatibility_views(conn)
             assert resolve_rate_view_name(conn, "EURUSD", "M1") == "rate_EURUSD__1"
 
+    @pytest.mark.parametrize(
+        "resolve",
+        [_resolve_rate_view_single, _resolve_rate_view_batch],
+        ids=["single", "batch"],
+    )
     def test_require_existing_raises_when_database_missing(
         self,
         tmp_path: Path,
+        resolve: Callable[..., object],
     ) -> None:
         """Test strict mode rejects missing database paths."""
         db_path = tmp_path / "missing.db"
         with pytest.raises(ValueError, match="SQLite database not found"):
-            resolve_rate_view_name(
-                db_path,
-                "EURUSD",
-                "M1",
-                require_existing=True,
-            )
-        with pytest.raises(ValueError, match="SQLite database not found"):
-            resolve_rate_view_names(
-                db_path,
-                ["EURUSD"],
-                ["M1"],
-                require_existing=True,
-            )
+            resolve(db_path, require_existing=True)
 
-    def test_require_existing_raises_when_view_missing(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "resolve",
+        [_resolve_rate_view_single, _resolve_rate_view_batch],
+        ids=["single", "batch"],
+    )
+    def test_require_existing_raises_when_view_missing(
+        self,
+        tmp_path: Path,
+        resolve: Callable[..., object],
+    ) -> None:
         """Test strict mode rejects databases without matching rate views."""
         db_path = tmp_path / "no-view.db"
         with sqlite3.connect(db_path) as conn:
             conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
         with pytest.raises(ValueError, match="No rate compatibility view exists"):
-            resolve_rate_view_name(
-                db_path,
-                "EURUSD",
-                "M1",
-                require_existing=True,
-            )
-        with pytest.raises(ValueError, match="No rate compatibility view exists"):
-            resolve_rate_view_names(
-                db_path,
-                ["EURUSD"],
-                ["M1"],
-                require_existing=True,
-            )
+            resolve(db_path, require_existing=True)
 
     def test_require_existing_returns_existing_view(self, tmp_path: Path) -> None:
         """Test strict mode returns a view when one exists."""
@@ -1247,66 +1282,63 @@ class TestFilterTradeHistoryFrame:
 class TestIncrementalHistoryDealsHelpers:
     """Tests for incremental history_deals helper functions."""
 
-    def test_account_event_start_uses_type_column(self, tmp_path: Path) -> None:
-        """Test account-event start uses non-trade deal types when available."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "account-start-type.db") as conn:
-            conn.execute(
-                "CREATE TABLE history_deals("
-                " ticket INTEGER, symbol TEXT, time TEXT, type INTEGER)",
-            )
-            conn.executemany(
-                "INSERT INTO history_deals(ticket, symbol, time, type)"
-                " VALUES (?, ?, ?, ?)",
+    @pytest.mark.parametrize(
+        ("ddl", "insert_sql", "rows", "expected"),
+        [
+            pytest.param(
+                (
+                    "CREATE TABLE history_deals("
+                    " ticket INTEGER, symbol TEXT, time TEXT, type INTEGER)"
+                ),
+                (
+                    "INSERT INTO history_deals(ticket, symbol, time, type)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
                 [
                     (1, "EURUSD", "2024-01-05T00:00:00+00:00", 0),
                     (2, "", "2024-01-08T00:00:00+00:00", 2),
                 ],
-            )
-            assert get_history_deals_account_event_start_datetime(
-                conn,
-                fallback_start=fallback,
-            ) == datetime(2024, 1, 8, tzinfo=UTC)
-
-    def test_account_event_start_falls_back_to_empty_symbol(
-        self, tmp_path: Path
-    ) -> None:
-        """Test account-event start uses empty symbols when type is missing."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "account-start-symbol.db") as conn:
-            conn.execute(
-                "CREATE TABLE history_deals(ticket INTEGER, symbol TEXT, time TEXT)",
-            )
-            conn.executemany(
+                datetime(2024, 1, 8, tzinfo=UTC),
+                id="uses-type-column",
+            ),
+            pytest.param(
+                ("CREATE TABLE history_deals( ticket INTEGER, symbol TEXT, time TEXT)"),
                 "INSERT INTO history_deals(ticket, symbol, time) VALUES (?, ?, ?)",
                 [
                     (1, "EURUSD", "2024-01-05T00:00:00+00:00"),
                     (2, "", "2024-01-07T00:00:00+00:00"),
                 ],
-            )
-            assert get_history_deals_account_event_start_datetime(
-                conn,
-                fallback_start=fallback,
-            ) == datetime(2024, 1, 7, tzinfo=UTC)
-
-    def test_account_event_start_without_identifying_columns(
+                datetime(2024, 1, 7, tzinfo=UTC),
+                id="falls-back-to-empty-symbol",
+            ),
+            pytest.param(
+                "CREATE TABLE history_deals(ticket INTEGER, time TEXT)",
+                "INSERT INTO history_deals(ticket, time) VALUES (?, ?)",
+                [(1, "2024-01-05T00:00:00+00:00")],
+                datetime(2024, 1, 1, tzinfo=UTC),
+                id="without-identifying-columns",
+            ),
+        ],
+    )
+    def test_get_history_deals_account_event_start_datetime(
         self,
         tmp_path: Path,
+        ddl: str,
+        insert_sql: str,
+        rows: list[tuple[object, ...]],
+        expected: datetime,
     ) -> None:
-        """Test account-event start falls back when type and symbol are missing."""
+        """Test account-event start resolution across identifying-column variants."""
         fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "account-start-fallback.db") as conn:
-            conn.execute("CREATE TABLE history_deals(ticket INTEGER, time TEXT)")
-            conn.execute(
-                "INSERT INTO history_deals(ticket, time) VALUES (?, ?)",
-                (1, "2024-01-05T00:00:00+00:00"),
-            )
+        with sqlite3.connect(tmp_path / "account-start.db") as conn:
+            conn.execute(ddl)
+            conn.executemany(insert_sql, rows)
             assert (
                 get_history_deals_account_event_start_datetime(
                     conn,
                     fallback_start=fallback,
                 )
-                == fallback
+                == expected
             )
 
     def test_filter_incremental_history_deals_frame(self) -> None:
@@ -2196,22 +2228,69 @@ class TestRateSourceHelpers:
         targets = build_rate_targets([], ["M1", "H1"], allow_missing_symbol=True)
         assert resolve_rate_tables(None, targets, ["t1", "t2"]) == ["t1", "t2"]
 
-    def test_resolve_rate_tables_rejects_mismatched_explicit_count(self) -> None:
-        """Test explicit table count must match the number of targets."""
-        targets = build_rate_targets(["EURUSD"], ["M1"])
-        with pytest.raises(ValueError, match="Expected 1 explicit table"):
-            resolve_rate_tables(None, targets, ["t1", "t2"])
-
-    def test_resolve_rate_tables_rejects_empty_targets(self) -> None:
-        """Test resolving requires at least one target."""
-        with pytest.raises(ValueError, match="At least one rate target"):
-            resolve_rate_tables(None, [])
-
-    def test_resolve_rate_tables_requires_symbol_without_explicit(self) -> None:
-        """Test None-symbol targets require explicit tables."""
-        targets = build_rate_targets([], ["M1"], allow_missing_symbol=True)
-        with pytest.raises(ValueError, match="without a symbol"):
-            resolve_rate_tables(None, targets)
+    @pytest.mark.parametrize(
+        ("targets", "explicit_tables", "path_kind", "require_existing", "match"),
+        [
+            pytest.param(
+                build_rate_targets(["EURUSD"], ["M1"]),
+                ["t1", "t2"],
+                "none",
+                False,
+                "Expected 1 explicit table",
+                id="mismatched-explicit-count",
+            ),
+            pytest.param(
+                [],
+                None,
+                "none",
+                False,
+                "At least one rate target",
+                id="empty-targets",
+            ),
+            pytest.param(
+                build_rate_targets([], ["M1"], allow_missing_symbol=True),
+                None,
+                "none",
+                False,
+                "without a symbol",
+                id="none-symbol-without-explicit",
+            ),
+            pytest.param(
+                build_rate_targets(["EURUSD"], ["M1"]),
+                None,
+                "none",
+                True,
+                "SQLite database not found",
+                id="none-path-require-existing",
+            ),
+            pytest.param(
+                build_rate_targets(["EURUSD"], ["M1"]),
+                None,
+                "missing",
+                True,
+                "SQLite database not found",
+                id="missing-db-require-existing",
+            ),
+        ],
+    )
+    def test_resolve_rate_tables_rejects_invalid_inputs(
+        self,
+        tmp_path: Path,
+        targets: list[RateTarget],
+        explicit_tables: list[str] | None,
+        path_kind: str,
+        require_existing: bool,
+        match: str,
+    ) -> None:
+        """Test resolve_rate_tables input and strict-mode validation."""
+        db_path = None if path_kind == "none" else tmp_path / "missing.db"
+        with pytest.raises(ValueError, match=match):
+            resolve_rate_tables(
+                db_path,
+                targets,
+                explicit_tables=explicit_tables,
+                require_existing=require_existing,
+            )
 
     def test_resolve_rate_tables_resolves_view_names(self) -> None:
         """Test symbol targets resolve to default view names without a database."""
@@ -2220,22 +2299,6 @@ class TestRateSourceHelpers:
             "rate_EURUSD__1",
             "rate_EURUSD__16385",
         ]
-
-    def test_resolve_rate_tables_none_path_with_require_existing_raises(self) -> None:
-        """Test strict mode rejects a missing database path."""
-        targets = build_rate_targets(["EURUSD"], ["M1"])
-        with pytest.raises(ValueError, match="SQLite database not found"):
-            resolve_rate_tables(None, targets, require_existing=True)
-
-    def test_resolve_rate_tables_missing_db_with_require_existing_raises(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test strict mode rejects a non-existing database path."""
-        db_path = tmp_path / "missing.db"
-        targets = build_rate_targets(["EURUSD"], ["M1"])
-        with pytest.raises(ValueError, match="SQLite database not found"):
-            resolve_rate_tables(db_path, targets, require_existing=True)
 
     def test_resolve_rate_tables_missing_view_with_require_existing_raises(
         self,
@@ -2428,22 +2491,61 @@ class TestRateSourceHelpers:
         )
         assert set(result) == {(None, 1)}
 
-    def test_load_rate_series_rejects_non_positive_count(self) -> None:
-        """Test loading requires a positive count."""
-        targets = build_rate_targets(["EURUSD"], ["M1"])
-        with pytest.raises(ValueError, match="count must be positive"):
-            load_rate_series_from_sqlite("unused.db", targets, count=0)
-
-    def test_load_rate_series_rejects_empty_targets(self) -> None:
-        """Test loading requires at least one target before opening SQLite."""
-        with pytest.raises(ValueError, match="At least one rate target"):
-            load_rate_series_from_sqlite("unused.db", [], count=1)
-
-    def test_load_rate_series_requires_symbol_without_explicit_tables(self) -> None:
-        """Test None-symbol targets require explicit tables before opening SQLite."""
-        targets = build_rate_targets([], ["M1"], allow_missing_symbol=True)
-        with pytest.raises(ValueError, match="without a symbol"):
-            load_rate_series_from_sqlite("unused.db", targets, count=1)
+    @pytest.mark.parametrize(
+        ("targets", "count", "explicit_tables", "match"),
+        [
+            pytest.param(
+                build_rate_targets(["EURUSD"], ["M1"]),
+                0,
+                None,
+                "count must be positive",
+                id="non-positive-count",
+            ),
+            pytest.param(
+                [],
+                1,
+                None,
+                "At least one rate target",
+                id="empty-targets",
+            ),
+            pytest.param(
+                build_rate_targets([], ["M1"], allow_missing_symbol=True),
+                1,
+                None,
+                "without a symbol",
+                id="none-symbol-without-explicit",
+            ),
+            pytest.param(
+                [RateTarget("EURUSD", 1), RateTarget("EURUSD", "M1")],
+                1,
+                None,
+                r"Duplicate rate target: \('EURUSD', 1\)",
+                id="duplicate-targets",
+            ),
+            pytest.param(
+                [RateTarget("EURUSD", 1), RateTarget("EURUSD", 1)],
+                1,
+                ["custom_view", "custom_view"],
+                r"Duplicate rate target: \('EURUSD', 1\)",
+                id="duplicate-targets-with-explicit",
+            ),
+        ],
+    )
+    def test_load_rate_series_rejects_invalid_inputs(
+        self,
+        targets: list[RateTarget],
+        count: int,
+        explicit_tables: list[str] | None,
+        match: str,
+    ) -> None:
+        """Test load_rate_series_from_sqlite validation runs before opening SQLite."""
+        with pytest.raises(ValueError, match=match):
+            load_rate_series_from_sqlite(
+                "unused.db",
+                targets,
+                count=count,
+                explicit_tables=explicit_tables,
+            )
 
     def test_load_rate_series_requires_existing_managed_views(
         self,
@@ -2463,36 +2565,3 @@ class TestRateSourceHelpers:
         targets = build_rate_targets(["EURUSD"], ["M1"])
         with pytest.raises(ValueError, match="No rate compatibility view exists"):
             load_rate_series_from_sqlite(db_path, targets, count=1)
-
-    def test_load_rate_series_rejects_duplicate_targets(self) -> None:
-        """Test duplicate (symbol, timeframe) targets are rejected."""
-        targets = [
-            RateTarget("EURUSD", 1),
-            RateTarget("EURUSD", "M1"),
-        ]
-        with pytest.raises(ValueError, match=r"Duplicate rate target: \('EURUSD', 1\)"):
-            load_rate_series_from_sqlite("unused.db", targets, count=1)
-
-    def test_load_rate_series_rejects_duplicate_targets_with_explicit_tables(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test duplicate targets are rejected even with explicit tables."""
-        db_path = tmp_path / "duplicate-explicit.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute("CREATE TABLE custom_view(time TEXT, close REAL)")
-            conn.execute(
-                "INSERT INTO custom_view(time, close) VALUES (?, ?)",
-                ("2024-01-01T00:00:00+00:00", 1.0),
-            )
-        targets = [
-            RateTarget("EURUSD", 1),
-            RateTarget("EURUSD", 1),
-        ]
-        with pytest.raises(ValueError, match=r"Duplicate rate target: \('EURUSD', 1\)"):
-            load_rate_series_from_sqlite(
-                db_path,
-                targets,
-                count=1,
-                explicit_tables=["custom_view", "custom_view"],
-            )

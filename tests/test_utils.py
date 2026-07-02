@@ -153,13 +153,25 @@ class TestExportDataframe:
 class TestExportDataframeToSqlite:
     """Tests for export_dataframe_to_sqlite."""
 
-    def test_append_preserves_existing_rows(self, tmp_path: Path) -> None:
-        """Test append mode keeps prior rows in the SQLite table."""
+    @pytest.mark.parametrize(
+        ("first_if_exists", "second_if_exists"),
+        [
+            pytest.param(IfExists.REPLACE, IfExists.APPEND, id="replace-then-append"),
+            pytest.param(IfExists.APPEND, IfExists.APPEND, id="default-append"),
+        ],
+    )
+    def test_append_preserves_existing_rows(
+        self,
+        tmp_path: Path,
+        first_if_exists: IfExists,
+        second_if_exists: IfExists,
+    ) -> None:
+        """Test explicit append and default append modes keep prior rows."""
         output = tmp_path / "append.db"
         first = pd.DataFrame({"id": [1], "value": ["a"]})
         second = pd.DataFrame({"id": [2], "value": ["b"]})
-        export_dataframe_to_sqlite(first, output, "items", if_exists=IfExists.REPLACE)
-        export_dataframe_to_sqlite(second, output, "items", if_exists=IfExists.APPEND)
+        export_dataframe_to_sqlite(first, output, "items", if_exists=first_if_exists)
+        export_dataframe_to_sqlite(second, output, "items", if_exists=second_if_exists)
         with sqlite3.connect(output) as conn:
             result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
                 "SELECT id, value FROM items ORDER BY id",
@@ -209,26 +221,6 @@ class TestExportDataframeToSqlite:
                 "time": ["2024-01-01"],
                 "bid": [1.2],
             }),
-        )
-
-    def test_default_if_exists_appends_without_dropping_rows(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test the default append mode keeps prior rows."""
-        output = tmp_path / "default-append.db"
-        first = pd.DataFrame({"id": [1], "value": ["a"]})
-        second = pd.DataFrame({"id": [2], "value": ["b"]})
-        export_dataframe_to_sqlite(first, output, "items")
-        export_dataframe_to_sqlite(second, output, "items")
-        with sqlite3.connect(output) as conn:
-            result = pd.read_sql(  # type: ignore[reportUnknownMemberType]
-                "SELECT id, value FROM items ORDER BY id",
-                conn,
-            )
-        pd.testing.assert_frame_equal(
-            result,
-            pd.DataFrame({"id": [1, 2], "value": ["a", "b"]}),
         )
 
     def test_writes_index_with_label(self, tmp_path: Path) -> None:
@@ -298,15 +290,15 @@ class TestParseTimeframe:
         assert parse_timeframe("1") == 1
         assert parse_timeframe(16385) == 16385
 
-    def test_unsupported_integer_timeframe_raises(self) -> None:
-        """Test that unsupported integer timeframes raise ValueError."""
+    @pytest.mark.parametrize(
+        "value",
+        ["42", "INVALID"],
+        ids=["unsupported-integer", "invalid-string"],
+    )
+    def test_invalid_timeframe_raises(self, value: str) -> None:
+        """Test that invalid timeframe values raise ValueError."""
         with pytest.raises(ValueError, match="Invalid timeframe"):
-            parse_timeframe("42")
-
-    def test_invalid_timeframe_raises(self) -> None:
-        """Test that invalid timeframe raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid timeframe"):
-            parse_timeframe("INVALID")
+            parse_timeframe(value)
 
 
 class TestParseTickFlags:
@@ -325,15 +317,15 @@ class TestParseTickFlags:
         assert parse_tick_flags("-1") == -1
         assert parse_tick_flags(2) == 2
 
-    def test_unsupported_integer_flag_raises(self) -> None:
-        """Test that unsupported integer tick flags raise ValueError."""
+    @pytest.mark.parametrize(
+        "value",
+        ["7", "INVALID"],
+        ids=["unsupported-integer", "invalid-string"],
+    )
+    def test_invalid_flag_raises(self, value: str) -> None:
+        """Test that invalid tick flag values raise ValueError."""
         with pytest.raises(ValueError, match="Invalid tick flags"):
-            parse_tick_flags("7")
-
-    def test_invalid_flag_raises(self) -> None:
-        """Test that invalid flag raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid tick flags"):
-            parse_tick_flags("INVALID")
+            parse_tick_flags(value)
 
 
 # ---------------------------------------------------------------------------
@@ -356,15 +348,17 @@ class TestParseRequest:
         result = parse_request(f"@{path}")
         assert result == {"action": 2}
 
-    def test_invalid_json_raises(self) -> None:
-        """Test that invalid JSON raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid JSON request"):
-            parse_request("not json")
-
-    def test_non_object_raises(self) -> None:
-        """Test that a non-object JSON raises ValueError."""
-        with pytest.raises(ValueError, match="must be a JSON object"):
-            parse_request("[1, 2, 3]")
+    @pytest.mark.parametrize(
+        ("value", "match"),
+        [
+            pytest.param("not json", "Invalid JSON request", id="invalid-json"),
+            pytest.param("[1, 2, 3]", "must be a JSON object", id="non-object"),
+        ],
+    )
+    def test_invalid_request_raises(self, value: str, match: str) -> None:
+        """Test that invalid JSON and non-object requests raise ValueError."""
+        with pytest.raises(ValueError, match=match):
+            parse_request(value)
 
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         """Test that a missing request file raises ValueError."""

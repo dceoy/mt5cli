@@ -39,17 +39,12 @@ class TestGrafanaExamples:
                 f"{path.name} must contain queries against grafana_* views"
             )
 
-    def test_dashboard_json_has_uid(self) -> None:
-        """All dashboard JSON files have a non-empty uid field."""
+    @pytest.mark.parametrize("field", ["uid", "title"])
+    def test_dashboard_json_has_required_field(self, field: str) -> None:
+        """All dashboard JSON files have a non-empty uid and title field."""
         for path in _DASHBOARDS_DIR.glob("*.json"):
             obj = json.loads(path.read_text(encoding="utf-8"))
-            assert obj.get("uid"), f"{path.name} must have a uid"
-
-    def test_dashboard_json_has_title(self) -> None:
-        """All dashboard JSON files have a non-empty title field."""
-        for path in _DASHBOARDS_DIR.glob("*.json"):
-            obj = json.loads(path.read_text(encoding="utf-8"))
-            assert obj.get("title"), f"{path.name} must have a title"
+            assert obj.get(field), f"{path.name} must have a {field}"
 
     def test_expected_dashboards_present(self) -> None:
         """The three expected dashboard files are present."""
