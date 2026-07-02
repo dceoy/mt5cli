@@ -34,6 +34,7 @@ _DATAFRAME_METHODS = (
     "order_check_as_df",
     "order_send_as_df",
 )
+
 _ORIGINAL_SQLITE_CONNECT = sqlite3.connect
 
 
