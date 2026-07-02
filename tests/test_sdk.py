@@ -1636,33 +1636,30 @@ class TestCollectLatestClosedRatesForAccounts:
         )
         pd.testing.assert_frame_equal(result["EURUSD", 1], df_rate)
 
-    def test_rejects_zero_count_before_fetching(self, mocker: MockerFixture) -> None:
-        """Test count=0 is rejected before any MT5 collection attempt."""
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"count": 0}, "count must be positive"),
+            ({"count": 1, "start_pos": -1}, "start_pos must be non-negative"),
+        ],
+        ids=["zero-count", "negative-start-pos"],
+    )
+    def test_rejects_invalid_inputs_before_fetching(
+        self,
+        mocker: MockerFixture,
+        kwargs: dict[str, object],
+        match: str,
+    ) -> None:
+        """Test invalid count/start_pos values are rejected before MT5 is called."""
         wrapped = mocker.patch(
             "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
         )
 
-        with pytest.raises(ValueError, match="count must be positive"):
+        with pytest.raises(ValueError, match=match):
             collect_latest_closed_rates_for_accounts(
                 [AccountSpec(symbols=["EURUSD"])],
                 ["M1"],
-                count=0,
-            )
-
-        wrapped.assert_not_called()
-
-    def test_rejects_negative_start_pos(self, mocker: MockerFixture) -> None:
-        """Test negative start_pos is rejected before any MT5 collection attempt."""
-        wrapped = mocker.patch(
-            "mt5cli.sdk.collect_latest_rates_for_accounts_with_retries",
-        )
-
-        with pytest.raises(ValueError, match="start_pos must be non-negative"):
-            collect_latest_closed_rates_for_accounts(
-                [AccountSpec(symbols=["EURUSD"])],
-                ["M1"],
-                count=1,
-                start_pos=-1,
+                **kwargs,  # type: ignore[arg-type]
             )
 
         wrapped.assert_not_called()
