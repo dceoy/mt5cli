@@ -505,6 +505,7 @@ dependencies = [
     { name = "click" },
     { name = "pandas" },
     { name = "pdmt5" },
+    { name = "pydantic" },
     { name = "typer" },
 ]
 
@@ -544,6 +545,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.2" },
     { name = "pdmt5", specifier = ">=1.0.4" },
     { name = "pyarrow", marker = "extra == 'parquet'", specifier = ">=19.0.0" },
+    { name = "pydantic", specifier = ">=2.13.4" },
     { name = "typer", specifier = ">=0.15.0" },
 ]
 provides-extras = ["parquet", "otel"]
