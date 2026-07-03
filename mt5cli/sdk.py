@@ -16,11 +16,7 @@ from typing import TYPE_CHECKING, Self, TypeVar, cast
 
 import pandas as pd
 from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
-
-try:
-    from pdmt5 import Mt5TradingError
-except ImportError:  # pragma: no cover
-    Mt5TradingError = None  # type: ignore[assignment]
+from pydantic import SecretStr
 
 from .grafana import (
     create_snapshot_tables,
@@ -65,7 +61,6 @@ T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
 _RECOVERABLE_HISTORY_UPDATE_ERRORS: tuple[type[BaseException], ...] = (
-    *([Mt5TradingError] if Mt5TradingError is not None else []),  # type: ignore[assignment]
     Mt5RuntimeError,
     sqlite3.Error,
     ValueError,
@@ -1139,8 +1134,8 @@ class ThrottledHistoryUpdater:
             include_account_events: Include account-level cash events.
             interval_seconds: Minimum seconds between successful updates. Values
                 ``<= 0`` update on every call.
-            suppress_errors: When True, recoverable errors (``Mt5TradingError``,
-                ``Mt5RuntimeError``, ``sqlite3.Error``, ``ValueError``,
+            suppress_errors: When True, recoverable errors (``Mt5RuntimeError``,
+                ``sqlite3.Error``, ``ValueError``,
                 ``OSError``, and MT5 client capability ``AttributeError`` /
                 ``TypeError`` for history API methods) raised during an update
                 are swallowed and :meth:`update` returns False without advancing
@@ -1703,10 +1698,13 @@ def _build_account_config(
     login = _coerce_login(account.login)
     if login is None and base_config is not None:
         login = base_config.login
+    base_password = base_config.password if base_config else None
+    if isinstance(base_password, SecretStr):
+        base_password = base_password.get_secret_value()
     return build_config(
         path=account.path or (base_config.path if base_config else None),
         login=login,
-        password=account.password or (base_config.password if base_config else None),
+        password=account.password or base_password,
         server=account.server or (base_config.server if base_config else None),
         timeout=account.timeout
         if account.timeout is not None
@@ -1782,9 +1780,9 @@ def collect_latest_rates_for_accounts_with_retries(
     """Collect latest rates across accounts, retrying transient MT5 failures.
 
     Wraps :func:`collect_latest_rates_for_accounts` with bounded exponential
-    backoff. Only ``pdmt5.Mt5TradingError`` and ``pdmt5.Mt5RuntimeError`` are
-    retried; other exceptions propagate immediately. The final failure is
-    re-raised once retries are exhausted.
+    backoff. Only ``pdmt5.Mt5RuntimeError`` is retried; other exceptions
+    propagate immediately. The final failure is re-raised once retries are
+    exhausted.
 
     Args:
         accounts: Account groups to read. Each must define at least one symbol.
@@ -1801,8 +1799,8 @@ def collect_latest_rates_for_accounts_with_retries(
     Returns:
         Mapping keyed by ``(symbol, timeframe_int)``. Propagates ``ValueError``
         for invalid inputs (see :func:`collect_latest_rates_for_accounts`) and
-        re-raises the last ``pdmt5.Mt5TradingError`` or ``pdmt5.Mt5RuntimeError``
-        once retries are exhausted.
+        re-raises the last ``pdmt5.Mt5RuntimeError`` once retries are
+        exhausted.
     """
 
     def _collect() -> dict[tuple[str, int], pd.DataFrame]:

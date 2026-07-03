@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 import pandas as pd
 import pytest
-from pdmt5 import Mt5RuntimeError, Mt5TradingError
+from pdmt5 import Mt5RuntimeError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 import mt5cli
@@ -26,7 +26,6 @@ from mt5cli import (
     MT5Client,
     Mt5CliError,
     Mt5ConnectionError,
-    Mt5OperationError,
     Mt5SchemaError,
     OrderExecutionResult,
     OrderLimits,
@@ -247,7 +246,7 @@ def test_granularity_name_maps_timeframe_alias() -> None:
 
 @pytest.mark.parametrize(
     "exc",
-    [Mt5RuntimeError("init failed"), Mt5TradingError("trade failed")],
+    [Mt5RuntimeError("init failed")],
 )
 def test_is_recoverable_mt5_error(exc: Exception) -> None:
     """Recoverable MT5 errors are classified consistently."""
@@ -258,12 +257,11 @@ def test_is_recoverable_mt5_error(exc: Exception) -> None:
     ("exc", "expected_type"),
     [
         (Mt5RuntimeError("x"), Mt5ConnectionError),
-        (Mt5TradingError("x"), Mt5OperationError),
     ],
 )
 def test_normalize_mt5_exception_maps_types(
     exc: Exception,
-    expected_type: type[Mt5ConnectionError | Mt5OperationError],
+    expected_type: type[Mt5ConnectionError],
 ) -> None:
     """MT5 exceptions map to stable mt5cli types."""
     assert isinstance(normalize_mt5_exception(exc), expected_type)

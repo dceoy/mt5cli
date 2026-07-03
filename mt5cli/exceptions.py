@@ -9,11 +9,6 @@ from pdmt5 import Mt5RuntimeError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-try:
-    from pdmt5 import Mt5TradingError
-except ImportError:  # pragma: no cover
-    Mt5TradingError = None  # type: ignore[assignment]
-
 T = TypeVar("T")
 
 __all__ = [
@@ -26,10 +21,7 @@ __all__ = [
     "normalize_mt5_exception",
 ]
 
-_RECOVERABLE_MT5_ERRORS: tuple[type[BaseException], ...] = (
-    *([Mt5TradingError] if Mt5TradingError is not None else []),  # type: ignore[misc]
-    Mt5RuntimeError,
-)
+_RECOVERABLE_MT5_ERRORS: tuple[type[BaseException], ...] = (Mt5RuntimeError,)
 
 
 class Mt5CliError(Exception):
@@ -55,7 +47,7 @@ def is_recoverable_mt5_error(exc: BaseException) -> bool:
         exc: Exception raised by MT5 or pdmt5.
 
     Returns:
-        True for ``Mt5RuntimeError`` and ``Mt5TradingError`` (if available).
+        True for ``Mt5RuntimeError``.
     """
     return isinstance(exc, _RECOVERABLE_MT5_ERRORS)
 
@@ -67,11 +59,9 @@ def normalize_mt5_exception(exc: BaseException) -> Mt5CliError:
         exc: Original exception from MT5 or pdmt5.
 
     Returns:
-        ``Mt5ConnectionError`` for runtime failures, ``Mt5OperationError`` for
-        trading failures, or the original exception when it is not recognized.
+        ``Mt5ConnectionError`` for runtime failures, or the original exception
+        when it is not recognized.
     """
-    if Mt5TradingError is not None and isinstance(exc, Mt5TradingError):
-        return Mt5OperationError(str(exc))
     if isinstance(exc, Mt5RuntimeError):
         return Mt5ConnectionError(str(exc))
     if isinstance(exc, Mt5CliError):

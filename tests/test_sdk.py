@@ -10,7 +10,8 @@ from unittest.mock import MagicMock, call
 
 import pandas as pd
 import pytest
-from pdmt5 import Mt5RuntimeError, Mt5TradingError
+from pdmt5 import Mt5RuntimeError
+from pydantic import SecretStr
 from pytest_mock import MockerFixture  # noqa: TC002
 
 if TYPE_CHECKING:
@@ -1459,7 +1460,9 @@ class TestCollectLatestRatesForAccounts:
             return mock_client
 
         mocker.patch("mt5cli.sdk.Mt5DataClient", side_effect=_record_config)
-        base = build_config(login=999, server="Base-Server", timeout=5000)
+        base = build_config(
+            login=999, server="Base-Server", timeout=5000, password="base-pass"
+        )
         accounts = [
             AccountSpec(symbols=["EURUSD"], login="", server="Acct-Server"),
         ]
@@ -1471,6 +1474,8 @@ class TestCollectLatestRatesForAccounts:
         assert config.login == 999
         assert config.server == "Acct-Server"
         assert config.timeout == 5000
+        assert config.password is not None
+        assert config.password.get_secret_value() == "base-pass"  # type: ignore[union-attr]
 
     @pytest.mark.parametrize(
         ("accounts", "timeframes", "count", "match"),
@@ -1551,7 +1556,7 @@ class TestCollectLatestRatesForAccountsWithRetries:
         wrapped = mocker.patch(
             "mt5cli.sdk.collect_latest_rates_for_accounts",
             side_effect=[
-                Mt5TradingError("boom"),
+                Mt5RuntimeError("boom"),
                 Mt5RuntimeError("boom"),
                 expected,
             ],
@@ -2125,7 +2130,10 @@ class TestBuildConfigWholeDollarEnv:
 
         config = build_config(**{field: f"${env_var}"}, allow_whole_dollar_env=True)  # type: ignore[arg-type]
 
-        assert getattr(config, field) == env_value
+        actual = getattr(config, field)
+        if isinstance(actual, SecretStr):
+            actual = actual.get_secret_value()
+        assert actual == env_value
 
     def test_build_config_leaves_dollar_literal_by_default(
         self,
@@ -2228,7 +2236,6 @@ class TestThrottledHistoryUpdater:
         "error",
         [
             Mt5RuntimeError("boom"),
-            Mt5TradingError("trade failed"),
             sqlite3.OperationalError("locked"),
             ValueError("invalid symbols"),
             OSError("disk full"),

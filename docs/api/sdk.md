@@ -12,8 +12,8 @@ application.
 
 `collect_latest_rates_for_accounts_with_retries()` wraps
 `collect_latest_rates_for_accounts()` with bounded exponential backoff. Only
-`pdmt5.Mt5TradingError` and `pdmt5.Mt5RuntimeError` are retried; the final
-failure is re-raised once `retry_count` is exhausted.
+`pdmt5.Mt5RuntimeError` is retried; the final failure is re-raised once
+`retry_count` is exhausted.
 
 ```python
 from mt5cli import AccountSpec, collect_latest_rates_for_accounts_with_retries
@@ -32,8 +32,9 @@ rates = collect_latest_rates_for_accounts_with_retries(
 
 MetaTrader 5 `start_pos=0` includes the still-forming current bar as the last
 row. `fetch_latest_closed_rates()` handles one connected `MT5Client`; use
-`fetch_latest_closed_rates_for_trading_client()` from an active
-`Mt5TradingClient` session. Multi-account helpers fetch `count + 1` bars, drop
+`fetch_latest_closed_rates_for_trading_client()` from an active trading
+session created by `create_trading_client()`. Multi-account helpers fetch
+`count + 1` bars, drop
 that row with `drop_forming_rate_bar()`, and validate each series is non-empty. Returned frames are ordered
 oldest-to-newest and may contain fewer than `count` rows only when MT5 returns
 fewer closed bars.
