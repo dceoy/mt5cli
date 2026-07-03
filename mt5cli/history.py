@@ -1005,22 +1005,20 @@ def _load_grouped_rate_start_datetimes(
     timeframe_placeholders = ", ".join("?" for _ in timeframes)
     time_expr = _sqlite_normalized_time_expression("time")
     rows = conn.execute(
-        "SELECT symbol, timeframe, time FROM "  # noqa: S608
+        "SELECT symbol, timeframe, MAX("  # noqa: S608
+        f"{time_expr}) FROM "
         f"{quote_sqlite_identifier(table)}"
         f" WHERE symbol IN ({symbol_placeholders})"
         f" AND timeframe IN ({timeframe_placeholders})"
         f" AND {time_expr} IS NOT NULL"
-        f" ORDER BY symbol, timeframe, {time_expr} DESC, ROWID DESC",
+        f" GROUP BY symbol, timeframe",
         [*symbols, *timeframes],
     ).fetchall()
     parsed_by_key: dict[tuple[str, int | None], datetime] = {}
-    for row_symbol, row_timeframe, raw_time in rows:
-        key = (str(row_symbol), int(row_timeframe))
-        if key in parsed_by_key:
-            continue
-        parsed = parse_sqlite_timestamp(raw_time)
+    for row_symbol, row_timeframe, max_time in rows:
+        parsed = parse_sqlite_timestamp(max_time)
         if parsed is not None:
-            parsed_by_key[key] = parsed
+            parsed_by_key[str(row_symbol), int(row_timeframe)] = parsed
     return {
         (symbol, timeframe): parsed_by_key.get((symbol, timeframe), fallback_start)
         for symbol in symbols
@@ -1038,21 +1036,19 @@ def _load_symbol_start_datetimes(
     symbol_placeholders = ", ".join("?" for _ in symbols)
     time_expr = _sqlite_normalized_time_expression("time")
     rows = conn.execute(
-        "SELECT symbol, time FROM "  # noqa: S608
+        "SELECT symbol, MAX("  # noqa: S608
+        f"{time_expr}) FROM "
         f"{quote_sqlite_identifier(table)}"
         f" WHERE symbol IN ({symbol_placeholders})"
         f" AND {time_expr} IS NOT NULL"
-        f" ORDER BY symbol, {time_expr} DESC, ROWID DESC",
+        f" GROUP BY symbol",
         list(symbols),
     ).fetchall()
     parsed_by_key: dict[tuple[str, int | None], datetime] = {}
-    for row_symbol, raw_time in rows:
-        key = (str(row_symbol), None)
-        if key in parsed_by_key:
-            continue
-        parsed = parse_sqlite_timestamp(raw_time)
+    for row_symbol, max_time in rows:
+        parsed = parse_sqlite_timestamp(max_time)
         if parsed is not None:
-            parsed_by_key[key] = parsed
+            parsed_by_key[str(row_symbol), None] = parsed
     return {
         (symbol, None): parsed_by_key.get((symbol, None), fallback_start)
         for symbol in symbols

@@ -1126,6 +1126,125 @@ class TestIncrementalStart:
             )
         assert starts["EURUSD", None] == fallback
 
+    def test_grouped_rate_start_aggregates_mixed_legacy_timestamps(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test grouped rate resume uses SQL MAX over mixed legacy time formats."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "grouped-rate-mixed-formats.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-02 00:00:00", 1.0),
+                    ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.1),
+                    ("EURUSD", 1, 1704240000, 1.2),
+                    ("GBPUSD", 1, 1704153600, 1.3),
+                    ("GBPUSD", 1, "2024-01-04T00:00:00+00:00", 1.4),
+                ],
+            )
+            starts = history._load_grouped_rate_start_datetimes(  # type: ignore[reportPrivateUsage]
+                conn,
+                "rates",
+                symbols=["EURUSD", "GBPUSD"],
+                timeframes=[1],
+                fallback_start=fallback,
+            )
+        assert starts["EURUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
+        assert starts["GBPUSD", 1] == datetime(2024, 1, 4, tzinfo=UTC)
+
+    def test_grouped_rate_start_query_uses_sqlite_aggregation(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test grouped rate resume aggregates in SQLite instead of scanning rows."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "grouped-rate-aggregation.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, f"2024-01-01T{hour:02d}:00:00+00:00", float(hour))
+                    for hour in range(24)
+                ],
+            )
+            execute_spy = mocker.spy(conn, "execute")
+            starts = history._load_grouped_rate_start_datetimes(  # type: ignore[reportPrivateUsage]
+                conn,
+                "rates",
+                symbols=["EURUSD"],
+                timeframes=[1],
+                fallback_start=fallback,
+            )
+            query = str(execute_spy.call_args[0][0])
+        assert "MAX(" in query
+        assert "GROUP BY symbol, timeframe" in query
+        assert "ORDER BY" not in query
+        assert starts["EURUSD", 1] == datetime(2024, 1, 1, 23, tzinfo=UTC)
+
+    def test_symbol_start_aggregates_mixed_legacy_timestamps(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test symbol resume uses SQL MAX over mixed legacy time formats."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "symbol-mixed-formats.db") as conn:
+            conn.execute("CREATE TABLE ticks(symbol TEXT, time)")
+            conn.executemany(
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                [
+                    ("EURUSD", "2024-01-02 00:00:00"),
+                    ("EURUSD", "2024-01-03T00:00:00+00:00"),
+                    ("EURUSD", 1704240000),
+                    ("GBPUSD", 1704153600),
+                    ("GBPUSD", "2024-01-04T00:00:00+00:00"),
+                ],
+            )
+            starts = history._load_symbol_start_datetimes(  # type: ignore[reportPrivateUsage]
+                conn,
+                "ticks",
+                symbols=["EURUSD", "GBPUSD"],
+                fallback_start=fallback,
+            )
+        assert starts["EURUSD", None] == datetime(2024, 1, 3, tzinfo=UTC)
+        assert starts["GBPUSD", None] == datetime(2024, 1, 4, tzinfo=UTC)
+
+    def test_symbol_start_query_uses_sqlite_aggregation(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test symbol resume aggregates in SQLite instead of scanning rows."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "symbol-aggregation.db") as conn:
+            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
+            conn.executemany(
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                [
+                    ("EURUSD", f"2024-01-01T{hour:02d}:00:00+00:00")
+                    for hour in range(24)
+                ],
+            )
+            execute_spy = mocker.spy(conn, "execute")
+            starts = history._load_symbol_start_datetimes(  # type: ignore[reportPrivateUsage]
+                conn,
+                "ticks",
+                symbols=["EURUSD"],
+                fallback_start=fallback,
+            )
+            query = str(execute_spy.call_args[0][0])
+        assert "MAX(" in query
+        assert "GROUP BY symbol" in query
+        assert "ORDER BY" not in query
+        assert starts["EURUSD", None] == datetime(2024, 1, 1, 23, tzinfo=UTC)
+
 
 class TestDeduplication:
     """Tests for SQLite deduplication helpers."""
