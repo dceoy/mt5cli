@@ -503,6 +503,7 @@ version = "1.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
+    { name = "pandas" },
     { name = "pdmt5" },
     { name = "typer" },
 ]
@@ -540,6 +541,7 @@ requires-dist = [
     { name = "opentelemetry-api", marker = "extra == 'otel'" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'" },
+    { name = "pandas", specifier = ">=2.2.2" },
     { name = "pdmt5", specifier = ">=1.0.0" },
     { name = "pyarrow", marker = "extra == 'parquet'", specifier = ">=19.0.0" },
     { name = "typer", specifier = ">=0.15.0" },

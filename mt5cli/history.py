@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Literal, cast, overload
 import pandas as pd
 from pdmt5 import get_timeframe_name as _get_timeframe_name
 
-from .schemas import DEDUP_KEYS, DataKind
+from .schemas import DEDUP_KEYS, DataKind, ensure_utc_columns
 from .utils import (
     TIMEFRAME_NAMES,
     Dataset,
@@ -28,6 +28,13 @@ if TYPE_CHECKING:
     from pdmt5 import Mt5DataClient
 
 logger = logging.getLogger(__name__)
+
+_SQLITE_TEXT_TIME_COLUMNS: frozenset[str] = frozenset({
+    "time",
+    "time_setup",
+    "time_done",
+})
+_SQLITE_CANONICAL_TIME_FORMAT = "%Y-%m-%dT%H:%M:%f+00:00"
 
 DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = TIMEFRAME_NAMES
 DEFAULT_HISTORY_DATASETS: frozenset[Dataset] = frozenset({
@@ -877,6 +884,64 @@ def parse_sqlite_timestamp(value: object) -> datetime | None:
     return None
 
 
+def _serialize_sqlite_timestamp(value: object) -> str | None:
+    parsed = parse_sqlite_timestamp(value)
+    if parsed is None:
+        return None
+    utc_value = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    utc_value = utc_value.astimezone(UTC)
+    timespec = "microseconds" if utc_value.microsecond else "seconds"
+    return utc_value.isoformat(timespec=timespec)
+
+
+def _require_serialized_sqlite_timestamp(value: object) -> str:
+    serialized = _serialize_sqlite_timestamp(value)
+    if serialized is None:
+        msg = f"Invalid SQLite timestamp boundary: {value!r}"
+        raise ValueError(msg)
+    return serialized
+
+
+def _canonicalize_sqlite_time_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        column for column in _SQLITE_TEXT_TIME_COLUMNS if column in frame.columns
+    ]
+    if not columns:
+        return frame
+    normalized = ensure_utc_columns(frame, columns)
+    for column in columns:
+        normalized[column] = normalized[column].map(_serialize_sqlite_timestamp)
+    return normalized
+
+
+def _sqlite_dedup_key_expression(column: str) -> str:
+    quoted = quote_sqlite_identifier(column)
+    if column != "time":
+        return quoted
+    return (
+        "COALESCE("
+        f"strftime('{_SQLITE_CANONICAL_TIME_FORMAT}', {quoted}), "
+        f"CAST({quoted} AS TEXT)"
+        ")"
+    )
+
+
+def _load_latest_parseable_time(
+    conn: sqlite3.Connection,
+    table: str,
+    *,
+    where_clause: str | None = None,
+    params: Sequence[object] = (),
+) -> datetime | None:
+    quoted_table = quote_sqlite_identifier(table)
+    query = f"SELECT time FROM {quoted_table} WHERE julianday(time) IS NOT NULL"  # noqa: S608
+    if where_clause:
+        query += f" AND {where_clause}"
+    query += " ORDER BY julianday(time) DESC, ROWID DESC LIMIT 1"
+    row = conn.execute(query, tuple(params)).fetchone()
+    return parse_sqlite_timestamp(row[0] if row else None)
+
+
 def get_history_deals_account_event_start_datetime(
     conn: sqlite3.Connection,
     *,
@@ -893,10 +958,11 @@ def get_history_deals_account_event_start_datetime(
         where_clause = "symbol IS NULL OR symbol = ''"
     else:
         return fallback_start
-    row = conn.execute(
-        f"SELECT MAX(time) FROM {table} WHERE {where_clause}",  # noqa: S608
-    ).fetchone()
-    parsed = parse_sqlite_timestamp(row[0] if row else None)
+    parsed = _load_latest_parseable_time(
+        conn,
+        table,
+        where_clause=where_clause,
+    )
     return parsed if parsed is not None else fallback_start
 
 
@@ -917,6 +983,70 @@ def _validate_rates_schema(columns: set[str]) -> None:
             f"missing: {', '.join(sorted(missing))}."
         )
         raise ValueError(msg)
+
+
+def _load_grouped_rate_start_datetimes(
+    conn: sqlite3.Connection,
+    table: str,
+    *,
+    symbols: Sequence[str],
+    timeframes: Sequence[int],
+    fallback_start: datetime,
+) -> dict[tuple[str, int | None], datetime]:
+    symbol_placeholders = ", ".join("?" for _ in symbols)
+    timeframe_placeholders = ", ".join("?" for _ in timeframes)
+    rows = conn.execute(
+        "SELECT symbol, timeframe, time FROM "  # noqa: S608
+        f"{quote_sqlite_identifier(table)}"
+        f" WHERE symbol IN ({symbol_placeholders})"
+        f" AND timeframe IN ({timeframe_placeholders})"
+        " AND julianday(time) IS NOT NULL"
+        " ORDER BY symbol, timeframe, julianday(time) DESC, ROWID DESC",
+        [*symbols, *timeframes],
+    ).fetchall()
+    parsed_by_key: dict[tuple[str, int | None], datetime] = {}
+    for row_symbol, row_timeframe, raw_time in rows:
+        key = (str(row_symbol), int(row_timeframe))
+        if key in parsed_by_key:
+            continue
+        parsed = parse_sqlite_timestamp(raw_time)
+        if parsed is not None:
+            parsed_by_key[key] = parsed
+    return {
+        (symbol, timeframe): parsed_by_key.get((symbol, timeframe), fallback_start)
+        for symbol in symbols
+        for timeframe in timeframes
+    }
+
+
+def _load_symbol_start_datetimes(
+    conn: sqlite3.Connection,
+    table: str,
+    *,
+    symbols: Sequence[str],
+    fallback_start: datetime,
+) -> dict[tuple[str, int | None], datetime]:
+    symbol_placeholders = ", ".join("?" for _ in symbols)
+    rows = conn.execute(
+        "SELECT symbol, time FROM "  # noqa: S608
+        f"{quote_sqlite_identifier(table)}"
+        f" WHERE symbol IN ({symbol_placeholders})"
+        " AND julianday(time) IS NOT NULL"
+        " ORDER BY symbol, julianday(time) DESC, ROWID DESC",
+        list(symbols),
+    ).fetchall()
+    parsed_by_key: dict[tuple[str, int | None], datetime] = {}
+    for row_symbol, raw_time in rows:
+        key = (str(row_symbol), None)
+        if key in parsed_by_key:
+            continue
+        parsed = parse_sqlite_timestamp(raw_time)
+        if parsed is not None:
+            parsed_by_key[key] = parsed
+    return {
+        (symbol, None): parsed_by_key.get((symbol, None), fallback_start)
+        for symbol in symbols
+    }
 
 
 def load_incremental_start_datetimes(
@@ -942,55 +1072,28 @@ def load_incremental_start_datetimes(
             }
         return {(symbol, None): fallback_start for symbol in symbols}
 
-    parsed_by_key: dict[tuple[str, int | None], datetime] = {}
     if (
         dataset is Dataset.rates
         and timeframes is not None
         and {"symbol", "timeframe"}.issubset(columns)
     ):
-        symbol_placeholders = ", ".join("?" for _ in symbols)
-        timeframe_placeholders = ", ".join("?" for _ in timeframes)
-        grouped_rates_query = (
-            "SELECT symbol, timeframe, MAX(time) FROM "  # noqa: S608
-            f"{table} WHERE symbol IN ({symbol_placeholders})"
-            f" AND timeframe IN ({timeframe_placeholders})"
-            " GROUP BY symbol, timeframe"
+        return _load_grouped_rate_start_datetimes(
+            conn,
+            table,
+            symbols=symbols,
+            timeframes=timeframes,
+            fallback_start=fallback_start,
         )
-        rows = conn.execute(
-            grouped_rates_query,
-            [*symbols, *timeframes],
-        ).fetchall()
-        for row_symbol, row_timeframe, max_time in rows:
-            parsed = parse_sqlite_timestamp(max_time)
-            if parsed is not None:
-                parsed_by_key[str(row_symbol), int(row_timeframe)] = parsed
-        return {
-            (symbol, timeframe): parsed_by_key.get(
-                (symbol, timeframe),
-                fallback_start,
-            )
-            for symbol in symbols
-            for timeframe in timeframes
-        }
 
     if "symbol" in columns:
-        symbol_placeholders = ", ".join("?" for _ in symbols)
-        rows = conn.execute(
-            f"SELECT symbol, MAX(time) FROM {table}"  # noqa: S608
-            f" WHERE symbol IN ({symbol_placeholders}) GROUP BY symbol",
-            list(symbols),
-        ).fetchall()
-        for row_symbol, max_time in rows:
-            parsed = parse_sqlite_timestamp(max_time)
-            if parsed is not None:
-                parsed_by_key[str(row_symbol), None] = parsed
-        return {
-            (symbol, None): parsed_by_key.get((symbol, None), fallback_start)
-            for symbol in symbols
-        }
+        return _load_symbol_start_datetimes(
+            conn,
+            table,
+            symbols=symbols,
+            fallback_start=fallback_start,
+        )
 
-    row = conn.execute(f"SELECT MAX(time) FROM {table}").fetchone()  # noqa: S608
-    parsed = parse_sqlite_timestamp(row[0] if row else None)
+    parsed = _load_latest_parseable_time(conn, table)
     shared_start = parsed if parsed is not None else fallback_start
     return {(symbol, None): shared_start for symbol in symbols}
 
@@ -1029,7 +1132,8 @@ def append_dataframe(
     if len(frame.columns) == 0:
         logger.warning("Skipping %s: dataset returned no columns", table_name)
         return False
-    frame.to_sql(  # type: ignore[reportUnknownMemberType]
+    writable = _canonicalize_sqlite_time_columns(frame)
+    writable.to_sql(  # type: ignore[reportUnknownMemberType]
         table_name,
         conn,
         if_exists=if_exists.value,
@@ -1108,15 +1212,21 @@ def drop_duplicates_in_table(
     if invalid := {column for column in ids if not column.isidentifier()}:
         msg = f"Invalid column names: {', '.join(sorted(invalid))}"
         raise ValueError(msg)
-    ids_csv = ", ".join(f'"{column}"' for column in ids)
+    ids_csv = ", ".join(_sqlite_dedup_key_expression(column) for column in ids)
     rowid_selector = "MIN" if keep == "first" else "MAX"
+    prepared_scope_params = tuple(
+        _require_serialized_sqlite_timestamp(value)
+        if isinstance(value, datetime)
+        else value
+        for value in scope_params
+    )
     if scope_where:
         delete_sql = (
             f"DELETE FROM {table} WHERE {scope_where} AND ROWID NOT IN"  # noqa: S608
             f" (SELECT {rowid_selector}(ROWID) FROM {table} WHERE {scope_where}"
             f" GROUP BY {ids_csv})"
         )
-        cursor.execute(delete_sql, scope_params + scope_params)
+        cursor.execute(delete_sql, prepared_scope_params + prepared_scope_params)
         return
     cursor.execute(
         f"DELETE FROM {table} WHERE ROWID NOT IN"  # noqa: S608
@@ -1439,8 +1549,8 @@ def _record_symbol_time_dedup(
     _record_dedup_scope(
         dedup_scopes,
         dataset,
-        "symbol = ? AND time >= ?",
-        (symbol, start_date),
+        "symbol = ? AND julianday(time) >= julianday(?)",
+        (symbol, _require_serialized_sqlite_timestamp(start_date)),
         frozenset({"symbol", "time"}),
     )
 
@@ -1605,8 +1715,12 @@ def _write_incremental_rates(
                 _record_dedup_scope(
                     dedup_scopes,
                     Dataset.rates,
-                    "symbol = ? AND timeframe = ? AND time >= ?",
-                    (symbol, timeframe, start_date),
+                    "symbol = ? AND timeframe = ? AND julianday(time) >= julianday(?)",
+                    (
+                        symbol,
+                        timeframe,
+                        _require_serialized_sqlite_timestamp(start_date),
+                    ),
                     frozenset({"symbol", "timeframe", "time"}),
                 )
 
@@ -1735,24 +1849,31 @@ def _write_incremental_history_deals(
                     _record_dedup_scope(
                         dedup_scopes,
                         Dataset.history_deals,
-                        "symbol = ? AND time >= ?",
-                        (symbol, start_by_symbol[symbol, None]),
+                        "symbol = ? AND julianday(time) >= julianday(?)",
+                        (
+                            symbol,
+                            _require_serialized_sqlite_timestamp(
+                                start_by_symbol[symbol, None]
+                            ),
+                        ),
                         frozenset({"symbol", "time"}),
                     )
             if "type" in columns:
                 _record_dedup_scope(
                     dedup_scopes,
                     Dataset.history_deals,
-                    f"type NOT IN {_TRADE_DEAL_TYPES_SQL} AND time >= ?",
-                    (account_event_start,),
+                    f"type NOT IN {_TRADE_DEAL_TYPES_SQL}"
+                    " AND julianday(time) >= julianday(?)",
+                    (_require_serialized_sqlite_timestamp(account_event_start),),
                     frozenset({"type", "time"}),
                 )
             if "type" not in columns and "symbol" in columns:
                 _record_dedup_scope(
                     dedup_scopes,
                     Dataset.history_deals,
-                    "(symbol IS NULL OR symbol = '') AND time >= ?",
-                    (account_event_start,),
+                    "(symbol IS NULL OR symbol = '')"
+                    " AND julianday(time) >= julianday(?)",
+                    (_require_serialized_sqlite_timestamp(account_event_start),),
                     frozenset({"symbol", "time"}),
                 )
         return

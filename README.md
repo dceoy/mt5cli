@@ -302,7 +302,11 @@ WHERE run_id = (SELECT MAX(run_id) FROM snapshot_runs WHERE status = 'ok');
 SELECT symbol, total_profit FROM grafana_trade_stats ORDER BY total_profit DESC;
 ```
 
-> **Note**: OpenTelemetry integration is intentionally not part of this release and is tracked separately.
+#### Grafana and telemetry API docs
+
+The shipped Grafana helpers are documented in [`docs/api/grafana.md`](docs/api/grafana.md), including `publish_grafana_copy()` for creating a WAL-safe published SQLite copy for Grafana.
+
+OpenTelemetry metrics are documented in [`docs/api/telemetry.md`](docs/api/telemetry.md), including `enable_otel_metrics()`, `configure_metrics()`, the `mt5cli[otel]` extra, and `OTEL_EXPORTER_OTLP_ENDPOINT`.
 
 ### Incremental history SDK
 

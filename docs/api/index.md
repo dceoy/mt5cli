@@ -18,6 +18,8 @@ responsibilities.
 | [SDK](sdk.md)                             | Module-level fetch helpers, multi-account collectors, incremental history |
 | [Trading](trading.md)                     | Trading-capable sessions and operational helpers                          |
 | [History Collection (SQLite)](history.md) | SQLite schema, incremental writes, dedup, and rate views                  |
+| [Telemetry](telemetry.md)                 | OpenTelemetry metrics setup, meters, and emitted metric names             |
+| [Grafana](grafana.md)                     | Grafana-ready SQLite schema, views, snapshots, and published copies       |
 | [CLI](cli.md)                             | Typer commands that delegate to the Python API                            |
 | [Utils](utils.md)                         | Parsing helpers and Click parameter types                                 |
 
