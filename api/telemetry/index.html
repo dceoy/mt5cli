@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        <meta name="author" content="dceoy">
+        <link rel="canonical" href="https://github.com/dceoy/mt5cli/api/telemetry/">
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>Telemetry - mt5cli API Documentation</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../../assets/_mkdocstrings.css" rel="stylesheet">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">mt5cli API Documentation</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href="../.." class="nav-link">Home</a>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">API Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../" class="dropdown-item">Overview</a>
+</li>
+                                    
+<li>
+    <a href="../public-contract/" class="dropdown-item">Public API Contract</a>
+</li>
+                                    
+<li>
+    <a href="../client/" class="dropdown-item">Client</a>
+</li>
+                                    
+<li>
+    <a href="../schemas/" class="dropdown-item">Schemas</a>
+</li>
+                                    
+<li>
+    <a href="../converters/" class="dropdown-item">Converters</a>
+</li>
+                                    
+<li>
+    <a href="../exceptions/" class="dropdown-item">Exceptions</a>
+</li>
+                                    
+<li>
+    <a href="../cli/" class="dropdown-item">CLI</a>
+</li>
+                                    
+<li>
+    <a href="../sdk/" class="dropdown-item">SDK</a>
+</li>
+                                    
+<li>
+    <a href="../trading/" class="dropdown-item">Trading</a>
+</li>
+                                    
+<li>
+    <a href="../history/" class="dropdown-item">History Collection (SQLite)</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">Telemetry</a>
+</li>
+                                    
+<li>
+    <a href="../grafana/" class="dropdown-item">Grafana</a>
+</li>
+                                    
+<li>
+    <a href="../utils/" class="dropdown-item">Utils</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href="../history/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../grafana/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/dceoy/mt5cli/edit/master/docs/api/telemetry.md" class="nav-link">Edit on dceoy/mt5cli
+                                    </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#telemetry" class="nav-link">Telemetry</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#mt5cli.telemetry" class="nav-link">telemetry</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#enabling-opentelemetry-metrics" class="nav-link">Enabling OpenTelemetry metrics</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#emitted-metric-names" class="nav-link">Emitted metric names</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="telemetry">Telemetry<a class="headerlink" href="#telemetry" title="Permanent link">&para;</a></h1>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="mt5cli.telemetry" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">mt5cli.telemetry</span>
+
+
+<a href="#mt5cli.telemetry" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Optional OpenTelemetry metrics for MT5 history and snapshot observability.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="mt5cli.telemetry.logger" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">logger</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#mt5cli.telemetry.logger" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">logger</span> <span class="o">=</span> <span class="n"><span title="logging.getLogger">getLogger</span></span><span class="p">(</span><span class="n"><span title="__name__">__name__</span></span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="mt5cli.telemetry.configure_metrics" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">configure_metrics</span>
+
+
+<a href="#mt5cli.telemetry.configure_metrics" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">configure_metrics</span><span class="p">(</span><span class="n">meter</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Configure MT5 metrics using the provided meter.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>meter</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>An OpenTelemetry <code>Meter</code> or duck-typed compatible object.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>mt5cli/telemetry.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-291">291</a></span>
+<span class="normal"><a href="#__codelineno-0-292">292</a></span>
+<span class="normal"><a href="#__codelineno-0-293">293</a></span>
+<span class="normal"><a href="#__codelineno-0-294">294</a></span>
+<span class="normal"><a href="#__codelineno-0-295">295</a></span>
+<span class="normal"><a href="#__codelineno-0-296">296</a></span>
+<span class="normal"><a href="#__codelineno-0-297">297</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-291" name="__codelineno-0-291"></a><span class="k">def</span><span class="w"> </span><span class="nf">configure_metrics</span><span class="p">(</span><span class="n">meter</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>  <span class="c1"># noqa: ANN401</span>
+<a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Configure MT5 metrics using the provided meter.</span>
+<a id="__codelineno-0-293" name="__codelineno-0-293"></a>
+<a id="__codelineno-0-294" name="__codelineno-0-294"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-295" name="__codelineno-0-295"></a><span class="sd">        meter: An OpenTelemetry ``Meter`` or duck-typed compatible object.</span>
+<a id="__codelineno-0-296" name="__codelineno-0-296"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-297" name="__codelineno-0-297"></a>    <span class="n">_metrics</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">meter</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="mt5cli.telemetry.enable_otel_metrics" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">enable_otel_metrics</span>
+
+
+<a href="#mt5cli.telemetry.enable_otel_metrics" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">enable_otel_metrics</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">service_name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;mt5cli&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">readers</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Enable OTel metrics by wiring up an SDK <code>MeterProvider</code> pipeline.</p>
+<p>Requires the <code>otel</code> optional dependency group:
+<code>pip install "mt5cli[otel]"</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>service_name</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>OTel meter/service name used for the <code>Resource</code> and
+the meter itself.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;mt5cli&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>readers</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="typing.Any">Any</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional list of metric readers. When <em>None</em> (the default),
+a :class:<code>~opentelemetry.sdk.metrics.export.PeriodicExportingMetricReader</code>
+backed by an OTLP HTTP exporter is created automatically
+(reads the endpoint from <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>).
+Pass a custom list (e.g. <code>InMemoryMetricReader</code> for tests)
+to override.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ImportError">ImportError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>opentelemetry-api</code> is not installed, or if
+<code>readers</code> is <em>None</em> and
+<code>opentelemetry-exporter-otlp-proto-http</code> is not installed.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>mt5cli/telemetry.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-300">300</a></span>
+<span class="normal"><a href="#__codelineno-0-301">301</a></span>
+<span class="normal"><a href="#__codelineno-0-302">302</a></span>
+<span class="normal"><a href="#__codelineno-0-303">303</a></span>
+<span class="normal"><a href="#__codelineno-0-304">304</a></span>
+<span class="normal"><a href="#__codelineno-0-305">305</a></span>
+<span class="normal"><a href="#__codelineno-0-306">306</a></span>
+<span class="normal"><a href="#__codelineno-0-307">307</a></span>
+<span class="normal"><a href="#__codelineno-0-308">308</a></span>
+<span class="normal"><a href="#__codelineno-0-309">309</a></span>
+<span class="normal"><a href="#__codelineno-0-310">310</a></span>
+<span class="normal"><a href="#__codelineno-0-311">311</a></span>
+<span class="normal"><a href="#__codelineno-0-312">312</a></span>
+<span class="normal"><a href="#__codelineno-0-313">313</a></span>
+<span class="normal"><a href="#__codelineno-0-314">314</a></span>
+<span class="normal"><a href="#__codelineno-0-315">315</a></span>
+<span class="normal"><a href="#__codelineno-0-316">316</a></span>
+<span class="normal"><a href="#__codelineno-0-317">317</a></span>
+<span class="normal"><a href="#__codelineno-0-318">318</a></span>
+<span class="normal"><a href="#__codelineno-0-319">319</a></span>
+<span class="normal"><a href="#__codelineno-0-320">320</a></span>
+<span class="normal"><a href="#__codelineno-0-321">321</a></span>
+<span class="normal"><a href="#__codelineno-0-322">322</a></span>
+<span class="normal"><a href="#__codelineno-0-323">323</a></span>
+<span class="normal"><a href="#__codelineno-0-324">324</a></span>
+<span class="normal"><a href="#__codelineno-0-325">325</a></span>
+<span class="normal"><a href="#__codelineno-0-326">326</a></span>
+<span class="normal"><a href="#__codelineno-0-327">327</a></span>
+<span class="normal"><a href="#__codelineno-0-328">328</a></span>
+<span class="normal"><a href="#__codelineno-0-329">329</a></span>
+<span class="normal"><a href="#__codelineno-0-330">330</a></span>
+<span class="normal"><a href="#__codelineno-0-331">331</a></span>
+<span class="normal"><a href="#__codelineno-0-332">332</a></span>
+<span class="normal"><a href="#__codelineno-0-333">333</a></span>
+<span class="normal"><a href="#__codelineno-0-334">334</a></span>
+<span class="normal"><a href="#__codelineno-0-335">335</a></span>
+<span class="normal"><a href="#__codelineno-0-336">336</a></span>
+<span class="normal"><a href="#__codelineno-0-337">337</a></span>
+<span class="normal"><a href="#__codelineno-0-338">338</a></span>
+<span class="normal"><a href="#__codelineno-0-339">339</a></span>
+<span class="normal"><a href="#__codelineno-0-340">340</a></span>
+<span class="normal"><a href="#__codelineno-0-341">341</a></span>
+<span class="normal"><a href="#__codelineno-0-342">342</a></span>
+<span class="normal"><a href="#__codelineno-0-343">343</a></span>
+<span class="normal"><a href="#__codelineno-0-344">344</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-300" name="__codelineno-0-300"></a><span class="k">def</span><span class="w"> </span><span class="nf">enable_otel_metrics</span><span class="p">(</span>
+<a id="__codelineno-0-301" name="__codelineno-0-301"></a>    <span class="n">service_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mt5cli&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-302" name="__codelineno-0-302"></a>    <span class="n">readers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-303" name="__codelineno-0-303"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-304" name="__codelineno-0-304"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Enable OTel metrics by wiring up an SDK ``MeterProvider`` pipeline.</span>
+<a id="__codelineno-0-305" name="__codelineno-0-305"></a>
+<a id="__codelineno-0-306" name="__codelineno-0-306"></a><span class="sd">    Requires the ``otel`` optional dependency group:</span>
+<a id="__codelineno-0-307" name="__codelineno-0-307"></a><span class="sd">    ``pip install &quot;mt5cli[otel]&quot;``.</span>
+<a id="__codelineno-0-308" name="__codelineno-0-308"></a>
+<a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-310" name="__codelineno-0-310"></a><span class="sd">        service_name: OTel meter/service name used for the ``Resource`` and</span>
+<a id="__codelineno-0-311" name="__codelineno-0-311"></a><span class="sd">            the meter itself.</span>
+<a id="__codelineno-0-312" name="__codelineno-0-312"></a><span class="sd">        readers: Optional list of metric readers. When *None* (the default),</span>
+<a id="__codelineno-0-313" name="__codelineno-0-313"></a><span class="sd">            a :class:`~opentelemetry.sdk.metrics.export.PeriodicExportingMetricReader`</span>
+<a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="sd">            backed by an OTLP HTTP exporter is created automatically</span>
+<a id="__codelineno-0-315" name="__codelineno-0-315"></a><span class="sd">            (reads the endpoint from ``OTEL_EXPORTER_OTLP_ENDPOINT``).</span>
+<a id="__codelineno-0-316" name="__codelineno-0-316"></a><span class="sd">            Pass a custom list (e.g. ``InMemoryMetricReader`` for tests)</span>
+<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">            to override.</span>
+<a id="__codelineno-0-318" name="__codelineno-0-318"></a>
+<a id="__codelineno-0-319" name="__codelineno-0-319"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-320" name="__codelineno-0-320"></a><span class="sd">        ImportError: If ``opentelemetry-api`` is not installed, or if</span>
+<a id="__codelineno-0-321" name="__codelineno-0-321"></a><span class="sd">            ``readers`` is *None* and</span>
+<a id="__codelineno-0-322" name="__codelineno-0-322"></a><span class="sd">            ``opentelemetry-exporter-otlp-proto-http`` is not installed.</span>
+<a id="__codelineno-0-323" name="__codelineno-0-323"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-324" name="__codelineno-0-324"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">_OTEL_AVAILABLE</span><span class="p">:</span>
+<a id="__codelineno-0-325" name="__codelineno-0-325"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-0-326" name="__codelineno-0-326"></a>            <span class="s2">&quot;opentelemetry-api is not installed. &quot;</span>
+<a id="__codelineno-0-327" name="__codelineno-0-327"></a>            <span class="s1">&#39;Install it with: pip install &quot;mt5cli[otel]&quot;&#39;</span>
+<a id="__codelineno-0-328" name="__codelineno-0-328"></a>        <span class="p">)</span>
+<a id="__codelineno-0-329" name="__codelineno-0-329"></a>        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<a id="__codelineno-0-330" name="__codelineno-0-330"></a>    <span class="k">if</span> <span class="n">readers</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-331" name="__codelineno-0-331"></a>        <span class="k">if</span> <span class="n">_OtelOTLPExporter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-332" name="__codelineno-0-332"></a>            <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-0-333" name="__codelineno-0-333"></a>                <span class="s2">&quot;opentelemetry-exporter-otlp-proto-http is required for the &quot;</span>
+<a id="__codelineno-0-334" name="__codelineno-0-334"></a>                <span class="s2">&quot;default OTLP export pipeline. &quot;</span>
+<a id="__codelineno-0-335" name="__codelineno-0-335"></a>                <span class="s1">&#39;Install it with: pip install &quot;mt5cli[otel]&quot; or pass a &#39;</span>
+<a id="__codelineno-0-336" name="__codelineno-0-336"></a>                <span class="s2">&quot;custom readers list.&quot;</span>
+<a id="__codelineno-0-337" name="__codelineno-0-337"></a>            <span class="p">)</span>
+<a id="__codelineno-0-338" name="__codelineno-0-338"></a>            <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a>        <span class="n">readers</span> <span class="o">=</span> <span class="p">[</span><span class="n">_OtelPeriodicReader</span><span class="p">(</span><span class="n">_OtelOTLPExporter</span><span class="p">())]</span>  <span class="c1"># type: ignore[misc]</span>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a>    <span class="n">resource</span> <span class="o">=</span> <span class="n">_OtelResource</span><span class="o">.</span><span class="n">create</span><span class="p">({</span><span class="s2">&quot;service.name&quot;</span><span class="p">:</span> <span class="n">service_name</span><span class="p">})</span>  <span class="c1"># type: ignore[union-attr]</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a>    <span class="n">provider</span> <span class="o">=</span> <span class="n">_OtelMeterProvider</span><span class="p">(</span><span class="n">resource</span><span class="o">=</span><span class="n">resource</span><span class="p">,</span> <span class="n">metric_readers</span><span class="o">=</span><span class="n">readers</span><span class="p">)</span>  <span class="c1"># type: ignore[misc]</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a>    <span class="n">_otel_metrics_mod</span><span class="o">.</span><span class="n">set_meter_provider</span><span class="p">(</span><span class="n">provider</span><span class="p">)</span>  <span class="c1"># type: ignore[union-attr]</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a>    <span class="n">meter</span> <span class="o">=</span> <span class="n">provider</span><span class="o">.</span><span class="n">get_meter</span><span class="p">(</span><span class="n">service_name</span><span class="p">)</span>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a>    <span class="n">configure_metrics</span><span class="p">(</span><span class="n">meter</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="mt5cli.telemetry.get_metrics" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_metrics</span>
+
+
+<a href="#mt5cli.telemetry.get_metrics" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_metrics</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="mt5cli.telemetry._Mt5Metrics">_Mt5Metrics</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the global :class:<code>_Mt5Metrics</code> instance.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="mt5cli.telemetry._Mt5Metrics">_Mt5Metrics</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The global metric registry (no-op until :func:<code>configure_metrics</code> is</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="mt5cli.telemetry._Mt5Metrics">_Mt5Metrics</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>called).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>mt5cli/telemetry.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-347">347</a></span>
+<span class="normal"><a href="#__codelineno-0-348">348</a></span>
+<span class="normal"><a href="#__codelineno-0-349">349</a></span>
+<span class="normal"><a href="#__codelineno-0-350">350</a></span>
+<span class="normal"><a href="#__codelineno-0-351">351</a></span>
+<span class="normal"><a href="#__codelineno-0-352">352</a></span>
+<span class="normal"><a href="#__codelineno-0-353">353</a></span>
+<span class="normal"><a href="#__codelineno-0-354">354</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_metrics</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">_Mt5Metrics</span><span class="p">:</span>
+<a id="__codelineno-0-348" name="__codelineno-0-348"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the global :class:`_Mt5Metrics` instance.</span>
+<a id="__codelineno-0-349" name="__codelineno-0-349"></a>
+<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">        The global metric registry (no-op until :func:`configure_metrics` is</span>
+<a id="__codelineno-0-352" name="__codelineno-0-352"></a><span class="sd">        called).</span>
+<a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-354" name="__codelineno-0-354"></a>    <span class="k">return</span> <span class="n">_metrics</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="enabling-opentelemetry-metrics">Enabling OpenTelemetry metrics<a class="headerlink" href="#enabling-opentelemetry-metrics" title="Permanent link">&para;</a></h2>
+<p>Install the optional exporter dependencies with:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s1">&#39;mt5cli[otel]&#39;</span>
+</code></pre></div>
+<p>Then enable the default OTLP HTTP pipeline:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli.telemetry</span><span class="w"> </span><span class="kn">import</span> <span class="n">enable_otel_metrics</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">enable_otel_metrics</span><span class="p">(</span><span class="n">service_name</span><span class="o">=</span><span class="s2">&quot;mt5cli&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>When <code>readers=None</code>, <code>enable_otel_metrics()</code> builds a
+<code>PeriodicExportingMetricReader</code> backed by the OTLP HTTP exporter and reads the
+endpoint from <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>.</p>
+<p>If your application already owns an OpenTelemetry <code>Meter</code>, wire mt5cli into it
+directly with <code>configure_metrics(meter)</code>.</p>
+<h2 id="emitted-metric-names">Emitted metric names<a class="headerlink" href="#emitted-metric-names" title="Permanent link">&para;</a></h2>
+<p><code>enable_otel_metrics()</code> / <code>configure_metrics()</code> register these instruments:</p>
+<ul>
+<li><code>mt5_history_update_duration_seconds</code></li>
+<li><code>mt5_history_update_rows_total</code></li>
+<li><code>mt5_history_update_failures_total</code></li>
+<li><code>mt5_snapshot_update_duration_seconds</code></li>
+<li><code>mt5_snapshot_update_failures_total</code></li>
+<li><code>mt5_account_balance</code></li>
+<li><code>mt5_account_equity</code></li>
+<li><code>mt5_account_margin</code></li>
+<li><code>mt5_account_margin_free</code></li>
+<li><code>mt5_account_margin_level</code></li>
+<li><code>mt5_position_profit</code></li>
+<li><code>mt5_position_volume</code></li>
+<li><code>mt5_terminal_connected</code></li>
+<li><code>mt5_terminal_trade_allowed</code></li>
+<li><code>mt5_terminal_trade_expert</code></li>
+<li><code>mt5_last_successful_update_timestamp</code></li>
+</ul>
+<p>The history metrics use a <code>dataset</code> attribute. Account and position gauges add
+labels such as <code>login</code>, <code>server</code>, and <code>symbol</code> where applicable.</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+        <script src="../../search/main.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
