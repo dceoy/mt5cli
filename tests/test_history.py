@@ -834,61 +834,166 @@ class TestIncrementalStart:
         assert starts["EURUSD", 1] == datetime(2024, 1, 2, tzinfo=UTC)
         assert starts["GBPUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
 
-    def test_load_incremental_start_datetimes_prefers_latest_rate_row_per_group(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test grouped rates resume keeps only the latest row per symbol/timeframe."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "duplicate-rate-groups.db") as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
-            )
-            conn.executemany(
-                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+    @pytest.mark.parametrize(
+        (
+            "dataset",
+            "db_name",
+            "ddl",
+            "insert_sql",
+            "insert_rows",
+            "symbols",
+            "timeframes",
+            "expected_starts",
+        ),
+        [
+            pytest.param(
+                Dataset.rates,
+                "duplicate-rate-groups",
+                (
+                    "CREATE TABLE rates("
+                    " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)"
+                ),
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
                 [
                     ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.2),
                     ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 1.1),
                     ("GBPUSD", 1, "2024-01-04T00:00:00+00:00", 1.3),
                 ],
-            )
-            starts = load_incremental_start_datetimes(
-                conn,
-                Dataset.rates,
-                symbols=["EURUSD", "GBPUSD"],
-                timeframes=[1],
-                fallback_start=fallback,
-            )
-        assert starts["EURUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
-        assert starts["GBPUSD", 1] == datetime(2024, 1, 4, tzinfo=UTC)
-
-    def test_load_incremental_start_datetimes_accepts_numeric_rate_cursor(
+                ["EURUSD", "GBPUSD"],
+                [1],
+                {
+                    ("EURUSD", 1): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", 1): datetime(2024, 1, 4, tzinfo=UTC),
+                },
+                id="rates-latest-row-per-group",
+            ),
+            pytest.param(
+                Dataset.ticks,
+                "duplicate-symbol-groups",
+                "CREATE TABLE ticks(symbol TEXT, time TEXT)",
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                [
+                    ("EURUSD", "2024-01-03T00:00:00+00:00"),
+                    ("EURUSD", "2024-01-02T00:00:00+00:00"),
+                    ("GBPUSD", "2024-01-04T00:00:00+00:00"),
+                ],
+                ["EURUSD", "GBPUSD"],
+                None,
+                {
+                    ("EURUSD", None): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", None): datetime(2024, 1, 4, tzinfo=UTC),
+                },
+                id="ticks-latest-row-per-symbol",
+            ),
+        ],
+    )
+    def test_load_incremental_start_prefers_latest_row_per_group(
         self,
         tmp_path: Path,
+        dataset: Dataset,
+        db_name: str,
+        ddl: str,
+        insert_sql: str,
+        insert_rows: list[tuple[object, ...]],
+        symbols: list[str],
+        timeframes: list[int] | None,
+        expected_starts: dict[tuple[str, int | None], datetime],
     ) -> None:
-        """Test grouped rates resume preserves numeric epoch cursors."""
+        """Test incremental resume keeps only the latest row per scoped group."""
         fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "numeric-rate-cursor.db") as conn:
-            conn.execute(
-                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.executemany(insert_sql, insert_rows)
+            starts = load_incremental_start_datetimes(
+                conn,
+                dataset,
+                symbols=symbols,
+                timeframes=timeframes,
+                fallback_start=fallback,
             )
-            conn.executemany(
-                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+        for key, expected in expected_starts.items():
+            assert starts[key] == expected
+
+    @pytest.mark.parametrize(
+        (
+            "dataset",
+            "db_name",
+            "ddl",
+            "insert_sql",
+            "insert_rows",
+            "symbols",
+            "timeframes",
+            "expected_starts",
+        ),
+        [
+            pytest.param(
+                Dataset.rates,
+                "numeric-rate-cursor",
+                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
                 [
                     ("EURUSD", 1, 1704153600, 1.2),
                     ("GBPUSD", 1, "2024-01-03T00:00:00+00:00", 1.3),
                 ],
-            )
+                ["EURUSD", "GBPUSD"],
+                [1],
+                {
+                    ("EURUSD", 1): datetime(2024, 1, 2, tzinfo=UTC),
+                    ("GBPUSD", 1): datetime(2024, 1, 3, tzinfo=UTC),
+                },
+                id="rates-numeric-cursor",
+            ),
+            pytest.param(
+                Dataset.ticks,
+                "numeric-symbol-cursor",
+                "CREATE TABLE ticks(symbol TEXT, time)",
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                [
+                    ("EURUSD", 1704153600),
+                    ("GBPUSD", "2024-01-03T00:00:00+00:00"),
+                ],
+                ["EURUSD", "GBPUSD"],
+                None,
+                {
+                    ("EURUSD", None): datetime(2024, 1, 2, tzinfo=UTC),
+                    ("GBPUSD", None): datetime(2024, 1, 3, tzinfo=UTC),
+                },
+                id="ticks-numeric-cursor",
+            ),
+        ],
+    )
+    def test_load_incremental_start_accepts_numeric_cursor(
+        self,
+        tmp_path: Path,
+        dataset: Dataset,
+        db_name: str,
+        ddl: str,
+        insert_sql: str,
+        insert_rows: list[tuple[object, ...]],
+        symbols: list[str],
+        timeframes: list[int] | None,
+        expected_starts: dict[tuple[str, int | None], datetime],
+    ) -> None:
+        """Test incremental resume preserves numeric epoch cursors."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.executemany(insert_sql, insert_rows)
             starts = load_incremental_start_datetimes(
                 conn,
-                Dataset.rates,
-                symbols=["EURUSD", "GBPUSD"],
-                timeframes=[1],
+                dataset,
+                symbols=symbols,
+                timeframes=timeframes,
                 fallback_start=fallback,
             )
-        assert starts["EURUSD", 1] == datetime(2024, 1, 2, tzinfo=UTC)
-        assert starts["GBPUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
+        for key, expected in expected_starts.items():
+            assert starts[key] == expected
 
     @pytest.mark.parametrize(
         ("ddl", "missing_col"),
@@ -1029,115 +1134,96 @@ class TestIncrementalStart:
         assert starts["EURUSD", None] == expected
         assert starts["GBPUSD", None] == expected
 
-    def test_load_incremental_start_prefers_latest_symbol_row(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test symbol-scoped resume keeps the latest parseable row per symbol."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "duplicate-symbol-groups.db") as conn:
-            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
-            conn.executemany(
-                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
-                [
-                    ("EURUSD", "2024-01-03T00:00:00+00:00"),
-                    ("EURUSD", "2024-01-02T00:00:00+00:00"),
-                    ("GBPUSD", "2024-01-04T00:00:00+00:00"),
-                ],
-            )
-            starts = load_incremental_start_datetimes(
-                conn,
-                Dataset.ticks,
-                symbols=["EURUSD", "GBPUSD"],
-                fallback_start=fallback,
-            )
-        assert starts["EURUSD", None] == datetime(2024, 1, 3, tzinfo=UTC)
-        assert starts["GBPUSD", None] == datetime(2024, 1, 4, tzinfo=UTC)
-
-    def test_load_incremental_start_accepts_numeric_symbol_cursor(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test symbol-scoped resume preserves numeric epoch cursors."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "numeric-symbol-cursor.db") as conn:
-            conn.execute("CREATE TABLE ticks(symbol TEXT, time)")
-            conn.executemany(
-                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
-                [
-                    ("EURUSD", 1704153600),
-                    ("GBPUSD", "2024-01-03T00:00:00+00:00"),
-                ],
-            )
-            starts = load_incremental_start_datetimes(
-                conn,
-                Dataset.ticks,
-                symbols=["EURUSD", "GBPUSD"],
-                fallback_start=fallback,
-            )
-        assert starts["EURUSD", None] == datetime(2024, 1, 2, tzinfo=UTC)
-        assert starts["GBPUSD", None] == datetime(2024, 1, 3, tzinfo=UTC)
-
-    def test_grouped_rate_start_skips_rows_when_timestamp_parse_fails(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test grouped rate starts fall back when a parsed row returns None."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "grouped-rate-parse-none.db") as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
-            )
-            conn.execute(
-                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
-                ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.2),
-            )
-            mocker.patch.object(history, "parse_sqlite_timestamp", return_value=None)
-            starts = history._load_grouped_rate_start_datetimes(  # type: ignore[reportPrivateUsage]
-                conn,
+    @pytest.mark.parametrize(
+        (
+            "db_name",
+            "ddl",
+            "table_name",
+            "insert_sql",
+            "insert_args",
+            "loader_name",
+            "loader_kwargs",
+            "expected_key",
+        ),
+        [
+            pytest.param(
+                "grouped-rate-parse-none",
+                (
+                    "CREATE TABLE rates("
+                    " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)"
+                ),
                 "rates",
-                symbols=["EURUSD"],
-                timeframes=[1],
-                fallback_start=fallback,
-            )
-        assert starts["EURUSD", 1] == fallback
-
-    def test_symbol_start_skips_rows_when_timestamp_parse_fails(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test symbol-scoped starts fall back when a parsed row returns None."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "symbol-start-parse-none.db") as conn:
-            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
-            conn.execute(
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
+                ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.2),
+                "_load_grouped_rate_start_datetimes",
+                {"symbols": ["EURUSD"], "timeframes": [1]},
+                ("EURUSD", 1),
+                id="grouped-rate-parse-failure-fallback",
+            ),
+            pytest.param(
+                "symbol-start-parse-none",
+                "CREATE TABLE ticks(symbol TEXT, time TEXT)",
+                "ticks",
                 "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
                 ("EURUSD", "2024-01-03T00:00:00+00:00"),
-            )
-            mocker.patch.object(history, "parse_sqlite_timestamp", return_value=None)
-            starts = history._load_symbol_start_datetimes(  # type: ignore[reportPrivateUsage]
-                conn,
-                "ticks",
-                symbols=["EURUSD"],
-                fallback_start=fallback,
-            )
-        assert starts["EURUSD", None] == fallback
-
-    def test_grouped_rate_start_aggregates_mixed_legacy_timestamps(
+                "_load_symbol_start_datetimes",
+                {"symbols": ["EURUSD"]},
+                ("EURUSD", None),
+                id="symbol-scoped-parse-failure-fallback",
+            ),
+        ],
+    )
+    def test_incremental_start_skips_rows_when_timestamp_parse_fails(
         self,
         tmp_path: Path,
+        mocker: MockerFixture,
+        db_name: str,
+        ddl: str,
+        table_name: str,
+        insert_sql: str,
+        insert_args: tuple[object, ...],
+        loader_name: str,
+        loader_kwargs: dict[str, object],
+        expected_key: tuple[str, int | None],
     ) -> None:
-        """Test grouped rate resume uses SQL MAX over mixed legacy time formats."""
+        """Test incremental starts fall back when a parsed row returns None."""
         fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "grouped-rate-mixed-formats.db") as conn:
-            conn.execute(
-                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.execute(insert_sql, insert_args)
+            mocker.patch.object(history, "parse_sqlite_timestamp", return_value=None)
+            loader = getattr(history, loader_name)
+            starts = loader(
+                conn,
+                table_name,
+                fallback_start=fallback,
+                **loader_kwargs,
             )
-            conn.executemany(
-                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+        assert starts[expected_key] == fallback
+
+    @pytest.mark.parametrize(
+        (
+            "db_name",
+            "ddl",
+            "table_name",
+            "insert_sql",
+            "insert_rows",
+            "loader_name",
+            "loader_kwargs",
+            "expected_starts",
+        ),
+        [
+            pytest.param(
+                "grouped-rate-mixed-formats",
+                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+                "rates",
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
                 [
                     ("EURUSD", 1, "2024-01-02 00:00:00", 1.0),
                     ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.1),
@@ -1145,59 +1231,18 @@ class TestIncrementalStart:
                     ("GBPUSD", 1, 1704153600, 1.3),
                     ("GBPUSD", 1, "2024-01-04T00:00:00+00:00", 1.4),
                 ],
-            )
-            starts = history._load_grouped_rate_start_datetimes(  # type: ignore[reportPrivateUsage]
-                conn,
-                "rates",
-                symbols=["EURUSD", "GBPUSD"],
-                timeframes=[1],
-                fallback_start=fallback,
-            )
-        assert starts["EURUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
-        assert starts["GBPUSD", 1] == datetime(2024, 1, 4, tzinfo=UTC)
-
-    def test_grouped_rate_start_query_uses_sqlite_aggregation(
-        self,
-        tmp_path: Path,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test grouped rate resume aggregates in SQLite instead of scanning rows."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "grouped-rate-aggregation.db") as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
-            )
-            conn.executemany(
-                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
-                [
-                    ("EURUSD", 1, f"2024-01-01T{hour:02d}:00:00+00:00", float(hour))
-                    for hour in range(24)
-                ],
-            )
-            execute_spy = mocker.spy(conn, "execute")
-            starts = history._load_grouped_rate_start_datetimes(  # type: ignore[reportPrivateUsage]
-                conn,
-                "rates",
-                symbols=["EURUSD"],
-                timeframes=[1],
-                fallback_start=fallback,
-            )
-            query = str(execute_spy.call_args[0][0])
-        assert "MAX(" in query
-        assert "GROUP BY symbol, timeframe" in query
-        assert "ORDER BY" not in query
-        assert starts["EURUSD", 1] == datetime(2024, 1, 1, 23, tzinfo=UTC)
-
-    def test_symbol_start_aggregates_mixed_legacy_timestamps(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Test symbol resume uses SQL MAX over mixed legacy time formats."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "symbol-mixed-formats.db") as conn:
-            conn.execute("CREATE TABLE ticks(symbol TEXT, time)")
-            conn.executemany(
+                "_load_grouped_rate_start_datetimes",
+                {"symbols": ["EURUSD", "GBPUSD"], "timeframes": [1]},
+                {
+                    ("EURUSD", 1): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", 1): datetime(2024, 1, 4, tzinfo=UTC),
+                },
+                id="grouped-rate-mixed-legacy-timestamps",
+            ),
+            pytest.param(
+                "symbol-mixed-formats",
+                "CREATE TABLE ticks(symbol TEXT, time)",
+                "ticks",
                 "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
                 [
                     ("EURUSD", "2024-01-02 00:00:00"),
@@ -1206,44 +1251,131 @@ class TestIncrementalStart:
                     ("GBPUSD", 1704153600),
                     ("GBPUSD", "2024-01-04T00:00:00+00:00"),
                 ],
-            )
-            starts = history._load_symbol_start_datetimes(  # type: ignore[reportPrivateUsage]
-                conn,
-                "ticks",
-                symbols=["EURUSD", "GBPUSD"],
-                fallback_start=fallback,
-            )
-        assert starts["EURUSD", None] == datetime(2024, 1, 3, tzinfo=UTC)
-        assert starts["GBPUSD", None] == datetime(2024, 1, 4, tzinfo=UTC)
-
-    def test_symbol_start_query_uses_sqlite_aggregation(
+                "_load_symbol_start_datetimes",
+                {"symbols": ["EURUSD", "GBPUSD"]},
+                {
+                    ("EURUSD", None): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", None): datetime(2024, 1, 4, tzinfo=UTC),
+                },
+                id="symbol-scoped-mixed-legacy-timestamps",
+            ),
+        ],
+    )
+    def test_incremental_start_aggregates_mixed_legacy_timestamps(
         self,
         tmp_path: Path,
-        mocker: MockerFixture,
+        db_name: str,
+        ddl: str,
+        table_name: str,
+        insert_sql: str,
+        insert_rows: list[tuple[object, ...]],
+        loader_name: str,
+        loader_kwargs: dict[str, object],
+        expected_starts: dict[tuple[str, int | None], datetime],
     ) -> None:
-        """Test symbol resume aggregates in SQLite instead of scanning rows."""
+        """Test incremental resume uses SQL MAX over mixed legacy time formats."""
         fallback = datetime(2024, 1, 1, tzinfo=UTC)
-        with sqlite3.connect(tmp_path / "symbol-aggregation.db") as conn:
-            conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT)")
-            conn.executemany(
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.executemany(insert_sql, insert_rows)
+            loader = getattr(history, loader_name)
+            starts = loader(
+                conn,
+                table_name,
+                fallback_start=fallback,
+                **loader_kwargs,
+            )
+        for key, expected in expected_starts.items():
+            assert starts[key] == expected
+
+    @pytest.mark.parametrize(
+        (
+            "db_name",
+            "ddl",
+            "table_name",
+            "insert_sql",
+            "insert_rows",
+            "loader_name",
+            "loader_kwargs",
+            "expected",
+        ),
+        [
+            pytest.param(
+                "grouped-rate-aggregation",
+                (
+                    "CREATE TABLE rates("
+                    " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)"
+                ),
+                "rates",
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
+                [
+                    ("EURUSD", 1, f"2024-01-01T{hour:02d}:00:00+00:00", float(hour))
+                    for hour in range(24)
+                ],
+                "_load_grouped_rate_start_datetimes",
+                {"symbols": ["EURUSD"], "timeframes": [1]},
+                (
+                    "GROUP BY symbol, timeframe",
+                    ("EURUSD", 1),
+                    datetime(2024, 1, 1, 23, tzinfo=UTC),
+                ),
+                id="grouped-rate-sqlite-aggregation",
+            ),
+            pytest.param(
+                "symbol-aggregation",
+                "CREATE TABLE ticks(symbol TEXT, time TEXT)",
+                "ticks",
                 "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
                 [
                     ("EURUSD", f"2024-01-01T{hour:02d}:00:00+00:00")
                     for hour in range(24)
                 ],
-            )
+                "_load_symbol_start_datetimes",
+                {"symbols": ["EURUSD"]},
+                (
+                    "GROUP BY symbol",
+                    ("EURUSD", None),
+                    datetime(2024, 1, 1, 23, tzinfo=UTC),
+                ),
+                id="symbol-scoped-sqlite-aggregation",
+            ),
+        ],
+    )
+    def test_incremental_start_query_uses_sqlite_aggregation(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+        db_name: str,
+        ddl: str,
+        table_name: str,
+        insert_sql: str,
+        insert_rows: list[tuple[object, ...]],
+        loader_name: str,
+        loader_kwargs: dict[str, object],
+        expected: tuple[str, tuple[str, int | None], datetime],
+    ) -> None:
+        """Test incremental resume aggregates in SQLite instead of scanning rows."""
+        expected_group_by, expected_key, expected_start = expected
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.executemany(insert_sql, insert_rows)
             execute_spy = mocker.spy(conn, "execute")
-            starts = history._load_symbol_start_datetimes(  # type: ignore[reportPrivateUsage]
+            loader = getattr(history, loader_name)
+            starts = loader(
                 conn,
-                "ticks",
-                symbols=["EURUSD"],
+                table_name,
                 fallback_start=fallback,
+                **loader_kwargs,
             )
             query = str(execute_spy.call_args[0][0])
         assert "MAX(" in query
-        assert "GROUP BY symbol" in query
+        assert expected_group_by in query
         assert "ORDER BY" not in query
-        assert starts["EURUSD", None] == datetime(2024, 1, 1, 23, tzinfo=UTC)
+        assert starts[expected_key] == expected_start
 
 
 class TestDeduplication:
