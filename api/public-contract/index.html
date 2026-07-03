@@ -205,8 +205,8 @@ The intended dependency direction is:</p>
 from <code>pdmt5</code> when needed. mt5cli does not serve as a pass-through compatibility
 namespace for pdmt5. mt5cli's trading helpers type their client parameter against
 an internal protocol backed by <code>pdmt5.Mt5DataClient</code>; <code>Mt5TradingClient</code> is no
-longer required. <code>Mt5TradingError</code> is conditionally imported where still present
-in pdmt5, but mt5cli raises <code>Mt5OperationError</code> for all trading-related failures.</p>
+longer required. <code>pdmt5.Mt5TradingError</code> was removed upstream in pdmt5 1.0.4;
+mt5cli raises <code>Mt5OperationError</code> for all trading-related failures.</p>
 <p>Note: the former <code>mt5cli</code> re-export <code>TICK_FLAG_MAP</code> corresponds to <code>COPY_TICKS_MAP</code>
 in pdmt5 — the name changed, it was not simply moved.</p>
 <p>Downstream packages should import from the package root (<code>from mt5cli import
