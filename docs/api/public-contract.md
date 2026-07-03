@@ -20,8 +20,8 @@ Downstream code should import raw pdmt5 types and constants (such as
 from `pdmt5` when needed. mt5cli does not serve as a pass-through compatibility
 namespace for pdmt5. mt5cli's trading helpers type their client parameter against
 an internal protocol backed by `pdmt5.Mt5DataClient`; `Mt5TradingClient` is no
-longer required. `Mt5TradingError` is conditionally imported where still present
-in pdmt5, but mt5cli raises `Mt5OperationError` for all trading-related failures.
+longer required. `pdmt5.Mt5TradingError` was removed upstream in pdmt5 1.0.4;
+mt5cli raises `Mt5OperationError` for all trading-related failures.
 
 Note: the former `mt5cli` re-export `TICK_FLAG_MAP` corresponds to `COPY_TICKS_MAP`
 in pdmt5 — the name changed, it was not simply moved.
