@@ -757,6 +757,17 @@ class TestParseSqliteTimestamp:
         """Test ISO, pandas-compatible, numeric, and datetime values."""
         assert parse_sqlite_timestamp(value) == expected
 
+    def test_serialize_invalid_timestamp_returns_none(self) -> None:
+        """Test invalid SQLite timestamp serialization returns None."""
+        assert history._serialize_sqlite_timestamp(object()) is None  # type: ignore[reportPrivateUsage]
+
+    def test_require_serialized_timestamp_raises_for_invalid(self) -> None:
+        """Test invalid SQLite timestamp boundaries fail fast."""
+        with pytest.raises(ValueError, match="Invalid SQLite timestamp boundary"):
+            history._require_serialized_sqlite_timestamp(  # type: ignore[reportPrivateUsage]
+                object()
+            )
+
 
 class TestIncrementalStart:
     """Tests for get_incremental_start_datetime."""
@@ -822,6 +833,167 @@ class TestIncrementalStart:
             )
         assert starts["EURUSD", 1] == datetime(2024, 1, 2, tzinfo=UTC)
         assert starts["GBPUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
+
+    @pytest.mark.parametrize(
+        (
+            "dataset",
+            "db_name",
+            "ddl",
+            "insert_sql",
+            "insert_rows",
+            "symbols",
+            "timeframes",
+            "expected_starts",
+        ),
+        [
+            pytest.param(
+                Dataset.rates,
+                "duplicate-rate-groups",
+                (
+                    "CREATE TABLE rates("
+                    " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)"
+                ),
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
+                [
+                    ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.2),
+                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 1.1),
+                    ("GBPUSD", 1, "2024-01-04T00:00:00+00:00", 1.3),
+                ],
+                ["EURUSD", "GBPUSD"],
+                [1],
+                {
+                    ("EURUSD", 1): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", 1): datetime(2024, 1, 4, tzinfo=UTC),
+                },
+                id="rates-latest-row-per-group",
+            ),
+            pytest.param(
+                Dataset.ticks,
+                "duplicate-symbol-groups",
+                "CREATE TABLE ticks(symbol TEXT, time TEXT)",
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                [
+                    ("EURUSD", "2024-01-03T00:00:00+00:00"),
+                    ("EURUSD", "2024-01-02T00:00:00+00:00"),
+                    ("GBPUSD", "2024-01-04T00:00:00+00:00"),
+                ],
+                ["EURUSD", "GBPUSD"],
+                None,
+                {
+                    ("EURUSD", None): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", None): datetime(2024, 1, 4, tzinfo=UTC),
+                },
+                id="ticks-latest-row-per-symbol",
+            ),
+        ],
+    )
+    def test_load_incremental_start_prefers_latest_row_per_group(
+        self,
+        tmp_path: Path,
+        dataset: Dataset,
+        db_name: str,
+        ddl: str,
+        insert_sql: str,
+        insert_rows: list[tuple[object, ...]],
+        symbols: list[str],
+        timeframes: list[int] | None,
+        expected_starts: dict[tuple[str, int | None], datetime],
+    ) -> None:
+        """Test incremental resume keeps only the latest row per scoped group."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.executemany(insert_sql, insert_rows)
+            starts = load_incremental_start_datetimes(
+                conn,
+                dataset,
+                symbols=symbols,
+                timeframes=timeframes,
+                fallback_start=fallback,
+            )
+        for key, expected in expected_starts.items():
+            assert starts[key] == expected
+
+    @pytest.mark.parametrize(
+        (
+            "dataset",
+            "db_name",
+            "ddl",
+            "insert_sql",
+            "insert_rows",
+            "symbols",
+            "timeframes",
+            "expected_starts",
+        ),
+        [
+            pytest.param(
+                Dataset.rates,
+                "numeric-rate-cursor",
+                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
+                [
+                    ("EURUSD", 1, 1704153600, 1.2),
+                    ("GBPUSD", 1, "2024-01-03T00:00:00+00:00", 1.3),
+                ],
+                ["EURUSD", "GBPUSD"],
+                [1],
+                {
+                    ("EURUSD", 1): datetime(2024, 1, 2, tzinfo=UTC),
+                    ("GBPUSD", 1): datetime(2024, 1, 3, tzinfo=UTC),
+                },
+                id="rates-numeric-cursor",
+            ),
+            pytest.param(
+                Dataset.ticks,
+                "numeric-symbol-cursor",
+                "CREATE TABLE ticks(symbol TEXT, time)",
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                [
+                    ("EURUSD", 1704153600),
+                    ("GBPUSD", "2024-01-03T00:00:00+00:00"),
+                ],
+                ["EURUSD", "GBPUSD"],
+                None,
+                {
+                    ("EURUSD", None): datetime(2024, 1, 2, tzinfo=UTC),
+                    ("GBPUSD", None): datetime(2024, 1, 3, tzinfo=UTC),
+                },
+                id="ticks-numeric-cursor",
+            ),
+        ],
+    )
+    def test_load_incremental_start_accepts_numeric_cursor(
+        self,
+        tmp_path: Path,
+        dataset: Dataset,
+        db_name: str,
+        ddl: str,
+        insert_sql: str,
+        insert_rows: list[tuple[object, ...]],
+        symbols: list[str],
+        timeframes: list[int] | None,
+        expected_starts: dict[tuple[str, int | None], datetime],
+    ) -> None:
+        """Test incremental resume preserves numeric epoch cursors."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.executemany(insert_sql, insert_rows)
+            starts = load_incremental_start_datetimes(
+                conn,
+                dataset,
+                symbols=symbols,
+                timeframes=timeframes,
+                fallback_start=fallback,
+            )
+        for key, expected in expected_starts.items():
+            assert starts[key] == expected
 
     @pytest.mark.parametrize(
         ("ddl", "missing_col"),
@@ -961,6 +1133,249 @@ class TestIncrementalStart:
         expected = datetime(2024, 1, 2, tzinfo=UTC)
         assert starts["EURUSD", None] == expected
         assert starts["GBPUSD", None] == expected
+
+    @pytest.mark.parametrize(
+        (
+            "db_name",
+            "ddl",
+            "table_name",
+            "insert_sql",
+            "insert_args",
+            "loader_name",
+            "loader_kwargs",
+            "expected_key",
+        ),
+        [
+            pytest.param(
+                "grouped-rate-parse-none",
+                (
+                    "CREATE TABLE rates("
+                    " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)"
+                ),
+                "rates",
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
+                ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.2),
+                "_load_grouped_rate_start_datetimes",
+                {"symbols": ["EURUSD"], "timeframes": [1]},
+                ("EURUSD", 1),
+                id="grouped-rate-parse-failure-fallback",
+            ),
+            pytest.param(
+                "symbol-start-parse-none",
+                "CREATE TABLE ticks(symbol TEXT, time TEXT)",
+                "ticks",
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                ("EURUSD", "2024-01-03T00:00:00+00:00"),
+                "_load_symbol_start_datetimes",
+                {"symbols": ["EURUSD"]},
+                ("EURUSD", None),
+                id="symbol-scoped-parse-failure-fallback",
+            ),
+        ],
+    )
+    def test_incremental_start_skips_rows_when_timestamp_parse_fails(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+        db_name: str,
+        ddl: str,
+        table_name: str,
+        insert_sql: str,
+        insert_args: tuple[object, ...],
+        loader_name: str,
+        loader_kwargs: dict[str, object],
+        expected_key: tuple[str, int | None],
+    ) -> None:
+        """Test incremental starts fall back when a parsed row returns None."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.execute(insert_sql, insert_args)
+            mocker.patch.object(history, "parse_sqlite_timestamp", return_value=None)
+            loader = getattr(history, loader_name)
+            starts = loader(
+                conn,
+                table_name,
+                fallback_start=fallback,
+                **loader_kwargs,
+            )
+        assert starts[expected_key] == fallback
+
+    @pytest.mark.parametrize(
+        (
+            "db_name",
+            "ddl",
+            "table_name",
+            "insert_sql",
+            "insert_rows",
+            "loader_name",
+            "loader_kwargs",
+            "expected_starts",
+        ),
+        [
+            pytest.param(
+                "grouped-rate-mixed-formats",
+                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+                "rates",
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
+                [
+                    ("EURUSD", 1, "2024-01-02 00:00:00", 1.0),
+                    ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.1),
+                    ("EURUSD", 1, 1704240000, 1.2),
+                    ("GBPUSD", 1, 1704153600, 1.3),
+                    ("GBPUSD", 1, "2024-01-04T00:00:00+00:00", 1.4),
+                ],
+                "_load_grouped_rate_start_datetimes",
+                {"symbols": ["EURUSD", "GBPUSD"], "timeframes": [1]},
+                {
+                    ("EURUSD", 1): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", 1): datetime(2024, 1, 4, tzinfo=UTC),
+                },
+                id="grouped-rate-mixed-legacy-timestamps",
+            ),
+            pytest.param(
+                "symbol-mixed-formats",
+                "CREATE TABLE ticks(symbol TEXT, time)",
+                "ticks",
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                [
+                    ("EURUSD", "2024-01-02 00:00:00"),
+                    ("EURUSD", "2024-01-03T00:00:00+00:00"),
+                    ("EURUSD", 1704240000),
+                    ("GBPUSD", 1704153600),
+                    ("GBPUSD", "2024-01-04T00:00:00+00:00"),
+                ],
+                "_load_symbol_start_datetimes",
+                {"symbols": ["EURUSD", "GBPUSD"]},
+                {
+                    ("EURUSD", None): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", None): datetime(2024, 1, 4, tzinfo=UTC),
+                },
+                id="symbol-scoped-mixed-legacy-timestamps",
+            ),
+        ],
+    )
+    def test_incremental_start_aggregates_mixed_legacy_timestamps(
+        self,
+        tmp_path: Path,
+        db_name: str,
+        ddl: str,
+        table_name: str,
+        insert_sql: str,
+        insert_rows: list[tuple[object, ...]],
+        loader_name: str,
+        loader_kwargs: dict[str, object],
+        expected_starts: dict[tuple[str, int | None], datetime],
+    ) -> None:
+        """Test incremental resume uses SQL MAX over mixed legacy time formats."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.executemany(insert_sql, insert_rows)
+            loader = getattr(history, loader_name)
+            starts = loader(
+                conn,
+                table_name,
+                fallback_start=fallback,
+                **loader_kwargs,
+            )
+        for key, expected in expected_starts.items():
+            assert starts[key] == expected
+
+    @pytest.mark.parametrize(
+        (
+            "db_name",
+            "ddl",
+            "table_name",
+            "insert_sql",
+            "insert_rows",
+            "loader_name",
+            "loader_kwargs",
+            "expected",
+        ),
+        [
+            pytest.param(
+                "grouped-rate-aggregation",
+                (
+                    "CREATE TABLE rates("
+                    " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)"
+                ),
+                "rates",
+                (
+                    "INSERT INTO rates(symbol, timeframe, time, open)"
+                    " VALUES (?, ?, ?, ?)"
+                ),
+                [
+                    ("EURUSD", 1, f"2024-01-01T{hour:02d}:00:00+00:00", float(hour))
+                    for hour in range(24)
+                ],
+                "_load_grouped_rate_start_datetimes",
+                {"symbols": ["EURUSD"], "timeframes": [1]},
+                (
+                    "GROUP BY symbol, timeframe",
+                    ("EURUSD", 1),
+                    datetime(2024, 1, 1, 23, tzinfo=UTC),
+                ),
+                id="grouped-rate-sqlite-aggregation",
+            ),
+            pytest.param(
+                "symbol-aggregation",
+                "CREATE TABLE ticks(symbol TEXT, time TEXT)",
+                "ticks",
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                [
+                    ("EURUSD", f"2024-01-01T{hour:02d}:00:00+00:00")
+                    for hour in range(24)
+                ],
+                "_load_symbol_start_datetimes",
+                {"symbols": ["EURUSD"]},
+                (
+                    "GROUP BY symbol",
+                    ("EURUSD", None),
+                    datetime(2024, 1, 1, 23, tzinfo=UTC),
+                ),
+                id="symbol-scoped-sqlite-aggregation",
+            ),
+        ],
+    )
+    def test_incremental_start_query_uses_sqlite_aggregation(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+        db_name: str,
+        ddl: str,
+        table_name: str,
+        insert_sql: str,
+        insert_rows: list[tuple[object, ...]],
+        loader_name: str,
+        loader_kwargs: dict[str, object],
+        expected: tuple[str, tuple[str, int | None], datetime],
+    ) -> None:
+        """Test incremental resume aggregates in SQLite instead of scanning rows."""
+        expected_group_by, expected_key, expected_start = expected
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
+            conn.execute(ddl)
+            conn.executemany(insert_sql, insert_rows)
+            execute_spy = mocker.spy(conn, "execute")
+            loader = getattr(history, loader_name)
+            starts = loader(
+                conn,
+                table_name,
+                fallback_start=fallback,
+                **loader_kwargs,
+            )
+            query = str(execute_spy.call_args[0][0])
+        assert "MAX(" in query
+        assert expected_group_by in query
+        assert "ORDER BY" not in query
+        assert starts[expected_key] == expected_start
 
 
 class TestDeduplication:
@@ -1113,6 +1528,46 @@ class TestDeduplication:
         assert rows == [
             ("2024-01-01T00:00:00+00:00", 1.0),
             ("2024-01-02T00:00:00+00:00", 9.9),
+        ]
+
+    def test_scoped_dedup_matches_numeric_and_iso_times(self, tmp_path: Path) -> None:
+        """Test scoped dedup collapses numeric epoch rows with canonical ISO writes."""
+        boundary = datetime(2024, 1, 2, tzinfo=UTC)
+        dedup_scopes: dict[Dataset, list[DedupScope]] = {}
+        time_expr = history._sqlite_normalized_time_expression(  # type: ignore[reportPrivateUsage]
+            "time"
+        )
+        with sqlite3.connect(tmp_path / "numeric-time-dedup.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 1, 1704153600, 2.0),
+                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 9.9),
+                ],
+            )
+            history._record_dedup_scope(  # type: ignore[reportPrivateUsage]
+                dedup_scopes,
+                Dataset.rates,
+                f"symbol = ? AND timeframe = ? AND {time_expr} >= ?",
+                ("EURUSD", 1, boundary.isoformat()),
+                frozenset({"symbol", "timeframe", "time"}),
+            )
+            deduplicate_history_tables(
+                conn,
+                {Dataset.rates: {"symbol", "timeframe", "time", "open"}},
+                {Dataset.rates},
+                dedup_scopes,
+            )
+            rows = conn.execute(
+                "SELECT time, typeof(time), open FROM rates ORDER BY ROWID",
+            ).fetchall()
+        assert rows == [
+            ("2024-01-01T00:00:00+00:00", "text", 1.0),
+            ("2024-01-02T00:00:00+00:00", "text", 9.9),
         ]
 
     def test_unusable_scope_falls_back_to_table_dedup(self, tmp_path: Path) -> None:
@@ -1564,6 +2019,105 @@ class TestIncrementalHistoryDealsHelpers:
 
 class TestIncrementalIntegration:
     """Integration tests for incremental write helpers."""
+
+    def test_incremental_rates_deduplicate_legacy_naive_boundary_rows(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test repeated boundary refetches deduplicate legacy naive SQLite times."""
+
+        def copy_rates_range_as_df(
+            *,
+            symbol: str,
+            timeframe: int,
+            date_from: datetime,
+            date_to: datetime,
+        ) -> pd.DataFrame:
+            del symbol, timeframe, date_to
+            rows_by_start = {
+                datetime(2024, 1, 1, 0, 1, tzinfo=UTC): [
+                    ("2024-01-01 00:01:00", 1.1),
+                    ("2024-01-01 00:02:00", 1.2),
+                ],
+                datetime(2024, 1, 1, 0, 2, tzinfo=UTC): [
+                    ("2024-01-01 00:02:00", 1.2),
+                    ("2024-01-01 00:03:00", 1.3),
+                ],
+            }
+            rows = rows_by_start[date_from]
+            return pd.DataFrame({
+                "time": pd.to_datetime([row[0] for row in rows]),
+                "open": [row[1] for row in rows],
+            })
+
+        client = MagicMock()
+        client.copy_rates_range_as_df.side_effect = copy_rates_range_as_df
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "legacy-naive-boundary.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, open REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01 00:00:00", 1.0),
+                    ("EURUSD", 1, "2024-01-01 00:01:00", 1.1),
+                ],
+            )
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD"],
+                {Dataset.rates},
+                [1],
+                0,
+                fallback,
+                end,
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=False,
+            )
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD"],
+                {Dataset.rates},
+                [1],
+                0,
+                fallback,
+                end,
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=False,
+            )
+            result = pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
+                "SELECT symbol, timeframe, time, open FROM rates ORDER BY ROWID",
+                conn,
+            )
+        result["time"] = pd.to_datetime(result["time"], utc=True, format="mixed")
+        duplicate_counts = result.groupby(["symbol", "timeframe", "time"]).size()
+        assert duplicate_counts[duplicate_counts > 1].empty
+        pd.testing.assert_frame_equal(
+            result.reset_index(drop=True),
+            pd.DataFrame({
+                "symbol": ["EURUSD", "EURUSD", "EURUSD", "EURUSD"],
+                "timeframe": [1, 1, 1, 1],
+                "time": pd.to_datetime(
+                    [
+                        "2024-01-01T00:00:00+00:00",
+                        "2024-01-01T00:01:00+00:00",
+                        "2024-01-01T00:02:00+00:00",
+                        "2024-01-01T00:03:00+00:00",
+                    ],
+                    utc=True,
+                ),
+                "open": [1.0, 1.1, 1.2, 1.3],
+            }),
+        )
 
     def test_write_incremental_datasets_end_to_end(
         self,
