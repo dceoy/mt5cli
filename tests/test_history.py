@@ -863,6 +863,33 @@ class TestIncrementalStart:
         assert starts["EURUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
         assert starts["GBPUSD", 1] == datetime(2024, 1, 4, tzinfo=UTC)
 
+    def test_load_incremental_start_datetimes_accepts_numeric_rate_cursor(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test grouped rates resume preserves numeric epoch cursors."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "numeric-rate-cursor.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, 1704153600, 1.2),
+                    ("GBPUSD", 1, "2024-01-03T00:00:00+00:00", 1.3),
+                ],
+            )
+            starts = load_incremental_start_datetimes(
+                conn,
+                Dataset.rates,
+                symbols=["EURUSD", "GBPUSD"],
+                timeframes=[1],
+                fallback_start=fallback,
+            )
+        assert starts["EURUSD", 1] == datetime(2024, 1, 2, tzinfo=UTC)
+        assert starts["GBPUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
+
     @pytest.mark.parametrize(
         ("ddl", "missing_col"),
         [
@@ -1026,6 +1053,30 @@ class TestIncrementalStart:
             )
         assert starts["EURUSD", None] == datetime(2024, 1, 3, tzinfo=UTC)
         assert starts["GBPUSD", None] == datetime(2024, 1, 4, tzinfo=UTC)
+
+    def test_load_incremental_start_accepts_numeric_symbol_cursor(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test symbol-scoped resume preserves numeric epoch cursors."""
+        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(tmp_path / "numeric-symbol-cursor.db") as conn:
+            conn.execute("CREATE TABLE ticks(symbol TEXT, time)")
+            conn.executemany(
+                "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
+                [
+                    ("EURUSD", 1704153600),
+                    ("GBPUSD", "2024-01-03T00:00:00+00:00"),
+                ],
+            )
+            starts = load_incremental_start_datetimes(
+                conn,
+                Dataset.ticks,
+                symbols=["EURUSD", "GBPUSD"],
+                fallback_start=fallback,
+            )
+        assert starts["EURUSD", None] == datetime(2024, 1, 2, tzinfo=UTC)
+        assert starts["GBPUSD", None] == datetime(2024, 1, 3, tzinfo=UTC)
 
     def test_grouped_rate_start_skips_rows_when_timestamp_parse_fails(
         self,
@@ -1226,6 +1277,46 @@ class TestDeduplication:
         assert rows == [
             ("2024-01-01T00:00:00+00:00", 1.0),
             ("2024-01-02T00:00:00+00:00", 9.9),
+        ]
+
+    def test_scoped_dedup_matches_numeric_and_iso_times(self, tmp_path: Path) -> None:
+        """Test scoped dedup collapses numeric epoch rows with canonical ISO writes."""
+        boundary = datetime(2024, 1, 2, tzinfo=UTC)
+        dedup_scopes: dict[Dataset, list[DedupScope]] = {}
+        time_expr = history._sqlite_normalized_time_expression(  # type: ignore[reportPrivateUsage]
+            "time"
+        )
+        with sqlite3.connect(tmp_path / "numeric-time-dedup.db") as conn:
+            conn.execute(
+                "CREATE TABLE rates( symbol TEXT, timeframe INTEGER, time, open REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 1, 1704153600, 2.0),
+                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 9.9),
+                ],
+            )
+            history._record_dedup_scope(  # type: ignore[reportPrivateUsage]
+                dedup_scopes,
+                Dataset.rates,
+                f"symbol = ? AND timeframe = ? AND {time_expr} >= ?",
+                ("EURUSD", 1, boundary.isoformat()),
+                frozenset({"symbol", "timeframe", "time"}),
+            )
+            deduplicate_history_tables(
+                conn,
+                {Dataset.rates: {"symbol", "timeframe", "time", "open"}},
+                {Dataset.rates},
+                dedup_scopes,
+            )
+            rows = conn.execute(
+                "SELECT time, typeof(time), open FROM rates ORDER BY ROWID",
+            ).fetchall()
+        assert rows == [
+            ("2024-01-01T00:00:00+00:00", "text", 1.0),
+            ("2024-01-02T00:00:00+00:00", "text", 9.9),
         ]
 
     def test_unusable_scope_falls_back_to_table_dedup(self, tmp_path: Path) -> None:

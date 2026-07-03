@@ -918,10 +918,17 @@ def _sqlite_dedup_key_expression(column: str) -> str:
     quoted = quote_sqlite_identifier(column)
     if column != "time":
         return quoted
+    normalized = _sqlite_normalized_time_expression(column)
+    return f"COALESCE({normalized}, CAST({quoted} AS TEXT))"
+
+
+def _sqlite_normalized_time_expression(column: str) -> str:
+    """Return a canonical UTC timestamp expression for mixed SQLite time values."""
+    quoted = quote_sqlite_identifier(column)
     return (
         "COALESCE("
         f"strftime('{_SQLITE_CANONICAL_TIME_FORMAT}', {quoted}), "
-        f"CAST({quoted} AS TEXT)"
+        f"strftime('{_SQLITE_CANONICAL_TIME_FORMAT}', {quoted}, 'unixepoch')"
         ")"
     )
 
@@ -934,10 +941,11 @@ def _load_latest_parseable_time(
     params: Sequence[object] = (),
 ) -> datetime | None:
     quoted_table = quote_sqlite_identifier(table)
-    query = f"SELECT time FROM {quoted_table} WHERE julianday(time) IS NOT NULL"  # noqa: S608
+    time_expr = _sqlite_normalized_time_expression("time")
+    query = f"SELECT time FROM {quoted_table} WHERE {time_expr} IS NOT NULL"  # noqa: S608
     if where_clause:
         query += f" AND {where_clause}"
-    query += " ORDER BY julianday(time) DESC, ROWID DESC LIMIT 1"
+    query += f" ORDER BY {time_expr} DESC, ROWID DESC LIMIT 1"
     row = conn.execute(query, tuple(params)).fetchone()
     return parse_sqlite_timestamp(row[0] if row else None)
 
@@ -995,13 +1003,14 @@ def _load_grouped_rate_start_datetimes(
 ) -> dict[tuple[str, int | None], datetime]:
     symbol_placeholders = ", ".join("?" for _ in symbols)
     timeframe_placeholders = ", ".join("?" for _ in timeframes)
+    time_expr = _sqlite_normalized_time_expression("time")
     rows = conn.execute(
         "SELECT symbol, timeframe, time FROM "  # noqa: S608
         f"{quote_sqlite_identifier(table)}"
         f" WHERE symbol IN ({symbol_placeholders})"
         f" AND timeframe IN ({timeframe_placeholders})"
-        " AND julianday(time) IS NOT NULL"
-        " ORDER BY symbol, timeframe, julianday(time) DESC, ROWID DESC",
+        f" AND {time_expr} IS NOT NULL"
+        f" ORDER BY symbol, timeframe, {time_expr} DESC, ROWID DESC",
         [*symbols, *timeframes],
     ).fetchall()
     parsed_by_key: dict[tuple[str, int | None], datetime] = {}
@@ -1027,12 +1036,13 @@ def _load_symbol_start_datetimes(
     fallback_start: datetime,
 ) -> dict[tuple[str, int | None], datetime]:
     symbol_placeholders = ", ".join("?" for _ in symbols)
+    time_expr = _sqlite_normalized_time_expression("time")
     rows = conn.execute(
         "SELECT symbol, time FROM "  # noqa: S608
         f"{quote_sqlite_identifier(table)}"
         f" WHERE symbol IN ({symbol_placeholders})"
-        " AND julianday(time) IS NOT NULL"
-        " ORDER BY symbol, julianday(time) DESC, ROWID DESC",
+        f" AND {time_expr} IS NOT NULL"
+        f" ORDER BY symbol, {time_expr} DESC, ROWID DESC",
         list(symbols),
     ).fetchall()
     parsed_by_key: dict[tuple[str, int | None], datetime] = {}
@@ -1546,10 +1556,11 @@ def _record_symbol_time_dedup(
 ) -> None:
     """Record a symbol-scoped deduplication window after an incremental write."""
     written_tables.add(dataset)
+    time_expr = _sqlite_normalized_time_expression("time")
     _record_dedup_scope(
         dedup_scopes,
         dataset,
-        "symbol = ? AND julianday(time) >= julianday(?)",
+        f"symbol = ? AND {time_expr} >= ?",
         (symbol, _require_serialized_sqlite_timestamp(start_date)),
         frozenset({"symbol", "time"}),
     )
@@ -1712,10 +1723,11 @@ def _write_incremental_rates(
                 written_columns,
             ):
                 written_tables.add(Dataset.rates)
+                time_expr = _sqlite_normalized_time_expression("time")
                 _record_dedup_scope(
                     dedup_scopes,
                     Dataset.rates,
-                    "symbol = ? AND timeframe = ? AND julianday(time) >= julianday(?)",
+                    f"symbol = ? AND timeframe = ? AND {time_expr} >= ?",
                     (
                         symbol,
                         timeframe,
@@ -1844,12 +1856,13 @@ def _write_incremental_history_deals(
         ):
             written_tables.add(Dataset.history_deals)
             columns = get_table_columns(conn, Dataset.history_deals.table_name)
+            time_expr = _sqlite_normalized_time_expression("time")
             if "symbol" in columns:
                 for symbol in symbols:
                     _record_dedup_scope(
                         dedup_scopes,
                         Dataset.history_deals,
-                        "symbol = ? AND julianday(time) >= julianday(?)",
+                        f"symbol = ? AND {time_expr} >= ?",
                         (
                             symbol,
                             _require_serialized_sqlite_timestamp(
@@ -1862,8 +1875,7 @@ def _write_incremental_history_deals(
                 _record_dedup_scope(
                     dedup_scopes,
                     Dataset.history_deals,
-                    f"type NOT IN {_TRADE_DEAL_TYPES_SQL}"
-                    " AND julianday(time) >= julianday(?)",
+                    f"type NOT IN {_TRADE_DEAL_TYPES_SQL} AND {time_expr} >= ?",
                     (_require_serialized_sqlite_timestamp(account_event_start),),
                     frozenset({"type", "time"}),
                 )
@@ -1871,8 +1883,7 @@ def _write_incremental_history_deals(
                 _record_dedup_scope(
                     dedup_scopes,
                     Dataset.history_deals,
-                    "(symbol IS NULL OR symbol = '')"
-                    " AND julianday(time) >= julianday(?)",
+                    f"(symbol IS NULL OR symbol = '') AND {time_expr} >= ?",
                     (_require_serialized_sqlite_timestamp(account_event_start),),
                     frozenset({"symbol", "time"}),
                 )
