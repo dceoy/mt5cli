@@ -181,7 +181,7 @@ applications should prefer dedicated closing helpers or their own risk controls.
 | Command           | Description                                                                                                                                                                      |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `collect-history` | Collect rates, history-orders, and history-deals (ticks opt-in via `--dataset ticks`) for one or more symbols into a single SQLite database (optional cash-event/position views) |
-| `rate-coverage`   | Export a SQLite-only rates gap / coverage report without connecting to MT5                                                                                                       |
+| `history-gaps`    | Export a SQLite-only one-row-per-gap report from managed rate compatibility views without connecting to MT5                                                                      |
 
 ```bash
 mt5cli -o history.db collect-history \
@@ -216,7 +216,7 @@ See the [History schema diagram](api/history.md#entity-relationship-diagram) for
 | `-f, --format` | Output format (auto-detected from extension if omitted) |
 | `--table`      | Table name for SQLite3 output (default: "data")         |
 | `--login`      | Trading account login                                   |
-| `--password`   | Trading account password                                |
+| `--password`   | Trading account password (`MT5_PASSWORD`)               |
 | `--server`     | Trading server name                                     |
 | `--path`       | Path to MetaTrader5 terminal EXE file                   |
 | `--timeout`    | Connection timeout in milliseconds                      |

@@ -661,19 +661,24 @@ def create_trading_client(
 def detect_position_side(
     client: _Mt5ClientProtocol,
     symbol: str,
+    *,
+    magic: int | None = None,
 ) -> PositionSide | None:
     """Detect the net open position side for a symbol.
 
     Args:
         client: Connected MT5 client instance.
         symbol: Symbol to inspect.
+        magic: Optional magic number filter applied fail-closed.
 
     Returns:
         ``"long"`` when there are buy positions and no sell positions,
         ``"short"`` when there are sell positions and no buy positions, or
         ``None`` when no positions or mixed exposure exists.
     """
-    positions = get_positions_frame(client, symbol=symbol)
+    positions = _filter_positions(
+        get_positions_frame(client, symbol=symbol), magic=magic
+    )
     if positions.empty:
         return None
 
@@ -737,6 +742,47 @@ def get_positions_frame(
     return frame
 
 
+def _supported_filling_modes(
+    client: _Mt5ClientProtocol,
+    *,
+    symbol: str,
+    preferred_default: OrderFillingMode,
+) -> set[str] | None:
+    snapshot = get_symbol_snapshot(client, symbol)
+    filling_mode = _optional_int(snapshot.get("filling_mode"))
+    trade_exemode = _optional_int(snapshot.get("trade_exemode"))
+    if filling_mode is None and trade_exemode is None:
+        _logger.debug(
+            "Filling-mode metadata unavailable for %s; keeping preferred mode %s.",
+            symbol,
+            preferred_default,
+        )
+        return None
+
+    supported: set[str] = set()
+    if filling_mode is not None:
+        fok_flag = getattr(client.mt5, "SYMBOL_FILLING_FOK", None)
+        ioc_flag = getattr(client.mt5, "SYMBOL_FILLING_IOC", None)
+        if isinstance(fok_flag, int) and filling_mode & fok_flag:
+            supported.add("FOK")
+        if isinstance(ioc_flag, int) and filling_mode & ioc_flag:
+            supported.add("IOC")
+    market_execution = getattr(client.mt5, "SYMBOL_TRADE_EXECUTION_MARKET", None)
+    if trade_exemode is not None and not (
+        isinstance(market_execution, int) and trade_exemode == market_execution
+    ):
+        supported.add("RETURN")
+    if supported:
+        return supported
+
+    _logger.debug(
+        "Filling-mode metadata was unparseable for %s; keeping preferred mode %s.",
+        symbol,
+        preferred_default,
+    )
+    return None
+
+
 def resolve_broker_filling_mode(
     client: _Mt5ClientProtocol,
     *,
@@ -755,22 +801,16 @@ def resolve_broker_filling_mode(
             msg = f"Unsupported order_filling mode: {mode!r}."
             raise ValueError(msg)
 
-    snapshot = get_symbol_snapshot(client, symbol)
-    filling_mode = _optional_int(snapshot.get("filling_mode"))
-    trade_exemode = _optional_int(snapshot.get("trade_exemode"))
-    supported: set[str] = set()
-    if filling_mode is not None:
-        fok_flag = getattr(client.mt5, "SYMBOL_FILLING_FOK", None)
-        ioc_flag = getattr(client.mt5, "SYMBOL_FILLING_IOC", None)
-        if isinstance(fok_flag, int) and filling_mode & fok_flag:
-            supported.add("FOK")
-        if isinstance(ioc_flag, int) and filling_mode & ioc_flag:
-            supported.add("IOC")
-    market_execution = getattr(client.mt5, "SYMBOL_TRADE_EXECUTION_MARKET", None)
-    if trade_exemode is not None and not (
-        isinstance(market_execution, int) and trade_exemode == market_execution
-    ):
-        supported.add("RETURN")
+    preferred_default = cast(
+        "OrderFillingMode", preferred[0] if preferred else default_mode
+    )
+    supported = _supported_filling_modes(
+        client,
+        symbol=symbol,
+        preferred_default=preferred_default,
+    )
+    if supported is None:
+        return preferred_default
 
     for mode in preferred:
         if mode in supported:

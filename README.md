@@ -147,8 +147,7 @@ mt5cli -o data.db --table symbols symbols --group "*USD*"
 # Export with connection credentials from env or placeholders
 MT5_LOGIN=12345 MT5_PASSWORD=secret MT5_SERVER=MyBroker-Demo \
   mt5cli -o positions.csv positions
-mt5cli --login '${MT5_LOGIN}' --password '${MT5_PASSWORD}' --server '${MT5_SERVER}' \
-  -o positions.csv positions
+MT5_PATH="/path/to/terminal64.exe" mt5cli -o positions.csv positions
 ```
 
 Run as a Python module:
@@ -187,7 +186,7 @@ python -m mt5cli -o account.csv account-info
 | `order-send`           | Send a raw trade request to the trade server (`--yes` required; expert path)                                                                          |
 | `close-positions`      | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` available; optional `--deviation` / `--comment` / `--magic`) |
 | `collect-history`      | Collect rates, history-orders, and history-deals for one or more symbols into a single SQLite database (ticks opt-in via `--dataset ticks`)           |
-| `rate-coverage`        | Export a SQLite-only rates gap / coverage report without connecting to MT5                                                                            |
+| `history-gaps`         | Export a SQLite-only one-row-per-gap report from managed rate compatibility views without connecting to MT5                                           |
 | `grafana-schema`       | Create or refresh Grafana-ready views and indexes in an existing SQLite database (idempotent, no MT5 connection)                                      |
 | `snapshot`             | Snapshot current account, position, order, and terminal state into SQLite for live Grafana dashboards                                                 |
 
@@ -197,15 +196,15 @@ requests automatically. At least one `--symbol` or `--ticket` must be provided.
 CLI connection flags fall back to `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER`,
 and `MT5_PATH` when unset, and explicit CLI values still win.
 
-### `rate-coverage`
+### `history-gaps`
 
-Inspect a collected SQLite `rates` table offline and export one row per
-`(symbol, timeframe)` series with row counts, expected rows, missing rows,
-coverage ratio, and gap counts.
+Inspect collected SQLite rate views offline and export one row per detected gap.
+For managed compatibility views, the command infers bar spacing from the view
+name. Use `--granularity-seconds` for custom tables or views.
 
 ```bash
-mt5cli -o coverage.json rate-coverage --database history.db
-mt5cli -o eurusd-m1.csv rate-coverage --database history.db --symbol EURUSD --timeframe M1
+mt5cli -o gaps.json history-gaps --sqlite3 history.db
+mt5cli -o eurusd.csv history-gaps --sqlite3 history.db --table rate_EURUSD__M1_1
 ```
 
 ### `collect-history`

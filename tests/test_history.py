@@ -48,7 +48,7 @@ from mt5cli.history import (
     parse_sqlite_timestamp,
     quote_sqlite_identifier,
     record_written_columns,
-    report_rate_coverage_from_sqlite,
+    report_rate_gaps,
     resolve_granularity_name,
     resolve_history_datasets,
     resolve_history_tick_flags,
@@ -3076,47 +3076,9 @@ class TestRateSourceHelpers:
 
         assert set(result) == {("EURUSD", "M1"), ("EURUSD", "H1")}
 
-    @pytest.mark.parametrize(
-        ("rows", "symbols", "timeframes", "expected"),
-        [
-            pytest.param(
-                [
-                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
-                    ("EURUSD", 1, "2024-01-01T00:02:00+00:00", 1.1),
-                    ("GBPUSD", 1, "2024-01-01T00:00:00+00:00", 1.2),
-                ],
-                None,
-                None,
-                {
-                    ("EURUSD", 1): {"rows": 2, "missing_rows": 1, "gap_count": 1},
-                    ("GBPUSD", 1): {"rows": 1, "missing_rows": 0, "gap_count": 0},
-                },
-                id="gaps-and-coverage",
-            ),
-            pytest.param(
-                [
-                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
-                    ("EURUSD", 1, "2024-01-01T00:01:00+00:00", 1.1),
-                ],
-                ["EURUSD"],
-                ["M1"],
-                {
-                    ("EURUSD", 1): {"rows": 2, "missing_rows": 0, "gap_count": 0},
-                },
-                id="filters",
-            ),
-        ],
-    )
-    def test_report_rate_coverage_from_sqlite(
-        self,
-        tmp_path: Path,
-        rows: list[tuple[str, int, str, float]],
-        symbols: list[str] | None,
-        timeframes: list[str] | None,
-        expected: dict[tuple[str, int], dict[str, int]],
-    ) -> None:
-        """Test SQLite rate coverage reports include gap metrics per series."""
-        db_path = tmp_path / "coverage.db"
+    def test_report_rate_gaps_reports_one_row_per_gap(self, tmp_path: Path) -> None:
+        """Gap reports emit one row for each detected missing interval run."""
+        db_path = tmp_path / "gaps.db"
         with sqlite3.connect(db_path) as conn:
             conn.execute(
                 "CREATE TABLE rates("
@@ -3125,110 +3087,246 @@ class TestRateSourceHelpers:
             )
             conn.executemany(
                 "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
-                rows,
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 1, "2024-01-01T00:01:00+00:00", 1.1),
+                    ("EURUSD", 1, "2024-01-01T00:03:00+00:00", 1.2),
+                ],
+            )
+            conn.execute(
+                'CREATE VIEW "rate_EURUSD__M1_1" AS '
+                "SELECT time, close FROM rates "
+                "WHERE symbol = 'EURUSD' AND timeframe = 1",
+            )
+            result = report_rate_gaps(
+                conn,
+                "rate_EURUSD__M1_1",
+                granularity_seconds=60,
             )
 
-        result = report_rate_coverage_from_sqlite(
-            db_path,
-            symbols=symbols,
-            timeframes=timeframes,
-        )
-
         records = cast("list[dict[str, object]]", result.to_dict("records"))
-        actual = {
-            (str(row["symbol"]), int(cast("int", row["timeframe"]))): {
-                "rows": int(cast("int", row["rows"])),
-                "missing_rows": int(cast("int", row["missing_rows"])),
-                "gap_count": int(cast("int", row["gap_count"])),
-            }
-            for row in records
-        }
-        assert actual == expected
+        assert records == [
+            {
+                "table": "rate_EURUSD__M1_1",
+                "symbol": "EURUSD",
+                "timeframe": 1,
+                "granularity": "M1",
+                "granularity_seconds": 60,
+                "gap_start": datetime(2024, 1, 1, 0, 2, tzinfo=UTC),
+                "gap_end": datetime(2024, 1, 1, 0, 2, tzinfo=UTC),
+                "missing_intervals": 1,
+            },
+        ]
 
-    @pytest.mark.parametrize(
-        "setup_sql",
-        [
-            pytest.param([], id="missing-rates-table"),
-            pytest.param(
-                ["CREATE TABLE rates(symbol TEXT, timeframe INTEGER, close REAL)"],
-                id="missing-time-column",
-            ),
-        ],
-    )
-    def test_report_rate_coverage_from_sqlite_empty_schema(
+    def test_report_rate_gaps_parses_numeric_sqlite_times_as_epoch_seconds(
         self,
         tmp_path: Path,
-        setup_sql: list[str],
     ) -> None:
-        """Test empty or incompatible SQLite sources return the stable empty schema."""
-        db_path = tmp_path / "coverage-empty.db"
+        """Numeric SQLite timestamps must be interpreted as Unix seconds."""
+        db_path = tmp_path / "numeric-gaps.db"
         with sqlite3.connect(db_path) as conn:
-            for sql in setup_sql:
-                conn.execute(sql)
+            conn.execute("CREATE TABLE custom_rates(time INTEGER, close REAL)")
+            conn.executemany(
+                "INSERT INTO custom_rates(time, close) VALUES (?, ?)",
+                [
+                    (1704067200, 1.0),
+                    (1704067320, 1.1),
+                ],
+            )
+            result = report_rate_gaps(
+                conn,
+                "custom_rates",
+                granularity_seconds=60,
+            )
 
-        result = report_rate_coverage_from_sqlite(db_path)
+        assert len(result) == 1
+        assert result.iloc[0]["missing_intervals"] == 1
+
+    def test_report_rate_gaps_empty_schema_for_zero_gap_tables(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Tables without gaps return the stable empty result schema."""
+        db_path = tmp_path / "no-gaps.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE custom_rates(time TEXT, close REAL)")
+            conn.executemany(
+                "INSERT INTO custom_rates(time, close) VALUES (?, ?)",
+                [
+                    ("2024-01-01T00:00:00+00:00", 1.0),
+                    ("2024-01-01T00:01:00+00:00", 1.1),
+                ],
+            )
+            result = report_rate_gaps(
+                conn,
+                "custom_rates",
+                granularity_seconds=60,
+            )
 
         assert list(result.columns) == [
+            "table",
             "symbol",
             "timeframe",
             "granularity",
-            "rows",
-            "start_time",
-            "end_time",
-            "expected_rows",
-            "missing_rows",
-            "coverage_ratio",
-            "gap_count",
-            "max_gap_seconds",
-            "interval_seconds",
+            "granularity_seconds",
+            "gap_start",
+            "gap_end",
+            "missing_intervals",
         ]
         assert result.empty
 
-    @pytest.mark.parametrize(
-        ("timeframe", "series", "expected_interval_seconds"),
-        [
-            pytest.param(
-                999999, pd.Series([], dtype="object"), None, id="unknown-empty"
-            ),
-            pytest.param(
-                32769, pd.Series(["bad-time"]), 604800, id="unparseable-weekly"
-            ),
-        ],
-    )
-    def test_rate_coverage_private_edge_cases(
-        self,
-        timeframe: int,
-        series: pd.Series,
-        expected_interval_seconds: int | None,
-    ) -> None:
-        """Test private coverage helpers handle unknown intervals and empty rows."""
-        interval = history._timeframe_interval_seconds(timeframe)  # type: ignore[attr-defined]
-        row = history._build_rate_coverage_row("EURUSD", timeframe, series)  # type: ignore[attr-defined]
-
-        assert interval == expected_interval_seconds
-        assert row["interval_seconds"] == expected_interval_seconds
-        assert row["rows"] == 0
-
-    def test_report_rate_coverage_from_sqlite_empty_after_filters(
+    def test_report_rate_gaps_filters_by_min_gap_intervals(
         self,
         tmp_path: Path,
     ) -> None:
-        """Test coverage reports keep the empty schema when filters remove all rows."""
-        db_path = tmp_path / "coverage-filtered-empty.db"
+        """Small gaps are filtered out when min_gap_intervals is raised."""
+        db_path = tmp_path / "filtered-gaps.db"
         with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                "symbol TEXT, timeframe INTEGER, time TEXT, close REAL"
-                ")",
+            conn.execute("CREATE TABLE custom_rates(time TEXT, close REAL)")
+            conn.executemany(
+                "INSERT INTO custom_rates(time, close) VALUES (?, ?)",
+                [
+                    ("2024-01-01T00:00:00+00:00", 1.0),
+                    ("2024-01-01T00:02:00+00:00", 1.1),
+                ],
             )
-            conn.execute(
-                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
-                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            result = report_rate_gaps(
+                conn,
+                "custom_rates",
+                granularity_seconds=60,
+                min_gap_intervals=2,
             )
-
-        result = report_rate_coverage_from_sqlite(db_path, symbols=["GBPUSD"])
 
         assert result.empty
+
+    def test_rate_gap_private_helpers_and_validation(self) -> None:
+        """Private helpers should preserve schema and reject invalid inputs."""
+        empty = history._empty_rate_gap_report()  # type: ignore[attr-defined]
+        assert list(empty.columns) == [
+            "table",
+            "symbol",
+            "timeframe",
+            "granularity",
+            "granularity_seconds",
+            "gap_start",
+            "gap_end",
+            "missing_intervals",
+        ]
+
+        class _BadInt:
+            def __int__(self) -> int:
+                msg = "bad-int"
+                raise ValueError(msg)
+
+        assert history._coerce_optional_int(None) is None  # type: ignore[attr-defined]
+        false_value: object = False
+        assert history._coerce_optional_int(false_value) is None  # type: ignore[attr-defined]
+        assert history._coerce_optional_int(" +7 ") == 7  # type: ignore[attr-defined]
+        assert history._coerce_optional_int("bad") is None  # type: ignore[attr-defined]
+        assert history._coerce_optional_int(object()) is None  # type: ignore[attr-defined]
+        assert history._coerce_optional_int(_BadInt()) is None  # type: ignore[attr-defined]
+
+        metadata = history._rate_gap_metadata(  # type: ignore[attr-defined]
+            "custom_rates",
+            pd.DataFrame({
+                "symbol": ["EURUSD", "GBPUSD"],
+                "timeframe": [1, 1],
+            }),
+            granularity_seconds=60,
+        )
+        assert metadata["symbol"] is None
+        assert metadata["timeframe"] == 1
+        assert metadata["granularity"] == "M1"
+
+        fallback_metadata = history._rate_gap_metadata(  # type: ignore[attr-defined]
+            "rate_USDJPY__M1_1",
+            pd.DataFrame({"time": []}),
+            granularity_seconds=60,
+        )
+        assert fallback_metadata["symbol"] == "USDJPY"
+        assert fallback_metadata["timeframe"] == 1
+        assert fallback_metadata["granularity"] == "M1"
+
+        unique_symbol_metadata = history._rate_gap_metadata(  # type: ignore[attr-defined]
+            "custom_rates",
+            pd.DataFrame({"symbol": ["EURUSD"], "timeframe": [1]}),
+            granularity_seconds=60,
+        )
+        assert unique_symbol_metadata["symbol"] == "EURUSD"
+
+        multi_timeframe_metadata = history._rate_gap_metadata(  # type: ignore[attr-defined]
+            "custom_rates",
+            pd.DataFrame({"timeframe": [1, 5]}),
+            granularity_seconds=60,
+        )
+        assert multi_timeframe_metadata["timeframe"] is None
+        assert multi_timeframe_metadata["granularity"] is None
+
+    @pytest.mark.parametrize(
+        ("granularity_seconds", "min_gap_intervals", "match"),
+        [
+            pytest.param(
+                0, 1, "granularity_seconds must be positive", id="bad-seconds"
+            ),
+            pytest.param(60, 0, "min_gap_intervals must be positive", id="bad-min-gap"),
+        ],
+    )
+    def test_report_rate_gaps_rejects_invalid_parameters(
+        self,
+        tmp_path: Path,
+        granularity_seconds: int,
+        min_gap_intervals: int,
+        match: str,
+    ) -> None:
+        """Gap reports reject non-positive granularity and min-gap values."""
+        db_path = tmp_path / "invalid-gaps.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE custom_rates(time TEXT, close REAL)")
+            conn.execute(
+                "INSERT INTO custom_rates(time, close) VALUES (?, ?)",
+                ("2024-01-01T00:00:00+00:00", 1.0),
+            )
+            with pytest.raises(ValueError, match=match):
+                report_rate_gaps(
+                    conn,
+                    "custom_rates",
+                    granularity_seconds=granularity_seconds,
+                    min_gap_intervals=min_gap_intervals,
+                )
+
+    def test_report_rate_gaps_rejects_unparseable_timestamps(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Unparseable table times should fail clearly."""
+        db_path = tmp_path / "bad-times.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE custom_rates(time TEXT, close REAL)")
+            conn.execute(
+                "INSERT INTO custom_rates(time, close) VALUES (?, ?)",
+                ("bad-time", 1.0),
+            )
+            with pytest.raises(ValueError, match="contains unparsable time values"):
+                report_rate_gaps(
+                    conn,
+                    "custom_rates",
+                    granularity_seconds=60,
+                )
+
+    def test_report_rate_gaps_empty_and_single_row_sources_return_empty(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Empty or single-row sources cannot produce gap rows."""
+        db_path = tmp_path / "too-short.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE custom_rates(time TEXT, close REAL)")
+            assert report_rate_gaps(conn, "custom_rates", granularity_seconds=60).empty
+            conn.execute(
+                "INSERT INTO custom_rates(time, close) VALUES (?, ?)",
+                ("2024-01-01T00:00:00+00:00", 1.0),
+            )
+            assert report_rate_gaps(conn, "custom_rates", granularity_seconds=60).empty
 
     def test_load_rate_series_by_granularity_explicit_tables(
         self,

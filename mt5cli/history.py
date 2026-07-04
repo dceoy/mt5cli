@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, SupportsInt, cast, overload
 
 import pandas as pd
 from pdmt5 import get_timeframe_name as _get_timeframe_name
@@ -23,7 +24,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from pdmt5 import Mt5DataClient
 
@@ -63,20 +64,20 @@ _POSITIONS_VIEW_REQUIRED_COLUMNS: frozenset[str] = frozenset({
     "price",
     "profit",
 })
-_RATE_COVERAGE_COLUMNS: tuple[str, ...] = (
+_RATE_GAP_COLUMNS: tuple[str, ...] = (
+    "table",
     "symbol",
     "timeframe",
     "granularity",
-    "rows",
-    "start_time",
-    "end_time",
-    "expected_rows",
-    "missing_rows",
-    "coverage_ratio",
-    "gap_count",
-    "max_gap_seconds",
-    "interval_seconds",
+    "granularity_seconds",
+    "gap_start",
+    "gap_end",
+    "missing_intervals",
 )
+_RATE_VIEW_NAME_RE = re.compile(
+    r"^rate_(?P<symbol>.+)__(?:(?P<granularity>[A-Z0-9]+)_)?(?P<timeframe>\d+)$",
+)
+_MIN_TIMESTAMPS_FOR_GAPS = 2
 
 
 def quote_sqlite_identifier(identifier: str) -> str:
@@ -245,125 +246,139 @@ def _open_existing_sqlite_database(
     return conn, True
 
 
-def _empty_rate_coverage_report() -> pd.DataFrame:
-    return pd.DataFrame(columns=_RATE_COVERAGE_COLUMNS)
+def _empty_rate_gap_report() -> pd.DataFrame:
+    return pd.DataFrame(columns=_RATE_GAP_COLUMNS)
 
 
-def _timeframe_interval_seconds(timeframe: int) -> int | None:
-    granularity = resolve_granularity_name(timeframe)
-    units = {
-        "M": 60,
-        "H": 3600,
-        "D": 86400,
-        "W": 604800,
-    }
-    for prefix, seconds in units.items():
-        if granularity.startswith(prefix) and granularity[len(prefix) :].isdigit():
-            return int(granularity[len(prefix) :]) * seconds
-    return None
+def _coerce_optional_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if text.lstrip("+-").isdigit():
+            return int(text)
+        return None
+    if not hasattr(value, "__int__"):
+        return None
+    try:
+        return int(cast("SupportsInt", value))
+    except (TypeError, ValueError):
+        return None
 
 
-def _build_rate_coverage_row(
-    symbol: str,
-    timeframe: int,
-    series: pd.Series,
+def _rate_gap_metadata(
+    table: str,
+    frame: pd.DataFrame,
+    *,
+    granularity_seconds: int,
 ) -> dict[str, object]:
-    granularity = resolve_granularity_name(timeframe)
-    unique_times = pd.Series(pd.to_datetime(series, utc=True, errors="coerce")).dropna()
-    unique_times = unique_times.drop_duplicates().sort_values(ignore_index=True)
-    row_count = len(unique_times)
-    if row_count == 0:
-        return {
-            "symbol": symbol,
-            "timeframe": timeframe,
-            "granularity": granularity,
-            "rows": 0,
-            "start_time": None,
-            "end_time": None,
-            "expected_rows": 0,
-            "missing_rows": 0,
-            "coverage_ratio": None,
-            "gap_count": 0,
-            "max_gap_seconds": 0,
-            "interval_seconds": _timeframe_interval_seconds(timeframe),
-        }
+    symbol: str | None = None
+    timeframe: int | None = None
+    granularity: str | None = None
 
-    interval_seconds = _timeframe_interval_seconds(timeframe)
-    start_time = unique_times.iloc[0].to_pydatetime()
-    end_time = unique_times.iloc[-1].to_pydatetime()
-    expected_rows = row_count
-    missing_rows = 0
-    gap_count = 0
-    max_gap_seconds = 0
-    if interval_seconds is not None and row_count > 1:
-        deltas = unique_times.diff().dropna()
-        delta_seconds = deltas.dt.total_seconds().astype(int)
-        missing_by_gap = (
-            (delta_seconds + (interval_seconds - 1)) // interval_seconds
-        ) - 1
-        missing_by_gap = missing_by_gap.clip(lower=0)
-        expected_rows = row_count + int(missing_by_gap.sum())
-        gap_count = int((missing_by_gap > 0).sum())
-        missing_rows = int(missing_by_gap.sum())
-        max_gap_seconds = int(max(delta_seconds.max() - interval_seconds, 0))
-    coverage_ratio = round(row_count / expected_rows, 10) if expected_rows > 0 else None
+    if "symbol" in frame.columns:
+        symbols = {str(value) for value in frame["symbol"].dropna().unique()}
+        if len(symbols) == 1:
+            symbol = next(iter(symbols))
+    if "timeframe" in frame.columns:
+        timeframes = {
+            coerced
+            for value in frame["timeframe"].dropna().unique()
+            if (coerced := _coerce_optional_int(value)) is not None
+        }
+        if len(timeframes) == 1:
+            timeframe = next(iter(timeframes))
+
+    if timeframe is None and (match := _RATE_VIEW_NAME_RE.fullmatch(table)) is not None:
+        symbol = symbol or match.group("symbol")
+        timeframe = int(match.group("timeframe"))
+        granularity = match.group("granularity") or resolve_granularity_name(timeframe)
+
+    if timeframe is not None and granularity is None:
+        granularity = resolve_granularity_name(timeframe)
+
     return {
+        "table": table,
         "symbol": symbol,
         "timeframe": timeframe,
         "granularity": granularity,
-        "rows": row_count,
-        "start_time": start_time,
-        "end_time": end_time,
-        "expected_rows": expected_rows,
-        "missing_rows": missing_rows,
-        "coverage_ratio": coverage_ratio,
-        "gap_count": gap_count,
-        "max_gap_seconds": max_gap_seconds,
-        "interval_seconds": interval_seconds,
+        "granularity_seconds": granularity_seconds,
     }
 
 
-def report_rate_coverage_from_sqlite(
-    conn_or_path: SqliteConnOrPath,
+def report_rate_gaps(
+    conn: sqlite3.Connection,
+    table: str,
     *,
-    symbols: Sequence[str] | None = None,
-    timeframes: Sequence[int | str] | None = None,
+    granularity_seconds: int,
+    min_gap_intervals: int = 1,
 ) -> pd.DataFrame:
-    """Return a SQLite rates coverage report with gap counts by series."""
-    conn, should_close = _open_existing_sqlite_database(conn_or_path)
-    try:
-        columns = get_table_columns(conn, Dataset.rates.table_name)
-        required = {"symbol", "timeframe", "time"}
-        if not required.issubset(columns):
-            return _empty_rate_coverage_report()
+    """Return one row per detected gap from a SQLite rate table or view.
 
-        frame = pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
-            "SELECT symbol, timeframe, time FROM rates"
-            " ORDER BY symbol, timeframe, time",
+    Raises:
+        ValueError: If the table name, schema, timestamps, or gap parameters
+            are invalid.
+    """
+    table_name = _validate_rate_load_request(table, count=None)
+    if granularity_seconds <= 0:
+        msg = "granularity_seconds must be positive."
+        raise ValueError(msg)
+    if min_gap_intervals <= 0:
+        msg = "min_gap_intervals must be positive."
+        raise ValueError(msg)
+
+    columns = get_table_columns(conn, table_name)
+    _ensure_rate_columns(columns, table_name)
+    quoted_table = quote_sqlite_identifier(table_name)
+    frame = cast(
+        "pd.DataFrame",
+        pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
+            f"SELECT * FROM {quoted_table} ORDER BY time ASC",  # noqa: S608
             conn,
-        )
-        if symbols:
-            frame = frame.loc[frame["symbol"].isin(symbols)].reset_index(drop=True)
-        if timeframes:
-            resolved_timeframes = [parse_timeframe(value) for value in timeframes]
-            frame = frame.loc[frame["timeframe"].isin(resolved_timeframes)].reset_index(
-                drop=True
-            )
-        if frame.empty:
-            return _empty_rate_coverage_report()
+        ),
+    )
+    if frame.empty:
+        return _empty_rate_gap_report()
 
-        grouped = cast(
-            "Iterable[tuple[tuple[str, int], pd.DataFrame]]",
-            frame.groupby(["symbol", "timeframe"], sort=True),
+    parsed_times = frame["time"].map(parse_sqlite_timestamp)
+    if parsed_times.isna().any():
+        msg = f"SQLite table or view {table_name!r} contains unparsable time values."
+        raise ValueError(msg)
+
+    unique_times = (
+        pd.Series(parsed_times).drop_duplicates().sort_values(ignore_index=True)
+    )
+    if len(unique_times) < _MIN_TIMESTAMPS_FOR_GAPS:
+        return _empty_rate_gap_report()
+
+    metadata = _rate_gap_metadata(
+        table_name,
+        frame,
+        granularity_seconds=granularity_seconds,
+    )
+    deltas = unique_times.diff().dropna()
+    rows: list[dict[str, object]] = []
+    for index, delta in enumerate(deltas, start=1):
+        delta_seconds = int(delta.total_seconds())
+        missing_intervals = max(
+            ((delta_seconds + (granularity_seconds - 1)) // granularity_seconds) - 1,
+            0,
         )
-        rows = [
-            _build_rate_coverage_row(symbol, timeframe, group["time"])
-            for (symbol, timeframe), group in grouped
-        ]
-        return pd.DataFrame(rows, columns=_RATE_COVERAGE_COLUMNS)
-    finally:
-        if should_close:
-            conn.close()
+        if missing_intervals < min_gap_intervals:
+            continue
+        previous_time = unique_times.iloc[index - 1]
+        next_time = unique_times.iloc[index]
+        rows.append({
+            **metadata,
+            "gap_start": (
+                previous_time.to_pydatetime() + timedelta(seconds=granularity_seconds)
+            ),
+            "gap_end": (
+                next_time.to_pydatetime() - timedelta(seconds=granularity_seconds)
+            ),
+            "missing_intervals": missing_intervals,
+        })
+    return pd.DataFrame(rows, columns=_RATE_GAP_COLUMNS)
 
 
 def _validate_rate_load_request(table: str, count: int | None) -> str:

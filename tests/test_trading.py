@@ -121,6 +121,34 @@ class TestDetectPositionSide:
 
         assert detect_position_side(client, "EURUSD") == expected
 
+    def test_detect_position_side_filters_by_magic(self) -> None:
+        """Magic-scoped side detection ignores foreign positions."""
+        client = MagicMock()
+        client.mt5.POSITION_TYPE_BUY = 0
+        client.mt5.POSITION_TYPE_SELL = 1
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"type": 0, "volume": 0.3, "magic": 7},
+                {"type": 1, "volume": 0.2, "magic": 9},
+            ],
+        )
+
+        assert detect_position_side(client, "EURUSD", magic=7) == "long"
+        assert detect_position_side(client, "EURUSD", magic=9) == "short"
+
+    def test_detect_position_side_magic_is_fail_closed_without_magic_column(
+        self,
+    ) -> None:
+        """Magic-scoped side detection returns None without magic metadata."""
+        client = MagicMock()
+        client.mt5.POSITION_TYPE_BUY = 0
+        client.mt5.POSITION_TYPE_SELL = 1
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"type": 0, "volume": 0.3}],
+        )
+
+        assert detect_position_side(client, "EURUSD", magic=7) is None
+
 
 class TestCalculateMarginAndVolume:
     """Tests for calculate_margin_and_volume."""
@@ -2305,7 +2333,7 @@ class TestVolumeAndExecution:
                 {"filling_mode": None, "trade_exemode": None},
                 ("RETURN", "FOK"),
                 "IOC",
-                "IOC",
+                "RETURN",
             ),
         ],
         ids=["ioc", "fok-fallback", "return", "default-fallback"],
@@ -2352,6 +2380,80 @@ class TestVolumeAndExecution:
                 preferred_modes=cast("Any", preferred_modes),
                 default_mode=cast("Any", default_mode),
             )
+
+    def test_resolve_broker_filling_mode_keeps_preferred_when_metadata_missing(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Missing metadata should fail open to the caller-preferred mode."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"filling_mode": None}
+
+        with caplog.at_level(logging.DEBUG):
+            result = resolve_broker_filling_mode(
+                client,
+                symbol="EURUSD",
+                preferred_modes=("FOK", "IOC"),
+            )
+
+        assert result == "FOK"
+        assert "keeping preferred mode" in caplog.text
+
+    def test_resolve_broker_filling_mode_supports_return_without_bitmask(self) -> None:
+        """RETURN should be allowed when execution mode is non-market."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "filling_mode": None,
+            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_REQUEST,
+        }
+
+        result = resolve_broker_filling_mode(
+            client,
+            symbol="EURUSD",
+            preferred_modes=("RETURN", "FOK"),
+        )
+
+        assert result == "RETURN"
+
+    def test_resolve_broker_filling_mode_keeps_preferred_when_metadata_unparseable(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Unparseable metadata should still fail open to the preferred mode."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "filling_mode": 0,
+            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_MARKET,
+        }
+
+        with caplog.at_level(logging.DEBUG):
+            result = resolve_broker_filling_mode(
+                client,
+                symbol="EURUSD",
+                preferred_modes=("FOK", "IOC"),
+            )
+
+        assert result == "FOK"
+        assert "unparseable" in caplog.text
+
+    def test_resolve_broker_filling_mode_returns_default_without_preferred_overlap(
+        self,
+    ) -> None:
+        """The explicit default is used when supported modes miss preferences."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "filling_mode": client.mt5.SYMBOL_FILLING_IOC,
+            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_MARKET,
+        }
+
+        result = resolve_broker_filling_mode(
+            client,
+            symbol="EURUSD",
+            preferred_modes=("FOK",),
+            default_mode="IOC",
+        )
+
+        assert result == "IOC"
 
     @pytest.mark.parametrize(
         ("filter_kwargs", "expected_order_side", "expected_position"),

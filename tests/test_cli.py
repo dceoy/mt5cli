@@ -21,7 +21,9 @@ if TYPE_CHECKING:
 from mt5cli.cli import (
     _execute_export,  # type: ignore[reportPrivateUsage]
     _ExportContext,  # type: ignore[reportPrivateUsage]
+    _infer_gap_table_granularity_seconds,  # type: ignore[reportPrivateUsage]
     _sdk_client,  # type: ignore[reportPrivateUsage]
+    _timeframe_interval_seconds,  # type: ignore[reportPrivateUsage]
     app,
     main,
 )
@@ -963,6 +965,20 @@ class TestCallback:
         assert config.password.get_secret_value() == expected["password"]
         assert config.server == expected["server"]
 
+    def test_help_documents_mt5_env_vars(self) -> None:
+        """Top-level help output should expose the supported MT5 env vars."""
+        result = runner.invoke(app, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        normalized = normalize_cli_output(result.output)
+        for env_name in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_PATH"):
+            assert env_name in normalized
+
+    def test_gap_granularity_helpers_cover_unknown_cases(self) -> None:
+        """Gap-table granularity helpers should fail cleanly for unknown inputs."""
+        assert _timeframe_interval_seconds(49153) is None
+        assert _infer_gap_table_granularity_seconds("custom_rates") is None
+
     @pytest.mark.parametrize(
         ("args", "env", "exit_code", "match"),
         [
@@ -1664,32 +1680,32 @@ class TestCollectHistory:
         )
 
 
-class TestRateCoverageCommand:
-    """Tests for the rate-coverage CLI command."""
+class TestHistoryGapsCommand:
+    """Tests for the history-gaps CLI command."""
 
     @pytest.mark.parametrize(
-        ("extra_args", "expected_symbols", "expected_rows"),
+        ("extra_args", "expected_tables", "expected_rows"),
         [
-            pytest.param([], {"EURUSD", "GBPUSD"}, 2, id="all-series"),
+            pytest.param([], {"rate_EURUSD__M1_1", "rate_GBPUSD__M1_1"}, 2, id="all"),
             pytest.param(
-                ["--symbol", "EURUSD", "--timeframe", "M1"],
-                {"EURUSD"},
+                ["--table", "rate_EURUSD__M1_1"],
+                {"rate_EURUSD__M1_1"},
                 1,
-                id="filtered-series",
+                id="explicit-table",
             ),
         ],
     )
-    def test_rate_coverage_exports_sqlite_report_without_mt5(
+    def test_history_gaps_exports_sqlite_report_without_mt5(
         self,
         tmp_path: Path,
         mock_client: MagicMock,
         extra_args: list[str],
-        expected_symbols: set[str],
+        expected_tables: set[str],
         expected_rows: int,
     ) -> None:
-        """rate-coverage reads SQLite only and exports the filtered report."""
+        """history-gaps reads SQLite only and exports one row per gap."""
         database = tmp_path / "history.db"
-        output = tmp_path / "coverage.json"
+        output = tmp_path / "gaps.json"
         with sqlite3.connect(database) as conn:
             conn.execute(
                 "CREATE TABLE rates("
@@ -1702,7 +1718,18 @@ class TestRateCoverageCommand:
                     ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
                     ("EURUSD", 1, "2024-01-01T00:02:00+00:00", 1.1),
                     ("GBPUSD", 1, "2024-01-01T00:00:00+00:00", 1.2),
+                    ("GBPUSD", 1, "2024-01-01T00:02:00+00:00", 1.3),
                 ],
+            )
+            conn.execute(
+                'CREATE VIEW "rate_EURUSD__M1_1" AS '
+                "SELECT time, close FROM rates "
+                "WHERE symbol = 'EURUSD' AND timeframe = 1",
+            )
+            conn.execute(
+                'CREATE VIEW "rate_GBPUSD__M1_1" AS '
+                "SELECT time, close FROM rates "
+                "WHERE symbol = 'GBPUSD' AND timeframe = 1",
             )
 
         result = runner.invoke(
@@ -1710,8 +1737,8 @@ class TestRateCoverageCommand:
             [
                 "-o",
                 str(output),
-                "rate-coverage",
-                "--database",
+                "history-gaps",
+                "--sqlite3",
                 str(database),
                 *extra_args,
             ],
@@ -1720,8 +1747,59 @@ class TestRateCoverageCommand:
         assert result.exit_code == 0, result.output
         data = json.loads(output.read_text())
         assert len(data) == expected_rows
-        assert {row["symbol"] for row in data} == expected_symbols
+        assert {row["table"] for row in data} == expected_tables
         mock_client.initialize_and_login_mt5.assert_not_called()
+
+    def test_history_gaps_requires_compatible_default_views(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Without --table, history-gaps should reject DBs with no managed views."""
+        database = tmp_path / "empty.db"
+        output = tmp_path / "gaps.json"
+        with sqlite3.connect(database):
+            pass
+
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "history-gaps", "--sqlite3", str(database)],
+        )
+
+        assert result.exit_code != 0
+        assert "No managed rate compatibility views found" in result.output
+
+    def test_history_gaps_requires_granularity_for_custom_tables(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Custom tables need an explicit granularity when no view naming exists."""
+        database = tmp_path / "custom.db"
+        output = tmp_path / "gaps.json"
+        with sqlite3.connect(database) as conn:
+            conn.execute("CREATE TABLE custom_rates(time TEXT, close REAL)")
+            conn.executemany(
+                "INSERT INTO custom_rates(time, close) VALUES (?, ?)",
+                [
+                    ("2024-01-01T00:00:00+00:00", 1.0),
+                    ("2024-01-01T00:02:00+00:00", 1.1),
+                ],
+            )
+
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "history-gaps",
+                "--sqlite3",
+                str(database),
+                "--table",
+                "custom_rates",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "--granularity-seconds" in result.output
 
 
 class TestGrafanaSchemaCommand:

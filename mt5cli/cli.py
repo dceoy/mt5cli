@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
 from pathlib import Path  # noqa: TC003
@@ -15,6 +17,7 @@ import typer
 
 from . import sdk
 from .client import MT5Client
+from .history import report_rate_gaps, resolve_granularity_name
 from .trading import OrderExecutionResult, close_open_positions, create_trading_client
 from .utils import (
     DATETIME_TYPE,
@@ -74,6 +77,9 @@ _CLI_ENV_DEFAULTS: dict[str, str] = {
     "password": "MT5_PASSWORD",
     "server": "MT5_SERVER",
 }
+_RATE_VIEW_NAME_RE = re.compile(
+    r"^rate_(?P<symbol>.+)__(?:(?P<granularity>[A-Z0-9]+)_)?(?P<timeframe>\d+)$",
+)
 
 
 def _get_export_context(ctx: typer.Context) -> _ExportContext:
@@ -82,6 +88,36 @@ def _get_export_context(ctx: typer.Context) -> _ExportContext:
 
 def _resolve_cli_option(value: str | None, env_name: str) -> str | None:
     return value if value is not None else os.environ.get(env_name)
+
+
+def _timeframe_interval_seconds(timeframe: int) -> int | None:
+    granularity = resolve_granularity_name(timeframe)
+    units = {
+        "M": 60,
+        "H": 3600,
+        "D": 86400,
+        "W": 604800,
+    }
+    for prefix, seconds in units.items():
+        suffix = granularity.removeprefix(prefix)
+        if granularity.startswith(prefix) and suffix.isdigit():
+            return int(suffix) * seconds
+    return None
+
+
+def _infer_gap_table_granularity_seconds(table: str) -> int | None:
+    if (match := _RATE_VIEW_NAME_RE.fullmatch(table)) is None:
+        return None
+    return _timeframe_interval_seconds(int(match.group("timeframe")))
+
+
+def _default_gap_tables(conn: sqlite3.Connection) -> list[str]:
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master"
+        " WHERE type IN ('table', 'view') AND name GLOB 'rate_*__*'"
+        " ORDER BY name",
+    ).fetchall()
+    return [str(row[0]) for row in rows]
 
 
 def _execute_export(
@@ -145,19 +181,35 @@ def _callback(  # pyright: ignore[reportUnusedFunction]
     ] = "data",
     login: Annotated[
         str | None,
-        typer.Option(help="Trading account login."),
+        typer.Option(
+            help="Trading account login.",
+            envvar=_CLI_ENV_DEFAULTS["login"],
+            show_envvar=True,
+        ),
     ] = None,
     password: Annotated[
         str | None,
-        typer.Option(help="Trading account password."),
+        typer.Option(
+            help="Trading account password.",
+            envvar=_CLI_ENV_DEFAULTS["password"],
+            show_envvar=True,
+        ),
     ] = None,
     server: Annotated[
         str | None,
-        typer.Option(help="Trading server name."),
+        typer.Option(
+            help="Trading server name.",
+            envvar=_CLI_ENV_DEFAULTS["server"],
+            show_envvar=True,
+        ),
     ] = None,
     path: Annotated[
         str | None,
-        typer.Option(help="Path to MetaTrader5 terminal EXE file."),
+        typer.Option(
+            help="Path to MetaTrader5 terminal EXE file.",
+            envvar=_CLI_ENV_DEFAULTS["path"],
+            show_envvar=True,
+        ),
     ] = None,
     timeout: Annotated[
         int | None,
@@ -736,37 +788,69 @@ def close_positions(
     _execute_export(ctx, lambda: df)
 
 
-@app.command(rich_help_panel="Collection")
-def rate_coverage(
+@app.command("history-gaps", rich_help_panel="Collection")
+def history_gaps(
     ctx: typer.Context,
-    database: Annotated[
+    sqlite3_path: Annotated[
         Path,
         typer.Option(
-            "--database",
+            "--sqlite3",
             help="Source SQLite history database to analyze.",
         ),
     ],
-    symbol: Annotated[
+    table: Annotated[
         list[str] | None,
         typer.Option(
-            "--symbol",
-            "-s",
-            help="Symbol filter for the coverage report (repeat for multiple).",
+            "--table",
+            help="Rate table or compatibility view to inspect (repeat for multiple).",
         ),
     ] = None,
-    timeframe: Annotated[
-        list[int] | None,
-        typer.Option(
-            click_type=TIMEFRAME_TYPE,
-            help="Timeframe filter for the coverage report.",
-        ),
+    granularity_seconds: Annotated[
+        int | None,
+        typer.Option(help="Explicit bar interval in seconds for custom tables/views."),
     ] = None,
+    min_gap_intervals: Annotated[
+        int,
+        typer.Option(help="Minimum missing-bar count required to emit a gap row."),
+    ] = 1,
 ) -> None:
-    """Export a SQLite rates coverage report without connecting to MT5."""
-    df = sdk.report_rate_coverage_from_sqlite(
-        database,
-        symbols=list(symbol) if symbol else None,
-        timeframes=list(timeframe) if timeframe else None,
+    """Export SQLite rate gaps without connecting to MT5.
+
+    Raises:
+        typer.BadParameter: If no compatible rate view is available and no
+            explicit table is provided, or if granularity inference fails.
+    """
+    with sqlite3.connect(sqlite3_path) as conn:
+        tables = list(table) if table else _default_gap_tables(conn)
+        if not tables:
+            msg = (
+                "No managed rate compatibility views found; pass --table for a rate "
+                "table or view."
+            )
+            raise typer.BadParameter(msg, param_hint="--table")
+        frames: list[pd.DataFrame] = []
+        for table_name in tables:
+            interval_seconds = (
+                granularity_seconds or _infer_gap_table_granularity_seconds(table_name)
+            )
+            if interval_seconds is None:
+                msg = (
+                    f"Could not infer granularity for {table_name!r}; pass "
+                    "--granularity-seconds."
+                )
+                raise typer.BadParameter(msg, param_hint="--granularity-seconds")
+            frames.append(
+                report_rate_gaps(
+                    conn,
+                    table_name,
+                    granularity_seconds=interval_seconds,
+                    min_gap_intervals=min_gap_intervals,
+                )
+            )
+    df = (
+        pd.concat(frames, ignore_index=True)
+        if frames
+        else pd.DataFrame(columns=["table"])
     )
     _execute_export(ctx, lambda: df)
 

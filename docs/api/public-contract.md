@@ -70,7 +70,7 @@ timestamp normalization in downstream apps.
 | Symbol                                                            | Role                                                                                         |
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `collect_history`                                                 | One-shot date-range export into SQLite                                                       |
-| `report_rate_coverage_from_sqlite`                                | SQLite-only per-series rates gap / coverage report                                           |
+| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for a rate table or compatibility view                    |
 | `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors                                                  |
 | `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; optional `update_backend` injection |
 | `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                             |
@@ -237,8 +237,10 @@ without placing them and does not require `--yes`. `close-positions` also
 accepts optional `--deviation`, `--comment`, and `--magic`; `--magic` scopes
 the selected open positions fail-closed when position magic metadata is absent.
 
-`rate-coverage` reads an existing SQLite history database and exports one row
-per `rates` series with coverage and gap metrics. It never initializes MT5.
+`history-gaps` reads an existing SQLite history database and exports one row
+per detected gap from managed rate compatibility views. It never initializes
+MT5. Pass `--granularity-seconds` for custom tables or views whose bar spacing
+cannot be inferred from the name.
 
 ## Internal helpers (not stable)
 
