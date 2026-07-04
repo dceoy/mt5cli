@@ -1799,7 +1799,10 @@ class TestHistoryGapsCommand:
         )
 
         assert result.exit_code != 0
-        assert "--granularity-seconds" in result.output
+        output = normalize_cli_output(result.output)
+        assert "Could not infer granularity" in output
+        assert "'custom_rates'" in output
+        assert re.search(r"--granularity-\s*seconds", output) is not None
 
 
 class TestGrafanaSchemaCommand:
