@@ -2335,8 +2335,27 @@ class TestVolumeAndExecution:
                 "IOC",
                 "RETURN",
             ),
+            (
+                {"filling_mode": 2, "trade_exemode": 3},
+                ("FOK",),
+                "IOC",
+                "IOC",
+            ),
+            (
+                {"filling_mode": 2, "trade_exemode": 3},
+                ("FOK",),
+                "RETURN",
+                "IOC",
+            ),
         ],
-        ids=["ioc", "fok-fallback", "return", "default-fallback"],
+        ids=[
+            "ioc",
+            "fok-fallback",
+            "return",
+            "default-fallback",
+            "supported-default-fallback",
+            "ignore-unsupported-default",
+        ],
     )
     def test_resolve_broker_filling_mode(
         self,
@@ -2435,25 +2454,6 @@ class TestVolumeAndExecution:
 
         assert result == "FOK"
         assert "unparseable" in caplog.text
-
-    def test_resolve_broker_filling_mode_returns_default_without_preferred_overlap(
-        self,
-    ) -> None:
-        """The explicit default is used when supported modes miss preferences."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {
-            "filling_mode": client.mt5.SYMBOL_FILLING_IOC,
-            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_MARKET,
-        }
-
-        result = resolve_broker_filling_mode(
-            client,
-            symbol="EURUSD",
-            preferred_modes=("FOK",),
-            default_mode="IOC",
-        )
-
-        assert result == "IOC"
 
     @pytest.mark.parametrize(
         ("filter_kwargs", "expected_order_side", "expected_position"),

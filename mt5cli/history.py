@@ -306,6 +306,17 @@ def _rate_gap_metadata(
     }
 
 
+def _iter_rate_gap_groups(frame: pd.DataFrame) -> list[pd.DataFrame]:
+    series_columns = [
+        column for column in ("symbol", "timeframe") if column in frame.columns
+    ]
+    if not series_columns:
+        return [frame]
+    return [
+        group for _, group in frame.groupby(series_columns, dropna=False, sort=False)
+    ]
+
+
 def report_rate_gaps(
     conn: sqlite3.Connection,
     table: str,
@@ -345,39 +356,42 @@ def report_rate_gaps(
         msg = f"SQLite table or view {table_name!r} contains unparsable time values."
         raise ValueError(msg)
 
-    unique_times = (
-        pd.Series(parsed_times).drop_duplicates().sort_values(ignore_index=True)
-    )
-    if len(unique_times) < _MIN_TIMESTAMPS_FOR_GAPS:
-        return _empty_rate_gap_report()
-
-    metadata = _rate_gap_metadata(
-        table_name,
-        frame,
-        granularity_seconds=granularity_seconds,
-    )
-    deltas = unique_times.diff().dropna()
+    series_frame = frame.copy()
+    series_frame["time"] = parsed_times
     rows: list[dict[str, object]] = []
-    for index, delta in enumerate(deltas, start=1):
-        delta_seconds = int(delta.total_seconds())
-        missing_intervals = max(
-            ((delta_seconds + (granularity_seconds - 1)) // granularity_seconds) - 1,
-            0,
-        )
-        if missing_intervals < min_gap_intervals:
+    for group in _iter_rate_gap_groups(series_frame):
+        unique_times = group["time"].drop_duplicates().sort_values(ignore_index=True)
+        if len(unique_times) < _MIN_TIMESTAMPS_FOR_GAPS:
             continue
-        previous_time = unique_times.iloc[index - 1]
-        next_time = unique_times.iloc[index]
-        rows.append({
-            **metadata,
-            "gap_start": (
-                previous_time.to_pydatetime() + timedelta(seconds=granularity_seconds)
-            ),
-            "gap_end": (
-                next_time.to_pydatetime() - timedelta(seconds=granularity_seconds)
-            ),
-            "missing_intervals": missing_intervals,
-        })
+
+        metadata = _rate_gap_metadata(
+            table_name,
+            group,
+            granularity_seconds=granularity_seconds,
+        )
+        deltas = unique_times.diff().dropna()
+        for index, delta in enumerate(deltas, start=1):
+            delta_seconds = int(delta.total_seconds())
+            missing_intervals = max(
+                ((delta_seconds + (granularity_seconds - 1)) // granularity_seconds)
+                - 1,
+                0,
+            )
+            if missing_intervals < min_gap_intervals:
+                continue
+            previous_time = unique_times.iloc[index - 1]
+            next_time = unique_times.iloc[index]
+            rows.append({
+                **metadata,
+                "gap_start": (
+                    previous_time.to_pydatetime()
+                    + timedelta(seconds=granularity_seconds)
+                ),
+                "gap_end": (
+                    next_time.to_pydatetime() - timedelta(seconds=granularity_seconds)
+                ),
+                "missing_intervals": missing_intervals,
+            })
     return pd.DataFrame(rows, columns=_RATE_GAP_COLUMNS)
 
 

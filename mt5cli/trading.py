@@ -815,7 +815,10 @@ def resolve_broker_filling_mode(
     for mode in preferred:
         if mode in supported:
             return cast("OrderFillingMode", mode)
-    return default_mode
+    fallback_mode = next(
+        mode for mode in (default_mode, "IOC", "FOK", "RETURN") if mode in supported
+    )
+    return cast("OrderFillingMode", fallback_mode)
 
 
 def _order_side_from_position_type(

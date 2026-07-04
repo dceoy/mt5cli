@@ -3199,6 +3199,47 @@ class TestRateSourceHelpers:
 
         assert result.empty
 
+    def test_report_rate_gaps_computes_gaps_per_series_key(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Managed rates tables must detect gaps within each symbol/timeframe series."""
+        db_path = tmp_path / "series-gaps.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                "symbol TEXT, timeframe INTEGER, time TEXT, close REAL"
+                ")",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("GBPUSD", 1, "2024-01-01T00:01:00+00:00", 1.1),
+                    ("EURUSD", 1, "2024-01-01T00:02:00+00:00", 1.2),
+                ],
+            )
+
+            result = report_rate_gaps(
+                conn,
+                "rates",
+                granularity_seconds=60,
+            )
+
+        records = cast("list[dict[str, object]]", result.to_dict("records"))
+        assert records == [
+            {
+                "table": "rates",
+                "symbol": "EURUSD",
+                "timeframe": 1,
+                "granularity": "M1",
+                "granularity_seconds": 60,
+                "gap_start": datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
+                "gap_end": datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
+                "missing_intervals": 1,
+            },
+        ]
+
     def test_rate_gap_private_helpers_and_validation(self) -> None:
         """Private helpers should preserve schema and reject invalid inputs."""
         empty = history._empty_rate_gap_report()  # type: ignore[attr-defined]
