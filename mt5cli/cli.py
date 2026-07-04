@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
 from pathlib import Path  # noqa: TC003
@@ -11,7 +12,6 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pandas as pd
 import typer
-from pdmt5 import Mt5Config
 
 from . import sdk
 from .client import MT5Client
@@ -31,6 +31,8 @@ from .utils import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from pdmt5 import Mt5Config
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +68,20 @@ app = typer.Typer(
 _REQUEST_OPTION_HELP = (
     "Order request as a JSON object string, or '@path' to load JSON from a file."
 )
+_CLI_ENV_DEFAULTS: dict[str, str] = {
+    "path": "MT5_PATH",
+    "login": "MT5_LOGIN",
+    "password": "MT5_PASSWORD",
+    "server": "MT5_SERVER",
+}
 
 
 def _get_export_context(ctx: typer.Context) -> _ExportContext:
     return cast("_ExportContext", ctx.obj)
+
+
+def _resolve_cli_option(value: str | None, env_name: str) -> str | None:
+    return value if value is not None else os.environ.get(env_name)
 
 
 def _execute_export(
@@ -132,7 +144,7 @@ def _callback(  # pyright: ignore[reportUnusedFunction]
         typer.Option(help="Table name for SQLite3 output."),
     ] = "data",
     login: Annotated[
-        int | None,
+        str | None,
         typer.Option(help="Trading account login."),
     ] = None,
     password: Annotated[
@@ -169,17 +181,22 @@ def _callback(  # pyright: ignore[reportUnusedFunction]
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
+    try:
+        config = sdk.build_config(
+            path=_resolve_cli_option(path, _CLI_ENV_DEFAULTS["path"]),
+            login=_resolve_cli_option(login, _CLI_ENV_DEFAULTS["login"]),
+            password=_resolve_cli_option(password, _CLI_ENV_DEFAULTS["password"]),
+            server=_resolve_cli_option(server, _CLI_ENV_DEFAULTS["server"]),
+            timeout=timeout,
+            allow_whole_dollar_env=True,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     ctx.obj = _ExportContext(
         output=output,
         output_format=output_format,
         table=table,
-        config=Mt5Config(
-            path=path,
-            login=login,
-            password=password,
-            server=server,
-            timeout=timeout,
-        ),
+        config=config,
     )
 
 
@@ -658,6 +675,20 @@ def close_positions(
             help="Position ticket to close (repeat for multiple tickets).",
         ),
     ] = None,
+    deviation: Annotated[
+        int | None,
+        typer.Option(help="Optional slippage/deviation for each close request."),
+    ] = None,
+    comment: Annotated[
+        str | None,
+        typer.Option(help="Optional comment attached to each close request."),
+    ] = None,
+    magic: Annotated[
+        int | None,
+        typer.Option(
+            help="Optional magic tag for close requests and position filtering.",
+        ),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Preview close orders without executing them."),
@@ -694,11 +725,49 @@ def close_positions(
             client,
             symbols=list(symbol) if symbol else None,
             tickets=list(ticket) if ticket else None,
+            deviation=deviation,
+            comment=comment,
+            magic=magic,
             dry_run=dry_run,
         )
     finally:
         client.shutdown()
     df = _execution_results_to_df(results)
+    _execute_export(ctx, lambda: df)
+
+
+@app.command(rich_help_panel="Collection")
+def rate_coverage(
+    ctx: typer.Context,
+    database: Annotated[
+        Path,
+        typer.Option(
+            "--database",
+            help="Source SQLite history database to analyze.",
+        ),
+    ],
+    symbol: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--symbol",
+            "-s",
+            help="Symbol filter for the coverage report (repeat for multiple).",
+        ),
+    ] = None,
+    timeframe: Annotated[
+        list[int] | None,
+        typer.Option(
+            click_type=TIMEFRAME_TYPE,
+            help="Timeframe filter for the coverage report.",
+        ),
+    ] = None,
+) -> None:
+    """Export a SQLite rates coverage report without connecting to MT5."""
+    df = sdk.report_rate_coverage_from_sqlite(
+        database,
+        symbols=list(symbol) if symbol else None,
+        timeframes=list(timeframe) if timeframe else None,
+    )
     _execute_export(ctx, lambda: df)
 
 

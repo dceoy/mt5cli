@@ -109,8 +109,10 @@ mt5cli -o ticks.json ticks-from --symbol EURUSD \
 # Export symbols to SQLite3 with custom table name
 mt5cli -o data.db --table symbols symbols --group "*USD*"
 
-# Export with connection credentials
-mt5cli --login 12345 --password mypass --server MyBroker-Demo \
+# Export with connection credentials from env or placeholders
+MT5_LOGIN=12345 MT5_PASSWORD=secret MT5_SERVER=MyBroker-Demo \
+  mt5cli -o positions.csv positions
+mt5cli --login '${MT5_LOGIN}' --password '${MT5_PASSWORD}' --server '${MT5_SERVER}' \
   -o positions.csv positions
 ```
 
@@ -164,10 +166,10 @@ mt5cli --login 12345 --password mypass --server MyBroker-Demo \
 These commands send requests to the live trade server and can place or close
 real trades. Both require `--yes` for live execution.
 
-| Command           | Description                                                                                          |
-| ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `order-send`      | Send a **raw** trade request directly to MT5 (`--yes` required; expert path — no extra validation)   |
-| `close-positions` | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` to preview) |
+| Command           | Description                                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `order-send`      | Send a **raw** trade request directly to MT5 (`--yes` required; expert path — no extra validation)                                                     |
+| `close-positions` | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` to preview; optional `--deviation` / `--comment` / `--magic`) |
 
 Use `order-check` (Trading State) to validate funds before running `order-send --yes`.
 `close-positions` is the safer high-level alternative that builds correct close
@@ -179,6 +181,7 @@ applications should prefer dedicated closing helpers or their own risk controls.
 | Command           | Description                                                                                                                                                                      |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `collect-history` | Collect rates, history-orders, and history-deals (ticks opt-in via `--dataset ticks`) for one or more symbols into a single SQLite database (optional cash-event/position views) |
+| `rate-coverage`   | Export a SQLite-only rates gap / coverage report without connecting to MT5                                                                                                       |
 
 ```bash
 mt5cli -o history.db collect-history \

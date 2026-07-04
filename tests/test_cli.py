@@ -631,8 +631,8 @@ class TestClosePositions:
         """Patch create_trading_client and return a mock trading client."""
         client = _build_mock_trading_client()
         client.positions_get_as_df.return_value = pd.DataFrame([
-            {"ticket": 1, "symbol": "JP225", "type": 0, "volume": 1.0},
-            {"ticket": 2, "symbol": "EURUSD", "type": 1, "volume": 0.5},
+            {"ticket": 1, "symbol": "JP225", "type": 0, "volume": 1.0, "magic": 7},
+            {"ticket": 2, "symbol": "EURUSD", "type": 1, "volume": 0.5, "magic": 9},
         ])
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
         mocker.patch("mt5cli.cli.create_trading_client", return_value=client)
@@ -762,6 +762,40 @@ class TestClosePositions:
         assert data[0]["dry_run"] is True
         assert data[0]["order_side"] == "SELL"
 
+    def test_close_positions_dry_run_forwards_request_fields(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Dry-run close export preserves deviation/comment/magic passthrough."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                "--deviation",
+                "7",
+                "--comment",
+                "close-me",
+                "--magic",
+                "7",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        trading_client.order_send.assert_not_called()
+        data = json.loads(output.read_text())
+        assert len(data) == 1
+        assert data[0]["symbol"] == "JP225"
+        request = json.loads(data[0]["request"])
+        assert request["deviation"] == 7
+        assert request["comment"] == "close-me"
+        assert request["magic"] == 7
+
     def test_order_send_unchanged(
         self,
         tmp_path: Path,
@@ -847,11 +881,10 @@ class TestCallback:
         """Test that connection arguments reach Mt5Config."""
         mock_client = MagicMock()
         mock_client.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
-        mocker.patch(
+        mt5_client = mocker.patch(
             "mt5cli.sdk.Mt5DataClient",
             return_value=mock_client,
         )
-        mock_config = mocker.patch("mt5cli.cli.Mt5Config")
         output = tmp_path / "out.csv"
         result = runner.invoke(
             app,
@@ -868,13 +901,118 @@ class TestCallback:
             ],
         )
         assert result.exit_code == 0, result.output
-        mock_config.assert_called_once_with(
-            path=None,
-            login=123,
-            password="pw",
-            server="srv",
-            timeout=None,
+        config = mt5_client.call_args.kwargs["config"]
+        assert config.path is None
+        assert config.login == 123
+        assert config.password is not None
+        assert config.password.get_secret_value() == "pw"
+        assert config.server == "srv"
+        assert config.timeout is None
+
+    @pytest.mark.parametrize(
+        ("env", "extra_args", "expected"),
+        [
+            pytest.param(
+                {
+                    "MT5_LOGIN": "456",
+                    "MT5_PASSWORD": "env-pass",
+                    "MT5_SERVER": "Env-Server",
+                },
+                [],
+                {"login": 456, "password": "env-pass", "server": "Env-Server"},
+                id="env-defaults",
+            ),
+            pytest.param(
+                {
+                    "MT5_LOGIN": "456",
+                    "MT5_PASSWORD": "env-pass",
+                    "MT5_SERVER": "Env-Server",
+                },
+                ["--login", "123", "--password", "cli-pass", "--server", "Cli-Server"],
+                {"login": 123, "password": "cli-pass", "server": "Cli-Server"},
+                id="cli-overrides-env",
+            ),
+        ],
+    )
+    def test_connection_args_resolve_env_and_precedence(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        env: dict[str, str],
+        extra_args: list[str],
+        expected: dict[str, object],
+    ) -> None:
+        """CLI args fall back to env vars and preserve explicit precedence."""
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        mock_client = MagicMock()
+        mock_client.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
+        mt5_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
         )
+        output = tmp_path / "out.csv"
+
+        result = runner.invoke(app, [*extra_args, "-o", str(output), "account-info"])
+
+        assert result.exit_code == 0, result.output
+        config = mt5_client.call_args.kwargs["config"]
+        assert config.login == expected["login"]
+        assert config.password is not None
+        assert config.password.get_secret_value() == expected["password"]
+        assert config.server == expected["server"]
+
+    @pytest.mark.parametrize(
+        ("args", "env", "exit_code", "match"),
+        [
+            pytest.param(
+                ["--login", "${CLI_MT5_LOGIN}", "--server", "${CLI_MT5_SERVER}"],
+                {"CLI_MT5_LOGIN": "789", "CLI_MT5_SERVER": "Placeholder-Server"},
+                0,
+                None,
+                id="placeholder-expansion",
+            ),
+            pytest.param(
+                ["--password", "${CLI_MT5_MISSING}"],
+                {},
+                2,
+                "Environment variable 'CLI_MT5_MISSING' is not set.",
+                id="missing-placeholder",
+            ),
+        ],
+    )
+    def test_cli_placeholder_resolution(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        args: list[str],
+        env: dict[str, str],
+        exit_code: int,
+        match: str | None,
+    ) -> None:
+        """CLI config fields support SDK-style ${ENV_VAR} placeholders."""
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        mock_client = MagicMock()
+        mock_client.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
+        mt5_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+        output = tmp_path / "out.csv"
+
+        result = runner.invoke(app, [*args, "-o", str(output), "account-info"])
+
+        assert result.exit_code == exit_code, result.output
+        if exit_code == 0:
+            config = mt5_client.call_args.kwargs["config"]
+            assert config.login == 789
+            assert config.server == "Placeholder-Server"
+        else:
+            assert match is not None
+            assert match in normalize_cli_output(result.output)
 
     def test_explicit_format(
         self,
@@ -1524,6 +1662,66 @@ class TestCollectHistory:
         assert (
             "--with-views ignored: history_deals table was not written" in caplog.text
         )
+
+
+class TestRateCoverageCommand:
+    """Tests for the rate-coverage CLI command."""
+
+    @pytest.mark.parametrize(
+        ("extra_args", "expected_symbols", "expected_rows"),
+        [
+            pytest.param([], {"EURUSD", "GBPUSD"}, 2, id="all-series"),
+            pytest.param(
+                ["--symbol", "EURUSD", "--timeframe", "M1"],
+                {"EURUSD"},
+                1,
+                id="filtered-series",
+            ),
+        ],
+    )
+    def test_rate_coverage_exports_sqlite_report_without_mt5(
+        self,
+        tmp_path: Path,
+        mock_client: MagicMock,
+        extra_args: list[str],
+        expected_symbols: set[str],
+        expected_rows: int,
+    ) -> None:
+        """rate-coverage reads SQLite only and exports the filtered report."""
+        database = tmp_path / "history.db"
+        output = tmp_path / "coverage.json"
+        with sqlite3.connect(database) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                "symbol TEXT, timeframe INTEGER, time TEXT, close REAL"
+                ")",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 1, "2024-01-01T00:02:00+00:00", 1.1),
+                    ("GBPUSD", 1, "2024-01-01T00:00:00+00:00", 1.2),
+                ],
+            )
+
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "rate-coverage",
+                "--database",
+                str(database),
+                *extra_args,
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(output.read_text())
+        assert len(data) == expected_rows
+        assert {row["symbol"] for row in data} == expected_symbols
+        mock_client.initialize_and_login_mt5.assert_not_called()
 
 
 class TestGrafanaSchemaCommand:

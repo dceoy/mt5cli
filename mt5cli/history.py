@@ -23,7 +23,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from pdmt5 import Mt5DataClient
 
@@ -63,6 +63,20 @@ _POSITIONS_VIEW_REQUIRED_COLUMNS: frozenset[str] = frozenset({
     "price",
     "profit",
 })
+_RATE_COVERAGE_COLUMNS: tuple[str, ...] = (
+    "symbol",
+    "timeframe",
+    "granularity",
+    "rows",
+    "start_time",
+    "end_time",
+    "expected_rows",
+    "missing_rows",
+    "coverage_ratio",
+    "gap_count",
+    "max_gap_seconds",
+    "interval_seconds",
+)
 
 
 def quote_sqlite_identifier(identifier: str) -> str:
@@ -229,6 +243,127 @@ def _open_existing_sqlite_database(
         raise ValueError(msg)
     conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     return conn, True
+
+
+def _empty_rate_coverage_report() -> pd.DataFrame:
+    return pd.DataFrame(columns=_RATE_COVERAGE_COLUMNS)
+
+
+def _timeframe_interval_seconds(timeframe: int) -> int | None:
+    granularity = resolve_granularity_name(timeframe)
+    units = {
+        "M": 60,
+        "H": 3600,
+        "D": 86400,
+        "W": 604800,
+    }
+    for prefix, seconds in units.items():
+        if granularity.startswith(prefix) and granularity[len(prefix) :].isdigit():
+            return int(granularity[len(prefix) :]) * seconds
+    return None
+
+
+def _build_rate_coverage_row(
+    symbol: str,
+    timeframe: int,
+    series: pd.Series,
+) -> dict[str, object]:
+    granularity = resolve_granularity_name(timeframe)
+    unique_times = pd.Series(pd.to_datetime(series, utc=True, errors="coerce")).dropna()
+    unique_times = unique_times.drop_duplicates().sort_values(ignore_index=True)
+    row_count = len(unique_times)
+    if row_count == 0:
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "granularity": granularity,
+            "rows": 0,
+            "start_time": None,
+            "end_time": None,
+            "expected_rows": 0,
+            "missing_rows": 0,
+            "coverage_ratio": None,
+            "gap_count": 0,
+            "max_gap_seconds": 0,
+            "interval_seconds": _timeframe_interval_seconds(timeframe),
+        }
+
+    interval_seconds = _timeframe_interval_seconds(timeframe)
+    start_time = unique_times.iloc[0].to_pydatetime()
+    end_time = unique_times.iloc[-1].to_pydatetime()
+    expected_rows = row_count
+    missing_rows = 0
+    gap_count = 0
+    max_gap_seconds = 0
+    if interval_seconds is not None and row_count > 1:
+        deltas = unique_times.diff().dropna()
+        delta_seconds = deltas.dt.total_seconds().astype(int)
+        missing_by_gap = (
+            (delta_seconds + (interval_seconds - 1)) // interval_seconds
+        ) - 1
+        missing_by_gap = missing_by_gap.clip(lower=0)
+        expected_rows = row_count + int(missing_by_gap.sum())
+        gap_count = int((missing_by_gap > 0).sum())
+        missing_rows = int(missing_by_gap.sum())
+        max_gap_seconds = int(max(delta_seconds.max() - interval_seconds, 0))
+    coverage_ratio = round(row_count / expected_rows, 10) if expected_rows > 0 else None
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "granularity": granularity,
+        "rows": row_count,
+        "start_time": start_time,
+        "end_time": end_time,
+        "expected_rows": expected_rows,
+        "missing_rows": missing_rows,
+        "coverage_ratio": coverage_ratio,
+        "gap_count": gap_count,
+        "max_gap_seconds": max_gap_seconds,
+        "interval_seconds": interval_seconds,
+    }
+
+
+def report_rate_coverage_from_sqlite(
+    conn_or_path: SqliteConnOrPath,
+    *,
+    symbols: Sequence[str] | None = None,
+    timeframes: Sequence[int | str] | None = None,
+) -> pd.DataFrame:
+    """Return a SQLite rates coverage report with gap counts by series."""
+    conn, should_close = _open_existing_sqlite_database(conn_or_path)
+    try:
+        columns = get_table_columns(conn, Dataset.rates.table_name)
+        required = {"symbol", "timeframe", "time"}
+        if not required.issubset(columns):
+            return _empty_rate_coverage_report()
+
+        frame = pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
+            "SELECT symbol, timeframe, time FROM rates"
+            " ORDER BY symbol, timeframe, time",
+            conn,
+        )
+        if symbols:
+            frame = frame.loc[frame["symbol"].isin(symbols)].reset_index(drop=True)
+        if timeframes:
+            resolved_timeframes = [parse_timeframe(value) for value in timeframes]
+            frame = frame.loc[frame["timeframe"].isin(resolved_timeframes)].reset_index(
+                drop=True
+            )
+        if frame.empty:
+            return _empty_rate_coverage_report()
+
+        grouped = cast(
+            "Iterable[tuple[tuple[str, int], pd.DataFrame]]",
+            frame.groupby(["symbol", "timeframe"], sort=True),
+        )
+        rows = [
+            _build_rate_coverage_row(symbol, timeframe, group["time"])
+            for (symbol, timeframe), group in grouped
+        ]
+        return pd.DataFrame(rows, columns=_RATE_COVERAGE_COLUMNS)
+    finally:
+        if should_close:
+            conn.close()
 
 
 def _validate_rate_load_request(table: str, count: int | None) -> str:

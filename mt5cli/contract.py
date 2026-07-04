@@ -59,6 +59,8 @@ STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "mt5_trading_session",
     "normalize_order_volume",
     "place_market_order",
+    "report_rate_coverage_from_sqlite",
+    "resolve_broker_filling_mode",
     "resolve_account_spec",
     "resolve_account_specs",
     "update_history",

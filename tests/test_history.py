@@ -48,6 +48,7 @@ from mt5cli.history import (
     parse_sqlite_timestamp,
     quote_sqlite_identifier,
     record_written_columns,
+    report_rate_coverage_from_sqlite,
     resolve_granularity_name,
     resolve_history_datasets,
     resolve_history_tick_flags,
@@ -3074,6 +3075,160 @@ class TestRateSourceHelpers:
         )
 
         assert set(result) == {("EURUSD", "M1"), ("EURUSD", "H1")}
+
+    @pytest.mark.parametrize(
+        ("rows", "symbols", "timeframes", "expected"),
+        [
+            pytest.param(
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 1, "2024-01-01T00:02:00+00:00", 1.1),
+                    ("GBPUSD", 1, "2024-01-01T00:00:00+00:00", 1.2),
+                ],
+                None,
+                None,
+                {
+                    ("EURUSD", 1): {"rows": 2, "missing_rows": 1, "gap_count": 1},
+                    ("GBPUSD", 1): {"rows": 1, "missing_rows": 0, "gap_count": 0},
+                },
+                id="gaps-and-coverage",
+            ),
+            pytest.param(
+                [
+                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+                    ("EURUSD", 1, "2024-01-01T00:01:00+00:00", 1.1),
+                ],
+                ["EURUSD"],
+                ["M1"],
+                {
+                    ("EURUSD", 1): {"rows": 2, "missing_rows": 0, "gap_count": 0},
+                },
+                id="filters",
+            ),
+        ],
+    )
+    def test_report_rate_coverage_from_sqlite(
+        self,
+        tmp_path: Path,
+        rows: list[tuple[str, int, str, float]],
+        symbols: list[str] | None,
+        timeframes: list[str] | None,
+        expected: dict[tuple[str, int], dict[str, int]],
+    ) -> None:
+        """Test SQLite rate coverage reports include gap metrics per series."""
+        db_path = tmp_path / "coverage.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                "symbol TEXT, timeframe INTEGER, time TEXT, close REAL"
+                ")",
+            )
+            conn.executemany(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                rows,
+            )
+
+        result = report_rate_coverage_from_sqlite(
+            db_path,
+            symbols=symbols,
+            timeframes=timeframes,
+        )
+
+        records = cast("list[dict[str, object]]", result.to_dict("records"))
+        actual = {
+            (str(row["symbol"]), int(cast("int", row["timeframe"]))): {
+                "rows": int(cast("int", row["rows"])),
+                "missing_rows": int(cast("int", row["missing_rows"])),
+                "gap_count": int(cast("int", row["gap_count"])),
+            }
+            for row in records
+        }
+        assert actual == expected
+
+    @pytest.mark.parametrize(
+        "setup_sql",
+        [
+            pytest.param([], id="missing-rates-table"),
+            pytest.param(
+                ["CREATE TABLE rates(symbol TEXT, timeframe INTEGER, close REAL)"],
+                id="missing-time-column",
+            ),
+        ],
+    )
+    def test_report_rate_coverage_from_sqlite_empty_schema(
+        self,
+        tmp_path: Path,
+        setup_sql: list[str],
+    ) -> None:
+        """Test empty or incompatible SQLite sources return the stable empty schema."""
+        db_path = tmp_path / "coverage-empty.db"
+        with sqlite3.connect(db_path) as conn:
+            for sql in setup_sql:
+                conn.execute(sql)
+
+        result = report_rate_coverage_from_sqlite(db_path)
+
+        assert list(result.columns) == [
+            "symbol",
+            "timeframe",
+            "granularity",
+            "rows",
+            "start_time",
+            "end_time",
+            "expected_rows",
+            "missing_rows",
+            "coverage_ratio",
+            "gap_count",
+            "max_gap_seconds",
+            "interval_seconds",
+        ]
+        assert result.empty
+
+    @pytest.mark.parametrize(
+        ("timeframe", "series", "expected_interval_seconds"),
+        [
+            pytest.param(
+                999999, pd.Series([], dtype="object"), None, id="unknown-empty"
+            ),
+            pytest.param(
+                32769, pd.Series(["bad-time"]), 604800, id="unparseable-weekly"
+            ),
+        ],
+    )
+    def test_rate_coverage_private_edge_cases(
+        self,
+        timeframe: int,
+        series: pd.Series,
+        expected_interval_seconds: int | None,
+    ) -> None:
+        """Test private coverage helpers handle unknown intervals and empty rows."""
+        interval = history._timeframe_interval_seconds(timeframe)  # type: ignore[attr-defined]
+        row = history._build_rate_coverage_row("EURUSD", timeframe, series)  # type: ignore[attr-defined]
+
+        assert interval == expected_interval_seconds
+        assert row["interval_seconds"] == expected_interval_seconds
+        assert row["rows"] == 0
+
+    def test_report_rate_coverage_from_sqlite_empty_after_filters(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test coverage reports keep the empty schema when filters remove all rows."""
+        db_path = tmp_path / "coverage-filtered-empty.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                "symbol TEXT, timeframe INTEGER, time TEXT, close REAL"
+                ")",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+
+        result = report_rate_coverage_from_sqlite(db_path, symbols=["GBPUSD"])
+
+        assert result.empty
 
     def test_load_rate_series_by_granularity_explicit_tables(
         self,
