@@ -284,9 +284,11 @@
 <a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="c1"># Export symbols to SQLite3 with custom table name</span>
 <a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>mt5cli<span class="w"> </span>-o<span class="w"> </span>data.db<span class="w"> </span>--table<span class="w"> </span>symbols<span class="w"> </span>symbols<span class="w"> </span>--group<span class="w"> </span><span class="s2">&quot;*USD*&quot;</span>
 <a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>
-<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="c1"># Export with connection credentials</span>
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>mt5cli<span class="w"> </span>--login<span class="w"> </span><span class="m">12345</span><span class="w"> </span>--password<span class="w"> </span>mypass<span class="w"> </span>--server<span class="w"> </span>MyBroker-Demo<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">  </span>-o<span class="w"> </span>positions.csv<span class="w"> </span>positions
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="c1"># Export with connection credentials from env or placeholders</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="nv">MT5_LOGIN</span><span class="o">=</span><span class="m">12345</span><span class="w"> </span><span class="nv">MT5_PASSWORD</span><span class="o">=</span>secret<span class="w"> </span><span class="nv">MT5_SERVER</span><span class="o">=</span>MyBroker-Demo<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">  </span>mt5cli<span class="w"> </span>-o<span class="w"> </span>positions.csv<span class="w"> </span>positions
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>mt5cli<span class="w"> </span>--login<span class="w"> </span><span class="s1">&#39;${MT5_LOGIN}&#39;</span><span class="w"> </span>--password<span class="w"> </span><span class="s1">&#39;${MT5_PASSWORD}&#39;</span><span class="w"> </span>--server<span class="w"> </span><span class="s1">&#39;${MT5_SERVER}&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">  </span>-o<span class="w"> </span>positions.csv<span class="w"> </span>positions
 </code></pre></div>
 <h2 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h2>
 <h3 id="rates">Rates<a class="headerlink" href="#rates" title="Permanent link">&para;</a></h3>
@@ -442,7 +444,7 @@ real trades. Both require <code>--yes</code> for live execution.</p>
 </tr>
 <tr>
 <td><code>close-positions</code></td>
-<td>Close open positions by <code>--symbol</code> or <code>--ticket</code> (<code>--yes</code> required for live; <code>--dry-run</code> to preview)</td>
+<td>Close open positions by <code>--symbol</code> or <code>--ticket</code> (<code>--yes</code> required for live; <code>--dry-run</code> to preview; optional <code>--deviation</code> / <code>--comment</code> / <code>--magic</code>)</td>
 </tr>
 </tbody>
 </table>
@@ -462,6 +464,10 @@ applications should prefer dedicated closing helpers or their own risk controls.
 <tr>
 <td><code>collect-history</code></td>
 <td>Collect rates, history-orders, and history-deals (ticks opt-in via <code>--dataset ticks</code>) for one or more symbols into a single SQLite database (optional cash-event/position views)</td>
+</tr>
+<tr>
+<td><code>history-gaps</code></td>
+<td>Export a SQLite-only one-row-per-gap report from managed rate compatibility views without connecting to MT5</td>
 </tr>
 </tbody>
 </table>
@@ -552,7 +558,7 @@ applications should prefer dedicated closing helpers or their own risk controls.
 </tr>
 <tr>
 <td><code>--password</code></td>
-<td>Trading account password</td>
+<td>Trading account password (<code>MT5_PASSWORD</code>)</td>
 </tr>
 <tr>
 <td><code>--server</code></td>
@@ -676,5 +682,5 @@ applications should prefer dedicated closing helpers or their own risk controls.
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2026-07-03 16:30:57.452391+00:00
+Build Date UTC : 2026-07-04 05:20:19.907295+00:00
 -->

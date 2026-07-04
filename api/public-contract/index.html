@@ -309,6 +309,10 @@ timestamp normalization in downstream apps.</p>
 <td>One-shot date-range export into SQLite</td>
 </tr>
 <tr>
+<td><code>report_rate_gaps</code></td>
+<td>SQLite-only one-row-per-gap report for a rate table or compatibility view</td>
+</tr>
+<tr>
 <td><code>update_history</code>, <code>update_history_with_config</code></td>
 <td>Incremental append from <code>MAX(time)</code> cursors</td>
 </tr>
@@ -390,6 +394,10 @@ strategy entries, exits, Kelly sizing, or signal logic.</p>
 <tr>
 <td><code>calculate_trailing_stop_updates</code></td>
 <td>Per-ticket generic trailing stop-loss update plan</td>
+</tr>
+<tr>
+<td><code>resolve_broker_filling_mode</code></td>
+<td>Broker-supported filling-mode selection helper</td>
 </tr>
 <tr>
 <td><code>ensure_symbol_selected</code></td>
@@ -635,6 +643,9 @@ of the package-root stable surface. Import them directly when needed:</p>
 <li>Require <code>-o/--output</code> and write CSV, JSON, Parquet, or SQLite.</li>
 <li>Accept global MT5 connection options (<code>--login</code>, <code>--password</code>, <code>--server</code>,
   <code>--path</code>, <code>--timeout</code>).</li>
+<li>Resolve unset CLI connection options from <code>MT5_LOGIN</code>, <code>MT5_PASSWORD</code>,
+  <code>MT5_SERVER</code>, and <code>MT5_PATH</code>, and expand <code>${ENV_VAR}</code> placeholders in CLI
+  string fields before building the MT5 config.</li>
 <li>Delegate to the same Python APIs described here; they are not duplicated
   business logic.</li>
 </ul>
@@ -650,7 +661,13 @@ constructed request payload. <code>close-positions</code> is the safer high-leve
 that closes open positions by <code>--symbol</code> or <code>--ticket</code> using
 <code>close_open_positions()</code>. Both <code>order-send --yes</code> and <code>close-positions --yes</code>
 are live execution paths. <code>close-positions --dry-run</code> previews close orders
-without placing them and does not require <code>--yes</code>.</p>
+without placing them and does not require <code>--yes</code>. <code>close-positions</code> also
+accepts optional <code>--deviation</code>, <code>--comment</code>, and <code>--magic</code>; <code>--magic</code> scopes
+the selected open positions fail-closed when position magic metadata is absent.</p>
+<p><code>history-gaps</code> reads an existing SQLite history database and exports one row
+per detected gap from managed rate compatibility views. It never initializes
+MT5. Pass <code>--granularity-seconds</code> for custom tables or views whose bar spacing
+cannot be inferred from the name.</p>
 <h2 id="internal-helpers-not-stable">Internal helpers (not stable)<a class="headerlink" href="#internal-helpers-not-stable" title="Permanent link">&para;</a></h2>
 <p>Do not import these for downstream contracts; they may change without a semver
 notice:</p>
