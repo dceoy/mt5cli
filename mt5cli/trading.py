@@ -199,6 +199,7 @@ _SYMBOL_SNAPSHOT_FIELDS = (
     "trade_tick_value",
     "trade_stops_level",
     "filling_mode",
+    "trade_exemode",
 )
 _TICK_SNAPSHOT_FIELDS = ("symbol", "time", "bid", "ask", "last", "volume")
 POSITION_COLUMNS = (
@@ -214,6 +215,7 @@ POSITION_COLUMNS = (
     "profit",
     "swap",
     "comment",
+    "magic",
 )
 
 __all__ = [
@@ -255,6 +257,7 @@ __all__ = [
     "mt5_trading_session",
     "normalize_order_volume",
     "place_market_order",
+    "resolve_broker_filling_mode",
     "update_sltp_for_open_positions",
     "update_trailing_stop_loss_for_open_positions",
 ]
@@ -658,19 +661,24 @@ def create_trading_client(
 def detect_position_side(
     client: _Mt5ClientProtocol,
     symbol: str,
+    *,
+    magic: int | None = None,
 ) -> PositionSide | None:
     """Detect the net open position side for a symbol.
 
     Args:
         client: Connected MT5 client instance.
         symbol: Symbol to inspect.
+        magic: Optional magic number filter applied fail-closed.
 
     Returns:
         ``"long"`` when there are buy positions and no sell positions,
         ``"short"`` when there are sell positions and no buy positions, or
         ``None`` when no positions or mixed exposure exists.
     """
-    positions = get_positions_frame(client, symbol=symbol)
+    positions = _filter_positions(
+        get_positions_frame(client, symbol=symbol), magic=magic
+    )
     if positions.empty:
         return None
 
@@ -732,6 +740,85 @@ def get_positions_frame(
         if column not in frame.columns:
             frame[column] = pd.Series(dtype="object")
     return frame
+
+
+def _supported_filling_modes(
+    client: _Mt5ClientProtocol,
+    *,
+    symbol: str,
+    preferred_default: OrderFillingMode,
+) -> set[str] | None:
+    snapshot = get_symbol_snapshot(client, symbol)
+    filling_mode = _optional_int(snapshot.get("filling_mode"))
+    trade_exemode = _optional_int(snapshot.get("trade_exemode"))
+    if filling_mode is None and trade_exemode is None:
+        _logger.debug(
+            "Filling-mode metadata unavailable for %s; keeping preferred mode %s.",
+            symbol,
+            preferred_default,
+        )
+        return None
+
+    supported: set[str] = set()
+    if filling_mode is not None:
+        fok_flag = getattr(client.mt5, "SYMBOL_FILLING_FOK", None)
+        ioc_flag = getattr(client.mt5, "SYMBOL_FILLING_IOC", None)
+        if isinstance(fok_flag, int) and filling_mode & fok_flag:
+            supported.add("FOK")
+        if isinstance(ioc_flag, int) and filling_mode & ioc_flag:
+            supported.add("IOC")
+    market_execution = getattr(client.mt5, "SYMBOL_TRADE_EXECUTION_MARKET", None)
+    if trade_exemode is not None and not (
+        isinstance(market_execution, int) and trade_exemode == market_execution
+    ):
+        supported.add("RETURN")
+    if supported:
+        return supported
+
+    _logger.debug(
+        "Filling-mode metadata was unparseable for %s; keeping preferred mode %s.",
+        symbol,
+        preferred_default,
+    )
+    return None
+
+
+def resolve_broker_filling_mode(
+    client: _Mt5ClientProtocol,
+    *,
+    symbol: str,
+    preferred_modes: Sequence[OrderFillingMode] = ("IOC", "FOK", "RETURN"),
+    default_mode: OrderFillingMode = "IOC",
+) -> OrderFillingMode:
+    """Return the first broker-supported filling mode from a preferred order.
+
+    Raises:
+        ValueError: If any preferred or default mode name is unsupported.
+    """
+    preferred = [mode.upper() for mode in preferred_modes]
+    for mode in [*preferred, default_mode]:
+        if mode not in _ORDER_FILLING_MODES:
+            msg = f"Unsupported order_filling mode: {mode!r}."
+            raise ValueError(msg)
+
+    preferred_default = cast(
+        "OrderFillingMode", preferred[0] if preferred else default_mode
+    )
+    supported = _supported_filling_modes(
+        client,
+        symbol=symbol,
+        preferred_default=preferred_default,
+    )
+    if supported is None:
+        return preferred_default
+
+    for mode in preferred:
+        if mode in supported:
+            return cast("OrderFillingMode", mode)
+    fallback_mode = next(
+        mode for mode in (default_mode, "IOC", "FOK", "RETURN") if mode in supported
+    )
+    return cast("OrderFillingMode", fallback_mode)
 
 
 def _order_side_from_position_type(
@@ -1334,7 +1421,7 @@ def determine_order_limits(
     }
 
 
-def place_market_order(
+def place_market_order(  # noqa: C901, PLR0913
     client: _Mt5ClientProtocol,
     *,
     symbol: str,
@@ -1345,6 +1432,9 @@ def place_market_order(
     sl: float | None = None,
     tp: float | None = None,
     position: int | None = None,
+    deviation: int | None = None,
+    comment: str | None = None,
+    magic: int | None = None,
     dry_run: bool = False,
 ) -> OrderExecutionResult:
     """Place one normalized market order or return a dry-run result.
@@ -1398,6 +1488,12 @@ def place_market_order(
         request["tp"] = tp
     if position is not None:
         request["position"] = position
+    if deviation is not None:
+        request["deviation"] = deviation
+    if comment is not None:
+        request["comment"] = comment
+    if magic is not None:
+        request["magic"] = magic
     if dry_run:
         return {
             "status": "dry_run",
@@ -1432,6 +1528,7 @@ def _filter_positions(
     *,
     symbols: str | list[str] | None = None,
     tickets: list[int] | None = None,
+    magic: int | None = None,
 ) -> pd.DataFrame:
     frame = positions
     if symbols is not None:
@@ -1439,6 +1536,10 @@ def _filter_positions(
         frame = frame.loc[frame["symbol"].isin(symbol_set)]
     if tickets is not None:
         frame = frame.loc[frame["ticket"].isin(tickets)]
+    if magic is not None:
+        if "magic" not in frame.columns:
+            return frame.iloc[0:0].copy()
+        frame = frame.loc[frame["magic"] == magic]
     return frame
 
 
@@ -1447,6 +1548,9 @@ def close_open_positions(
     *,
     symbols: str | list[str] | None = None,
     tickets: list[int] | None = None,
+    deviation: int | None = None,
+    comment: str | None = None,
+    magic: int | None = None,
     dry_run: bool = False,
 ) -> list[OrderExecutionResult]:
     """Close matching open positions.
@@ -1458,6 +1562,7 @@ def close_open_positions(
         get_positions_frame(client),
         symbols=symbols,
         tickets=tickets,
+        magic=magic,
     )
     results: list[OrderExecutionResult] = []
     for row in positions.to_dict("records"):
@@ -1469,6 +1574,9 @@ def close_open_positions(
             volume=float(row["volume"]),
             order_side=side,
             position=int(row["ticket"]),
+            deviation=deviation,
+            comment=comment,
+            magic=magic,
             dry_run=dry_run,
         )
         results.append(result)
@@ -1523,6 +1631,7 @@ def calculate_trailing_stop_updates(
     *,
     symbol: str,
     trailing_stop_ratio: float,
+    magic: int | None = None,
 ) -> dict[int, float]:
     """Return per-ticket trailing stop-loss updates for open symbol positions.
 
@@ -1533,7 +1642,9 @@ def calculate_trailing_stop_updates(
     missing side-specific tick price are skipped.
     """
     _require_protective_ratio(trailing_stop_ratio, "trailing_stop_ratio")
-    positions = get_positions_frame(client, symbol=symbol)
+    positions = _filter_positions(
+        get_positions_frame(client, symbol=symbol), magic=magic
+    )
     if positions.empty:
         return {}
     tick = get_tick_snapshot(client, symbol)
@@ -1568,6 +1679,7 @@ def update_trailing_stop_loss_for_open_positions(
     *,
     symbol: str,
     trailing_stop_ratio: float,
+    magic: int | None = None,
     dry_run: bool = False,
 ) -> list[OrderExecutionResult]:
     """Update open positions whose trailing stop loss should move favorably.
@@ -1579,6 +1691,7 @@ def update_trailing_stop_loss_for_open_positions(
         client,
         symbol=symbol,
         trailing_stop_ratio=trailing_stop_ratio,
+        magic=magic,
     )
     results: list[OrderExecutionResult] = []
     for ticket, stop_loss in updates.items():
@@ -1588,6 +1701,7 @@ def update_trailing_stop_loss_for_open_positions(
                 symbol=symbol,
                 tickets=[ticket],
                 stop_loss=stop_loss,
+                magic=magic,
                 dry_run=dry_run,
             ),
         )
@@ -1599,6 +1713,7 @@ def update_sltp_for_open_positions(
     *,
     symbol: str | None = None,
     tickets: list[int] | None = None,
+    magic: int | None = None,
     stop_loss: float | None = None,
     take_profit: float | None = None,
     dry_run: bool = False,
@@ -1612,6 +1727,7 @@ def update_sltp_for_open_positions(
         get_positions_frame(client),
         symbols=symbol,
         tickets=tickets,
+        magic=magic,
     )
     results: list[OrderExecutionResult] = []
     for row in positions.to_dict("records"):

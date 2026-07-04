@@ -23,6 +23,7 @@ from mt5cli.trading import (
     OrderLimits,
     OrderSide,
     ProjectionMode,
+    _filter_positions,  # type: ignore[reportPrivateUsage]
     _Mt5ClientProtocol,  # type: ignore[reportPrivateUsage]
     calculate_account_projected_margin_ratio,
     calculate_margin_and_volume,
@@ -52,6 +53,7 @@ from mt5cli.trading import (
     mt5_trading_session,
     normalize_order_volume,
     place_market_order,
+    resolve_broker_filling_mode,
     update_sltp_for_open_positions,
     update_trailing_stop_loss_for_open_positions,
 )
@@ -66,7 +68,11 @@ def _mock_trade_client() -> MagicMock:
     client.mt5.TRADE_ACTION_DEAL = 20
     client.mt5.TRADE_ACTION_SLTP = 21
     client.mt5.ORDER_FILLING_IOC = 30
+    client.mt5.SYMBOL_FILLING_FOK = 1
+    client.mt5.SYMBOL_FILLING_IOC = 2
     client.mt5.ORDER_TIME_GTC = 40
+    client.mt5.SYMBOL_TRADE_EXECUTION_MARKET = 3
+    client.mt5.SYMBOL_TRADE_EXECUTION_REQUEST = 4
     client.mt5.TRADE_RETCODE_PLACED = 10008
     client.mt5.TRADE_RETCODE_DONE = 10009
     client.mt5.TRADE_RETCODE_DONE_PARTIAL = 10010
@@ -114,6 +120,34 @@ class TestDetectPositionSide:
         )
 
         assert detect_position_side(client, "EURUSD") == expected
+
+    def test_detect_position_side_filters_by_magic(self) -> None:
+        """Magic-scoped side detection ignores foreign positions."""
+        client = MagicMock()
+        client.mt5.POSITION_TYPE_BUY = 0
+        client.mt5.POSITION_TYPE_SELL = 1
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"type": 0, "volume": 0.3, "magic": 7},
+                {"type": 1, "volume": 0.2, "magic": 9},
+            ],
+        )
+
+        assert detect_position_side(client, "EURUSD", magic=7) == "long"
+        assert detect_position_side(client, "EURUSD", magic=9) == "short"
+
+    def test_detect_position_side_magic_is_fail_closed_without_magic_column(
+        self,
+    ) -> None:
+        """Magic-scoped side detection returns None without magic metadata."""
+        client = MagicMock()
+        client.mt5.POSITION_TYPE_BUY = 0
+        client.mt5.POSITION_TYPE_SELL = 1
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"type": 0, "volume": 0.3}],
+        )
+
+        assert detect_position_side(client, "EURUSD", magic=7) is None
 
 
 class TestCalculateMarginAndVolume:
@@ -2102,6 +2136,28 @@ class TestVolumeAndExecution:
         _assert_close(_request_from_result(result)["sl"], 1.0)
         _assert_close(_request_from_result(result)["tp"], 1.4)
 
+    def test_place_market_order_supports_optional_deviation_comment_and_magic(
+        self,
+    ) -> None:
+        """Test optional request metadata is preserved for market orders."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+            deviation=7,
+            comment="close-me",
+            magic=42,
+            dry_run=True,
+        )
+
+        assert _request_from_result(result)["deviation"] == 7
+        assert _request_from_result(result)["comment"] == "close-me"
+        assert _request_from_result(result)["magic"] == 42
+
     @pytest.mark.parametrize(
         ("mode_kwarg", "match"),
         [
@@ -2253,6 +2309,153 @@ class TestVolumeAndExecution:
         assert result["status"] == "failed"
 
     @pytest.mark.parametrize(
+        ("symbol_info", "preferred_modes", "default_mode", "expected"),
+        [
+            (
+                {"filling_mode": 2, "trade_exemode": 3},
+                ("IOC", "FOK"),
+                "IOC",
+                "IOC",
+            ),
+            (
+                {"filling_mode": 1, "trade_exemode": 3},
+                ("IOC", "FOK"),
+                "IOC",
+                "FOK",
+            ),
+            (
+                {"filling_mode": 0, "trade_exemode": 4},
+                ("RETURN", "IOC"),
+                "IOC",
+                "RETURN",
+            ),
+            (
+                {"filling_mode": None, "trade_exemode": None},
+                ("RETURN", "FOK"),
+                "IOC",
+                "RETURN",
+            ),
+            (
+                {"filling_mode": 2, "trade_exemode": 3},
+                ("FOK",),
+                "IOC",
+                "IOC",
+            ),
+            (
+                {"filling_mode": 2, "trade_exemode": 3},
+                ("FOK",),
+                "RETURN",
+                "IOC",
+            ),
+        ],
+        ids=[
+            "ioc",
+            "fok-fallback",
+            "return",
+            "default-fallback",
+            "supported-default-fallback",
+            "ignore-unsupported-default",
+        ],
+    )
+    def test_resolve_broker_filling_mode(
+        self,
+        symbol_info: dict[str, object],
+        preferred_modes: tuple[str, ...],
+        default_mode: str,
+        expected: str,
+    ) -> None:
+        """Test filling-mode resolution prefers supported modes then falls back."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = symbol_info
+
+        result = resolve_broker_filling_mode(
+            client,
+            symbol="EURUSD",
+            preferred_modes=cast("Any", preferred_modes),
+            default_mode=cast("Any", default_mode),
+        )
+
+        assert result == expected
+
+    @pytest.mark.parametrize(
+        ("preferred_modes", "default_mode"),
+        [
+            pytest.param(("BAD",), "IOC", id="bad-preferred"),
+            pytest.param(("IOC",), "BAD", id="bad-default"),
+        ],
+    )
+    def test_resolve_broker_filling_mode_rejects_invalid_mode_names(
+        self,
+        preferred_modes: tuple[str, ...],
+        default_mode: str,
+    ) -> None:
+        """Test invalid preferred/default filling mode names raise ValueError."""
+        client = _mock_trade_client()
+
+        with pytest.raises(ValueError, match="Unsupported order_filling mode"):
+            resolve_broker_filling_mode(
+                client,
+                symbol="EURUSD",
+                preferred_modes=cast("Any", preferred_modes),
+                default_mode=cast("Any", default_mode),
+            )
+
+    def test_resolve_broker_filling_mode_keeps_preferred_when_metadata_missing(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Missing metadata should fail open to the caller-preferred mode."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"filling_mode": None}
+
+        with caplog.at_level(logging.DEBUG):
+            result = resolve_broker_filling_mode(
+                client,
+                symbol="EURUSD",
+                preferred_modes=("FOK", "IOC"),
+            )
+
+        assert result == "FOK"
+        assert "keeping preferred mode" in caplog.text
+
+    def test_resolve_broker_filling_mode_supports_return_without_bitmask(self) -> None:
+        """RETURN should be allowed when execution mode is non-market."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "filling_mode": None,
+            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_REQUEST,
+        }
+
+        result = resolve_broker_filling_mode(
+            client,
+            symbol="EURUSD",
+            preferred_modes=("RETURN", "FOK"),
+        )
+
+        assert result == "RETURN"
+
+    def test_resolve_broker_filling_mode_keeps_preferred_when_metadata_unparseable(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Unparseable metadata should still fail open to the preferred mode."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "filling_mode": 0,
+            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_MARKET,
+        }
+
+        with caplog.at_level(logging.DEBUG):
+            result = resolve_broker_filling_mode(
+                client,
+                symbol="EURUSD",
+                preferred_modes=("FOK", "IOC"),
+            )
+
+        assert result == "FOK"
+        assert "unparseable" in caplog.text
+
+    @pytest.mark.parametrize(
         ("filter_kwargs", "expected_order_side", "expected_position"),
         [
             pytest.param(
@@ -2305,6 +2508,50 @@ class TestVolumeAndExecution:
         close_open_positions(client, tickets=[9])
 
         assert client.order_send.call_args.args[0]["position"] == 9
+
+    def test_close_open_positions_forwards_optional_request_fields(self) -> None:
+        """Test close helper forwards deviation/comment/magic into dry-run requests."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 9, "symbol": "EURUSD", "type": 0, "volume": 0.1, "magic": 42}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        result = close_open_positions(
+            client,
+            tickets=[9],
+            deviation=8,
+            comment="close-me",
+            magic=42,
+            dry_run=True,
+        )
+
+        request = _request_from_result(result[0])
+        assert request["deviation"] == 8
+        assert request["comment"] == "close-me"
+        assert request["magic"] == 42
+
+    def test_close_open_positions_magic_filter_is_fail_closed_without_column(
+        self,
+    ) -> None:
+        """Test magic-scoped close operations skip rows without magic metadata."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 9, "symbol": "EURUSD", "type": 0, "volume": 0.1}],
+        )
+
+        result = close_open_positions(client, magic=42, dry_run=True)
+
+        assert result == []
+        client.order_send.assert_not_called()
+
+    def test_filter_positions_magic_is_fail_closed_without_magic_column(self) -> None:
+        """Test direct magic filtering fails closed when the DataFrame lacks magic."""
+        positions = pd.DataFrame([{"ticket": 1, "symbol": "EURUSD"}])
+
+        result = _filter_positions(positions, magic=42)
+
+        assert result.empty
 
     def test_calculate_trailing_stop_updates_no_positions(self) -> None:
         """Test empty position sets produce no trailing updates."""

@@ -22,6 +22,7 @@ from .history import (
     drop_forming_rate_bar,
     load_rate_series_by_granularity,
     load_rate_series_from_sqlite,
+    report_rate_gaps,
 )
 from .sdk import (
     AccountSpec,
@@ -76,6 +77,7 @@ from .trading import (
     mt5_trading_session,
     normalize_order_volume,
     place_market_order,
+    resolve_broker_filling_mode,
     update_sltp_for_open_positions,
     update_trailing_stop_loss_for_open_positions,
 )
@@ -140,8 +142,10 @@ __all__ = [
     "mt5_trading_session",
     "normalize_order_volume",
     "place_market_order",
+    "report_rate_gaps",
     "resolve_account_spec",
     "resolve_account_specs",
+    "resolve_broker_filling_mode",
     "update_history",
     "update_history_with_config",
     "update_observability",

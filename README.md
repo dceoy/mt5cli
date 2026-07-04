@@ -144,9 +144,10 @@ mt5cli -o ticks.json ticks-from --symbol EURUSD \
 # Export symbols to SQLite3 with custom table name
 mt5cli -o data.db --table symbols symbols --group "*USD*"
 
-# Export with connection credentials
-mt5cli --login 12345 --password mypass --server MyBroker-Demo \
-  -o positions.csv positions
+# Export with connection credentials from env or placeholders
+MT5_LOGIN=12345 MT5_PASSWORD=secret MT5_SERVER=MyBroker-Demo \
+  mt5cli -o positions.csv positions
+MT5_PATH="/path/to/terminal64.exe" mt5cli -o positions.csv positions
 ```
 
 Run as a Python module:
@@ -157,40 +158,54 @@ python -m mt5cli -o account.csv account-info
 
 ## Commands
 
-| Command                | Description                                                                                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rates-from`           | Export rates from a start date                                                                                                              |
-| `rates-from-pos`       | Export rates from a start position                                                                                                          |
-| `latest-rates`         | Export latest rates from a start position                                                                                                   |
-| `rates-range`          | Export rates for a date range                                                                                                               |
-| `ticks-from`           | Export ticks from a start date                                                                                                              |
-| `ticks-range`          | Export ticks for a date range                                                                                                               |
-| `ticks-recent`         | Export ticks from a recent trailing window                                                                                                  |
-| `account-info`         | Export account information                                                                                                                  |
-| `terminal-info`        | Export terminal information                                                                                                                 |
-| `version`              | Export MetaTrader 5 version information                                                                                                     |
-| `last-error`           | Export the last error information                                                                                                           |
-| `symbols`              | Export symbol list                                                                                                                          |
-| `symbol-info`          | Export symbol details                                                                                                                       |
-| `symbol-info-tick`     | Export the last tick for a symbol                                                                                                           |
-| `minimum-margins`      | Export minimum-volume buy and sell margin requirements                                                                                      |
-| `market-book`          | Export market depth (order book)                                                                                                            |
-| `orders`               | Export active orders                                                                                                                        |
-| `positions`            | Export open positions                                                                                                                       |
-| `history-orders`       | Export historical orders                                                                                                                    |
-| `history-deals`        | Export historical deals                                                                                                                     |
-| `recent-history-deals` | Export historical deals from a recent trailing window                                                                                       |
-| `mt5-summary`          | Export terminal/account status summary                                                                                                      |
-| `order-check`          | Check funds sufficiency for a trade request                                                                                                 |
-| `order-send`           | Send a raw trade request to the trade server (`--yes` required; expert path)                                                                |
-| `close-positions`      | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` available)                                         |
-| `collect-history`      | Collect rates, history-orders, and history-deals for one or more symbols into a single SQLite database (ticks opt-in via `--dataset ticks`) |
-| `grafana-schema`       | Create or refresh Grafana-ready views and indexes in an existing SQLite database (idempotent, no MT5 connection)                            |
-| `snapshot`             | Snapshot current account, position, order, and terminal state into SQLite for live Grafana dashboards                                       |
+| Command                | Description                                                                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rates-from`           | Export rates from a start date                                                                                                                        |
+| `rates-from-pos`       | Export rates from a start position                                                                                                                    |
+| `latest-rates`         | Export latest rates from a start position                                                                                                             |
+| `rates-range`          | Export rates for a date range                                                                                                                         |
+| `ticks-from`           | Export ticks from a start date                                                                                                                        |
+| `ticks-range`          | Export ticks for a date range                                                                                                                         |
+| `ticks-recent`         | Export ticks from a recent trailing window                                                                                                            |
+| `account-info`         | Export account information                                                                                                                            |
+| `terminal-info`        | Export terminal information                                                                                                                           |
+| `version`              | Export MetaTrader 5 version information                                                                                                               |
+| `last-error`           | Export the last error information                                                                                                                     |
+| `symbols`              | Export symbol list                                                                                                                                    |
+| `symbol-info`          | Export symbol details                                                                                                                                 |
+| `symbol-info-tick`     | Export the last tick for a symbol                                                                                                                     |
+| `minimum-margins`      | Export minimum-volume buy and sell margin requirements                                                                                                |
+| `market-book`          | Export market depth (order book)                                                                                                                      |
+| `orders`               | Export active orders                                                                                                                                  |
+| `positions`            | Export open positions                                                                                                                                 |
+| `history-orders`       | Export historical orders                                                                                                                              |
+| `history-deals`        | Export historical deals                                                                                                                               |
+| `recent-history-deals` | Export historical deals from a recent trailing window                                                                                                 |
+| `mt5-summary`          | Export terminal/account status summary                                                                                                                |
+| `order-check`          | Check funds sufficiency for a trade request                                                                                                           |
+| `order-send`           | Send a raw trade request to the trade server (`--yes` required; expert path)                                                                          |
+| `close-positions`      | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` available; optional `--deviation` / `--comment` / `--magic`) |
+| `collect-history`      | Collect rates, history-orders, and history-deals for one or more symbols into a single SQLite database (ticks opt-in via `--dataset ticks`)           |
+| `history-gaps`         | Export a SQLite-only one-row-per-gap report from managed rate compatibility views without connecting to MT5                                           |
+| `grafana-schema`       | Create or refresh Grafana-ready views and indexes in an existing SQLite database (idempotent, no MT5 connection)                                      |
+| `snapshot`             | Snapshot current account, position, order, and terminal state into SQLite for live Grafana dashboards                                                 |
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
 `close-positions` is the safer high-level alternative that builds correct close
 requests automatically. At least one `--symbol` or `--ticket` must be provided.
+CLI connection flags fall back to `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER`,
+and `MT5_PATH` when unset, and explicit CLI values still win.
+
+### `history-gaps`
+
+Inspect collected SQLite rate views offline and export one row per detected gap.
+For managed compatibility views, the command infers bar spacing from the view
+name. Use `--granularity-seconds` for custom tables or views.
+
+```bash
+mt5cli -o gaps.json history-gaps --sqlite3 history.db
+mt5cli -o eurusd.csv history-gaps --sqlite3 history.db --table rate_EURUSD__M1_1
+```
 
 ### `collect-history`
 

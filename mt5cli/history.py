@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, SupportsInt, cast, overload
 
 import pandas as pd
 from pdmt5 import get_timeframe_name as _get_timeframe_name
@@ -63,6 +64,20 @@ _POSITIONS_VIEW_REQUIRED_COLUMNS: frozenset[str] = frozenset({
     "price",
     "profit",
 })
+_RATE_GAP_COLUMNS: tuple[str, ...] = (
+    "table",
+    "symbol",
+    "timeframe",
+    "granularity",
+    "granularity_seconds",
+    "gap_start",
+    "gap_end",
+    "missing_intervals",
+)
+_RATE_VIEW_NAME_RE = re.compile(
+    r"^rate_(?P<symbol>.+)__(?:(?P<granularity>[A-Z0-9]+)_)?(?P<timeframe>\d+)$",
+)
+_MIN_TIMESTAMPS_FOR_GAPS = 2
 
 
 def quote_sqlite_identifier(identifier: str) -> str:
@@ -229,6 +244,155 @@ def _open_existing_sqlite_database(
         raise ValueError(msg)
     conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     return conn, True
+
+
+def _empty_rate_gap_report() -> pd.DataFrame:
+    return pd.DataFrame(columns=_RATE_GAP_COLUMNS)
+
+
+def _coerce_optional_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if text.lstrip("+-").isdigit():
+            return int(text)
+        return None
+    if not hasattr(value, "__int__"):
+        return None
+    try:
+        return int(cast("SupportsInt", value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _rate_gap_metadata(
+    table: str,
+    frame: pd.DataFrame,
+    *,
+    granularity_seconds: int,
+) -> dict[str, object]:
+    symbol: str | None = None
+    timeframe: int | None = None
+    granularity: str | None = None
+
+    if "symbol" in frame.columns:
+        symbols = {str(value) for value in frame["symbol"].dropna().unique()}
+        if len(symbols) == 1:
+            symbol = next(iter(symbols))
+    if "timeframe" in frame.columns:
+        timeframes = {
+            coerced
+            for value in frame["timeframe"].dropna().unique()
+            if (coerced := _coerce_optional_int(value)) is not None
+        }
+        if len(timeframes) == 1:
+            timeframe = next(iter(timeframes))
+
+    if timeframe is None and (match := _RATE_VIEW_NAME_RE.fullmatch(table)) is not None:
+        symbol = symbol or match.group("symbol")
+        timeframe = int(match.group("timeframe"))
+        granularity = match.group("granularity") or resolve_granularity_name(timeframe)
+
+    if timeframe is not None and granularity is None:
+        granularity = resolve_granularity_name(timeframe)
+
+    return {
+        "table": table,
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "granularity": granularity,
+        "granularity_seconds": granularity_seconds,
+    }
+
+
+def _iter_rate_gap_groups(frame: pd.DataFrame) -> list[pd.DataFrame]:
+    series_columns = [
+        column for column in ("symbol", "timeframe") if column in frame.columns
+    ]
+    if not series_columns:
+        return [frame]
+    return [
+        group for _, group in frame.groupby(series_columns, dropna=False, sort=False)
+    ]
+
+
+def report_rate_gaps(
+    conn: sqlite3.Connection,
+    table: str,
+    *,
+    granularity_seconds: int,
+    min_gap_intervals: int = 1,
+) -> pd.DataFrame:
+    """Return one row per detected gap from a SQLite rate table or view.
+
+    Raises:
+        ValueError: If the table name, schema, timestamps, or gap parameters
+            are invalid.
+    """
+    table_name = _validate_rate_load_request(table, count=None)
+    if granularity_seconds <= 0:
+        msg = "granularity_seconds must be positive."
+        raise ValueError(msg)
+    if min_gap_intervals <= 0:
+        msg = "min_gap_intervals must be positive."
+        raise ValueError(msg)
+
+    columns = get_table_columns(conn, table_name)
+    _ensure_rate_columns(columns, table_name)
+    quoted_table = quote_sqlite_identifier(table_name)
+    frame = cast(
+        "pd.DataFrame",
+        pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
+            f"SELECT * FROM {quoted_table} ORDER BY time ASC",  # noqa: S608
+            conn,
+        ),
+    )
+    if frame.empty:
+        return _empty_rate_gap_report()
+
+    parsed_times = frame["time"].map(parse_sqlite_timestamp)
+    if parsed_times.isna().any():
+        msg = f"SQLite table or view {table_name!r} contains unparsable time values."
+        raise ValueError(msg)
+
+    series_frame = frame.copy()
+    series_frame["time"] = parsed_times
+    rows: list[dict[str, object]] = []
+    for group in _iter_rate_gap_groups(series_frame):
+        unique_times = group["time"].drop_duplicates().sort_values(ignore_index=True)
+        if len(unique_times) < _MIN_TIMESTAMPS_FOR_GAPS:
+            continue
+
+        metadata = _rate_gap_metadata(
+            table_name,
+            group,
+            granularity_seconds=granularity_seconds,
+        )
+        deltas = unique_times.diff().dropna()
+        for index, delta in enumerate(deltas, start=1):
+            delta_seconds = int(delta.total_seconds())
+            missing_intervals = max(
+                ((delta_seconds + (granularity_seconds - 1)) // granularity_seconds)
+                - 1,
+                0,
+            )
+            if missing_intervals < min_gap_intervals:
+                continue
+            previous_time = unique_times.iloc[index - 1]
+            next_time = unique_times.iloc[index]
+            rows.append({
+                **metadata,
+                "gap_start": (
+                    previous_time.to_pydatetime()
+                    + timedelta(seconds=granularity_seconds)
+                ),
+                "gap_end": (
+                    next_time.to_pydatetime() - timedelta(seconds=granularity_seconds)
+                ),
+                "missing_intervals": missing_intervals,
+            })
+    return pd.DataFrame(rows, columns=_RATE_GAP_COLUMNS)
 
 
 def _validate_rate_load_request(table: str, count: int | None) -> str:

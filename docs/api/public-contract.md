@@ -70,6 +70,7 @@ timestamp normalization in downstream apps.
 | Symbol                                                            | Role                                                                                         |
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `collect_history`                                                 | One-shot date-range export into SQLite                                                       |
+| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for a rate table or compatibility view                    |
 | `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors                                                  |
 | `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; optional `update_backend` injection |
 | `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                             |
@@ -98,6 +99,7 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `calculate_symbol_group_margin_ratio`                                                                                          | Estimated symbol-group margin/equity with optional exposure       |
 | `determine_order_limits`                                                                                                       | SL/TP price levels from ratios                                    |
 | `calculate_trailing_stop_updates`                                                                                              | Per-ticket generic trailing stop-loss update plan                 |
+| `resolve_broker_filling_mode`                                                                                                  | Broker-supported filling-mode selection helper                    |
 | `ensure_symbol_selected`                                                                                                       | Select/verify Market Watch visibility                             |
 | `fetch_recent_history_deals_for_trading_client`                                                                                | Recent deal history from a connected trading client               |
 | `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`, `update_trailing_stop_loss_for_open_positions` | Order execution helpers (`dry_run` supported)                     |
@@ -211,6 +213,9 @@ The Typer application in `mt5cli.cli` exposes file-export commands documented in
 - Require `-o/--output` and write CSV, JSON, Parquet, or SQLite.
 - Accept global MT5 connection options (`--login`, `--password`, `--server`,
   `--path`, `--timeout`).
+- Resolve unset CLI connection options from `MT5_LOGIN`, `MT5_PASSWORD`,
+  `MT5_SERVER`, and `MT5_PATH`, and expand `${ENV_VAR}` placeholders in CLI
+  string fields before building the MT5 config.
 - Delegate to the same Python APIs described here; they are not duplicated
   business logic.
 
@@ -228,7 +233,14 @@ constructed request payload. `close-positions` is the safer high-level helper
 that closes open positions by `--symbol` or `--ticket` using
 `close_open_positions()`. Both `order-send --yes` and `close-positions --yes`
 are live execution paths. `close-positions --dry-run` previews close orders
-without placing them and does not require `--yes`.
+without placing them and does not require `--yes`. `close-positions` also
+accepts optional `--deviation`, `--comment`, and `--magic`; `--magic` scopes
+the selected open positions fail-closed when position magic metadata is absent.
+
+`history-gaps` reads an existing SQLite history database and exports one row
+per detected gap from managed rate compatibility views. It never initializes
+MT5. Pass `--granularity-seconds` for custom tables or views whose bar spacing
+cannot be inferred from the name.
 
 ## Internal helpers (not stable)
 
