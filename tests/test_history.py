@@ -35,6 +35,7 @@ from mt5cli.history import (
     deduplicate_history_tables,
     drop_duplicates_in_table,
     drop_forming_rate_bar,
+    drop_rate_compatibility_views,
     filter_incremental_history_deals_frame,
     filter_trade_history_frame,
     get_history_deals_account_event_start_datetime,
@@ -62,6 +63,7 @@ from mt5cli.history import (
     write_incremental_datasets,
     write_rates_dataset,
     write_streamed_frame,
+    write_symbols_dataset,
 )
 from mt5cli.utils import Dataset, IfExists
 
@@ -1744,6 +1746,32 @@ class TestRateCompatibilityViews:
             assert "rate_EURUSD__1" in views
             assert conn.execute("SELECT close FROM rate_EURUSD__1").fetchone() == (1.0,)
 
+    def test_does_not_drop_user_views_matching_rate_prefix_without_separator(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test user views like rate_summary survive incremental view drops."""
+        db_path = tmp_path / "user-rate-prefix-view.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE rates("
+                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
+            )
+            conn.execute(
+                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
+                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
+            )
+            conn.execute("CREATE VIEW rate_summary AS SELECT 1 AS total")
+            create_rate_compatibility_views(conn)
+            drop_rate_compatibility_views(conn)
+            views = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'",
+                ).fetchall()
+            }
+        assert views == {"rate_summary"}
+
     @pytest.mark.parametrize(
         "symbol",
         ["EUR/USD", "US500.cash", "#US500"],
@@ -2148,6 +2176,18 @@ class TestIncrementalIntegration:
             "price": [1.1],
             "profit": [0.0],
         })
+        client.symbol_info_as_dict.return_value = {
+            "symbol": "EURUSD",
+            "point": 0.00001,
+            "digits": 5,
+            "trade_contract_size": 100000.0,
+            "volume_min": 0.01,
+            "volume_max": 100.0,
+            "volume_step": 0.01,
+            "trade_tick_size": 0.00001,
+            "trade_tick_value": 1.0,
+            "currency_profit": "USD",
+        }
         db_path = tmp_path / "incremental-integration.db"
         start = datetime(2024, 1, 1, tzinfo=UTC)
         end = datetime(2024, 1, 2, tzinfo=UTC)
@@ -2178,9 +2218,15 @@ class TestIncrementalIntegration:
                     "SELECT name FROM sqlite_master WHERE type='view'",
                 ).fetchall()
             }
-        assert {"rates", "history_orders", "history_deals"} <= tables
+            symbols_rows = conn.execute(
+                "SELECT symbol, time, point, currency_profit FROM symbols",
+            ).fetchall()
+        assert {"rates", "history_orders", "history_deals", "symbols"} <= tables
         assert "rate_EURUSD__1" in views
         assert "cash_events" in views
+        assert symbols_rows == [
+            ("EURUSD", "2024-01-02T00:00:00+00:00", 0.00001, "USD"),
+        ]
 
     def test_rate_view_names_do_not_collide_for_symbol_suffix(
         self,
@@ -2285,21 +2331,36 @@ class TestIncrementalIntegration:
             "time": [1],
             "type": [0],
         })
+        client.symbol_info_as_dict.return_value = {
+            "symbol": "EURUSD",
+            "point": 0.00001,
+            "digits": 5,
+        }
         db_path = tmp_path / "collected-integration.db"
         start = datetime(2024, 1, 1, tzinfo=UTC)
         end = datetime(2024, 1, 2, tzinfo=UTC)
         with sqlite3.connect(db_path) as conn:
-            write_collected_datasets(
+            written_tables, _ = write_collected_datasets(
                 conn,
                 client,
                 ["EURUSD"],
-                {Dataset.ticks, Dataset.history_orders, Dataset.history_deals},
+                {
+                    Dataset.ticks,
+                    Dataset.history_orders,
+                    Dataset.history_deals,
+                    Dataset.symbols,
+                },
                 1,
                 1,
                 start,
                 end,
                 IfExists.APPEND,
             )
+            assert Dataset.symbols in written_tables
+            symbols_row = conn.execute(
+                "SELECT symbol, time, point, digits FROM symbols",
+            ).fetchone()
+            assert symbols_row == ("EURUSD", "2024-01-02T00:00:00+00:00", 0.00001, 5)
             assert (
                 get_incremental_start_datetime(
                     conn,
@@ -2371,6 +2432,30 @@ class TestIncrementalIntegration:
             deduplicate_history_tables(conn, {Dataset.ticks: {"time"}}, {Dataset.ticks})
         assert "Skipping ticks deduplication" in caplog.text
 
+    def test_write_incremental_symbols_skips_empty_symbol_list(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test the incremental symbols helper is a no-op for an empty symbol list."""
+        client = MagicMock()
+        with sqlite3.connect(tmp_path / "no-symbols.db") as conn:
+            written_tables, _ = write_incremental_datasets(
+                conn,
+                client,
+                [],
+                {Dataset.symbols},
+                [],
+                0,
+                datetime(2024, 1, 1, tzinfo=UTC),
+                datetime(2024, 1, 2, tzinfo=UTC),
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=False,
+            )
+        assert Dataset.symbols not in written_tables
+        client.symbol_info_as_dict.assert_not_called()
+
     def test_write_rates_skips_empty_schema(
         self,
         tmp_path: Path,
@@ -2390,6 +2475,83 @@ class TestIncrementalIntegration:
                 IfExists.APPEND,
                 written_columns,
             )
+
+    def test_write_symbols_dataset_snapshots_metadata(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test symbols writer snapshots per-symbol metadata at snapshot_time."""
+
+        def symbol_info_as_dict(*, symbol: str) -> dict[str, object]:
+            return {
+                "symbol": symbol,
+                "point": 0.01 if symbol == "USDJPY" else 0.00001,
+                "digits": 3 if symbol == "USDJPY" else 5,
+                "trade_contract_size": 100000.0,
+                "volume_min": 0.01,
+                "volume_max": 100.0,
+                "volume_step": 0.01,
+                "trade_tick_size": 0.001,
+                "trade_tick_value": 1.0,
+                "currency_profit": "JPY" if symbol == "USDJPY" else "USD",
+            }
+
+        client = MagicMock()
+        client.symbol_info_as_dict.side_effect = symbol_info_as_dict
+        snapshot_time = datetime(2024, 1, 1, tzinfo=UTC)
+        written_columns: dict[Dataset, set[str]] = {}
+        with sqlite3.connect(tmp_path / "symbols-snapshot.db") as conn:
+            assert write_symbols_dataset(
+                conn,
+                client,
+                ["EURUSD", "USDJPY"],
+                snapshot_time,
+                IfExists.APPEND,
+                written_columns,
+            )
+            rows = conn.execute(
+                "SELECT symbol, time, point, digits, currency_profit"
+                " FROM symbols ORDER BY symbol",
+            ).fetchall()
+        assert rows == [
+            ("EURUSD", "2024-01-01T00:00:00+00:00", 0.00001, 5, "USD"),
+            ("USDJPY", "2024-01-01T00:00:00+00:00", 0.01, 3, "JPY"),
+        ]
+        assert written_columns[Dataset.symbols] >= {
+            "symbol",
+            "time",
+            "point",
+            "digits",
+            "currency_profit",
+        }
+
+    def test_write_symbols_dataset_nulls_metadata_for_zero_point(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test a missing/zero point persists a NULL row with a warning."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = {"symbol": "XAUUSD", "point": 0}
+        written_columns: dict[Dataset, set[str]] = {}
+        with (
+            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
+            sqlite3.connect(tmp_path / "symbols-zero-point.db") as conn,
+        ):
+            assert write_symbols_dataset(
+                conn,
+                client,
+                ["XAUUSD"],
+                datetime(2024, 1, 1, tzinfo=UTC),
+                IfExists.APPEND,
+                written_columns,
+            )
+            row = conn.execute(
+                "SELECT symbol, point, digits, currency_profit FROM symbols",
+            ).fetchone()
+        assert row == ("XAUUSD", None, None, None)
+        assert "XAUUSD" in caplog.text
+        assert "missing or zero point" in caplog.text
 
     def test_finalize_with_views_warning_when_deals_missing(
         self,

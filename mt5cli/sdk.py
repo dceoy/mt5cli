@@ -369,16 +369,26 @@ def build_config(
 
 
 @contextmanager
-def connected_client(config: Mt5Config) -> Iterator[Mt5DataClient]:
+def connected_client(
+    config: Mt5Config,
+    *,
+    retry_count: int | None = None,
+) -> Iterator[Mt5DataClient]:
     """Initialize MT5, yield a connected client, and always shut down.
 
     Args:
         config: MT5 connection configuration.
+        retry_count: Number of MT5 initialization retries. Defaults to the
+            pdmt5 client default when omitted.
 
     Yields:
         Connected ``Mt5DataClient`` instance.
     """
-    client = Mt5DataClient(config=config)
+    client = (
+        Mt5DataClient(config=config)
+        if retry_count is None
+        else Mt5DataClient(config=config, retry_count=retry_count)
+    )
     try:
         client.initialize_and_login_mt5()
         yield client
@@ -389,17 +399,21 @@ def connected_client(config: Mt5Config) -> Iterator[Mt5DataClient]:
 def _run_with_client(
     config: Mt5Config,
     fetch_fn: Callable[[Mt5DataClient], T],
+    *,
+    retry_count: int | None = None,
 ) -> T:
     """Connect, run ``fetch_fn``, and shut down safely.
 
     Args:
         config: MT5 connection configuration.
         fetch_fn: Callable receiving a connected client.
+        retry_count: Number of MT5 initialization retries. Defaults to the
+            pdmt5 client default when omitted.
 
     Returns:
         Value returned by ``fetch_fn``.
     """
-    with connected_client(config) as client:
+    with connected_client(config, retry_count=retry_count) as client:
         return fetch_fn(client)
 
 
@@ -512,7 +526,7 @@ class Mt5CliClient:
     def _fetch_value(self, fetch_fn: Callable[[Mt5DataClient], T]) -> T:
         if self._client is not None:
             return fetch_fn(self._client)
-        return _run_with_client(self._config, fetch_fn)
+        return _run_with_client(self._config, fetch_fn, retry_count=self._retry_count)
 
     def _fetch(self, fetch_fn: Callable[[Mt5DataClient], pd.DataFrame]) -> pd.DataFrame:
         return self._fetch_value(fetch_fn)
@@ -992,7 +1006,9 @@ def update_history(  # noqa: PLR0913
         output: SQLite database path.
         symbols: Symbols to update.
         datasets: Datasets to include (defaults to rates, history-orders,
-            history-deals; pass ``{Dataset.ticks}`` to opt in to ticks).
+            history-deals; pass ``{Dataset.ticks}`` to opt in to ticks,
+            or ``{Dataset.symbols}`` to opt in to symbol metadata
+            snapshots).
         timeframes: Rate timeframes to update (defaults to all fixed MT5
             timeframes when None).
         flags: Tick copy flags as integer or name (e.g. ``ALL``).
@@ -1126,7 +1142,9 @@ class ThrottledHistoryUpdater:
         Args:
             output: SQLite database path.
             datasets: Datasets to include (defaults to rates, history-orders,
-                history-deals; pass ``{Dataset.ticks}`` to opt in to ticks).
+                history-deals; pass ``{Dataset.ticks}`` to opt in to ticks,
+                or ``{Dataset.symbols}`` to opt in to symbol metadata
+                snapshots).
             timeframes: Rate timeframes to update (defaults to all fixed MT5
                 timeframes).
             flags: Tick copy flags as integer or name (e.g. ``ALL``).
@@ -1259,7 +1277,9 @@ def collect_history(
         date_from: Start date.
         date_to: End date.
         datasets: Datasets to include (defaults to rates, history-orders,
-            history-deals; pass ``{Dataset.ticks}`` to opt in to ticks).
+            history-deals; pass ``{Dataset.ticks}`` to opt in to ticks,
+            or ``{Dataset.symbols}`` to opt in to symbol metadata
+            snapshots).
         timeframe: Rates timeframe as integer or name (e.g. ``M1``).
         flags: Tick copy flags as integer or name (e.g. ``ALL``).
         if_exists: Behavior when a target table already exists.

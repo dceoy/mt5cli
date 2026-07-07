@@ -730,6 +730,53 @@ def get_tick_snapshot(
     return cast("dict[str, float | int | None]", snapshot)
 
 
+_SERVER_CLOCK_OFFSET_ROUNDING_SECONDS = 1800.0
+
+
+def estimate_server_clock_offset_seconds(
+    client: _Mt5ClientProtocol,
+    symbol: str,
+) -> float | None:
+    """Estimate the broker server clock offset from true UTC.
+
+    MT5 tick, bar, and deal timestamps are epoch values labeled in the
+    broker server's wall clock, which is commonly UTC+2 or UTC+3 rather
+    than true UTC. This reads the latest tick for ``symbol`` and compares
+    its timestamp to the current UTC time, rounding to the nearest half
+    hour: server offsets are whole or half-hour multiples, and rounding
+    absorbs a few minutes of real tick staleness.
+
+    No offset is applied anywhere automatically; pass the result to
+    :func:`fetch_recent_history_deals_for_trading_client` (via
+    ``server_clock_offset_seconds``) or use it directly when comparing
+    MT5-labeled timestamps to wall-clock time.
+
+    Args:
+        client: Connected MT5 client exposing tick snapshot access.
+        symbol: Symbol whose latest tick supplies the timestamp.
+
+    Returns:
+        Estimated offset in seconds (server time minus UTC), rounded to the
+        nearest 1800 seconds, or ``None`` when no valid tick time is
+        available.
+    """
+    snapshot = get_tick_snapshot(client, symbol)
+    tick_epoch = extract_tick_price(snapshot, "time")
+    if tick_epoch is None:
+        return None
+    raw_offset_seconds = tick_epoch - datetime.now(UTC).timestamp()
+    offset_seconds = (
+        round(raw_offset_seconds / _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS)
+        * _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS
+    )
+    _logger.info(
+        "Estimated MT5 server clock offset for %s: %.0f seconds.",
+        symbol,
+        offset_seconds,
+    )
+    return offset_seconds
+
+
 def get_positions_frame(
     client: _Mt5ClientProtocol,
     symbol: str | None = None,
@@ -1949,6 +1996,7 @@ def fetch_recent_history_deals_for_trading_client(
     group: str | None = None,
     hours: float = 24.0,
     date_to: datetime | None = None,
+    server_clock_offset_seconds: float | None = None,
 ) -> pd.DataFrame:
     """Fetch recent history deals from an already-connected trading client.
 
@@ -1966,6 +2014,13 @@ def fetch_recent_history_deals_for_trading_client(
     downstream packages own entry/exit classification, Kelly fractions, and
     any other betting or signal semantics.
 
+    MT5 deal timestamps are labeled in the broker server's wall clock, which
+    is commonly UTC+2 or UTC+3 rather than true UTC, so a window computed
+    from true UTC ``now`` can miss the most recent deals on such brokers.
+    Pass ``server_clock_offset_seconds`` (see
+    :func:`estimate_server_clock_offset_seconds`) to shift the window so it
+    covers the true most-recent deals.
+
     Args:
         client: Connected ``pdmt5.Mt5DataClient`` (or compatible) with
             ``history_deals_get_as_df`` capability, as returned by
@@ -1974,6 +2029,10 @@ def fetch_recent_history_deals_for_trading_client(
         group: Optional symbol group filter passed to the underlying client.
         hours: Trailing window length in hours. Must be positive.
         date_to: Window end timestamp. Defaults to ``datetime.now(UTC)``.
+        server_clock_offset_seconds: Optional broker server clock offset
+            (server time minus UTC) applied to both ends of the window.
+            Defaults to ``None``, which keeps the window anchored to true
+            UTC (current behavior, byte-identical when omitted).
 
     Returns:
         DataFrame ordered chronologically by ``time`` (when the column
@@ -1989,15 +2048,18 @@ def fetch_recent_history_deals_for_trading_client(
 
         from mt5cli import (
             create_trading_client,
+            estimate_server_clock_offset_seconds,
             fetch_recent_history_deals_for_trading_client,
         )
 
         client = create_trading_client(login=12345, server="Broker-Demo")
         try:
+            offset = estimate_server_clock_offset_seconds(client, "JP225")
             deals_df = fetch_recent_history_deals_for_trading_client(
                 client,
                 symbol="JP225",
                 hours=24,
+                server_clock_offset_seconds=offset,
             )
         finally:
             client.shutdown()
@@ -2007,6 +2069,10 @@ def fetch_recent_history_deals_for_trading_client(
         raise ValueError(msg)
     end = date_to if date_to is not None else datetime.now(UTC)
     start = end - timedelta(hours=hours)
+    if server_clock_offset_seconds is not None:
+        offset = timedelta(seconds=server_clock_offset_seconds)
+        start += offset
+        end += offset
     raw = client.history_deals_get_as_df(
         date_from=start,
         date_to=end,

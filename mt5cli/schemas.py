@@ -46,6 +46,7 @@ class DataKind(StrEnum):
     positions = "positions"
     history_orders = "history_orders"
     history_deals = "history_deals"
+    symbols = "symbols"
 
 
 REQUIRED_COLUMNS: dict[DataKind, frozenset[str]] = {
@@ -108,6 +109,19 @@ REQUIRED_COLUMNS: dict[DataKind, frozenset[str]] = {
         "price",
         "profit",
     }),
+    DataKind.symbols: frozenset({
+        "symbol",
+        "time",
+        "point",
+        "digits",
+        "trade_contract_size",
+        "volume_min",
+        "volume_max",
+        "volume_step",
+        "trade_tick_size",
+        "trade_tick_value",
+        "currency_profit",
+    }),
 }
 
 _OPTIONAL_TIME_COLUMNS_BY_KIND: dict[DataKind, frozenset[str]] = {
@@ -135,6 +149,7 @@ DEDUP_KEYS: dict[DataKind, tuple[tuple[str, ...], ...]] = {
     DataKind.ticks: (("symbol", "time_msc"), ("symbol", "time")),
     DataKind.history_orders: (("ticket",), ("symbol", "time", "type")),
     DataKind.history_deals: (("ticket",), ("symbol", "time", "type", "entry")),
+    DataKind.symbols: (("symbol", "time"),),
 }
 
 

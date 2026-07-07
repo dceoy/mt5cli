@@ -20,6 +20,21 @@ append using dataset-specific keys (for example `ticket` on history tables, or
 Optional views are created when `--with-views` is set and the `history-deals` dataset
 was written.
 
+`ticks` and `symbols` are opt-in datasets (pass `--dataset ticks` /
+`--dataset symbols`); they are excluded from the default `rates`,
+`history-orders`, `history-deals` selection. Unlike the other datasets,
+`symbols` is not a time-windowed history table: each collection or update
+writes one row per requested symbol, timestamped with the collection's
+`date_to` (one-shot `collect-history`) or the update's end time (incremental
+`update_history`). It snapshots broker-reported symbol metadata (`point`,
+`digits`, `trade_contract_size`, `volume_min`, `volume_max`, `volume_step`,
+`trade_tick_size`, `trade_tick_value`, `currency_profit`) so downstream
+consumers can convert `rates.spread` (points) into a relative spread without a
+live terminal connection. Metadata is only valid for the account/broker that
+produced the snapshot. When a symbol's `point` is missing or zero, the row is
+still written with NULL metadata and a warning is logged — a bad symbol never
+aborts the rest of the sync.
+
 ### Entity-relationship diagram
 
 Sample layout for a full collection with `--with-views`:
@@ -79,6 +94,20 @@ erDiagram
         REAL fee
     }
 
+    symbols {
+        TEXT symbol "dedup key"
+        TEXT time "dedup key, snapshot moment"
+        REAL point
+        INTEGER digits
+        REAL trade_contract_size
+        REAL volume_min
+        REAL volume_max
+        REAL volume_step
+        REAL trade_tick_size
+        REAL trade_tick_value
+        TEXT currency_profit
+    }
+
     cash_events {
         INTEGER ticket
         TEXT symbol
@@ -106,6 +135,7 @@ erDiagram
     rates ||--o{ history_deals : "symbol (logical)"
     ticks ||--o{ history_deals : "symbol (logical)"
     history_orders ||--o{ history_deals : "order ~ ticket (logical)"
+    symbols ||--o{ rates : "symbol (logical)"
     history_deals ||--|| cash_events : "VIEW: type NOT IN (0,1)"
     history_deals ||--o{ positions_reconstructed : "VIEW: GROUP BY position_id"
 ```
@@ -118,6 +148,7 @@ erDiagram
 | `ticks`                   | table | `copy_ticks_range`   | Indexed on `(symbol, time)` when columns exist.                                             |
 | `history_orders`          | table | `history_orders_get` | Fetched per `--symbol`, then concatenated.                                                  |
 | `history_deals`           | table | `history_deals_get`  | Fetched per `--symbol`, then concatenated. Indexed on `(position_id, symbol)` when present. |
+| `symbols`                 | table | `symbol_info`        | Opt-in. One row per symbol per collection/update, snapshotted at `date_to` / update end.    |
 | `cash_events`             | view  | `history_deals`      | Non-trade deal types (deposits, balance ops, etc.). Requires `type` column.                 |
 | `positions_reconstructed` | view  | `history_deals`      | One row per closed `position_id`; volume-weighted prices and reversal stats.                |
 

@@ -49,7 +49,20 @@ _HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
     Dataset.ticks: DEDUP_KEYS[DataKind.ticks],
     Dataset.history_orders: DEDUP_KEYS[DataKind.history_orders],
     Dataset.history_deals: DEDUP_KEYS[DataKind.history_deals],
+    Dataset.symbols: DEDUP_KEYS[DataKind.symbols],
 }
+
+_SYMBOLS_SNAPSHOT_FIELDS: tuple[str, ...] = (
+    "point",
+    "digits",
+    "trade_contract_size",
+    "volume_min",
+    "volume_max",
+    "volume_step",
+    "trade_tick_size",
+    "trade_tick_value",
+    "currency_profit",
+)
 
 _TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)
 _TRADE_DEAL_TYPES_SQL = f"({', '.join(str(value) for value in _TRADE_DEAL_TYPES)})"
@@ -91,7 +104,8 @@ def resolve_history_datasets(datasets: set[Dataset] | None) -> set[Dataset]:
     Returns:
         ``DEFAULT_HISTORY_DATASETS`` (rates, history-orders, history-deals)
         when ``datasets`` is None, otherwise the configured selection (which
-        may be empty or explicitly include ``Dataset.ticks``).
+        may be empty or explicitly include ``Dataset.ticks`` /
+        ``Dataset.symbols``).
     """
     if datasets is None:
         return set(DEFAULT_HISTORY_DATASETS)
@@ -222,7 +236,7 @@ def _open_history_connection(
     return conn, True
 
 
-def _open_existing_sqlite_database(
+def open_existing_sqlite_database(
     conn_or_path: SqliteConnOrPath,
 ) -> tuple[sqlite3.Connection, bool]:
     """Open a read-only SQLite database or reuse an existing connection.
@@ -490,7 +504,7 @@ def load_rate_data(
         DataFrame indexed by ascending ``time``.
 
     """
-    conn, should_close = _open_existing_sqlite_database(conn_or_path)
+    conn, should_close = open_existing_sqlite_database(conn_or_path)
     try:
         return load_rate_data_from_connection(conn, table, count=count)
     finally:
@@ -943,7 +957,7 @@ def load_rate_series_from_sqlite(
         if explicit_tables is not None
         else None
     )
-    conn, should_close = _open_existing_sqlite_database(conn_or_path)
+    conn, should_close = open_existing_sqlite_database(conn_or_path)
     try:
         resolved_tables = tables or resolve_rate_tables(
             conn,
@@ -1639,9 +1653,9 @@ def create_positions_reconstructed_view(
 
 
 def drop_rate_compatibility_views(conn: sqlite3.Connection) -> None:
-    """Drop all mt5cli-managed ``rate_*`` compatibility views."""
+    """Drop all mt5cli-managed ``rate_*__*`` compatibility views."""
     rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'view' AND name GLOB 'rate_*'",
+        "SELECT name FROM sqlite_master WHERE type = 'view' AND name GLOB 'rate_*__*'",
     ).fetchall()
     for (view_name,) in rows:
         quoted_view_name = quote_sqlite_identifier(str(view_name))
@@ -1801,6 +1815,47 @@ def write_ticks_dataset(
     )
 
 
+def write_symbols_dataset(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    snapshot_time: datetime,
+    if_exists: IfExists,
+    written_columns: dict[Dataset, set[str]],
+) -> bool:
+    """Snapshot per-symbol metadata (point, digits, contract size, volume limits).
+
+    Broker-reported symbol metadata is only valid for the account/broker that
+    produced the snapshot. When a symbol's ``point`` is missing or zero
+    (the terminal has no valid metadata for it), a row is still persisted
+    with NULL metadata and a warning is logged; the sync is never aborted.
+
+    Returns:
+        True if the symbols table was written.
+    """
+
+    def _fetch_symbol_frame(sym: str) -> pd.DataFrame:
+        info = client.symbol_info_as_dict(symbol=sym)
+        if info.get("point"):
+            metadata = {field: info.get(field) for field in _SYMBOLS_SNAPSHOT_FIELDS}
+        else:
+            logger.warning(
+                "Symbol %r has missing or zero point; persisting NULL metadata.",
+                sym,
+            )
+            metadata = dict.fromkeys(_SYMBOLS_SNAPSHOT_FIELDS)
+        return pd.DataFrame([{"symbol": sym, "time": snapshot_time, **metadata}])
+
+    return _stream_symbol_frames(
+        conn,
+        symbols,
+        Dataset.symbols,
+        if_exists,
+        written_columns,
+        _fetch_symbol_frame,
+    )
+
+
 def write_history_dataset(
     conn: sqlite3.Connection,
     fetch: Callable[..., pd.DataFrame],
@@ -1933,6 +1988,25 @@ def _write_incremental_ticks(
                 symbol,
                 start_date,
             )
+
+
+def _write_incremental_symbols(
+    conn: sqlite3.Connection,
+    client: Mt5DataClient,
+    symbols: Sequence[str],
+    end_date: datetime,
+    written_columns: dict[Dataset, set[str]],
+    written_tables: set[Dataset],
+) -> None:
+    if write_symbols_dataset(
+        conn,
+        client,
+        symbols,
+        end_date,
+        IfExists.APPEND,
+        written_columns,
+    ):
+        written_tables.add(Dataset.symbols)
 
 
 def _write_incremental_history_orders(
@@ -2182,6 +2256,15 @@ def write_incremental_datasets(  # noqa: PLR0913
             dedup_scopes,
             include_account_events=include_account_events,
         )
+    if Dataset.symbols in selected_datasets:
+        _write_incremental_symbols(
+            conn,
+            client,
+            symbols,
+            end_date,
+            written_columns,
+            written_tables,
+        )
     _finalize_incremental_writes(
         conn,
         selected_datasets,
@@ -2259,4 +2342,13 @@ def write_collected_datasets(
         include_account_events=False,
     ):
         written_tables.add(Dataset.history_deals)
+    if Dataset.symbols in datasets and write_symbols_dataset(
+        conn,
+        client,
+        symbols,
+        date_to,
+        if_exists,
+        written_columns,
+    ):
+        written_tables.add(Dataset.symbols)
     return written_tables, written_columns

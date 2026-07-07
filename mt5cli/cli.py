@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import re
-import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
 from pathlib import Path  # noqa: TC003
@@ -17,7 +17,11 @@ import typer
 
 from . import sdk
 from .client import MT5Client
-from .history import report_rate_gaps, resolve_granularity_name
+from .history import (
+    open_existing_sqlite_database,
+    report_rate_gaps,
+    resolve_granularity_name,
+)
 from .trading import OrderExecutionResult, close_open_positions, create_trading_client
 from .utils import (
     DATETIME_TYPE,
@@ -33,6 +37,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
+    import sqlite3
     from collections.abc import Callable
 
     from pdmt5 import Mt5Config
@@ -838,10 +843,15 @@ def history_gaps(
     """Export SQLite rate gaps without connecting to MT5.
 
     Raises:
-        typer.BadParameter: If no compatible rate view is available and no
-            explicit table is provided, or if granularity inference fails.
+        typer.BadParameter: If the source database does not exist, if no
+            compatible rate view is available and no explicit table is
+            provided, or if granularity inference fails.
     """
-    with sqlite3.connect(sqlite3_path) as conn:
+    try:
+        conn, _ = open_existing_sqlite_database(sqlite3_path)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--sqlite3") from exc
+    with closing(conn):
         tables = list(table) if table else _default_gap_tables(conn)
         if not tables:
             msg = (
@@ -902,7 +912,8 @@ def collect_history(
             help=(
                 "Dataset to include (repeat for multiple)."
                 " Defaults to rates, history-orders, history-deals."
-                " Ticks are opt-in: pass --dataset ticks to include them."
+                " Ticks and symbols metadata are opt-in:"
+                " pass --dataset ticks or --dataset symbols to include them."
             ),
         ),
     ] = None,
@@ -943,6 +954,9 @@ def collect_history(
     Tables written depend on ``--dataset``: ``rates``, ``history_orders``,
     ``history_deals`` by default. ``ticks`` are opt-in: pass
     ``--dataset ticks`` to include them (tick data grows the database quickly).
+    ``symbols`` is also opt-in: pass ``--dataset symbols`` to snapshot
+    per-symbol metadata (point, digits, contract size, volume limits) at
+    ``date_to``, one row per symbol per collection.
     History datasets are fetched per symbol and concatenated. Rates rows carry
     the requested ``timeframe`` so appended runs at different timeframes remain
     distinguishable.

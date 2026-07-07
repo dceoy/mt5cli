@@ -89,62 +89,69 @@ from mt5cli.utils import (
     export_dataframe_to_sqlite,
 )
 
-
-def _sample_frame(kind: DataKind) -> pd.DataFrame:
-    if kind is DataKind.rates:
-        return pd.DataFrame({
-            "time": [datetime(2024, 1, 1, tzinfo=UTC)],
-            "open": [1.1],
-            "high": [1.2],
-            "low": [1.0],
-            "close": [1.15],
-            "tick_volume": [10],
-            "spread": [1],
-            "real_volume": [0],
-        })
-    if kind is DataKind.ticks:
-        return pd.DataFrame({
-            "time": [datetime(2024, 1, 1, tzinfo=UTC)],
-            "bid": [1.1],
-            "ask": [1.11],
-            "last": [1.105],
-            "volume": [1],
-            "time_msc": [datetime(2024, 1, 1, tzinfo=UTC)],
-            "flags": [2],
-            "volume_real": [0.0],
-        })
-    if kind is DataKind.orders:
-        return pd.DataFrame({
-            "ticket": [1],
-            "time_setup": [datetime(2024, 1, 1, tzinfo=UTC)],
-            "type": [0],
-            "state": [1],
-            "symbol": ["EURUSD"],
-            "volume_current": [0.1],
-            "price_open": [1.1],
-        })
-    if kind is DataKind.positions:
-        return pd.DataFrame({
-            "ticket": [1],
-            "time": [datetime(2024, 1, 1, tzinfo=UTC)],
-            "type": [0],
-            "symbol": ["EURUSD"],
-            "volume": [0.1],
-            "price_open": [1.1],
-            "price_current": [1.11],
-            "profit": [1.0],
-        })
-    if kind is DataKind.history_orders:
-        return pd.DataFrame({
-            "ticket": [1],
-            "time_setup": [datetime(2024, 1, 1, tzinfo=UTC)],
-            "type": [0],
-            "state": [3],
-            "symbol": ["EURUSD"],
-            "volume_initial": [0.1],
-            "price_open": [1.1],
-        })
-    return pd.DataFrame({
+_SAMPLE_FRAME_COLUMNS: dict[DataKind, dict[str, list[object]]] = {
+    DataKind.rates: {
+        "time": [datetime(2024, 1, 1, tzinfo=UTC)],
+        "open": [1.1],
+        "high": [1.2],
+        "low": [1.0],
+        "close": [1.15],
+        "tick_volume": [10],
+        "spread": [1],
+        "real_volume": [0],
+    },
+    DataKind.ticks: {
+        "time": [datetime(2024, 1, 1, tzinfo=UTC)],
+        "bid": [1.1],
+        "ask": [1.11],
+        "last": [1.105],
+        "volume": [1],
+        "time_msc": [datetime(2024, 1, 1, tzinfo=UTC)],
+        "flags": [2],
+        "volume_real": [0.0],
+    },
+    DataKind.orders: {
+        "ticket": [1],
+        "time_setup": [datetime(2024, 1, 1, tzinfo=UTC)],
+        "type": [0],
+        "state": [1],
+        "symbol": ["EURUSD"],
+        "volume_current": [0.1],
+        "price_open": [1.1],
+    },
+    DataKind.positions: {
+        "ticket": [1],
+        "time": [datetime(2024, 1, 1, tzinfo=UTC)],
+        "type": [0],
+        "symbol": ["EURUSD"],
+        "volume": [0.1],
+        "price_open": [1.1],
+        "price_current": [1.11],
+        "profit": [1.0],
+    },
+    DataKind.history_orders: {
+        "ticket": [1],
+        "time_setup": [datetime(2024, 1, 1, tzinfo=UTC)],
+        "type": [0],
+        "state": [3],
+        "symbol": ["EURUSD"],
+        "volume_initial": [0.1],
+        "price_open": [1.1],
+    },
+    DataKind.symbols: {
+        "symbol": ["EURUSD"],
+        "time": [datetime(2024, 1, 1, tzinfo=UTC)],
+        "point": [0.00001],
+        "digits": [5],
+        "trade_contract_size": [100000.0],
+        "volume_min": [0.01],
+        "volume_max": [100.0],
+        "volume_step": [0.01],
+        "trade_tick_size": [0.00001],
+        "trade_tick_value": [1.0],
+        "currency_profit": ["USD"],
+    },
+    DataKind.history_deals: {
         "ticket": [1],
         "order": [2],
         "time": [datetime(2024, 1, 1, tzinfo=UTC)],
@@ -154,7 +161,12 @@ def _sample_frame(kind: DataKind) -> pd.DataFrame:
         "volume": [0.1],
         "price": [1.1],
         "profit": [0.0],
-    })
+    },
+}
+
+
+def _sample_frame(kind: DataKind) -> pd.DataFrame:
+    return pd.DataFrame(_SAMPLE_FRAME_COLUMNS[kind])
 
 
 @pytest.mark.parametrize("kind", list(DataKind))

@@ -72,6 +72,7 @@ class Dataset(StrEnum):
     ticks = "ticks"
     history_orders = "history-orders"
     history_deals = "history-deals"
+    symbols = "symbols"
 
     @property
     def table_name(self) -> str:
