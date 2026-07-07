@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-from pdmt5 import TIMEFRAME_MAP
+from pdmt5 import TIMEFRAME_MAP, Mt5RuntimeError
 
 from mt5cli import history
 from mt5cli.history import (
@@ -2552,6 +2552,77 @@ class TestIncrementalIntegration:
         assert row == ("XAUUSD", None, None, None)
         assert "XAUUSD" in caplog.text
         assert "missing or zero point" in caplog.text
+
+    def test_write_symbols_dataset_nulls_metadata_when_lookup_raises(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test an unknown/invalid symbol persists NULL metadata, not an abort."""
+        client = MagicMock()
+        client.symbol_info_as_dict.side_effect = Mt5RuntimeError("unknown symbol")
+        written_columns: dict[Dataset, set[str]] = {}
+        with (
+            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
+            sqlite3.connect(tmp_path / "symbols-lookup-error.db") as conn,
+        ):
+            assert write_symbols_dataset(
+                conn,
+                client,
+                ["BADSYM"],
+                datetime(2024, 1, 1, tzinfo=UTC),
+                IfExists.APPEND,
+                written_columns,
+            )
+            row = conn.execute(
+                "SELECT symbol, point, digits, currency_profit FROM symbols",
+            ).fetchone()
+        assert row == ("BADSYM", None, None, None)
+        assert "BADSYM" in caplog.text
+        assert "could not be retrieved" in caplog.text
+        assert caplog.text.count("BADSYM") == 1
+
+    def test_write_symbols_dataset_preserves_numeric_types_when_first_is_null(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test a NULL-first row does not poison later rows with TEXT affinity."""
+
+        def symbol_info_as_dict(*, symbol: str) -> dict[str, object]:
+            if symbol == "XAUUSD":
+                return {"symbol": "XAUUSD", "point": 0}
+            return {
+                "symbol": symbol,
+                "point": 0.00001,
+                "digits": 5,
+                "trade_contract_size": 100000.0,
+                "volume_min": 0.01,
+                "volume_max": 100.0,
+                "volume_step": 0.01,
+                "trade_tick_size": 0.00001,
+                "trade_tick_value": 1.0,
+                "currency_profit": "USD",
+            }
+
+        client = MagicMock()
+        client.symbol_info_as_dict.side_effect = symbol_info_as_dict
+        written_columns: dict[Dataset, set[str]] = {}
+        with sqlite3.connect(tmp_path / "symbols-null-first.db") as conn:
+            assert write_symbols_dataset(
+                conn,
+                client,
+                ["XAUUSD", "EURUSD"],
+                datetime(2024, 1, 1, tzinfo=UTC),
+                IfExists.APPEND,
+                written_columns,
+            )
+            point, digits = conn.execute(
+                "SELECT point, digits FROM symbols WHERE symbol = 'EURUSD'",
+            ).fetchone()
+        assert isinstance(point, float)
+        assert abs(point - 0.00001) < 1e-9
+        assert isinstance(digits, float)
+        assert abs(digits - 5.0) < 1e-9
 
     def test_finalize_with_views_warning_when_deals_missing(
         self,

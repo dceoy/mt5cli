@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, SupportsInt, cast, overload
 
 import pandas as pd
+from pdmt5 import Mt5RuntimeError
 from pdmt5 import get_timeframe_name as _get_timeframe_name
 
-from .schemas import DEDUP_KEYS, DataKind, ensure_utc_columns
+from .schemas import DEDUP_KEYS, REQUIRED_COLUMNS, DataKind, ensure_utc_columns
 from .utils import (
     TIMEFRAME_NAMES,
     Dataset,
@@ -52,16 +53,11 @@ _HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
     Dataset.symbols: DEDUP_KEYS[DataKind.symbols],
 }
 
-_SYMBOLS_SNAPSHOT_FIELDS: tuple[str, ...] = (
-    "point",
-    "digits",
-    "trade_contract_size",
-    "volume_min",
-    "volume_max",
-    "volume_step",
-    "trade_tick_size",
-    "trade_tick_value",
-    "currency_profit",
+_SYMBOLS_SNAPSHOT_FIELDS: tuple[str, ...] = tuple(
+    sorted(REQUIRED_COLUMNS[DataKind.symbols] - {"symbol", "time"}),
+)
+_SYMBOLS_NUMERIC_FIELDS: tuple[str, ...] = tuple(
+    field for field in _SYMBOLS_SNAPSHOT_FIELDS if field != "currency_profit"
 )
 
 _TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)
@@ -913,8 +909,8 @@ def load_rate_series_from_sqlite(
             be unique. Omit when loading a single explicit ``table``.
         count: Optional number of most recent rows to load per series.
         explicit_tables: Optional explicit table or view names matching targets.
-            When omitted, managed ``rate_*`` compatibility views must already
-            exist in the database.
+            When omitted, managed ``rate_*__*`` compatibility views must
+            already exist in the database.
         table: Optional single table or view name to load directly.
 
     Returns:
@@ -1826,25 +1822,37 @@ def write_symbols_dataset(
     """Snapshot per-symbol metadata (point, digits, contract size, volume limits).
 
     Broker-reported symbol metadata is only valid for the account/broker that
-    produced the snapshot. When a symbol's ``point`` is missing or zero
-    (the terminal has no valid metadata for it), a row is still persisted
-    with NULL metadata and a warning is logged; the sync is never aborted.
+    produced the snapshot. When a symbol's metadata cannot be retrieved, or
+    when its ``point`` is missing or zero (the terminal has no valid metadata
+    for it), a row is still persisted with NULL metadata and a warning is
+    logged; the sync is never aborted for a single bad symbol.
 
     Returns:
         True if the symbols table was written.
     """
 
     def _fetch_symbol_frame(sym: str) -> pd.DataFrame:
-        info = client.symbol_info_as_dict(symbol=sym)
+        try:
+            info = client.symbol_info_as_dict(symbol=sym)
+        except Mt5RuntimeError:
+            logger.warning(
+                "Symbol %r metadata could not be retrieved; persisting NULL metadata.",
+                sym,
+            )
+            info = {}
         if info.get("point"):
             metadata = {field: info.get(field) for field in _SYMBOLS_SNAPSHOT_FIELDS}
         else:
-            logger.warning(
-                "Symbol %r has missing or zero point; persisting NULL metadata.",
-                sym,
-            )
+            if info:
+                logger.warning(
+                    "Symbol %r has missing or zero point; persisting NULL metadata.",
+                    sym,
+                )
             metadata = dict.fromkeys(_SYMBOLS_SNAPSHOT_FIELDS)
-        return pd.DataFrame([{"symbol": sym, "time": snapshot_time, **metadata}])
+        frame = pd.DataFrame([{"symbol": sym, "time": snapshot_time, **metadata}])
+        for field in _SYMBOLS_NUMERIC_FIELDS:
+            frame[field] = frame[field].astype("float64")
+        return frame
 
     return _stream_symbol_frames(
         conn,

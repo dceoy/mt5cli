@@ -271,7 +271,7 @@ frame = series["EURUSD", 1]  # keyed by (symbol, integer timeframe)
   `require_existing` is ignored.
 - `load_rate_series_from_sqlite()` returns a mapping keyed by
   `(symbol, integer timeframe)`. Unless `explicit_tables` is supplied, it
-  requires existing managed `rate_*` compatibility views and raises
+  requires existing managed `rate_*__*` compatibility views and raises
   `ValueError` when they are missing. Duplicate `(symbol, timeframe)` targets
   are rejected.
 - `load_rate_series_by_granularity()` is a thin wrapper that builds the targets,

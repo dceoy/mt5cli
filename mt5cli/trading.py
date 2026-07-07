@@ -763,6 +763,10 @@ def estimate_server_clock_offset_seconds(
     snapshot = get_tick_snapshot(client, symbol)
     tick_epoch = extract_tick_price(snapshot, "time")
     if tick_epoch is None:
+        _logger.warning(
+            "Cannot estimate MT5 server clock offset for %s: no valid tick time.",
+            symbol,
+        )
         return None
     raw_offset_seconds = tick_epoch - datetime.now(UTC).timestamp()
     offset_seconds = (
@@ -2030,9 +2034,10 @@ def fetch_recent_history_deals_for_trading_client(
         hours: Trailing window length in hours. Must be positive.
         date_to: Window end timestamp. Defaults to ``datetime.now(UTC)``.
         server_clock_offset_seconds: Optional broker server clock offset
-            (server time minus UTC) applied to both ends of the window.
-            Defaults to ``None``, which keeps the window anchored to true
-            UTC (current behavior, byte-identical when omitted).
+            (server time minus UTC) applied to both ends of the window. Must
+            be finite when provided. Defaults to ``None``, which keeps the
+            window anchored to true UTC (current behavior, byte-identical
+            when omitted).
 
     Returns:
         DataFrame ordered chronologically by ``time`` (when the column
@@ -2042,7 +2047,8 @@ def fetch_recent_history_deals_for_trading_client(
         client returns ``None``.
 
     Raises:
-        ValueError: If ``hours`` is not positive.
+        ValueError: If ``hours`` is not positive, or if
+            ``server_clock_offset_seconds`` is not finite.
 
     Example::
 
@@ -2066,6 +2072,11 @@ def fetch_recent_history_deals_for_trading_client(
     """
     if not isfinite(hours) or hours <= 0:
         msg = "hours must be finite and positive."
+        raise ValueError(msg)
+    if server_clock_offset_seconds is not None and not isfinite(
+        server_clock_offset_seconds,
+    ):
+        msg = "server_clock_offset_seconds must be finite."
         raise ValueError(msg)
     end = date_to if date_to is not None else datetime.now(UTC)
     start = end - timedelta(hours=hours)

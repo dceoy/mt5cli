@@ -1456,6 +1456,50 @@ class TestCollectHistory:
             {"rates", "ticks", "history_orders", "history_deals"} - expected_tables
         )
 
+    def test_collect_history_symbols_dataset_writes_snapshot_metadata(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,  # noqa: ARG002
+    ) -> None:
+        """Test --dataset symbols writes the mocked per-symbol metadata."""
+        output = tmp_path / "history.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--symbol",
+                "EURUSD",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+                "--dataset",
+                "symbols",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        with sqlite3.connect(output) as conn:
+            row = conn.execute(
+                "SELECT symbol, time, point, digits, trade_contract_size,"
+                " volume_min, volume_max, volume_step, trade_tick_size,"
+                " trade_tick_value, currency_profit FROM symbols",
+            ).fetchone()
+        assert row == (
+            "EURUSD",
+            "2024-02-01T00:00:00+00:00",
+            0.00001,
+            5,
+            100000.0,
+            0.01,
+            100.0,
+            0.01,
+            0.00001,
+            1.0,
+            "USD",
+        )
+
     def test_collect_history_rates_table_has_timeframe(
         self,
         tmp_path: Path,
