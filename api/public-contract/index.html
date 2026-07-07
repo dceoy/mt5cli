@@ -662,8 +662,12 @@ that closes open positions by <code>--symbol</code> or <code>--ticket</code> usi
 <code>close_open_positions()</code>. Both <code>order-send --yes</code> and <code>close-positions --yes</code>
 are live execution paths. <code>close-positions --dry-run</code> previews close orders
 without placing them and does not require <code>--yes</code>. <code>close-positions</code> also
-accepts optional <code>--deviation</code>, <code>--comment</code>, and <code>--magic</code>; <code>--magic</code> scopes
-the selected open positions fail-closed when position magic metadata is absent.</p>
+accepts optional <code>--filling-mode</code>, <code>--deviation</code>, <code>--comment</code>, and <code>--magic</code>;
+<code>--magic</code> scopes the selected open positions fail-closed when position magic
+metadata is absent. When <code>--filling-mode</code> (or the <code>order_filling_mode</code>
+parameter of <code>close_open_positions()</code>) is omitted, the filling mode is
+resolved per symbol with <code>resolve_broker_filling_mode()</code> so closes are not
+rejected on brokers whose symbols do not support IOC.</p>
 <p><code>history-gaps</code> reads an existing SQLite history database and exports one row
 per detected gap from managed rate compatibility views. It never initializes
 MT5. Pass <code>--granularity-seconds</code> for custom tables or views whose bar spacing
