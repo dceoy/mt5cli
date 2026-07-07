@@ -463,7 +463,7 @@ applications should prefer dedicated closing helpers or their own risk controls.
 <tbody>
 <tr>
 <td><code>collect-history</code></td>
-<td>Collect rates, history-orders, and history-deals (ticks opt-in via <code>--dataset ticks</code>) for one or more symbols into a single SQLite database (optional cash-event/position views)</td>
+<td>Collect rates, history-orders, and history-deals (ticks and symbol metadata opt-in via <code>--dataset ticks</code> / <code>--dataset symbols</code>) for one or more symbols into a single SQLite database (optional cash-event/position views)</td>
 </tr>
 <tr>
 <td><code>history-gaps</code></td>
@@ -505,7 +505,7 @@ applications should prefer dedicated closing helpers or their own risk controls.
 <tr>
 <td><code>--dataset</code></td>
 <td>rates, history-orders, history-deals</td>
-<td>Repeatable: <code>rates</code>, <code>ticks</code>, <code>history-orders</code>, <code>history-deals</code>. Ticks are opt-in: pass <code>--dataset ticks</code> to include them.</td>
+<td>Repeatable: <code>rates</code>, <code>ticks</code>, <code>history-orders</code>, <code>history-deals</code>, <code>symbols</code>. Ticks and symbol metadata are opt-in: pass <code>--dataset ticks</code> / <code>--dataset symbols</code> to include them.</td>
 </tr>
 <tr>
 <td><code>--timeframe</code></td>
@@ -682,5 +682,5 @@ applications should prefer dedicated closing helpers or their own risk controls.
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2026-07-07 16:32:26.501740+00:00
+Build Date UTC : 2026-07-07 19:47:23.198228+00:00
 -->
