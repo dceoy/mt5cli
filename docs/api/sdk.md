@@ -160,8 +160,8 @@ updater = ThrottledHistoryUpdater(
 )
 ```
 
-By default recoverable errors (`Mt5TradingError`, `Mt5RuntimeError`,
-`sqlite3.Error`, `ValueError`, `OSError`, and MT5 client capability
+By default recoverable errors (`Mt5RuntimeError`, `sqlite3.Error`,
+`ValueError`, `OSError`, and MT5 client capability
 `AttributeError` / `TypeError` for history API methods) propagate so the caller
 controls logging; pass `suppress_errors=True` to swallow them and return
 `False` without advancing the throttle. Other `AttributeError` / `TypeError`

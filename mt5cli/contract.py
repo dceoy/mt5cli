@@ -44,6 +44,7 @@ STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "drop_forming_rate_bar",
     "ensure_symbol_selected",
     "estimate_order_margin",
+    "estimate_server_clock_offset_seconds",
     "extract_tick_price",
     "fetch_latest_closed_rates",
     "fetch_latest_closed_rates_for_trading_client",

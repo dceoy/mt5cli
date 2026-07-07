@@ -409,6 +409,7 @@ class TestConstants:
             (Dataset.ticks, "ticks"),
             (Dataset.history_orders, "history_orders"),
             (Dataset.history_deals, "history_deals"),
+            (Dataset.symbols, "symbols"),
         ],
     )
     def test_dataset_table_name(self, dataset: Dataset, expected: str) -> None:

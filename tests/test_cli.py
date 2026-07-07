@@ -1246,8 +1246,23 @@ def _build_history_client(mocker: MockerFixture) -> MagicMock:
         df = pd.DataFrame(_DEALS_FIXTURE)
         return df[df["symbol"] == sym].reset_index(drop=True)
 
+    def _symbol_info(**kwargs: object) -> dict[str, object]:
+        return {
+            "symbol": kwargs.get("symbol"),
+            "point": 0.00001,
+            "digits": 5,
+            "trade_contract_size": 100000.0,
+            "volume_min": 0.01,
+            "volume_max": 100.0,
+            "volume_step": 0.01,
+            "trade_tick_size": 0.00001,
+            "trade_tick_value": 1.0,
+            "currency_profit": "USD",
+        }
+
     client.history_orders_get_as_df.side_effect = _orders
     client.history_deals_get_as_df.side_effect = _deals
+    client.symbol_info_as_dict.side_effect = _symbol_info
     mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
     return client
 
@@ -1390,6 +1405,16 @@ class TestCollectHistory:
                 {"ticks", "history_orders"},
                 ("copy_rates_range_as_df", "history_deals_get_as_df"),
             ),
+            (
+                ["symbols"],
+                {"symbols"},
+                (
+                    "copy_rates_range_as_df",
+                    "copy_ticks_range_as_df",
+                    "history_orders_get_as_df",
+                    "history_deals_get_as_df",
+                ),
+            ),
         ],
     )
     def test_collect_history_dataset_selection(
@@ -1429,6 +1454,50 @@ class TestCollectHistory:
         assert expected_tables <= tables
         assert tables.isdisjoint(
             {"rates", "ticks", "history_orders", "history_deals"} - expected_tables
+        )
+
+    def test_collect_history_symbols_dataset_writes_snapshot_metadata(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,  # noqa: ARG002
+    ) -> None:
+        """Test --dataset symbols writes the mocked per-symbol metadata."""
+        output = tmp_path / "history.db"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "collect-history",
+                "--symbol",
+                "EURUSD",
+                "--date-from",
+                "2024-01-01",
+                "--date-to",
+                "2024-02-01",
+                "--dataset",
+                "symbols",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        with sqlite3.connect(output) as conn:
+            row = conn.execute(
+                "SELECT symbol, time, point, digits, trade_contract_size,"
+                " volume_min, volume_max, volume_step, trade_tick_size,"
+                " trade_tick_value, currency_profit FROM symbols",
+            ).fetchone()
+        assert row == (
+            "EURUSD",
+            "2024-02-01T00:00:00+00:00",
+            0.00001,
+            5,
+            100000.0,
+            0.01,
+            100.0,
+            0.01,
+            0.00001,
+            1.0,
+            "USD",
         )
 
     def test_collect_history_rates_table_has_timeframe(
@@ -1836,6 +1905,23 @@ class TestHistoryGapsCommand:
         assert len(data) == expected_rows
         assert {row["table"] for row in data} == expected_tables
         mock_client.initialize_and_login_mt5.assert_not_called()
+
+    def test_history_gaps_rejects_missing_database_without_creating_it(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """history-gaps should fail clearly and not create a stray DB file."""
+        database = tmp_path / "no-such.db"
+        output = tmp_path / "gaps.json"
+
+        result = runner.invoke(
+            app,
+            ["-o", str(output), "history-gaps", "--sqlite3", str(database)],
+        )
+
+        assert result.exit_code != 0
+        assert "SQLite database not found" in result.output
+        assert not database.exists()
 
     def test_history_gaps_requires_compatible_default_views(
         self,

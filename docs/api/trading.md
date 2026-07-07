@@ -236,6 +236,45 @@ or `None` result from the underlying client is normalized to an empty DataFrame.
 Downstream packages own all strategy-specific transformations. mt5cli does not
 provide entry-deal classification, Kelly sizing, or any betting-specific helpers.
 
+## Broker server clock offset
+
+MT5 tick, bar, and deal timestamps are epoch values labeled in the broker
+server's wall clock, which is commonly UTC+2 or UTC+3 rather than true UTC.
+Any code that mixes those timestamps with true UTC (freshness checks,
+trailing history windows) silently inherits the broker's offset as a bias
+unless it is measured and applied explicitly.
+
+`estimate_server_clock_offset_seconds()` reads the latest tick for a symbol
+and returns the broker's clock offset from true UTC, rounded to the nearest
+half hour, or `None` when no valid tick time is available. Pass the result to
+`fetch_recent_history_deals_for_trading_client()` via
+`server_clock_offset_seconds` to shift the trailing window so it covers the
+true most-recent deals:
+
+```python
+from mt5cli import (
+    create_trading_client,
+    estimate_server_clock_offset_seconds,
+    fetch_recent_history_deals_for_trading_client,
+)
+
+client = create_trading_client(login=12345, server="Broker-Demo")
+try:
+    offset = estimate_server_clock_offset_seconds(client, "JP225")
+    deals_df = fetch_recent_history_deals_for_trading_client(
+        client,
+        symbol="JP225",
+        hours=24,
+        server_clock_offset_seconds=offset,
+    )
+finally:
+    client.shutdown()
+```
+
+No offset is applied automatically anywhere; omitting
+`server_clock_offset_seconds` keeps the trailing window anchored to true UTC
+(current behavior, byte-identical to prior releases).
+
 ## Migration from application-local helpers
 
 | Application-local concern                                | mt5cli replacement                                                                      |
@@ -247,6 +286,7 @@ provide entry-deal classification, Kelly sizing, or any betting-specific helpers
 | Local order or position margin estimation                | `estimate_order_margin()`, `calculate_positions_margin()`                               |
 | Local closed-bar fetch from a trading session            | `fetch_latest_closed_rates_for_trading_client()`, `fetch_latest_closed_rates_indexed()` |
 | Local recent deal history fetch from a trading session   | `fetch_recent_history_deals_for_trading_client()`                                       |
+| Local broker server clock offset measurement             | `estimate_server_clock_offset_seconds()`                                                |
 | Local SL/TP price derivation                             | `determine_order_limits()`                                                              |
 | Throttled SQLite history loop with ad-hoc error handling | `ThrottledHistoryUpdater(suppress_errors=True)`                                         |
 

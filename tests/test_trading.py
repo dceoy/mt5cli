@@ -15,6 +15,7 @@ from numpy import int64 as np_int64
 from pdmt5 import Mt5RuntimeError
 from pytest_mock import MockerFixture  # noqa: TC002
 
+from mt5cli import trading
 from mt5cli.exceptions import Mt5OperationError
 from mt5cli.sdk import build_config
 from mt5cli.trading import (
@@ -42,6 +43,7 @@ from mt5cli.trading import (
     determine_order_limits,
     ensure_symbol_selected,
     estimate_order_margin,
+    estimate_server_clock_offset_seconds,
     extract_tick_price,
     fetch_latest_closed_rates_for_trading_client,
     fetch_latest_closed_rates_indexed,
@@ -4067,6 +4069,120 @@ class TestCalculatePositionsMarginSafe:
         _assert_close(total, 0.0)
 
 
+class TestEstimateServerClockOffsetSeconds:
+    """Tests for estimate_server_clock_offset_seconds."""
+
+    def _client_with_tick_time(self, tick_time: object) -> MagicMock:
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"time": tick_time}
+        return client
+
+    def test_rounds_positive_offset_to_nearest_half_hour(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A tick ~3h ahead of UTC now estimates a rounded +3h offset."""
+        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        mock_dt = mocker.patch("mt5cli.trading.datetime")
+        mock_dt.now.return_value = frozen
+        client = self._client_with_tick_time(frozen.timestamp() + 10800.4)
+
+        offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+
+        _assert_close(offset, 10800.0)
+
+    def test_stale_tick_on_utc_server_rounds_to_zero(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A tick 90s stale on a true-UTC server estimates a zero offset."""
+        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        mock_dt = mocker.patch("mt5cli.trading.datetime")
+        mock_dt.now.return_value = frozen
+        client = self._client_with_tick_time(frozen.timestamp() - 90)
+
+        offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+
+        _assert_close(offset, 0.0)
+
+    def test_rounds_negative_offset_to_nearest_half_hour(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A tick ~3h behind UTC now estimates a rounded -3h offset."""
+        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        mock_dt = mocker.patch("mt5cli.trading.datetime")
+        mock_dt.now.return_value = frozen
+        client = self._client_with_tick_time(frozen.timestamp() - 10800.4)
+
+        offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+
+        _assert_close(offset, -10800.0)
+
+    def test_discards_implausible_offset_from_a_stale_weekend_tick(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A multi-day-stale tick yields None instead of a bogus large offset."""
+        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        mock_dt = mocker.patch("mt5cli.trading.datetime")
+        mock_dt.now.return_value = frozen
+        stale_tick_time = frozen.timestamp() - (3 * 24 * 3600)
+        client = self._client_with_tick_time(stale_tick_time)
+
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+
+        assert offset is None
+        assert "EURUSD" in caplog.text
+        assert "implausible" in caplog.text
+
+    @pytest.mark.parametrize("tick_time", [None, 0, -1, "not-a-number"])
+    def test_missing_or_invalid_tick_time_returns_none(
+        self,
+        tick_time: object,
+    ) -> None:
+        """Missing, zero, negative, or non-numeric tick times yield None."""
+        client = self._client_with_tick_time(tick_time)
+        assert estimate_server_clock_offset_seconds(client, "EURUSD") is None
+
+    def test_logs_warning_when_tick_time_invalid(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An invalid tick time logs a warning explaining the None result."""
+        client = self._client_with_tick_time(None)
+
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+
+        assert offset is None
+        assert "EURUSD" in caplog.text
+        assert "no valid tick time" in caplog.text
+
+    def test_logs_estimated_offset_at_info(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The estimated offset is logged at INFO for observability."""
+        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        mock_dt = mocker.patch("mt5cli.trading.datetime")
+        mock_dt.now.return_value = frozen
+        client = self._client_with_tick_time(frozen.timestamp() + 10800.0)
+
+        with caplog.at_level(logging.INFO, logger="mt5cli.trading"):
+            offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+
+        _assert_close(offset, 10800.0)
+        assert "10800" in caplog.text
+
+    def test_is_listed_in_trading_module_all(self) -> None:
+        """The helper is exported through mt5cli.trading.__all__."""
+        assert "estimate_server_clock_offset_seconds" in trading.__all__
+
+
 class TestFetchRecentHistoryDealsForTradingClient:
     """Tests for fetch_recent_history_deals_for_trading_client."""
 
@@ -4203,6 +4319,82 @@ class TestFetchRecentHistoryDealsForTradingClient:
             group=None,
             symbol=None,
         )
+
+    def test_server_clock_offset_shifts_the_trailing_window(self) -> None:
+        """A positive offset shifts both window ends by that many seconds."""
+        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        client = self._fake_client(pd.DataFrame())
+
+        fetch_recent_history_deals_for_trading_client(
+            client,
+            hours=6.0,
+            date_to=anchor,
+            server_clock_offset_seconds=10800.0,
+        )
+
+        client.history_deals_get_as_df.assert_called_once_with(
+            date_from=anchor - timedelta(hours=6.0) + timedelta(hours=3),
+            date_to=anchor + timedelta(hours=3),
+            group=None,
+            symbol=None,
+        )
+
+    def test_omitted_server_clock_offset_keeps_current_behavior(self) -> None:
+        """Omitting the offset keeps the window anchored to true UTC."""
+        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        client = self._fake_client(pd.DataFrame())
+
+        fetch_recent_history_deals_for_trading_client(
+            client,
+            hours=6.0,
+            date_to=anchor,
+        )
+
+        client.history_deals_get_as_df.assert_called_once_with(
+            date_from=anchor - timedelta(hours=6.0),
+            date_to=anchor,
+            group=None,
+            symbol=None,
+        )
+
+    def test_negative_server_clock_offset_shifts_the_trailing_window(self) -> None:
+        """A negative offset (server behind UTC) shifts both ends backward."""
+        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        client = self._fake_client(pd.DataFrame())
+
+        fetch_recent_history_deals_for_trading_client(
+            client,
+            hours=6.0,
+            date_to=anchor,
+            server_clock_offset_seconds=-10800.0,
+        )
+
+        client.history_deals_get_as_df.assert_called_once_with(
+            date_from=anchor - timedelta(hours=6.0) - timedelta(hours=3),
+            date_to=anchor - timedelta(hours=3),
+            group=None,
+            symbol=None,
+        )
+
+    @pytest.mark.parametrize("bad_offset", [float("nan"), float("inf"), float("-inf")])
+    def test_raises_for_non_finite_server_clock_offset(
+        self,
+        bad_offset: float,
+    ) -> None:
+        """nan/inf/-inf offsets raise ValueError before reaching timedelta."""
+        client = self._fake_client(pd.DataFrame())
+
+        with pytest.raises(
+            ValueError,
+            match="server_clock_offset_seconds must be finite",
+        ):
+            fetch_recent_history_deals_for_trading_client(
+                client,
+                hours=6.0,
+                server_clock_offset_seconds=bad_offset,
+            )
+
+        client.history_deals_get_as_df.assert_not_called()
 
 
 class TestCreateTradingClientHistoryDealsIntegration:

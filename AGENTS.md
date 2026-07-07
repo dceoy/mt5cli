@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`mt5cli/` contains the package source. Important modules include `cli.py` for the Typer command-line app, `client.py` and `sdk.py` for public MT5 client/session APIs, `history.py` for SQLite history collection, `storage.py` and `converters.py` for export behavior, and `schemas.py` for normalized dataset contracts. `tests/` holds pytest coverage for CLI behavior, SDK contracts, trading helpers, history, and utilities. `docs/` and `mkdocs.yml` define the MkDocs site and API reference. `skills/mt5cli/SKILL.md` documents the mt5cli agent skill.
+`mt5cli/` contains the package source. Important modules include `cli.py` for the Typer command-line app, `client.py` and `sdk.py` for public MT5 client/session APIs, `history.py` for SQLite history collection, `trading.py` for trading helpers, `grafana.py` for Grafana schema support, `telemetry.py` for observability, `utils.py` and `converters.py` for export behavior, and `schemas.py` for normalized dataset contracts. `tests/` holds pytest coverage for CLI behavior, SDK contracts, trading helpers, history, and utilities. `docs/` and `mkdocs.yml` define the MkDocs site and API reference. `skills/mt5cli/SKILL.md` documents the mt5cli agent skill.
 
 ## Build, Test, and Development Commands
 

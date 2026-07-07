@@ -221,6 +221,36 @@ class TestConnectionLifecycle:
             )
         mock_client.shutdown.assert_called_once()
 
+    def test_connected_client_omits_retry_count_by_default(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that retry_count is left to the pdmt5 default when omitted."""
+        mock_client = MagicMock()
+        mt5_data_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+        config = MagicMock()
+        with sdk.connected_client(config):  # type: ignore[reportPrivateUsage]
+            pass
+        mt5_data_client.assert_called_once_with(config=config)
+
+    def test_connected_client_forwards_retry_count(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that an explicit retry_count is forwarded to Mt5DataClient."""
+        mock_client = MagicMock()
+        mt5_data_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+        config = MagicMock()
+        with sdk.connected_client(config, retry_count=7):  # type: ignore[reportPrivateUsage]
+            pass
+        mt5_data_client.assert_called_once_with(config=config, retry_count=7)
+
     def test_client_context_manager_reuses_connection(
         self,
         mocker: MockerFixture,
@@ -238,6 +268,38 @@ class TestConnectionLifecycle:
         mock_client.shutdown.assert_called_once()
         assert mock_client.account_info_as_df.call_count == 1
         assert mock_client.terminal_info_as_df.call_count == 1
+
+    def test_context_manager_forwards_configured_retry_count(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test __enter__ constructs Mt5DataClient with the configured retry."""
+        mock_client = MagicMock()
+        mt5_data_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+        client = Mt5CliClient(retry_count=7)
+        with client:
+            pass
+        mt5_data_client.assert_called_once_with(config=client.config, retry_count=7)
+
+    def test_one_shot_call_forwards_configured_retry_count(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test a one-shot call without a context manager forwards retry_count."""
+        mock_client = MagicMock()
+        mock_client.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
+        mt5_data_client = mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_client,
+        )
+        client = Mt5CliClient(retry_count=7)
+        client.account_info()
+        mt5_data_client.assert_called_once_with(config=client.config, retry_count=7)
+        mock_client.initialize_and_login_mt5.assert_called_once()
+        mock_client.shutdown.assert_called_once()
 
     def test_client_context_manager_shutdown_on_init_failure(
         self,
@@ -1038,6 +1100,45 @@ class TestUpdateHistory:
             assert conn.execute(
                 "SELECT COUNT(*) FROM history_orders",
             ).fetchone() == (1,)
+
+    def test_update_history_syncs_rates_and_symbols_together(
+        self,
+        connected_client: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test rates and symbols metadata can be synced in the same update."""
+        date_to = datetime(2024, 1, 2, tzinfo=UTC)
+        connected_client.copy_rates_range_as_df.return_value = pd.DataFrame({
+            "time": ["2024-01-01T12:00:00+00:00"],
+            "open": [1.1],
+        })
+        connected_client.symbol_info_as_dict.return_value = {
+            "symbol": "EURUSD",
+            "point": 0.00001,
+            "digits": 5,
+            "trade_contract_size": 100000.0,
+            "volume_min": 0.01,
+            "volume_max": 100.0,
+            "volume_step": 0.01,
+            "trade_tick_size": 0.00001,
+            "trade_tick_value": 1.0,
+            "currency_profit": "USD",
+        }
+        output = tmp_path / "rates-symbols.db"
+        update_history(
+            client=connected_client,
+            output=output,
+            symbols=["EURUSD"],
+            datasets={Dataset.rates, Dataset.symbols},
+            timeframes=["M1"],
+            lookback_hours=24,
+            date_to=date_to,
+        )
+        with sqlite3.connect(output) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM rates").fetchone() == (1,)
+            assert conn.execute(
+                "SELECT symbol, point, currency_profit FROM symbols",
+            ).fetchone() == ("EURUSD", 0.00001, "USD")
 
     def test_update_history_with_config_opens_and_closes_connection(
         self,
