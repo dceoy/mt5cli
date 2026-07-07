@@ -2621,8 +2621,8 @@ class TestIncrementalIntegration:
             ).fetchone()
         assert isinstance(point, float)
         assert abs(point - 0.00001) < 1e-9
-        assert isinstance(digits, float)
-        assert abs(digits - 5.0) < 1e-9
+        assert isinstance(digits, int)
+        assert digits == 5
 
     def test_finalize_with_views_warning_when_deals_missing(
         self,

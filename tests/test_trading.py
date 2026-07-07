@@ -4118,6 +4118,25 @@ class TestEstimateServerClockOffsetSeconds:
 
         _assert_close(offset, -10800.0)
 
+    def test_discards_implausible_offset_from_a_stale_weekend_tick(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A multi-day-stale tick yields None instead of a bogus large offset."""
+        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        mock_dt = mocker.patch("mt5cli.trading.datetime")
+        mock_dt.now.return_value = frozen
+        stale_tick_time = frozen.timestamp() - (3 * 24 * 3600)
+        client = self._client_with_tick_time(stale_tick_time)
+
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+
+        assert offset is None
+        assert "EURUSD" in caplog.text
+        assert "implausible" in caplog.text
+
     @pytest.mark.parametrize("tick_time", [None, 0, -1, "not-a-number"])
     def test_missing_or_invalid_tick_time_returns_none(
         self,

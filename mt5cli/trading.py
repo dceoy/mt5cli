@@ -731,6 +731,7 @@ def get_tick_snapshot(
 
 
 _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS = 1800.0
+_MAX_PLAUSIBLE_SERVER_CLOCK_OFFSET_SECONDS = 14 * 3600.0
 
 
 def estimate_server_clock_offset_seconds(
@@ -746,6 +747,13 @@ def estimate_server_clock_offset_seconds(
     hour: server offsets are whole or half-hour multiples, and rounding
     absorbs a few minutes of real tick staleness.
 
+    On a closed market, weekend, holiday, or illiquid symbol the latest tick
+    can be hours or days old, in which case the tick-vs-now delta reflects
+    tick staleness rather than a true clock offset. Real-world broker server
+    offsets fall within roughly UTC-12..UTC+14, so a rounded delta whose
+    magnitude exceeds 14 hours is treated as an implausible, stale-tick
+    reading and discarded (with a warning) rather than returned.
+
     No offset is applied anywhere automatically; pass the result to
     :func:`fetch_recent_history_deals_for_trading_client` (via
     ``server_clock_offset_seconds``) or use it directly when comparing
@@ -758,7 +766,8 @@ def estimate_server_clock_offset_seconds(
     Returns:
         Estimated offset in seconds (server time minus UTC), rounded to the
         nearest 1800 seconds, or ``None`` when no valid tick time is
-        available.
+        available or the estimate is implausibly large (likely a stale
+        tick rather than a true clock offset).
     """
     snapshot = get_tick_snapshot(client, symbol)
     tick_epoch = extract_tick_price(snapshot, "time")
@@ -773,6 +782,14 @@ def estimate_server_clock_offset_seconds(
         round(raw_offset_seconds / _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS)
         * _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS
     )
+    if abs(offset_seconds) > _MAX_PLAUSIBLE_SERVER_CLOCK_OFFSET_SECONDS:
+        _logger.warning(
+            "Discarding implausible MT5 server clock offset for %s: %.0f seconds"
+            " (likely a stale tick, not a clock offset).",
+            symbol,
+            offset_seconds,
+        )
+        return None
     _logger.info(
         "Estimated MT5 server clock offset for %s: %.0f seconds.",
         symbol,

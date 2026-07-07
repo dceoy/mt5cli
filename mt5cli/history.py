@@ -56,8 +56,10 @@ _HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
 _SYMBOLS_SNAPSHOT_FIELDS: tuple[str, ...] = tuple(
     sorted(REQUIRED_COLUMNS[DataKind.symbols] - {"symbol", "time"}),
 )
-_SYMBOLS_NUMERIC_FIELDS: tuple[str, ...] = tuple(
-    field for field in _SYMBOLS_SNAPSHOT_FIELDS if field != "currency_profit"
+_SYMBOLS_FLOAT_FIELDS: tuple[str, ...] = tuple(
+    field
+    for field in _SYMBOLS_SNAPSHOT_FIELDS
+    if field not in {"currency_profit", "digits"}
 )
 
 _TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)
@@ -1850,8 +1852,9 @@ def write_symbols_dataset(
                 )
             metadata = dict.fromkeys(_SYMBOLS_SNAPSHOT_FIELDS)
         frame = pd.DataFrame([{"symbol": sym, "time": snapshot_time, **metadata}])
-        for field in _SYMBOLS_NUMERIC_FIELDS:
+        for field in _SYMBOLS_FLOAT_FIELDS:
             frame[field] = frame[field].astype("float64")
+        frame["digits"] = frame["digits"].astype("Int64")
         return frame
 
     return _stream_symbol_frames(
