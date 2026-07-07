@@ -1548,12 +1548,17 @@ def close_open_positions(
     *,
     symbols: str | list[str] | None = None,
     tickets: list[int] | None = None,
+    order_filling_mode: OrderFillingMode | None = None,
     deviation: int | None = None,
     comment: str | None = None,
     magic: int | None = None,
     dry_run: bool = False,
 ) -> list[OrderExecutionResult]:
     """Close matching open positions.
+
+    When ``order_filling_mode`` is ``None``, the filling mode is resolved per
+    symbol with :func:`resolve_broker_filling_mode` so closes are not rejected
+    on brokers whose symbols do not support IOC.
 
     Returns:
         Normalized execution results for matching positions.
@@ -1565,14 +1570,26 @@ def close_open_positions(
         magic=magic,
     )
     results: list[OrderExecutionResult] = []
+    resolved_filling_modes: dict[str, OrderFillingMode] = {}
     for row in positions.to_dict("records"):
         pos_type = row["type"]
         side: OrderSide = "SELL" if pos_type == client.mt5.POSITION_TYPE_BUY else "BUY"
+        symbol = str(row["symbol"])
+        if order_filling_mode is None:
+            if symbol not in resolved_filling_modes:
+                resolved_filling_modes[symbol] = resolve_broker_filling_mode(
+                    client,
+                    symbol=symbol,
+                )
+            filling_mode = resolved_filling_modes[symbol]
+        else:
+            filling_mode = order_filling_mode
         result = place_market_order(
             client,
-            symbol=str(row["symbol"]),
+            symbol=symbol,
             volume=float(row["volume"]),
             order_side=side,
+            order_filling_mode=filling_mode,
             position=int(row["ticket"]),
             deviation=deviation,
             comment=comment,

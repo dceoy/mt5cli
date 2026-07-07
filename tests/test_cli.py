@@ -798,6 +798,57 @@ class TestClosePositions:
         assert request["comment"] == "close-me"
         assert request["magic"] == 7
 
+    def test_close_positions_forwards_explicit_filling_mode(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """--filling-mode is upper-cased and forwarded without broker resolution."""
+        trading_client.mt5.ORDER_FILLING_RETURN = 32
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                "--filling-mode",
+                "return",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(output.read_text())
+        request = json.loads(data[0]["request"])
+        assert request["type_filling"] == 32
+        trading_client.symbol_info_as_dict.assert_not_called()
+
+    def test_close_positions_rejects_unknown_filling_mode(
+        self,
+        tmp_path: Path,
+        trading_client: MagicMock,
+    ) -> None:
+        """Unknown --filling-mode values fail closed before any close request."""
+        output = tmp_path / "close.json"
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(output),
+                "close-positions",
+                "--symbol",
+                "JP225",
+                "--filling-mode",
+                "BOGUS",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "filling mode" in normalize_cli_output(result.output).lower()
+        trading_client.order_send.assert_not_called()
+
     def test_order_send_unchanged(
         self,
         tmp_path: Path,

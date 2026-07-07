@@ -2545,6 +2545,64 @@ class TestVolumeAndExecution:
         assert result == []
         client.order_send.assert_not_called()
 
+    def test_close_open_positions_resolves_filling_mode_per_symbol(self) -> None:
+        """Default closes resolve the broker filling mode instead of assuming IOC."""
+        client = _mock_trade_client()
+        client.mt5.ORDER_FILLING_FOK = 31
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1},
+                {"ticket": 2, "symbol": "EURUSD", "type": 0, "volume": 0.2},
+            ],
+        )
+        client.symbol_info_as_dict.return_value = {
+            "filling_mode": client.mt5.SYMBOL_FILLING_FOK,
+            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_MARKET,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        result = close_open_positions(client, symbols="EURUSD", dry_run=True)
+
+        assert [_request_from_result(r)["type_filling"] for r in result] == [31, 31]
+        client.symbol_info_as_dict.assert_called_once()
+
+    def test_close_open_positions_keeps_ioc_when_supported(self) -> None:
+        """Symbols advertising IOC support keep the IOC close default."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1}],
+        )
+        client.symbol_info_as_dict.return_value = {
+            "filling_mode": (
+                client.mt5.SYMBOL_FILLING_FOK | client.mt5.SYMBOL_FILLING_IOC
+            ),
+            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_MARKET,
+        }
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        result = close_open_positions(client, symbols="EURUSD", dry_run=True)
+
+        assert _request_from_result(result[0])["type_filling"] == 30
+
+    def test_close_open_positions_forwards_explicit_filling_mode(self) -> None:
+        """An explicit order_filling_mode bypasses broker resolution."""
+        client = _mock_trade_client()
+        client.mt5.ORDER_FILLING_RETURN = 32
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        result = close_open_positions(
+            client,
+            symbols="EURUSD",
+            order_filling_mode="RETURN",
+            dry_run=True,
+        )
+
+        assert _request_from_result(result[0])["type_filling"] == 32
+        client.symbol_info_as_dict.assert_not_called()
+
     def test_filter_positions_magic_is_fail_closed_without_magic_column(self) -> None:
         """Test direct magic filtering fails closed when the DataFrame lacks magic."""
         positions = pd.DataFrame([{"ticket": 1, "symbol": "EURUSD"}])

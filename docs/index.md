@@ -166,10 +166,10 @@ mt5cli --login '${MT5_LOGIN}' --password '${MT5_PASSWORD}' --server '${MT5_SERVE
 These commands send requests to the live trade server and can place or close
 real trades. Both require `--yes` for live execution.
 
-| Command           | Description                                                                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `order-send`      | Send a **raw** trade request directly to MT5 (`--yes` required; expert path — no extra validation)                                                     |
-| `close-positions` | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` to preview; optional `--deviation` / `--comment` / `--magic`) |
+| Command           | Description                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `order-send`      | Send a **raw** trade request directly to MT5 (`--yes` required; expert path — no extra validation)                                                                        |
+| `close-positions` | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` to preview; optional `--filling-mode` / `--deviation` / `--comment` / `--magic`) |
 
 Use `order-check` (Trading State) to validate funds before running `order-send --yes`.
 `close-positions` is the safer high-level alternative that builds correct close

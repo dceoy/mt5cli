@@ -37,6 +37,8 @@ if TYPE_CHECKING:
 
     from pdmt5 import Mt5Config
 
+    from .trading import OrderFillingMode
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -727,6 +729,16 @@ def close_positions(
             help="Position ticket to close (repeat for multiple tickets).",
         ),
     ] = None,
+    filling_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--filling-mode",
+            help=(
+                "Order filling mode for close requests (IOC, FOK, or RETURN)."
+                " Defaults to per-symbol broker resolution."
+            ),
+        ),
+    ] = None,
     deviation: Annotated[
         int | None,
         typer.Option(help="Optional slippage/deviation for each close request."),
@@ -762,11 +774,19 @@ def close_positions(
 
     Raises:
         typer.BadParameter: If neither ``--symbol`` nor ``--ticket`` is given,
-            or if ``--yes`` is missing for a live (non-dry-run) run.
+            if ``--filling-mode`` is not IOC, FOK, or RETURN, or if ``--yes``
+            is missing for a live (non-dry-run) run.
     """
     if not symbol and not ticket:
         msg = "Provide at least one --symbol or --ticket to close positions."
         raise typer.BadParameter(msg)
+    order_filling_mode: OrderFillingMode | None = None
+    if filling_mode is not None:
+        normalized_filling_mode = filling_mode.upper()
+        if normalized_filling_mode not in {"IOC", "FOK", "RETURN"}:
+            msg = f"Unsupported filling mode: {filling_mode!r}."
+            raise typer.BadParameter(msg, param_hint="--filling-mode")
+        order_filling_mode = cast("OrderFillingMode", normalized_filling_mode)
     if not dry_run and not yes:
         msg = "Pass --yes to close live positions."
         raise typer.BadParameter(msg, param_hint="--yes")
@@ -777,6 +797,7 @@ def close_positions(
             client,
             symbols=list(symbol) if symbol else None,
             tickets=list(ticket) if ticket else None,
+            order_filling_mode=order_filling_mode,
             deviation=deviation,
             comment=comment,
             magic=magic,
