@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -25,7 +26,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Sequence
 
     from pdmt5 import Mt5DataClient
 
@@ -1837,6 +1838,8 @@ def write_symbols_dataset(
         try:
             info = client.symbol_info_as_dict(symbol=sym)
         except Mt5RuntimeError:
+            info = None
+        if not isinstance(info, Mapping):
             logger.warning(
                 "Symbol %r metadata could not be retrieved; persisting NULL metadata.",
                 sym,

@@ -2582,6 +2582,34 @@ class TestIncrementalIntegration:
         assert "could not be retrieved" in caplog.text
         assert caplog.text.count("BADSYM") == 1
 
+    def test_write_symbols_dataset_nulls_metadata_when_lookup_returns_none(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test a non-mapping lookup result persists NULL metadata, not a crash."""
+        client = MagicMock()
+        client.symbol_info_as_dict.return_value = None
+        written_columns: dict[Dataset, set[str]] = {}
+        with (
+            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
+            sqlite3.connect(tmp_path / "symbols-lookup-none.db") as conn,
+        ):
+            assert write_symbols_dataset(
+                conn,
+                client,
+                ["BADSYM"],
+                datetime(2024, 1, 1, tzinfo=UTC),
+                IfExists.APPEND,
+                written_columns,
+            )
+            row = conn.execute(
+                "SELECT symbol, point, digits, currency_profit FROM symbols",
+            ).fetchone()
+        assert row == ("BADSYM", None, None, None)
+        assert "BADSYM" in caplog.text
+        assert "could not be retrieved" in caplog.text
+
     def test_write_symbols_dataset_preserves_numeric_types_when_first_is_null(
         self,
         tmp_path: Path,

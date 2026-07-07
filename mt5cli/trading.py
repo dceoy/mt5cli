@@ -246,6 +246,7 @@ __all__ = [
     "determine_order_limits",
     "ensure_symbol_selected",
     "estimate_order_margin",
+    "estimate_server_clock_offset_seconds",
     "extract_tick_price",
     "fetch_latest_closed_rates_for_trading_client",
     "fetch_latest_closed_rates_indexed",

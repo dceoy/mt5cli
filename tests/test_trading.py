@@ -15,6 +15,7 @@ from numpy import int64 as np_int64
 from pdmt5 import Mt5RuntimeError
 from pytest_mock import MockerFixture  # noqa: TC002
 
+from mt5cli import trading
 from mt5cli.exceptions import Mt5OperationError
 from mt5cli.sdk import build_config
 from mt5cli.trading import (
@@ -4176,6 +4177,10 @@ class TestEstimateServerClockOffsetSeconds:
 
         _assert_close(offset, 10800.0)
         assert "10800" in caplog.text
+
+    def test_is_listed_in_trading_module_all(self) -> None:
+        """The helper is exported through mt5cli.trading.__all__."""
+        assert "estimate_server_clock_offset_seconds" in trading.__all__
 
 
 class TestFetchRecentHistoryDealsForTradingClient:
