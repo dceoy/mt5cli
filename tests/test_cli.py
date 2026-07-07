@@ -603,6 +603,15 @@ class TestHelpText:
         assert "--dry-run" in output
         assert "--yes" in output
 
+    def test_close_positions_help_mentions_filling_mode(self) -> None:
+        """close-positions help must document the --filling-mode option."""
+        result = runner.invoke(
+            app,
+            ["-o", "out.csv", "close-positions", "--help"],
+        )
+        assert result.exit_code == 0
+        assert "--filling-mode" in normalize_cli_output(result.output)
+
 
 # ---------------------------------------------------------------------------
 # close-positions command
@@ -798,12 +807,27 @@ class TestClosePositions:
         assert request["comment"] == "close-me"
         assert request["magic"] == 7
 
+    @pytest.mark.parametrize(
+        ("cli_value", "expected"),
+        [
+            pytest.param("ioc", 30, id="lowercase-ioc"),
+            pytest.param("IOC", 30, id="uppercase-ioc"),
+            pytest.param("fok", 31, id="lowercase-fok"),
+            pytest.param("FOK", 31, id="uppercase-fok"),
+            pytest.param("return", 32, id="lowercase-return"),
+            pytest.param("RETURN", 32, id="uppercase-return"),
+            pytest.param("Return", 32, id="mixed-case-return"),
+        ],
+    )
     def test_close_positions_forwards_explicit_filling_mode(
         self,
         tmp_path: Path,
         trading_client: MagicMock,
+        cli_value: str,
+        expected: int,
     ) -> None:
-        """--filling-mode is upper-cased and forwarded without broker resolution."""
+        """--filling-mode is normalized and forwarded without broker resolution."""
+        trading_client.mt5.ORDER_FILLING_FOK = 31
         trading_client.mt5.ORDER_FILLING_RETURN = 32
         output = tmp_path / "close.json"
         result = runner.invoke(
@@ -815,20 +839,32 @@ class TestClosePositions:
                 "--symbol",
                 "JP225",
                 "--filling-mode",
-                "return",
+                cli_value,
                 "--dry-run",
             ],
         )
         assert result.exit_code == 0, result.output
         data = json.loads(output.read_text())
         request = json.loads(data[0]["request"])
-        assert request["type_filling"] == 32
+        assert request["type_filling"] == expected
         trading_client.symbol_info_as_dict.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "cli_value",
+        ["BOGUS", "ioc ", " FOK", "GTC", ""],
+        ids=[
+            "unknown-word",
+            "trailing-space",
+            "leading-space",
+            "order-time-mode",
+            "empty",
+        ],
+    )
     def test_close_positions_rejects_unknown_filling_mode(
         self,
         tmp_path: Path,
         trading_client: MagicMock,
+        cli_value: str,
     ) -> None:
         """Unknown --filling-mode values fail closed before any close request."""
         output = tmp_path / "close.json"
@@ -841,7 +877,7 @@ class TestClosePositions:
                 "--symbol",
                 "JP225",
                 "--filling-mode",
-                "BOGUS",
+                cli_value,
                 "--dry-run",
             ],
         )

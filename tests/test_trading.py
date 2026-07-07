@@ -2435,37 +2435,48 @@ class TestVolumeAndExecution:
 
         assert result == "RETURN"
 
-    def test_resolve_broker_filling_mode_request_execution_implies_ioc_fok(
+    @pytest.mark.parametrize(
+        "execution_attr",
+        ["SYMBOL_TRADE_EXECUTION_REQUEST", "SYMBOL_TRADE_EXECUTION_INSTANT"],
+        ids=["request-execution", "instant-execution"],
+    )
+    @pytest.mark.parametrize(
+        "filling_mode", [0, None], ids=["filling-mode-zero", "filling-mode-none"]
+    )
+    @pytest.mark.parametrize(
+        ("preferred_modes", "expected"),
+        [
+            pytest.param(("IOC", "FOK"), "IOC", id="prefers-ioc"),
+            pytest.param(("FOK", "IOC"), "FOK", id="prefers-fok"),
+        ],
+    )
+    def test_resolve_broker_filling_mode_request_instant_execution_implies_ioc_fok(
         self,
+        execution_attr: str,
+        filling_mode: int | None,
+        preferred_modes: tuple[str, str],
+        expected: str,
     ) -> None:
-        """Request execution supports IOC/FOK regardless of the filling bitmask."""
+        """Request/Instant execution supports IOC/FOK regardless of the mask.
+
+        MQL5 permits IOC and FOK for Request and Instant execution even when
+        ``SYMBOL_FILLING_MODE`` carries no matching bits (that bitmask only
+        governs Market/Exchange execution), so the resolver must honor
+        whichever of IOC/FOK is preferred without requiring mask bits.
+        """
         client = _mock_trade_client()
         client.symbol_info_as_dict.return_value = {
-            "filling_mode": 0,
-            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_REQUEST,
-        }
-
-        result = resolve_broker_filling_mode(client, symbol="EURUSD")
-
-        assert result == "IOC"
-
-    def test_resolve_broker_filling_mode_instant_execution_implies_ioc_fok(
-        self,
-    ) -> None:
-        """Instant execution honors a FOK preference without filling mask bits."""
-        client = _mock_trade_client()
-        client.symbol_info_as_dict.return_value = {
-            "filling_mode": None,
-            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_INSTANT,
+            "filling_mode": filling_mode,
+            "trade_exemode": getattr(client.mt5, execution_attr),
         }
 
         result = resolve_broker_filling_mode(
             client,
             symbol="EURUSD",
-            preferred_modes=("FOK", "IOC"),
+            preferred_modes=cast("Any", preferred_modes),
         )
 
-        assert result == "FOK"
+        assert result == expected
 
     def test_resolve_broker_filling_mode_keeps_preferred_when_metadata_unparseable(
         self,
@@ -2599,6 +2610,45 @@ class TestVolumeAndExecution:
         assert [_request_from_result(r)["type_filling"] for r in result] == [31, 31]
         client.symbol_info_as_dict.assert_called_once()
 
+    def test_close_open_positions_resolves_filling_mode_per_distinct_symbol(
+        self,
+    ) -> None:
+        """Each distinct symbol gets its own resolved mode with one lookup each."""
+        client = _mock_trade_client()
+        client.mt5.ORDER_FILLING_FOK = 31
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1},
+                {"ticket": 2, "symbol": "USDJPY", "type": 0, "volume": 0.2},
+                {"ticket": 3, "symbol": "EURUSD", "type": 0, "volume": 0.3},
+            ],
+        )
+        snapshots = {
+            "EURUSD": {
+                "filling_mode": client.mt5.SYMBOL_FILLING_FOK,
+                "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_MARKET,
+            },
+            "USDJPY": {
+                "filling_mode": (
+                    client.mt5.SYMBOL_FILLING_FOK | client.mt5.SYMBOL_FILLING_IOC
+                ),
+                "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_MARKET,
+            },
+        }
+        client.symbol_info_as_dict.side_effect = (
+            lambda symbol: snapshots[symbol]  # pyright: ignore[reportUnknownLambdaType]
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        result = close_open_positions(client, dry_run=True)
+
+        # Order matches the source positions frame: EURUSD, USDJPY, EURUSD.
+        type_fillings = [_request_from_result(r)["type_filling"] for r in result]
+        assert [r["symbol"] for r in result] == ["EURUSD", "USDJPY", "EURUSD"]
+        assert type_fillings == [31, 30, 31]
+        # One symbol_info lookup per unique symbol, not per position.
+        assert client.symbol_info_as_dict.call_count == 2
+
     def test_close_open_positions_keeps_ioc_when_supported(self) -> None:
         """Symbols advertising IOC support keep the IOC close default."""
         client = _mock_trade_client()
@@ -2617,9 +2667,20 @@ class TestVolumeAndExecution:
 
         assert _request_from_result(result[0])["type_filling"] == 30
 
-    def test_close_open_positions_forwards_explicit_filling_mode(self) -> None:
+    @pytest.mark.parametrize(
+        ("order_filling_mode", "expected"),
+        [
+            pytest.param("IOC", 30, id="ioc"),
+            pytest.param("FOK", 31, id="fok"),
+            pytest.param("RETURN", 32, id="return"),
+        ],
+    )
+    def test_close_open_positions_forwards_explicit_filling_mode(
+        self, order_filling_mode: str, expected: int
+    ) -> None:
         """An explicit order_filling_mode bypasses broker resolution."""
         client = _mock_trade_client()
+        client.mt5.ORDER_FILLING_FOK = 31
         client.mt5.ORDER_FILLING_RETURN = 32
         client.positions_get_as_df.return_value = pd.DataFrame(
             [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1}],
@@ -2629,11 +2690,11 @@ class TestVolumeAndExecution:
         result = close_open_positions(
             client,
             symbols="EURUSD",
-            order_filling_mode="RETURN",
+            order_filling_mode=cast("Any", order_filling_mode),
             dry_run=True,
         )
 
-        assert _request_from_result(result[0])["type_filling"] == 32
+        assert _request_from_result(result[0])["type_filling"] == expected
         client.symbol_info_as_dict.assert_not_called()
 
     def test_filter_positions_magic_is_fail_closed_without_magic_column(self) -> None:
