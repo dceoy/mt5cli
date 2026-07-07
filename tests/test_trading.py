@@ -73,6 +73,7 @@ def _mock_trade_client() -> MagicMock:
     client.mt5.ORDER_TIME_GTC = 40
     client.mt5.SYMBOL_TRADE_EXECUTION_MARKET = 3
     client.mt5.SYMBOL_TRADE_EXECUTION_REQUEST = 4
+    client.mt5.SYMBOL_TRADE_EXECUTION_INSTANT = 5
     client.mt5.TRADE_RETCODE_PLACED = 10008
     client.mt5.TRADE_RETCODE_DONE = 10009
     client.mt5.TRADE_RETCODE_DONE_PARTIAL = 10010
@@ -2433,6 +2434,38 @@ class TestVolumeAndExecution:
         )
 
         assert result == "RETURN"
+
+    def test_resolve_broker_filling_mode_request_execution_implies_ioc_fok(
+        self,
+    ) -> None:
+        """Request execution supports IOC/FOK regardless of the filling bitmask."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "filling_mode": 0,
+            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_REQUEST,
+        }
+
+        result = resolve_broker_filling_mode(client, symbol="EURUSD")
+
+        assert result == "IOC"
+
+    def test_resolve_broker_filling_mode_instant_execution_implies_ioc_fok(
+        self,
+    ) -> None:
+        """Instant execution honors a FOK preference without filling mask bits."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {
+            "filling_mode": None,
+            "trade_exemode": client.mt5.SYMBOL_TRADE_EXECUTION_INSTANT,
+        }
+
+        result = resolve_broker_filling_mode(
+            client,
+            symbol="EURUSD",
+            preferred_modes=("FOK", "IOC"),
+        )
+
+        assert result == "FOK"
 
     def test_resolve_broker_filling_mode_keeps_preferred_when_metadata_unparseable(
         self,
