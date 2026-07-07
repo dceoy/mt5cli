@@ -767,6 +767,18 @@ def _supported_filling_modes(
             supported.add("FOK")
         if isinstance(ioc_flag, int) and filling_mode & ioc_flag:
             supported.add("IOC")
+    # MQL5 permits IOC/FOK for Request and Instant execution regardless of the
+    # SYMBOL_FILLING_MODE bitmask, which only governs Market/Exchange execution.
+    implicit_ioc_fok_modes = {
+        mode
+        for mode in (
+            getattr(client.mt5, "SYMBOL_TRADE_EXECUTION_REQUEST", None),
+            getattr(client.mt5, "SYMBOL_TRADE_EXECUTION_INSTANT", None),
+        )
+        if isinstance(mode, int)
+    }
+    if trade_exemode is not None and trade_exemode in implicit_ioc_fok_modes:
+        supported.update({"IOC", "FOK"})
     market_execution = getattr(client.mt5, "SYMBOL_TRADE_EXECUTION_MARKET", None)
     if trade_exemode is not None and not (
         isinstance(market_execution, int) and trade_exemode == market_execution
@@ -1548,12 +1560,17 @@ def close_open_positions(
     *,
     symbols: str | list[str] | None = None,
     tickets: list[int] | None = None,
+    order_filling_mode: OrderFillingMode | None = None,
     deviation: int | None = None,
     comment: str | None = None,
     magic: int | None = None,
     dry_run: bool = False,
 ) -> list[OrderExecutionResult]:
     """Close matching open positions.
+
+    When ``order_filling_mode`` is ``None``, the filling mode is resolved per
+    symbol with :func:`resolve_broker_filling_mode` so closes are not rejected
+    on brokers whose symbols do not support IOC.
 
     Returns:
         Normalized execution results for matching positions.
@@ -1565,14 +1582,26 @@ def close_open_positions(
         magic=magic,
     )
     results: list[OrderExecutionResult] = []
+    resolved_filling_modes: dict[str, OrderFillingMode] = {}
     for row in positions.to_dict("records"):
         pos_type = row["type"]
         side: OrderSide = "SELL" if pos_type == client.mt5.POSITION_TYPE_BUY else "BUY"
+        symbol = str(row["symbol"])
+        if order_filling_mode is None:
+            if symbol not in resolved_filling_modes:
+                resolved_filling_modes[symbol] = resolve_broker_filling_mode(
+                    client,
+                    symbol=symbol,
+                )
+            filling_mode = resolved_filling_modes[symbol]
+        else:
+            filling_mode = order_filling_mode
         result = place_market_order(
             client,
-            symbol=str(row["symbol"]),
+            symbol=symbol,
             volume=float(row["volume"]),
             order_side=side,
+            order_filling_mode=filling_mode,
             position=int(row["ticket"]),
             deviation=deviation,
             comment=comment,

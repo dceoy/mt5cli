@@ -234,8 +234,12 @@ that closes open positions by `--symbol` or `--ticket` using
 `close_open_positions()`. Both `order-send --yes` and `close-positions --yes`
 are live execution paths. `close-positions --dry-run` previews close orders
 without placing them and does not require `--yes`. `close-positions` also
-accepts optional `--deviation`, `--comment`, and `--magic`; `--magic` scopes
-the selected open positions fail-closed when position magic metadata is absent.
+accepts optional `--filling-mode`, `--deviation`, `--comment`, and `--magic`;
+`--magic` scopes the selected open positions fail-closed when position magic
+metadata is absent. When `--filling-mode` (or the `order_filling_mode`
+parameter of `close_open_positions()`) is omitted, the filling mode is
+resolved per symbol with `resolve_broker_filling_mode()` so closes are not
+rejected on brokers whose symbols do not support IOC.
 
 `history-gaps` reads an existing SQLite history database and exports one row
 per detected gap from managed rate compatibility views. It never initializes
