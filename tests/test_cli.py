@@ -27,6 +27,7 @@ from mt5cli.cli import (
     app,
     main,
 )
+from mt5cli.exceptions import Mt5CliError
 
 runner = CliRunner()
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -70,7 +71,7 @@ class TestExecuteExport:
             table="data",
             config=MagicMock(),
         )
-        with pytest.raises(RuntimeError, match="boom"):
+        with pytest.raises(Mt5CliError, match="boom"):
             _execute_export(ctx, _sdk_client(ctx).account_info)
         mock_client.shutdown.assert_called_once()
 
@@ -661,7 +662,7 @@ class TestClosePositions:
         cm.__enter__ = MagicMock(return_value=client)
         cm.__exit__ = MagicMock(return_value=None)
 
-        mocker.patch("mt5cli.client.mt5_session", return_value=cm)
+        mocker.patch("mt5cli.cli.mt5_session", return_value=cm)
         # Store reference to context manager for assertions
         client._context_manager = cm
         return client
@@ -928,7 +929,7 @@ class TestClosePositions:
         cm = MagicMock()
         cm.__enter__.return_value = client
         cm.__exit__.return_value = None
-        mocker.patch("mt5cli.client.mt5_session", return_value=cm)
+        mocker.patch("mt5cli.cli.mt5_session", return_value=cm)
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,

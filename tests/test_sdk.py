@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from pdmt5 import Mt5Config, Mt5DataClient
 
 from mt5cli import sdk
+from mt5cli.exceptions import Mt5CliError, Mt5ConnectionError
 from mt5cli.history import DEFAULT_HISTORY_TIMEFRAMES, write_rates_dataset
 from mt5cli.sdk import (
     AccountSpec,
@@ -195,12 +196,12 @@ class TestConnectionLifecycle:
     ) -> None:
         """Test that shutdown is called when initialize/login fails."""
         mock_client = MagicMock()
-        mock_client.initialize_and_login_mt5.side_effect = RuntimeError(
+        mock_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError(
             "login failed",
         )
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
         with (
-            pytest.raises(RuntimeError, match="login failed"),
+            pytest.raises(Mt5ConnectionError, match="login failed"),
             sdk.connected_client(MagicMock()),  # type: ignore[reportPrivateUsage]
         ):
             pass
@@ -214,7 +215,7 @@ class TestConnectionLifecycle:
         mock_client = MagicMock()
         mock_client.account_info_as_df.side_effect = RuntimeError("boom")
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
-        with pytest.raises(RuntimeError, match="boom"):
+        with pytest.raises(Mt5CliError, match="boom"):
             sdk._run_with_client(  # type: ignore[reportPrivateUsage]
                 MagicMock(),
                 lambda c: c.account_info_as_df(),
@@ -1349,7 +1350,7 @@ class TestRecentTicks:
         tick.time = object()
         client.symbol_info_tick.return_value = tick
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
-        with pytest.raises(TypeError, match="Unsupported tick time value"):
+        with pytest.raises(Mt5CliError, match="Unsupported tick time value"):
             Mt5CliClient().recent_ticks("EURUSD", 30)
 
     @pytest.mark.parametrize(
