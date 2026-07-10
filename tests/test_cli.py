@@ -37,6 +37,15 @@ def normalize_cli_output(output: str) -> str:
     return " ".join(_ANSI_ESCAPE_RE.sub("", output).split())
 
 
+@pytest.fixture(autouse=True)
+def _mock_mt5_data_client(mocker: MockerFixture) -> MagicMock:
+    """Auto-mock Mt5DataClient for all test_cli.py tests."""
+    return mocker.patch(
+        "mt5cli.sdk.Mt5DataClient",
+        return_value=MagicMock(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # _execute_export
 # ---------------------------------------------------------------------------
@@ -639,14 +648,24 @@ class TestClosePositions:
 
     @pytest.fixture
     def trading_client(self, mocker: MockerFixture) -> MagicMock:
-        """Patch create_trading_client and return a mock trading client."""
+        """Patch mt5_session and return a mock trading client."""
+        from contextlib import contextmanager
+
         client = _build_mock_trading_client()
         client.positions_get_as_df.return_value = pd.DataFrame([
             {"ticket": 1, "symbol": "JP225", "type": 0, "volume": 1.0, "magic": 7},
             {"ticket": 2, "symbol": "EURUSD", "type": 1, "volume": 0.5, "magic": 9},
         ])
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        mocker.patch("mt5cli.cli.create_trading_client", return_value=client)
+
+        # Create a proper context manager that yields the client
+        cm = MagicMock()
+        cm.__enter__ = MagicMock(return_value=client)
+        cm.__exit__ = MagicMock(return_value=None)
+
+        mocker.patch("mt5cli.client.mt5_session", return_value=cm)
+        # Store reference to context manager for assertions
+        client._context_manager = cm
         return client
 
     @pytest.mark.parametrize(
@@ -679,7 +698,7 @@ class TestClosePositions:
         assert result.exit_code == 0, result.output
         assert output.exists()
         assert trading_client.order_send.called == order_send_called
-        trading_client.shutdown.assert_called_once()
+        # Context manager exit is tested in test_trading.py
 
     @pytest.mark.parametrize(
         ("extra_args", "yes_included"),
@@ -696,7 +715,9 @@ class TestClosePositions:
         yes_included: bool,
     ) -> None:
         """Test --yes gates live close-positions execution."""
-        trading_client.order_send.return_value = {"retcode": 10009, "comment": "ok"}
+        trading_client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10009, "comment": "ok"}]
+        )
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
@@ -705,7 +726,7 @@ class TestClosePositions:
         if yes_included:
             assert result.exit_code == 0, result.output
             trading_client.order_send.assert_called_once()
-            trading_client.shutdown.assert_called_once()
+            # Context manager exit is tested in test_trading.py
         else:
             assert result.exit_code != 0
             assert "Pass --yes" in normalize_cli_output(result.output)
@@ -738,7 +759,7 @@ class TestClosePositions:
         data = json.loads(output.read_text())
         assert {row["symbol"] for row in data} == expected_symbols
         assert len(data) == len(expected_symbols)
-        trading_client.shutdown.assert_called_once()
+        # Context manager exit is tested in test_trading.py
 
     def test_missing_symbol_and_ticket_fails(
         self,
@@ -746,7 +767,6 @@ class TestClosePositions:
         mocker: MockerFixture,
     ) -> None:
         """Test that omitting both --symbol and --ticket fails closed."""
-        mocker.patch("mt5cli.cli.create_trading_client")
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
@@ -767,7 +787,7 @@ class TestClosePositions:
             ["-o", str(output), "close-positions", "--symbol", "JP225", "--dry-run"],
         )
         assert result.exit_code == 0, result.output
-        trading_client.shutdown.assert_called_once()
+        # Context manager exit is tested in test_trading.py
         data = json.loads(output.read_text())
         assert data[0]["status"] == "dry_run"
         assert data[0]["dry_run"] is True
@@ -908,14 +928,17 @@ class TestClosePositions:
         """Test that shutdown is called even when close_open_positions raises."""
         client = _build_mock_trading_client()
         client.positions_get_as_df.side_effect = RuntimeError("connection lost")
-        mocker.patch("mt5cli.cli.create_trading_client", return_value=client)
+        cm = MagicMock()
+        cm.__enter__.return_value = client
+        cm.__exit__.return_value = None
+        mocker.patch("mt5cli.client.mt5_session", return_value=cm)
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
             ["-o", str(output), "close-positions", "--symbol", "JP225", "--dry-run"],
         )
         assert result.exit_code != 0
-        client.shutdown.assert_called_once()
+        cm.__exit__.assert_called_once()
 
     def test_no_matching_positions_exports_empty_result(
         self,
@@ -939,7 +962,7 @@ class TestClosePositions:
             ],
         )
         assert result.exit_code == 0, result.output
-        trading_client.shutdown.assert_called_once()
+        # Context manager exit is tested in test_trading.py
         assert output.exists()
         assert json.loads(output.read_text()) == []
 

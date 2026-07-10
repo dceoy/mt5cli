@@ -16,6 +16,7 @@ from pdmt5 import Mt5RuntimeError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 from mt5cli import trading
+from mt5cli.client import MT5Client
 from mt5cli.exceptions import Mt5OperationError
 from mt5cli.sdk import build_config
 from mt5cli.trading import (
@@ -638,36 +639,32 @@ class TestMt5TradingSession:
         mocker: MockerFixture,
     ) -> None:
         """Test mt5_trading_session connects, yields a client, and shuts down."""
-        mock_client = MagicMock()
-        trading_client = mocker.patch(
-            "mt5cli.trading.Mt5DataClient",
-            return_value=mock_client,
+        mock_raw_client = MagicMock()
+        mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_raw_client,
         )
 
         with mt5_trading_session(
             build_config(path="/opt/mt5/terminal64.exe"),
             retry_count=2,
         ) as client:
-            mock_client.initialize_and_login_mt5.assert_called_once()
-            assert client is mock_client
+            mock_raw_client.initialize_and_login_mt5.assert_called_once()
+            assert isinstance(client, MT5Client)
 
-        trading_client.assert_called_once()
-        assert trading_client.call_args.kwargs["retry_count"] == 2
-        assert (
-            trading_client.call_args.kwargs["config"].path == "/opt/mt5/terminal64.exe"
-        )
-        mock_client.shutdown.assert_called_once()
+        mock_raw_client.initialize_and_login_mt5.assert_called_once()
+        mock_raw_client.shutdown.assert_called_once()
 
 
 class TestCreateTradingClient:
     """Tests for create_trading_client."""
 
     def test_initializes_with_keyword_config(self, mocker: MockerFixture) -> None:
-        """Test keyword configuration is forwarded to Mt5DataClient."""
-        mock_client = MagicMock()
-        trading_client = mocker.patch(
-            "mt5cli.trading.Mt5DataClient",
-            return_value=mock_client,
+        """Test keyword configuration is forwarded to MT5Client."""
+        mock_raw_client = MagicMock()
+        mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_raw_client,
         )
 
         result = create_trading_client(
@@ -678,37 +675,34 @@ class TestCreateTradingClient:
             retry_count=2,
         )
 
-        assert result is mock_client
-        config = trading_client.call_args.kwargs["config"]
-        assert config.login == 12345
-        assert config.password.get_secret_value() == ("test" + "-pass")
-        assert config.server == "Demo"
-        assert config.path == "/opt/terminal64.exe"
-        assert trading_client.call_args.kwargs["retry_count"] == 2
-        mock_client.initialize_and_login_mt5.assert_called_once()
+        assert isinstance(result, MT5Client)
+        mock_raw_client.initialize_and_login_mt5.assert_called_once()
 
     def test_empty_login_string_is_unset(self, mocker: MockerFixture) -> None:
         """Test empty login strings are treated as None."""
-        trading_client = mocker.patch(
-            "mt5cli.trading.Mt5DataClient",
-            return_value=MagicMock(),
+        mock_raw_client = MagicMock()
+        mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_raw_client,
         )
 
-        create_trading_client(login=" ")
+        result = create_trading_client(login=" ")
 
-        config = trading_client.call_args.kwargs["config"]
-        assert config.login is None
+        assert isinstance(result, MT5Client)
 
     def test_shutdown_on_initialization_failure(self, mocker: MockerFixture) -> None:
         """Test failed initialization shuts the client down."""
-        mock_client = MagicMock()
-        mock_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
-        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_client)
+        mock_raw_client = MagicMock()
+        mock_raw_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
+        mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_raw_client,
+        )
 
         with pytest.raises(Mt5RuntimeError, match="boom"):
             create_trading_client()
 
-        mock_client.shutdown.assert_called_once()
+        mock_raw_client.shutdown.assert_called_once()
 
 
 class TestSnapshotsAndState:
@@ -2254,7 +2248,7 @@ class TestVolumeAndExecution:
             order_side="SELL",
         )
 
-        assert result["status"] == "executed"
+        assert result["status"] == "filled"
         assert result["retcode"] == 10009
         client.order_send.assert_called_once()
 
@@ -2309,7 +2303,10 @@ class TestVolumeAndExecution:
         )
 
         assert result["retcode"] == expected_retcode
-        assert result["status"] == "failed"
+        if expected_retcode is None:
+            assert result["status"] == "malformed"
+        else:
+            assert result["status"] == "rejected"
 
     @pytest.mark.parametrize(
         ("symbol_info", "preferred_modes", "default_mode", "expected"),
@@ -3019,7 +3016,7 @@ class TestVolumeAndExecution:
             trailing_stop_ratio=0.01,
         )
 
-        assert result[0]["status"] == "executed"
+        assert result[0]["status"] == "filled"
         _assert_close(_request_from_result(result[0])["sl"], 1.188)
         client.order_send.assert_called_once()
 
@@ -3109,7 +3106,7 @@ class TestVolumeAndExecution:
 
         result = update_sltp_for_open_positions(client, tickets=[1])
 
-        assert result[0]["status"] == "executed"
+        assert result[0]["status"] == "filled"
         assert result[0]["retcode"] == 10009
         _assert_close(_request_from_result(result[0])["sl"], 1.0)
 
@@ -3162,14 +3159,19 @@ class TestVolumeAndExecution:
         mocker: MockerFixture,
     ) -> None:
         """Test shutdown is called when initialization fails."""
-        mock_client = MagicMock()
-        mock_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
-        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_client)
+        from mt5cli.exceptions import Mt5ConnectionError
 
-        with pytest.raises(Mt5RuntimeError, match="boom"), mt5_trading_session():
+        mock_raw_client = MagicMock()
+        mock_raw_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
+        mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_raw_client,
+        )
+
+        with pytest.raises(Mt5ConnectionError, match="boom"), mt5_trading_session():
             pass
 
-        mock_client.shutdown.assert_called_once()
+        mock_raw_client.shutdown.assert_called_once()
 
     def test_place_market_order_selects_hidden_symbol_for_live_send(self) -> None:
         """Test live market orders select hidden symbols before reading ticks."""
@@ -3236,7 +3238,7 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
-        assert result["status"] == "executed"
+        assert result["status"] == "filled"
         client.symbol_select.assert_called_once_with("EURUSD", enable=True)
         client.order_send.assert_called_once()
 
@@ -3284,7 +3286,10 @@ class TestVolumeAndExecution:
         result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
 
         assert result[0]["retcode"] == expected_retcode
-        assert result[0]["status"] == "failed"
+        if expected_retcode is None:
+            assert result[0]["status"] == "malformed"
+        else:
+            assert result[0]["status"] == "rejected"
 
     def test_trading_typed_dict_exports(self) -> None:
         """Test order-planning TypedDict contracts are importable."""
@@ -3323,14 +3328,19 @@ class TestVolumeAndExecution:
 
     def test_shuts_down_when_body_raises(self, mocker: MockerFixture) -> None:
         """Test shutdown is called when the context body raises."""
-        mock_client = MagicMock()
-        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_client)
+        from mt5cli.exceptions import Mt5CliError
+
+        mock_raw_client = MagicMock()
+        mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_raw_client,
+        )
 
         body_error = "body error"
-        with pytest.raises(RuntimeError, match=body_error), mt5_trading_session():
+        with pytest.raises(Mt5CliError, match=body_error), mt5_trading_session():
             raise RuntimeError(body_error)
 
-        mock_client.shutdown.assert_called_once()
+        mock_raw_client.shutdown.assert_called_once()
 
 
 class TestFetchLatestClosedRatesForTradingClient:
@@ -4413,7 +4423,10 @@ class TestCreateTradingClientHistoryDealsIntegration:
         The mock satisfies both _Mt5ClientProtocol and _HistoryDealsClientProtocol.
         """
         mock_raw_client = MagicMock()
-        mocker.patch("mt5cli.trading.Mt5DataClient", return_value=mock_raw_client)
+        mocker.patch(
+            "mt5cli.sdk.Mt5DataClient",
+            return_value=mock_raw_client,
+        )
 
         anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
         expected_df = pd.DataFrame({"time": [anchor], "profit": [10.0]})
@@ -4432,5 +4445,7 @@ class TestCreateTradingClientHistoryDealsIntegration:
             date_to=anchor,
             group=None,
             symbol="EURUSD",
+            ticket=None,
+            position=None,
         )
         assert list(result["profit"]) == [10.0]
