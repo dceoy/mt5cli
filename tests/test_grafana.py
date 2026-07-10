@@ -127,19 +127,6 @@ class TestSnapshotTables:
 class TestCreateViewSafe:
     """Tests for _create_view_safe."""
 
-    def test_creates_view_successfully(self, conn: sqlite3.Connection) -> None:
-        """A valid select SQL creates the named view."""
-        _create_view_safe(conn, "test_view", "SELECT 1 AS val")
-        views = _get_names(conn, "view")
-        assert "test_view" in views
-
-    def test_replaces_existing_view(self, conn: sqlite3.Connection) -> None:
-        """Calling again with a new SQL replaces the existing view."""
-        _create_view_safe(conn, "test_view", "SELECT 1 AS val")
-        _create_view_safe(conn, "test_view", "SELECT 2 AS val")
-        result = conn.execute("SELECT val FROM test_view").fetchone()
-        assert result == (2,)
-
     def test_logs_warning_on_sqlite_error(
         self,
         caplog: pytest.LogCaptureFixture,

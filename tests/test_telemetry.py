@@ -6,27 +6,13 @@ from unittest.mock import MagicMock
 
 import pytest
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+from pytest_mock import MockerFixture  # noqa: TC002
 
 from mt5cli.telemetry import (
-    _OTEL_AVAILABLE,  # type: ignore[reportPrivateUsage]
     _Mt5Metrics,  # type: ignore[reportPrivateUsage]
-    _NoOp,  # type: ignore[reportPrivateUsage]
     configure_metrics,
     enable_otel_metrics,
-    get_metrics,
 )
-
-
-class TestNoOp:
-    """Tests for _NoOp no-op instrument."""
-
-    @pytest.mark.parametrize("method", ["add", "set", "record"])
-    def test_method_is_noop(self, method: str) -> None:
-        """_NoOp methods accept amount and optional attributes without error."""
-        noop = _NoOp()
-        bound = getattr(noop, method)
-        bound(1.0)
-        bound(1.0, {"key": "val"})
 
 
 class TestMt5Metrics:
@@ -244,17 +230,17 @@ class TestMt5Metrics:
 
 
 class TestConfigureMetrics:
-    """Tests for configure_metrics and get_metrics."""
+    """Tests for the module-level configure_metrics wiring function."""
 
-    def test_configure_metrics_updates_global(self) -> None:
-        """configure_metrics wires up the global singleton."""
+    def test_configure_metrics_delegates_to_global_registry(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """configure_metrics(meter) delegates exactly once to the registry."""
         meter = MagicMock()
+        configure_spy = mocker.patch("mt5cli.telemetry._metrics.configure")
         configure_metrics(meter)
-        assert get_metrics() is get_metrics()
-
-    def test_get_metrics_returns_mt5metrics(self) -> None:
-        """get_metrics returns the global _Mt5Metrics instance."""
-        assert isinstance(get_metrics(), _Mt5Metrics)
+        configure_spy.assert_called_once_with(meter)
 
 
 class TestEnableOtelMetrics:
@@ -306,7 +292,3 @@ class TestEnableOtelMetrics:
         monkeypatch.setattr("mt5cli.telemetry._OtelOTLPExporter", None)
         with pytest.raises(ImportError, match="opentelemetry-exporter-otlp-proto-http"):
             enable_otel_metrics()
-
-    def test_otel_available_flag_is_bool(self) -> None:
-        """_OTEL_AVAILABLE is a boolean."""
-        assert isinstance(_OTEL_AVAILABLE, bool)

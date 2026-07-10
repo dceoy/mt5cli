@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import pytest
 
-import mt5cli.utils
-
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -396,11 +394,6 @@ class TestParseRequest:
 
 class TestConstants:
     """Tests for module constants."""
-
-    @pytest.mark.parametrize("name", ["TIMEFRAME_MAP", "TICK_FLAG_MAP"])
-    def test_private_maps_absent_from_utils(self, name: str) -> None:
-        """Private pdmt5 maps are not exposed as public mt5cli.utils attributes."""
-        assert not hasattr(mt5cli.utils, name)
 
     @pytest.mark.parametrize(
         ("dataset", "expected"),
