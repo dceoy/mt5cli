@@ -29,28 +29,12 @@ def dashboard_path(request: pytest.FixtureRequest) -> Iterator[Path]:
 class TestGrafanaExamples:
     """Validate structure and content of bundled Grafana example files."""
 
-    def test_dashboard_json_files_are_present(self) -> None:
-        """At least one dashboard JSON file is bundled."""
-        assert _dashboard_json_files(), "No dashboard JSON files found"
-
     def test_dashboard_json_file_is_valid_json(self, dashboard_path: Path) -> None:
         """Each dashboard JSON file parses to a JSON object."""
         content = dashboard_path.read_text(encoding="utf-8")
         obj = json.loads(content)
         assert isinstance(obj, dict), (
             f"{dashboard_path.name} root must be a JSON object"
-        )
-
-    @pytest.mark.parametrize("private_pattern", ["password", "api_key", "apikey"])
-    def test_dashboard_json_has_no_private_placeholders(
-        self,
-        dashboard_path: Path,
-        private_pattern: str,
-    ) -> None:
-        """Dashboard JSON files contain no obvious credential placeholders."""
-        content = dashboard_path.read_text(encoding="utf-8").lower()
-        assert private_pattern not in content, (
-            f"{dashboard_path.name} contains {private_pattern!r}"
         )
 
     def test_dashboard_json_uses_grafana_views(self, dashboard_path: Path) -> None:

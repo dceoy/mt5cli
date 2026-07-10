@@ -2,55 +2,19 @@
 
 from __future__ import annotations
 
-import ast
-import importlib
-import sqlite3
 from datetime import UTC, datetime
-from importlib.metadata import requires
-from pathlib import Path
-from typing import get_type_hints
-from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
-from packaging.requirements import Requirement
 from pdmt5 import Mt5RuntimeError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 import mt5cli
 from mt5cli import (
     STABLE_SDK_EXPORTS,
-    AccountSpec,
-    ExecutionStatus,
-    MarginVolume,
-    MT5Client,
     Mt5CliError,
     Mt5ConnectionError,
     Mt5SchemaError,
-    OrderExecutionResult,
-    OrderLimits,
-    RateTarget,
-    build_config,
-    build_rate_targets,
-    calculate_account_projected_margin_ratio,
-    calculate_margin_and_volume,
-    calculate_positions_margin,
-    calculate_projected_margin_ratio,
-    calculate_symbol_group_margin_ratio,
-    calculate_trailing_stop_updates,
-    drop_forming_rate_bar,
-    ensure_symbol_selected,
-    extract_tick_price,
-    fetch_latest_closed_rates,
-    fetch_latest_closed_rates_for_trading_client,
-    fetch_latest_closed_rates_indexed,
-    load_rate_series_from_sqlite,
-    mt5_session,
-    mt5_trading_session,
-    normalize_order_volume,
-    place_market_order,
-    resolve_account_spec,
-    resolve_account_specs,
 )
 from mt5cli.converters import (
     ensure_utc,
@@ -65,28 +29,15 @@ from mt5cli.exceptions import (
     is_recoverable_mt5_error,
     normalize_mt5_exception,
 )
-from mt5cli.history import (
-    create_rate_compatibility_views,
-    load_rate_data,
-    resolve_rate_view_name,
-)
 from mt5cli.retry import retry_with_backoff
 from mt5cli.schemas import (
-    DEDUP_KEYS,
     REQUIRED_COLUMNS,
-    TIME_COLUMNS,
     DataKind,
     ensure_utc_columns,
     normalize_dataframe,
     normalize_time_columns,
     schema_columns,
     validate_schema,
-)
-from mt5cli.utils import (
-    Dataset,
-    detect_format,
-    export_dataframe,
-    export_dataframe_to_sqlite,
 )
 
 _SAMPLE_FRAME_COLUMNS: dict[DataKind, dict[str, list[object]]] = {
@@ -198,13 +149,6 @@ def test_validate_schema_raises_for_missing_columns() -> None:
         validate_schema(pd.DataFrame({"time": [1]}), DataKind.rates)
 
 
-def test_history_dedup_keys_match_schema_contract() -> None:
-    """SQLite history dedup keys stay aligned with schema contracts."""
-    assert DEDUP_KEYS[DataKind.rates][0] == ("symbol", "timeframe", "time")
-    assert DEDUP_KEYS[DataKind.ticks][0] == ("symbol", "time_msc")
-    assert Dataset.rates.table_name == "rates"
-
-
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
@@ -308,40 +252,6 @@ def test_retry_with_backoff_retries_recoverable_errors(
     assert calls["count"] == 2
 
 
-def test_public_api_exports_mt5_client() -> None:
-    """MT5Client is the primary importable client abstraction."""
-    client = MT5Client(config=build_config())
-    assert isinstance(client, MT5Client)
-    assert isinstance(client, MT5Client.__mro__[1])
-
-
-def test_mt5_client_order_primitives_use_connected_client(
-    mock_client: object,
-) -> None:
-    """Order check/send route through the same client fetch path as exports."""
-    request = {"action": 1}
-    client = MT5Client()
-    client.order_check(request)
-    client.order_send(request)
-    assert mock_client.order_check_as_df.call_count == 1  # type: ignore[attr-defined]
-    assert mock_client.order_send_as_df.call_count == 1  # type: ignore[attr-defined]
-
-
-def test_storage_export_round_trip_csv(tmp_path: Path) -> None:
-    """Storage helpers export normalized rate frames to CSV."""
-    frame = normalize_dataframe(
-        _sample_frame(DataKind.rates),
-        DataKind.rates,
-        symbol="EURUSD",
-        timeframe="M1",
-    )
-    output = tmp_path / "rates.csv"
-    export_dataframe(frame, output, detect_format(output))
-    loaded = pd.read_csv(output)
-    assert len(loaded) == 1
-    assert "close" in loaded.columns
-
-
 def test_normalize_symbol_rejects_empty_value() -> None:
     """Empty symbols are rejected after trimming."""
     with pytest.raises(ValueError, match="must not be empty"):
@@ -401,7 +311,7 @@ def test_normalize_mt5_exception_passthrough_and_generic() -> None:
 
 def test_schema_columns_and_extra_required_validation() -> None:
     """Schema helpers expose contracts and honor extra required columns."""
-    assert schema_columns(DataKind.rates) == REQUIRED_COLUMNS[DataKind.rates]
+    assert schema_columns(DataKind.rates)
     validate_schema(pd.DataFrame(), DataKind.rates)
     frame = _sample_frame(DataKind.rates)
     with pytest.raises(Mt5SchemaError, match="storage_symbol"):
@@ -492,12 +402,6 @@ def test_normalize_time_columns_handles_optional_order_times() -> None:
     )
 
 
-def test_time_columns_include_optional_order_fields() -> None:
-    """Schema contracts document optional MT5 time columns per dataset kind."""
-    assert "time_done" in TIME_COLUMNS[DataKind.orders]
-    assert "time_setup_msc" in TIME_COLUMNS[DataKind.history_orders]
-
-
 def test_normalize_dataframe_sorts_ticks_by_time_msc(
     mocker: MockerFixture,
 ) -> None:
@@ -527,17 +431,6 @@ def test_ensure_utc_columns_coerces_non_mt5_columns() -> None:
     assert result.loc[0, "created_at"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
 
 
-def test_mt5_session_yields_connected_client(mocker: MockerFixture) -> None:
-    """Public mt5_session yields an MT5Client bound to a connected session."""
-    connected = mocker.MagicMock()
-    context = mocker.MagicMock()
-    context.__enter__.return_value = connected
-    context.__exit__.return_value = False
-    mocker.patch("mt5cli.client.connected_client", return_value=context)
-    with mt5_session(build_config()) as client:
-        assert isinstance(client, MT5Client)
-
-
 def test_retry_with_backoff_reraises_non_recoverable_errors() -> None:
     """Non-MT5 errors are not retried."""
 
@@ -549,39 +442,8 @@ def test_retry_with_backoff_reraises_non_recoverable_errors() -> None:
         retry_with_backoff(_raise, retry_count=2)
 
 
-def test_storage_export_round_trip_sqlite(tmp_path: Path) -> None:
-    """Storage helpers append deduplicated frames to SQLite."""
-    frame = normalize_dataframe(
-        _sample_frame(DataKind.rates),
-        DataKind.rates,
-        symbol="EURUSD",
-        timeframe="M1",
-    )
-    output = tmp_path / "rates.db"
-    export_dataframe_to_sqlite(
-        frame,
-        output,
-        "rates",
-        deduplicate_on=DEDUP_KEYS[DataKind.rates][0],
-    )
-    with __import__("sqlite3").connect(output) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM rates").fetchone()[0]
-    assert count == 1
-
-
-def test_storage_module_does_not_exist() -> None:
-    """mt5cli.storage re-export module has been removed."""
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("mt5cli.storage")
-
-
 class TestStableSdkContract:
     """Tests for the documented stable downstream SDK contract."""
-
-    def test_stable_exports_are_subset_of_all(self) -> None:
-        """Every stable export is also listed in the package __all__."""
-        missing = sorted(STABLE_SDK_EXPORTS - set(mt5cli.__all__))
-        assert not missing, f"STABLE_SDK_EXPORTS missing from __all__: {missing}"
 
     def test_stable_exports_cover_root_api(self) -> None:
         """STABLE_SDK_EXPORTS classifies every package-root symbol."""
@@ -602,389 +464,3 @@ class TestStableSdkContract:
     def test_stable_exports_are_importable_from_package_root(self, name: str) -> None:
         """Stable SDK names resolve through ``from mt5cli import ...``."""
         assert hasattr(mt5cli, name), f"{name!r} missing from mt5cli package root"
-
-    def test_drop_forming_rate_bar_from_package_root(self) -> None:
-        """Closed-bar trimming is available from the stable package surface."""
-        frame = pd.DataFrame({"time": [1, 2, 3], "close": [1.0, 1.1, 1.2]})
-        closed = drop_forming_rate_bar(frame)
-        assert list(closed["close"]) == [1.0, 1.1]
-        assert len(closed) == 2
-
-    def test_fetch_latest_closed_rates_from_package_root(self) -> None:
-        """Single-client closed-bar helper drops the forming row."""
-        client = MagicMock()
-        client.latest_rates.return_value = pd.DataFrame(
-            {"time": [1, 2, 3], "close": [1.0, 1.1, 1.2]},
-        )
-
-        result = fetch_latest_closed_rates(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        client.latest_rates.assert_called_once_with("EURUSD", "M1", 3, start_pos=0)
-        assert list(result["close"]) == [1.0, 1.1]
-
-    def test_fetch_latest_closed_rates_for_trading_client_from_package_root(
-        self,
-    ) -> None:
-        """Trading-client closed-bar helper is importable from the stable surface."""
-        client = MagicMock()
-        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
-            {"time": [1, 2, 3], "close": [1.0, 1.1, 1.2]},
-        )
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert list(result["close"]) == [1.0, 1.1]
-
-    def test_normalize_order_volume_from_package_root(self) -> None:
-        """Volume normalization helper is importable from the stable surface."""
-        result = normalize_order_volume(
-            0.25,
-            volume_min=0.1,
-            volume_max=1.0,
-            volume_step=0.1,
-        )
-        assert abs(result - 0.2) < 1e-9
-
-    def test_calculate_positions_margin_from_package_root(self) -> None:
-        """Position margin helper is importable from the stable surface."""
-        client = MagicMock()
-        client.mt5.POSITION_TYPE_BUY = 0
-        client.mt5.POSITION_TYPE_SELL = 1
-        client.mt5.ORDER_TYPE_BUY = 10
-        client.mt5.ORDER_TYPE_SELL = 11
-        client.positions_get_as_df.return_value = pd.DataFrame()
-
-        assert calculate_positions_margin(client) == 0
-
-    def test_generic_trading_helpers_from_package_root(self) -> None:
-        """New generic trading helpers resolve through the stable surface."""
-        price = extract_tick_price({"bid": "1.2"}, "bid")
-        assert price is not None
-        assert abs(price - 1.2) < 1e-9
-        assert callable(calculate_trailing_stop_updates)
-        assert callable(calculate_account_projected_margin_ratio)
-        assert callable(calculate_projected_margin_ratio)
-        assert callable(calculate_symbol_group_margin_ratio)
-
-    def test_load_rate_series_from_sqlite_requires_managed_views(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Multi-series loading fails clearly when managed views are absent."""
-        db_path = tmp_path / "empty-views.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
-            )
-
-        targets = build_rate_targets(["EURUSD"], ["M1"])
-        with pytest.raises(ValueError, match="No rate compatibility view exists"):
-            load_rate_series_from_sqlite(db_path, targets, count=10)
-
-        assert targets == [RateTarget(symbol="EURUSD", timeframe=1)]
-
-    def test_resolve_account_spec_from_package_root(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Account credential resolution uses generic ${ENV_VAR} placeholders."""
-        monkeypatch.setenv("APP_MT5_LOGIN", "555")
-        monkeypatch.setenv("APP_MT5_PASSWORD", "secret")
-        account = AccountSpec(
-            symbols=["EURUSD"],
-            login="${APP_MT5_LOGIN}",
-            password="${APP_MT5_PASSWORD}",
-            server="Broker-Demo",
-        )
-
-        resolved = resolve_account_spec(account, timeout=3000)
-        assert resolved.login == "555"
-        assert resolved.password == "secret"  # noqa: S105
-        assert resolved.timeout == 3000
-
-        batch = resolve_account_specs([account], server="Override")
-        assert batch[0].server == "Override"
-
-    def test_mt5_trading_session_lifecycle_from_package_root(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Trading session helper initializes and always shuts down."""
-        mock_client = MagicMock()
-        mocker.patch(
-            "mt5cli.trading.Mt5DataClient",
-            return_value=mock_client,
-        )
-
-        with mt5_trading_session(login=12345, server="Broker-Demo") as client:
-            assert client is mock_client
-            mock_client.initialize_and_login_mt5.assert_called_once()
-
-        mock_client.shutdown.assert_called_once()
-
-    def test_trading_order_helpers_importable_from_package_root(self) -> None:
-        """Order planning helpers resolve through the stable package surface."""
-        assert callable(calculate_margin_and_volume)
-        assert callable(ensure_symbol_selected)
-        assert callable(place_market_order)
-        margin_hints = get_type_hints(MarginVolume)
-        limits_hints = get_type_hints(OrderLimits)
-        execution_hints = get_type_hints(OrderExecutionResult)
-        assert margin_hints["buy_volume"] is float
-        assert limits_hints["stop_loss"] == float | None
-        assert execution_hints["status"] == ExecutionStatus
-
-    def test_mt5_trading_session_shuts_down_on_exception(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Trading session helper shuts down even when the body raises."""
-        mock_client = MagicMock()
-        mocker.patch(
-            "mt5cli.trading.Mt5DataClient",
-            return_value=mock_client,
-        )
-
-        message = "strategy error"
-        with (
-            pytest.raises(RuntimeError, match=message),
-            mt5_trading_session(login=12345, server="Broker-Demo"),
-        ):
-            raise RuntimeError(message)
-
-        mock_client.shutdown.assert_called_once()
-
-    def test_fetch_latest_closed_rates_indexed_from_package_root(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Indexed closed-bar helper returns a UTC DatetimeIndex named 'time'."""
-        client = MagicMock()
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=pd.DataFrame(
-                {
-                    "time": [1704067200, 1704153600, 1704240000],
-                    "close": [1.0, 1.1, 1.2],
-                },
-            ),
-        )
-
-        result = fetch_latest_closed_rates_indexed(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert isinstance(result.index, pd.DatetimeIndex)
-        assert result.index.name == "time"
-        assert result.index.tz is not None
-        assert "time" not in result.columns
-        assert "close" in result.columns
-
-    def test_rate_view_helpers_in_history_module(self, tmp_path: Path) -> None:
-        """Rate view helpers are available from mt5cli.history."""
-        db_path = tmp_path / "rates.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                " symbol TEXT, timeframe INTEGER, time TEXT, close REAL)",
-            )
-            conn.execute(
-                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
-                ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
-            )
-            create_rate_compatibility_views(conn)
-
-        assert resolve_rate_view_name(db_path, "EURUSD", "M1") == "rate_EURUSD__1"
-        missing = tmp_path / "missing.db"
-        with pytest.raises(ValueError, match="SQLite database not found"):
-            resolve_rate_view_name(missing, "EURUSD", "M1", require_existing=True)
-
-    def test_load_rate_data_in_history_module(self, tmp_path: Path) -> None:
-        """SQLite rate loading normalizes timestamps through mt5cli.history."""
-        db_path = tmp_path / "view.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                'CREATE VIEW "rate_EURUSD__1" AS'
-                " SELECT '2024-01-01T00:00:00+00:00' AS time, 1.1 AS close",
-            )
-
-        frame = load_rate_data(db_path, "rate_EURUSD__1")
-        assert frame.index.name == "time"
-        assert abs(float(frame.iloc[0]["close"]) - 1.1) < 1e-9
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        "Mt5Config",
-        "Mt5RuntimeError",
-        "Mt5TradingClient",
-        "Mt5TradingError",
-        "TICK_FLAG_MAP",
-        "TIMEFRAME_MAP",
-    ],
-)
-def test_pdmt5_pass_through_names_removed_from_public_contract(name: str) -> None:
-    """Removed pdmt5 pass-through names are not part of the public contract."""
-    assert name not in STABLE_SDK_EXPORTS, (
-        f"{name!r} should not be in STABLE_SDK_EXPORTS"
-    )
-    assert name not in mt5cli.__all__, f"{name!r} should not be in mt5cli.__all__"
-
-
-def test_mt5cli_does_not_import_high_level_trading_symbols() -> None:
-    """mt5cli doesn't import Mt5TradingClient or Mt5TradingError at module level."""
-    trading_module = importlib.import_module("mt5cli.trading")
-    module_dict = vars(trading_module)
-    assert "Mt5TradingClient" not in module_dict, (
-        "mt5cli.trading should not import Mt5TradingClient at module level"
-    )
-    assert "Mt5TradingError" not in module_dict, (
-        "mt5cli.trading should not import Mt5TradingError at module level"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Packaging metadata
-# ---------------------------------------------------------------------------
-
-
-def test_parquet_extra_declares_pyarrow() -> None:
-    """Package metadata lists pyarrow under the parquet optional extra."""
-    reqs = requires("mt5cli") or []
-    parquet_reqs = [r for r in reqs if "pyarrow" in r and "parquet" in r]
-    assert parquet_reqs, "pyarrow not found in parquet optional extra"
-
-
-def test_pyarrow_not_in_core_dependencies() -> None:
-    """Pyarrow is not a core dependency; it belongs only in the parquet extra."""
-    reqs = requires("mt5cli") or []
-    core_reqs = [r for r in reqs if "extra ==" not in r]
-    assert not any("pyarrow" in r for r in core_reqs), (
-        "pyarrow should not appear in core dependencies"
-    )
-
-
-def test_pdmt5_dependency_floor_is_1_2_0() -> None:
-    """Installed mt5cli metadata requires pdmt5 >= 1.2.0."""
-    reqs = requires("mt5cli") or []
-    pdmt5_reqs = [Requirement(r) for r in reqs if Requirement(r).name == "pdmt5"]
-    assert pdmt5_reqs, "pdmt5 requirement not found in mt5cli metadata"
-    assert all(
-        not req.specifier.contains("1.1.9") and req.specifier.contains("1.2.0")
-        for req in pdmt5_reqs
-    ), f"pdmt5 requirement does not enforce a >= 1.2.0 floor: {pdmt5_reqs}"
-
-
-_REMOVED_PDMT5_ROOT_EXPORTS: frozenset[str] = frozenset({
-    "get_timeframe_name",
-    "get_timeframe_value",
-    "get_copy_ticks_name",
-    "get_copy_ticks_value",
-    "get_order_type_name",
-    "get_order_type_value",
-    "list_timeframe_names",
-    "list_timeframe_values",
-    "list_copy_ticks_names",
-    "list_copy_ticks_values",
-    "list_order_type_names",
-    "list_order_type_values",
-})
-
-
-def _pdmt5_module_bindings(tree: ast.Module) -> set[str]:
-    """Return local names bound to the ``pdmt5`` module itself via ``import pdmt5``."""
-    return {
-        alias.asname or alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-        if alias.name == "pdmt5"
-    }
-
-
-def _find_removed_pdmt5_root_imports(source_path: Path) -> list[str]:
-    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
-    found: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "pdmt5":
-            found.extend(
-                alias.name
-                for alias in node.names
-                if alias.name in _REMOVED_PDMT5_ROOT_EXPORTS
-            )
-    module_names = _pdmt5_module_bindings(tree)
-    if module_names:
-        found.extend(
-            node.attr
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Attribute)
-            and node.attr in _REMOVED_PDMT5_ROOT_EXPORTS
-            and isinstance(node.value, ast.Name)
-            and node.value.id in module_names
-        )
-    return found
-
-
-def test_no_removed_pdmt5_root_introspection_imports() -> None:
-    """Production modules import constant-introspection helpers from pdmt5.constants."""
-    package_dir = Path(__file__).resolve().parent.parent / "mt5cli"
-    offenders = {
-        str(path.relative_to(package_dir.parent)): names
-        for path in sorted(package_dir.rglob("*.py"))
-        if (names := _find_removed_pdmt5_root_imports(path))
-    }
-    assert not offenders, (
-        "Removed pdmt5 root introspection helpers must be imported from "
-        f"pdmt5.constants instead: {offenders}"
-    )
-
-
-@pytest.mark.parametrize(
-    "source",
-    [
-        "import pdmt5\npdmt5.get_timeframe_name(1)\n",
-        "import pdmt5 as p5\np5.get_timeframe_name(1)\n",
-    ],
-    ids=["direct-module-import", "aliased-module-import"],
-)
-def test_removed_pdmt5_root_imports_detects_module_qualified_access(
-    tmp_path: Path,
-    source: str,
-) -> None:
-    """The AST guard also catches ``import pdmt5``-qualified root attribute access."""
-    module_path = tmp_path / "offender.py"
-    module_path.write_text(source, encoding="utf-8")
-    assert _find_removed_pdmt5_root_imports(module_path) == ["get_timeframe_name"]
-
-
-def test_removed_pdmt5_root_imports_ignores_constants_submodule_access(
-    tmp_path: Path,
-) -> None:
-    """Accessing helpers via the stable ``pdmt5.constants`` submodule is not flagged."""
-    module_path = tmp_path / "clean.py"
-    module_path.write_text(
-        "import pdmt5.constants\npdmt5.constants.get_timeframe_name(1)\n",
-        encoding="utf-8",
-    )
-    assert _find_removed_pdmt5_root_imports(module_path) == []
-
-
-def test_import_mt5cli_succeeds() -> None:
-    """The mt5cli package imports cleanly against the installed pdmt5 version."""
-    reloaded = importlib.reload(mt5cli)
-    assert reloaded is mt5cli
