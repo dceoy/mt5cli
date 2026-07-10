@@ -1,6 +1,6 @@
 [project]
 name = "mt5cli"
-version = "1.1.5"
+version = "1.1.6"
 description = "Generic MT5 data and execution infrastructure for Python applications"
 authors = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
 maintainers = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
@@ -9,7 +9,7 @@ license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">= 3.11, < 3.14"
 dependencies = [
-  "pdmt5 >= 1.1.1",
+  "pdmt5 >= 1.2.0",
   "pandas >= 2.2.2",
   "pydantic >= 2.13.4",
   "click >= 8.1.0",

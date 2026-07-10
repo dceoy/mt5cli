@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from pdmt5 import get_timeframe_name as _get_timeframe_name
+from pdmt5.constants import get_timeframe_name as _get_timeframe_name
 
 from .utils import parse_datetime, parse_tick_flags, parse_timeframe
 

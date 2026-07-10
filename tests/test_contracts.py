@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import sqlite3
 from datetime import UTC, datetime
 from importlib.metadata import requires
-from typing import TYPE_CHECKING, get_type_hints
+from pathlib import Path
+from typing import get_type_hints
 from unittest.mock import MagicMock
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 import pandas as pd
 import pytest
+from packaging.requirements import Requirement
 from pdmt5 import Mt5RuntimeError
 from pytest_mock import MockerFixture  # noqa: TC002
 
@@ -877,3 +877,114 @@ def test_pyarrow_not_in_core_dependencies() -> None:
     assert not any("pyarrow" in r for r in core_reqs), (
         "pyarrow should not appear in core dependencies"
     )
+
+
+def test_pdmt5_dependency_floor_is_1_2_0() -> None:
+    """Installed mt5cli metadata requires pdmt5 >= 1.2.0."""
+    reqs = requires("mt5cli") or []
+    pdmt5_reqs = [Requirement(r) for r in reqs if Requirement(r).name == "pdmt5"]
+    assert pdmt5_reqs, "pdmt5 requirement not found in mt5cli metadata"
+    assert all(
+        not req.specifier.contains("1.1.9") and req.specifier.contains("1.2.0")
+        for req in pdmt5_reqs
+    ), f"pdmt5 requirement does not enforce a >= 1.2.0 floor: {pdmt5_reqs}"
+
+
+_REMOVED_PDMT5_ROOT_EXPORTS: frozenset[str] = frozenset({
+    "get_timeframe_name",
+    "get_timeframe_value",
+    "get_copy_ticks_name",
+    "get_copy_ticks_value",
+    "get_order_type_name",
+    "get_order_type_value",
+    "list_timeframe_names",
+    "list_timeframe_values",
+    "list_copy_ticks_names",
+    "list_copy_ticks_values",
+    "list_order_type_names",
+    "list_order_type_values",
+})
+
+
+def _pdmt5_module_bindings(tree: ast.Module) -> set[str]:
+    """Return local names bound to the ``pdmt5`` module itself via ``import pdmt5``."""
+    return {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "pdmt5"
+    }
+
+
+def _find_removed_pdmt5_root_imports(source_path: Path) -> list[str]:
+    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "pdmt5":
+            found.extend(
+                alias.name
+                for alias in node.names
+                if alias.name in _REMOVED_PDMT5_ROOT_EXPORTS
+            )
+    module_names = _pdmt5_module_bindings(tree)
+    if module_names:
+        found.extend(
+            node.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and node.attr in _REMOVED_PDMT5_ROOT_EXPORTS
+            and isinstance(node.value, ast.Name)
+            and node.value.id in module_names
+        )
+    return found
+
+
+def test_no_removed_pdmt5_root_introspection_imports() -> None:
+    """Production modules import constant-introspection helpers from pdmt5.constants."""
+    package_dir = Path(__file__).resolve().parent.parent / "mt5cli"
+    offenders = {
+        str(path.relative_to(package_dir.parent)): names
+        for path in sorted(package_dir.rglob("*.py"))
+        if (names := _find_removed_pdmt5_root_imports(path))
+    }
+    assert not offenders, (
+        "Removed pdmt5 root introspection helpers must be imported from "
+        f"pdmt5.constants instead: {offenders}"
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import pdmt5\npdmt5.get_timeframe_name(1)\n",
+        "import pdmt5 as p5\np5.get_timeframe_name(1)\n",
+    ],
+    ids=["direct-module-import", "aliased-module-import"],
+)
+def test_removed_pdmt5_root_imports_detects_module_qualified_access(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    """The AST guard also catches ``import pdmt5``-qualified root attribute access."""
+    module_path = tmp_path / "offender.py"
+    module_path.write_text(source, encoding="utf-8")
+    assert _find_removed_pdmt5_root_imports(module_path) == ["get_timeframe_name"]
+
+
+def test_removed_pdmt5_root_imports_ignores_constants_submodule_access(
+    tmp_path: Path,
+) -> None:
+    """Accessing helpers via the stable ``pdmt5.constants`` submodule is not flagged."""
+    module_path = tmp_path / "clean.py"
+    module_path.write_text(
+        "import pdmt5.constants\npdmt5.constants.get_timeframe_name(1)\n",
+        encoding="utf-8",
+    )
+    assert _find_removed_pdmt5_root_imports(module_path) == []
+
+
+def test_import_mt5cli_succeeds() -> None:
+    """The mt5cli package imports cleanly against the installed pdmt5 version."""
+    reloaded = importlib.reload(mt5cli)
+    assert reloaded is mt5cli
