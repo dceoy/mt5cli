@@ -38,9 +38,9 @@ def normalize_cli_output(output: str) -> str:
 
 
 @pytest.fixture(autouse=True)
-def _mock_mt5_data_client(mocker: MockerFixture) -> MagicMock:
+def _mock_mt5_data_client(mocker: MockerFixture) -> None:  # pyright: ignore[reportUnusedFunction]
     """Auto-mock Mt5DataClient for all test_cli.py tests."""
-    return mocker.patch(
+    mocker.patch(
         "mt5cli.sdk.Mt5DataClient",
         return_value=MagicMock(),
     )
