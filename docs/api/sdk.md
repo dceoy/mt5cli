@@ -31,9 +31,8 @@ rates = collect_latest_rates_for_accounts_with_retries(
 ### Latest closed rate bars
 
 MetaTrader 5 `start_pos=0` includes the still-forming current bar as the last
-row. `fetch_latest_closed_rates()` handles one connected `MT5Client`; use
-`fetch_latest_closed_rates_for_trading_client()` from an active trading
-session created by `create_trading_client()`. Multi-account helpers fetch
+row. `fetch_latest_closed_rates()` handles one connected `MT5Client`.
+Multi-account helpers fetch
 `count + 1` bars, drop
 that row with `drop_forming_rate_bar()`, and validate each series is non-empty. Returned frames are ordered
 oldest-to-newest and may contain fewer than `count` rows only when MT5 returns
@@ -116,9 +115,9 @@ between successful runs (using a monotonic clock), so an application loop can
 call it every iteration without over-fetching.
 
 ```python
-from pdmt5 import Mt5Config, Mt5DataClient
+from pdmt5 import Mt5Config
 
-from mt5cli import ThrottledHistoryUpdater
+from mt5cli import ThrottledHistoryUpdater, mt5_session
 from mt5cli.utils import Dataset
 
 updater = ThrottledHistoryUpdater(
@@ -128,14 +127,10 @@ updater = ThrottledHistoryUpdater(
     interval_seconds=60,  # <= 0 updates on every call
 )
 
-client = Mt5DataClient(config=Mt5Config(login=12345))
-client.initialize_and_login_mt5()
-try:
+with mt5_session(Mt5Config(login=12345)) as client:
     while True:
         updater.update(client, ["EURUSD", "GBPUSD"])  # no-op until 60s elapse
         # ... do other work; break when shutting down ...
-finally:
-    client.shutdown()
 ```
 
 Pass `update_backend` to substitute the default `update_history` implementation

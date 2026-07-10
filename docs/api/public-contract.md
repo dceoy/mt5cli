@@ -29,6 +29,10 @@ functions, parser helpers, low-level MT5 wrappers) are available directly from
 their owning modules (`mt5cli.schemas`, `mt5cli.utils`, `mt5cli.converters`,
 `mt5cli.sdk`, etc.) and are not part of the root SDK surface.
 
+Issue #115 remains open: the broader internal responsibility decomposition is
+not claimed as complete by this release. The package-root facade remains the
+only supported downstream API while that work is completed separately.
+
 ## Stable downstream SDK API
 
 These names are exported from `mt5cli` and enumerated in
@@ -38,9 +42,9 @@ These names are exported from `mt5cli` and enumerated in
 
 | Symbol                                          | Role                                                                                                                                                                                                                                                                              |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MT5Client`                                     | The single connected client for data, history, calculations, order checking, and order sending |
+| `MT5Client`                                     | The single connected client for data, history, calculations, order checking, and order sending                                                                                                                                                                                    |
 | `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True` |
-| `mt5_session`                                   | Canonical context manager: initialize/login once, yield `MT5Client`, shut down once; a supplied `client=` remains caller-owned. |
+| `mt5_session`                                   | Canonical context manager: initialize/login once, yield `MT5Client`, shut down once; a supplied `client=` remains caller-owned.                                                                                                                                                   |
 | `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                          |
 | `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                            |
 
@@ -142,10 +146,10 @@ idempotent (`CREATE TABLE IF NOT EXISTS`, `DROP VIEW IF EXISTS` + `CREATE
 VIEW`, `CREATE INDEX IF NOT EXISTS`). Missing source tables are skipped with a
 warning rather than raising an error.
 
-| Symbol                             | Role                                                                                            |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `update_observability`             | Append one timestamped snapshot row per data type; accepts an already-connected `Mt5DataClient` |
-| `update_observability_with_config` | Standalone wrapper: opens/closes MT5 connection automatically around `update_observability`     |
+| Symbol                             | Role                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| `update_observability`             | Append one timestamped snapshot row per data type from a connected client implementation    |
+| `update_observability_with_config` | Standalone wrapper: opens/closes MT5 connection automatically around `update_observability` |
 
 Both functions write to the SQLite path given by `output=`. The optional
 `symbols` parameter filters `positions_get` / `orders_get` by symbol.
@@ -280,8 +284,9 @@ The following belong in consuming applications, not in mt5cli:
 - Strategy-specific risk policy, position sizing systems, or Kelly fractions
 - Entry/exit decision logic or YAML strategy semantics
 - Entry-deal classification, Kelly fractions, or betting-specific deal transformations
-  (use `fetch_recent_history_deals_for_trading_client` to retrieve raw deal data, then
-  apply downstream transformations in your own adapter layer)
+  (retrieve canonical deal data through `MT5Client.history_deals()` or
+  `MT5Client.recent_history_deals()`, then apply downstream transformations in
+  your own adapter layer)
 - Application-specific credential schema keys wired into mt5cli internals
 
 mt5cli provides connection lifecycle, normalized data access, SQLite history

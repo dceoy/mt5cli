@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
 
 from mt5cli.client import MT5Client, mt5_session
 from mt5cli.sdk import build_config
@@ -43,6 +44,35 @@ def test_mt5_session_yields_connected_mt5_client(mocker: MockerFixture) -> None:
     mocker.patch("mt5cli.client.connected_client", return_value=context)
     with mt5_session(build_config()) as client:
         assert isinstance(client, MT5Client)
+
+
+def test_owned_mt5_session_initializes_and_shuts_down_once(
+    mocker: MockerFixture,
+) -> None:
+    """An owned session has exactly one initialization and shutdown boundary."""
+    raw_client = MagicMock()
+    mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=raw_client)
+
+    with mt5_session(build_config()) as client:
+        assert isinstance(client, MT5Client)
+        raw_client.initialize_and_login_mt5.assert_called_once()
+
+    raw_client.shutdown.assert_called_once()
+
+
+def test_owned_mt5_session_shuts_down_when_body_raises(
+    mocker: MockerFixture,
+) -> None:
+    """Owned sessions release the terminal while preserving body exceptions."""
+    raw_client = MagicMock()
+    mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=raw_client)
+
+    message = "body failure"
+    with pytest.raises(RuntimeError, match=message), mt5_session(build_config()):
+        raise RuntimeError(message)
+
+    raw_client.initialize_and_login_mt5.assert_called_once()
+    raw_client.shutdown.assert_called_once()
 
 
 def test_mt5_session_yields_injected_client_without_reconnect(

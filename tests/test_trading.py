@@ -3,22 +3,19 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast, get_args
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
-from numpy import float64 as np_float64
 from numpy import int64 as np_int64
 from pdmt5 import Mt5RuntimeError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 from mt5cli import trading
-from mt5cli.client import MT5Client
-from mt5cli.exceptions import Mt5CliError, Mt5ConnectionError, Mt5OperationError
-from mt5cli.sdk import build_config
+from mt5cli.exceptions import Mt5OperationError
 from mt5cli.trading import (
     MarginVolume,
     OrderExecutionResult,
@@ -42,21 +39,17 @@ from mt5cli.trading import (
     calculate_trailing_stop_updates,
     calculate_volume_by_margin,
     close_open_positions,
-    create_trading_client,
     detect_position_side,
     determine_order_limits,
     ensure_symbol_selected,
     estimate_order_margin,
     estimate_server_clock_offset_seconds,
     extract_tick_price,
-    fetch_latest_closed_rates_for_trading_client,
     fetch_latest_closed_rates_indexed,
-    fetch_recent_history_deals_for_trading_client,
     get_account_snapshot,
     get_positions_frame,
     get_symbol_snapshot,
     get_tick_snapshot,
-    mt5_trading_session,
     normalize_order_volume,
     place_market_order,
     resolve_broker_filling_mode,
@@ -91,7 +84,7 @@ def _assert_close(actual: object, expected: float) -> None:
 
 
 def _request_from_result(result: OrderExecutionResult) -> dict[str, object]:
-    return cast("dict[str, object]", result["request"])
+    return result.request
 
 
 _MISSING_RETCODE: object = (
@@ -632,80 +625,6 @@ class TestDetermineOrderLimits:
             match="missing required method: symbol_select",
         ):
             ensure_symbol_selected(client, "EURUSD")
-
-
-class TestMt5TradingSession:
-    """Tests for the mt5_trading_session context manager."""
-
-    def test_yields_connected_client_and_shuts_down(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test mt5_trading_session connects, yields a client, and shuts down."""
-        mock_raw_client = MagicMock()
-        mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
-            return_value=mock_raw_client,
-        )
-
-        with mt5_trading_session(
-            build_config(path="/opt/mt5/terminal64.exe"),
-            retry_count=2,
-        ) as client:
-            mock_raw_client.initialize_and_login_mt5.assert_called_once()
-            assert isinstance(client, MT5Client)
-
-        mock_raw_client.initialize_and_login_mt5.assert_called_once()
-        mock_raw_client.shutdown.assert_called_once()
-
-
-class TestCreateTradingClient:
-    """Tests for create_trading_client."""
-
-    def test_initializes_with_keyword_config(self, mocker: MockerFixture) -> None:
-        """Test keyword configuration is forwarded to MT5Client."""
-        mock_raw_client = MagicMock()
-        mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
-            return_value=mock_raw_client,
-        )
-
-        result = create_trading_client(
-            login="12345",
-            password="test-pass",
-            server="Demo",
-            path="/opt/terminal64.exe",
-            retry_count=2,
-        )
-
-        assert isinstance(result, MT5Client)
-        mock_raw_client.initialize_and_login_mt5.assert_called_once()
-
-    def test_empty_login_string_is_unset(self, mocker: MockerFixture) -> None:
-        """Test empty login strings are treated as None."""
-        mock_raw_client = MagicMock()
-        mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
-            return_value=mock_raw_client,
-        )
-
-        result = create_trading_client(login=" ")
-
-        assert isinstance(result, MT5Client)
-
-    def test_shutdown_on_initialization_failure(self, mocker: MockerFixture) -> None:
-        """Test failed initialization shuts the client down."""
-        mock_raw_client = MagicMock()
-        mock_raw_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
-        mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
-            return_value=mock_raw_client,
-        )
-
-        with pytest.raises(Mt5RuntimeError, match="boom"):
-            create_trading_client()
-
-        mock_raw_client.shutdown.assert_called_once()
 
 
 class TestSnapshotsAndState:
@@ -2125,7 +2044,7 @@ class TestVolumeAndExecution:
             dry_run=True,
         )
 
-        assert result["status"] == "dry_run"
+        assert result.status == "dry_run"
         assert _request_from_result(result)["type"] == client.mt5.ORDER_TYPE_BUY
         client.order_send.assert_not_called()
         client.symbol_select.assert_not_called()
@@ -2197,20 +2116,22 @@ class TestVolumeAndExecution:
                 dry_run=True,
             )
 
-    def test_place_market_order_rejects_missing_mt5_constant(self) -> None:
-        """Test missing MT5 constants fail with a controlled trading error."""
+    def test_place_market_order_receipts_missing_mt5_constant(self) -> None:
+        """Test broker preparation failures produce a failed receipt."""
         client = _mock_trade_client()
         del client.mt5.ORDER_FILLING_IOC
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
 
-        with pytest.raises(Mt5OperationError, match="ORDER_FILLING_IOC"):
-            place_market_order(
-                client,
-                symbol="EURUSD",
-                volume=0.1,
-                order_side="BUY",
-                dry_run=True,
-            )
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+            dry_run=True,
+        )
+
+        assert result.status == "failed"
+        assert "ORDER_FILLING_IOC" in str(result.comment)
 
     def test_place_market_order_rejects_invalid_volume(self) -> None:
         """Test non-positive volume raises a trading error."""
@@ -2222,18 +2143,20 @@ class TestVolumeAndExecution:
                 order_side="BUY",
             )
 
-    def test_place_market_order_rejects_bad_tick(self) -> None:
-        """Test unavailable market order price raises a trading error."""
+    def test_place_market_order_receipts_bad_tick(self) -> None:
+        """Test unavailable broker tick price produces a failed receipt."""
         client = _mock_trade_client()
         client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1}
 
-        with pytest.raises(Mt5OperationError):
-            place_market_order(
-                client,
-                symbol="EURUSD",
-                volume=0.1,
-                order_side="BUY",
-            )
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result.status == "failed"
+        assert result.request_price is None
 
     def test_place_market_order_rejects_unknown_side(self) -> None:
         """Test unsupported order sides raise ValueError."""
@@ -2263,8 +2186,8 @@ class TestVolumeAndExecution:
             order_side="SELL",
         )
 
-        assert result["status"] == "filled"
-        assert result["retcode"] == 10009
+        assert result.status == "filled"
+        assert result.retcode == 10009
         client.order_send.assert_called_once()
 
     @pytest.mark.parametrize(
@@ -2294,8 +2217,8 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
-        assert result["status"] == expected_status
-        _assert_close(result.volume, 0.1)
+        assert result.status == expected_status
+        _assert_close(result.requested_volume, 0.1)
 
     def test_place_market_order_captures_send_errors_in_receipt(self) -> None:
         """Test live send failures normalize to failed execution receipts."""
@@ -2310,8 +2233,8 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
-        assert result["status"] == "failed"
-        assert "send failed" in str(result["comment"])
+        assert result.status == "failed"
+        assert "send failed" in str(result.comment)
 
     def test_place_market_order_marks_unmappable_response_as_failed(self) -> None:
         """Test unsupported broker response shapes normalize to failed receipts."""
@@ -2326,7 +2249,7 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
-        assert result["status"] == "failed"
+        assert result.status == "failed"
 
     @pytest.mark.parametrize(
         ("raw_retcode", "expected_retcode"),
@@ -2378,11 +2301,11 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
-        assert result["retcode"] == expected_retcode
+        assert result.retcode == expected_retcode
         if expected_retcode is None:
-            assert result["status"] == "malformed"
+            assert result.status == "malformed"
         else:
-            assert result["status"] == "rejected"
+            assert result.status == "rejected"
 
     @pytest.mark.parametrize(
         ("symbol_info", "preferred_modes", "default_mode", "expected"),
@@ -2612,7 +2535,7 @@ class TestVolumeAndExecution:
         )
 
         assert len(result) == 1
-        assert result[0]["order_side"] == expected_order_side
+        assert result[0].order_side == expected_order_side
         assert _request_from_result(result[0])["position"] == expected_position
 
     def test_close_open_positions_sends_position_ticket(self) -> None:
@@ -2719,7 +2642,7 @@ class TestVolumeAndExecution:
 
         # Order matches the source positions frame: EURUSD, USDJPY, EURUSD.
         type_fillings = [_request_from_result(r)["type_filling"] for r in result]
-        assert [r["symbol"] for r in result] == ["EURUSD", "USDJPY", "EURUSD"]
+        assert [r.symbol for r in result] == ["EURUSD", "USDJPY", "EURUSD"]
         assert type_fillings == [31, 30, 31]
         # One symbol_info lookup per unique symbol, not per position.
         assert client.symbol_info_as_dict.call_count == 2
@@ -2783,8 +2706,8 @@ class TestVolumeAndExecution:
 
         results = close_open_positions(client, symbols="EURUSD")
 
-        assert results[0]["status"] == "failed"
-        assert "close failed" in str(results[0]["comment"])
+        assert results[0].status == "failed"
+        assert "close failed" in str(results[0].comment)
 
     def test_filter_positions_magic_is_fail_closed_without_magic_column(self) -> None:
         """Test direct magic filtering fails closed when the DataFrame lacks magic."""
@@ -3083,7 +3006,7 @@ class TestVolumeAndExecution:
         )
 
         assert len(result) == 1
-        assert result[0]["status"] == "dry_run"
+        assert result[0].status == "dry_run"
         _assert_close(_request_from_result(result[0])["sl"], 1.188)
         client.order_send.assert_not_called()
 
@@ -3106,7 +3029,7 @@ class TestVolumeAndExecution:
             trailing_stop_ratio=0.01,
         )
 
-        assert result[0]["status"] == "filled"
+        assert result[0].status == "filled"
         _assert_close(_request_from_result(result[0])["sl"], 1.188)
         client.order_send.assert_called_once()
 
@@ -3196,8 +3119,8 @@ class TestVolumeAndExecution:
 
         result = update_sltp_for_open_positions(client, tickets=[1])
 
-        assert result[0]["status"] == "filled"
-        assert result[0]["retcode"] == 10009
+        assert result[0].status == "filled"
+        assert result[0].retcode == 10009
         _assert_close(_request_from_result(result[0])["sl"], 1.0)
 
     def test_update_sltp_omits_invalid_existing_levels(self) -> None:
@@ -3243,23 +3166,6 @@ class TestVolumeAndExecution:
         request = _request_from_result(result[0])
         assert "sl" not in request
         assert "tp" not in request
-
-    def test_shuts_down_when_initialize_raises(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Test shutdown is called when initialization fails."""
-        mock_raw_client = MagicMock()
-        mock_raw_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
-        mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
-            return_value=mock_raw_client,
-        )
-
-        with pytest.raises(Mt5ConnectionError, match="boom"), mt5_trading_session():
-            pass
-
-        mock_raw_client.shutdown.assert_called_once()
 
     def test_place_market_order_selects_hidden_symbol_for_live_send(self) -> None:
         """Test live market orders select hidden symbols before reading ticks."""
@@ -3326,7 +3232,7 @@ class TestVolumeAndExecution:
             order_side="BUY",
         )
 
-        assert result["status"] == "filled"
+        assert result.status == "filled"
         client.symbol_select.assert_called_once_with("EURUSD", enable=True)
         client.order_send.assert_called_once()
 
@@ -3373,11 +3279,11 @@ class TestVolumeAndExecution:
 
         result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
 
-        assert result[0]["retcode"] == expected_retcode
+        assert result[0].retcode == expected_retcode
         if expected_retcode is None:
-            assert result[0]["status"] == "malformed"
+            assert result[0].status == "malformed"
         else:
-            assert result[0]["status"] == "rejected"
+            assert result[0].status == "rejected"
 
     def test_update_sltp_captures_send_errors_in_receipt(self) -> None:
         """Test live SL/TP updates normalize send failures to failed receipts."""
@@ -3399,8 +3305,8 @@ class TestVolumeAndExecution:
 
         result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
 
-        assert result[0]["status"] == "failed"
-        assert "sltp failed" in str(result[0]["comment"])
+        assert result[0].status == "failed"
+        assert "sltp failed" in str(result[0].comment)
 
     def test_trading_typed_dict_exports(self) -> None:
         """Test order-planning TypedDict contracts are importable."""
@@ -3419,37 +3325,27 @@ class TestVolumeAndExecution:
             "stop_loss": 0.9,
             "take_profit": 1.1,
         }
-        execution = cast(
-            "OrderExecutionResult",
-            {
-                "status": "dry_run",
-                "symbol": "EURUSD",
-                "order_side": "BUY",
-                "volume": 0.1,
-                "retcode": None,
-                "comment": None,
-                "request": {"action": 20},
-                "response": None,
-                "dry_run": True,
-            },
+        execution = OrderExecutionResult(
+            status="dry_run",
+            symbol="EURUSD",
+            order_side="BUY",
+            requested_volume=0.1,
+            filled_volume=None,
+            request_price=None,
+            filled_price=None,
+            order_ticket=None,
+            deal_ticket=None,
+            position_id=None,
+            magic=None,
+            retcode=None,
+            comment=None,
+            dry_run=True,
+            request={"action": 20},
+            response=None,
         )
         _assert_close(margin["buy_volume"], 0.1)
         _assert_close(limits["entry"], 1.0)
-        assert execution["status"] == "dry_run"
-
-    def test_shuts_down_when_body_raises(self, mocker: MockerFixture) -> None:
-        """Test shutdown is called when the context body raises."""
-        mock_raw_client = MagicMock()
-        mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
-            return_value=mock_raw_client,
-        )
-
-        body_error = "body error"
-        with pytest.raises(Mt5CliError, match=body_error), mt5_trading_session():
-            raise RuntimeError(body_error)
-
-        mock_raw_client.shutdown.assert_called_once()
+        assert execution.status == "dry_run"
 
 
 class TestExecutionNormalizationInternals:
@@ -3483,541 +3379,153 @@ class TestExecutionNormalizationInternals:
         assert _response_mapping({"retcode": 10009}) == {"retcode": 10009}
 
 
-class TestFetchLatestClosedRatesForTradingClient:
-    """Tests for fetch_latest_closed_rates_for_trading_client."""
-
-    def test_fetches_extra_bar_and_drops_forming_row(self) -> None:
-        """Test trading-client helper hides the forming bar."""
-        client = MagicMock()
-        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
-            {
-                "time": [1, 2, 3],
-                "close": [1.0, 1.1, 1.2],
-            },
-        )
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        client.fetch_latest_rates_as_df.assert_called_once_with("EURUSD", "M1", 3)
-        assert list(result["close"]) == [1.0, 1.1]
-        assert list(result["time"]) == [1, 2]
-
-    def test_accepts_numeric_epoch_timestamps(self) -> None:
-        """Test numeric epoch timestamps are preserved in output."""
-        client = MagicMock()
-        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
-            {
-                "time": [1700000000, 1700000060, 1700000120],
-                "close": [1.0, 1.1, 1.2],
-            },
-        )
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert list(result["time"]) == [1700000000, 1700000060]
-
-    def test_accepts_timezone_aware_timestamps_from_index(self) -> None:
-        """Test timezone-aware timestamps in the index are exposed as a column."""
-        client = MagicMock()
-        frame = pd.DataFrame(
-            {
-                "close": [1.0, 1.1, 1.2],
-            },
-            index=pd.to_datetime(
-                [
-                    "2024-01-01T00:00:00Z",
-                    "2024-01-01T00:01:00Z",
-                    "2024-01-01T00:02:00Z",
-                ],
-                utc=True,
-            ),
-        )
-        frame.index.name = "time"
-        client.fetch_latest_rates_as_df.return_value = frame
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert "time" in result.columns
-        assert len(result) == 2
-        assert result["close"].tolist() == [1.0, 1.1]
-
-    def test_accepts_unnamed_datetime_index(self) -> None:
-        """Test unnamed DatetimeIndex values are exposed as a time column."""
-        client = MagicMock()
-        frame = pd.DataFrame(
-            {"close": [1.0, 1.1, 1.2]},
-            index=pd.to_datetime(
-                [
-                    "2024-01-01T00:00:00Z",
-                    "2024-01-01T00:01:00Z",
-                    "2024-01-01T00:02:00Z",
-                ],
-                utc=True,
-            ),
-        )
-        client.fetch_latest_rates_as_df.return_value = frame
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert "time" in result.columns
-        assert len(result) == 2
-
-    def test_accepts_named_non_time_index(self) -> None:
-        """Test non-time named indexes are left unchanged before validation."""
-        client = MagicMock()
-        frame = pd.DataFrame(
-            {
-                "close": [1.0, 1.1, 1.2],
-                "bar_id": [1, 2, 3],
-            },
-        ).set_index("bar_id")
-        client.fetch_latest_rates_as_df.return_value = frame
-
-        with pytest.raises(ValueError, match="missing a time column"):
-            fetch_latest_closed_rates_for_trading_client(
-                client,
-                symbol="EURUSD",
-                granularity="M1",
-                count=2,
-            )
-
-    def test_copy_rates_from_pos_fallback_drops_forming_bar(self) -> None:
-        """Regression: client with only copy_rates_from_pos_as_df works end-to-end."""
-        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
-        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
-            {
-                "time": [1700000000, 1700000060, 1700000120],
-                "close": [1.0, 1.1, 1.2],
-            },
-        )
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        client.copy_rates_from_pos_as_df.assert_called_once_with(
-            symbol="EURUSD", timeframe=1, start_pos=0, count=3
-        )
-        assert list(result["close"]) == [1.0, 1.1]
-        assert list(result["time"]) == [1700000000, 1700000060]
-
-    def test_copy_rates_from_pos_fallback_resolves_granularity(self) -> None:
-        """Fallback path resolves granularity string to integer timeframe."""
-        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
-        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
-            {"time": [1, 2, 3, 4], "close": [1.0, 1.1, 1.2, 1.3]},
-        )
-
-        fetch_latest_closed_rates_for_trading_client(
-            client, symbol="USDJPY", granularity="H1", count=3
-        )
-
-        call_kwargs = client.copy_rates_from_pos_as_df.call_args.kwargs
-        assert call_kwargs["symbol"] == "USDJPY"
-        assert call_kwargs["timeframe"] == 16385
-        assert call_kwargs["start_pos"] == 0
-        assert call_kwargs["count"] == 4
-
-    def test_copy_rates_from_pos_fallback_returns_count_closed_rows(self) -> None:
-        """Fallback path trims to exactly count closed rows after forming-bar drop."""
-        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
-        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
-            {"time": list(range(6)), "close": [float(i) for i in range(6)]},
-        )
-
-        result = fetch_latest_closed_rates_for_trading_client(
-            client, symbol="EURUSD", granularity="M1", count=4
-        )
-
-        assert len(result) == 4
-        assert list(result["close"]) == [1.0, 2.0, 3.0, 4.0]
-
-    def test_copy_rates_from_pos_fallback_raises_on_invalid_granularity(self) -> None:
-        """Invalid granularity raises ValueError before calling the fallback method."""
-        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
-
-        with pytest.raises(ValueError, match="Invalid timeframe"):
-            fetch_latest_closed_rates_for_trading_client(
-                client, symbol="EURUSD", granularity="BADGRAN", count=1
-            )
-
-        client.copy_rates_from_pos_as_df.assert_not_called()
-
-    def test_raises_when_trading_client_cannot_fetch_rates(self) -> None:
-        """Test missing rate-fetch methods raise Mt5OperationError."""
-        client = MagicMock(spec=[])
-
-        with pytest.raises(Mt5OperationError, match="cannot fetch rate data"):
-            fetch_latest_closed_rates_for_trading_client(
-                client,
-                symbol="EURUSD",
-                granularity="M1",
-                count=1,
-            )
-
-    def test_raises_when_time_column_is_missing(self) -> None:
-        """Test malformed rate data without time raises ValueError."""
-        client = MagicMock()
-        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
-            {"close": [1.0, 1.1, 1.2]},
-        )
-
-        with pytest.raises(ValueError, match="missing a time column"):
-            fetch_latest_closed_rates_for_trading_client(
-                client,
-                symbol="EURUSD",
-                granularity="M1",
-                count=2,
-            )
-
-    def test_raises_when_no_closed_bars_are_available(self) -> None:
-        """Test empty closed-bar results raise an actionable ValueError."""
-        client = MagicMock()
-        client.fetch_latest_rates_as_df.return_value = pd.DataFrame(
-            {"time": [1], "close": [1.0]},
-        )
-
-        with pytest.raises(ValueError, match="Rate data is empty"):
-            fetch_latest_closed_rates_for_trading_client(
-                client,
-                symbol="EURUSD",
-                granularity="M1",
-                count=1,
-            )
-
-    def test_raises_when_fetch_returns_none(self) -> None:
-        """Test None fetch results raise a malformed rate data error."""
-        client = MagicMock()
-        client.fetch_latest_rates_as_df.return_value = None
-
-        with pytest.raises(ValueError, match="Malformed rate data"):
-            fetch_latest_closed_rates_for_trading_client(
-                client,
-                symbol="EURUSD",
-                granularity="M1",
-                count=2,
-            )
-
-    def test_raises_when_fetch_returns_non_dataframe(self) -> None:
-        """Test non-DataFrame fetch results raise a malformed rate data error."""
-        client = MagicMock()
-        client.fetch_latest_rates_as_df.return_value = [{"time": 1, "close": 1.0}]
-
-        with pytest.raises(ValueError, match="Malformed rate data"):
-            fetch_latest_closed_rates_for_trading_client(
-                client,
-                symbol="EURUSD",
-                granularity="M1",
-                count=2,
-            )
-
-    def test_rejects_non_positive_count_before_fetching(self) -> None:
-        """Test invalid count values fail before calling MT5."""
-        client = MagicMock()
-
-        with pytest.raises(ValueError, match="count must be positive"):
-            fetch_latest_closed_rates_for_trading_client(
-                client,
-                symbol="EURUSD",
-                granularity="M1",
-                count=0,
-            )
-
-        client.fetch_latest_rates_as_df.assert_not_called()
-
-
 class TestFetchLatestClosedRatesIndexed:
-    """Tests for fetch_latest_closed_rates_indexed."""
+    """Tests for the public client-based closed-rate helper."""
 
-    def test_converts_epoch_seconds_to_utc_datetime_index(
-        self, mocker: MockerFixture
-    ) -> None:
-        """Test integer epoch second timestamps become a UTC DatetimeIndex."""
-        frame = pd.DataFrame(
-            {"time": [1700000000, 1700003600], "close": [1.1, 1.2]},
-        )
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=frame,
+    def test_returns_closed_rates_with_utc_index(self) -> None:
+        """The last forming bar is removed and time becomes the index."""
+        client = _mock_trade_client()
+        client.copy_rates_from_pos.return_value = pd.DataFrame(
+            {"time": [1_704_067_200, 1_704_067_260, 1_704_067_320], "close": [1, 2, 3]},
         )
 
         result = fetch_latest_closed_rates_indexed(
-            MagicMock(),
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
+            client, symbol="EURUSD", granularity="M1", count=2
         )
 
-        assert isinstance(result.index, pd.DatetimeIndex)
         assert result.index.name == "time"
-        assert result.index.tz is not None
-        assert str(result.index.tz) == "UTC"
-        assert "time" not in result.columns
-        assert list(result["close"]) == [1.1, 1.2]
-
-    def test_converts_float_epoch_seconds_to_utc_datetime_index(
-        self, mocker: MockerFixture
-    ) -> None:
-        """Test float64 epoch second timestamps (after concat/NA upcast) become UTC."""
-        frame = pd.DataFrame(
-            {"time": [1700000000.0, 1700003600.0], "close": [1.1, 1.2]},
-        )
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=frame,
-        )
-
-        result = fetch_latest_closed_rates_indexed(
-            MagicMock(),
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
         assert isinstance(result.index, pd.DatetimeIndex)
         assert result.index.tz is not None
-        assert str(result.index.tz) == "UTC"
-        assert result.index[0].year == 2023
+        assert result["close"].tolist() == [1, 2]
 
     @pytest.mark.parametrize(
-        "timestamps",
+        ("client", "count", "error"),
         [
-            [1700000000, 1700003600],
-            [1700000000.0, 1700003600.0],
-            [np_int64(1700000000), np_int64(1700003600)],
-            [np_float64(1700000000.0), np_float64(1700003600.0)],
+            (_mock_trade_client(), 0, "count must be positive"),
+            (object(), 1, "cannot fetch rate data"),
         ],
-        ids=["integers", "floats", "numpy-integers", "numpy-floats"],
     )
-    def test_converts_object_numeric_epoch_seconds_to_utc_datetime_index(
-        self,
-        mocker: MockerFixture,
-        timestamps: list[int] | list[float] | list[np_int64] | list[np_float64],
+    def test_rejects_invalid_request(
+        self, client: object, count: int, error: str
     ) -> None:
-        """Test object-dtype real numbers are interpreted as epoch seconds."""
-        frame = pd.DataFrame(
-            {
-                "time": pd.Series(timestamps, dtype=object),
-                "close": [1.1, 1.2],
-            },
-        )
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=frame,
-        )
-
-        result = fetch_latest_closed_rates_indexed(
-            MagicMock(), symbol="EURUSD", granularity="M1", count=2
-        )
-
-        assert list(result.index) == list(
-            pd.to_datetime([1700000000, 1700003600], unit="s", utc=True)
-        )
-
-    def test_parses_mixed_datetime_like_strings(self, mocker: MockerFixture) -> None:
-        """Test object-dtype datetime strings retain datetime-like parsing."""
-        timestamps = ["2024-01-01T00:00:00Z", "2024-01-01T01:00:00+01:00"]
-        frame = pd.DataFrame({"time": timestamps, "close": [1.1, 1.2]})
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=frame,
-        )
-
-        result = fetch_latest_closed_rates_indexed(
-            MagicMock(), symbol="EURUSD", granularity="M1", count=2
-        )
-
-        assert list(result.index) == list(pd.to_datetime(timestamps, utc=True))
-
-    def test_does_not_treat_bool_as_epoch_seconds(self, mocker: MockerFixture) -> None:
-        """Test bool timestamps do not enter the numeric epoch-seconds path."""
-        frame = pd.DataFrame(
-            {"time": pd.Series([True, False], dtype=object), "close": [1.1, 1.2]},
-        )
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=frame,
-        )
-
-        with pytest.raises(ValueError, match="invalid or unparseable time data"):
+        """Invalid counts and client capabilities fail deterministically."""
+        with pytest.raises((ValueError, Mt5OperationError), match=error):
             fetch_latest_closed_rates_indexed(
-                MagicMock(), symbol="EURUSD", granularity="M1", count=2
+                cast("_Mt5ClientProtocol", client),
+                symbol="EURUSD",
+                granularity="M1",
+                count=count,
             )
 
-    def test_converts_naive_datetime_to_utc_datetime_index(
-        self, mocker: MockerFixture
+    @pytest.mark.parametrize(
+        ("frame", "error"),
+        [
+            ("not-a-frame", "malformed rate data"),
+            (pd.DataFrame({"time": [1]}), "Rate data is empty"),
+            (pd.DataFrame({"close": [1, 2]}), "missing a time column"),
+        ],
+    )
+    def test_rejects_malformed_rate_data(self, frame: object, error: str) -> None:
+        """Malformed, empty, and time-less payloads are rejected."""
+        client = _mock_trade_client()
+        client.copy_rates_from_pos.return_value = frame
+
+        with pytest.raises((TypeError, ValueError), match=error):
+            fetch_latest_closed_rates_indexed(
+                client, symbol="EURUSD", granularity="M1", count=1
+            )
+
+    def test_accepts_datetime_index_without_a_time_column(self) -> None:
+        """Datetime indexes are normalized to the canonical time column."""
+        client = _mock_trade_client()
+        client.copy_rates_from_pos.return_value = pd.DataFrame(
+            {"close": [1, 2, 3]},
+            index=pd.date_range("2024-01-01", periods=3, tz="UTC"),
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            client, symbol="EURUSD", granularity="M1", count=2
+        )
+
+        assert result["close"].tolist() == [1, 2]
+
+    def test_accepts_named_time_index(self) -> None:
+        """A named time index remains a time column after normalization."""
+        client = _mock_trade_client()
+        index = pd.date_range("2024-01-01", periods=3, tz="UTC").rename("time")
+        client.copy_rates_from_pos.return_value = pd.DataFrame(
+            {"close": [1, 2, 3]}, index=index
+        )
+
+        result = fetch_latest_closed_rates_indexed(
+            client, symbol="EURUSD", granularity="M1", count=2
+        )
+
+        assert result["close"].tolist() == [1, 2]
+
+    @pytest.mark.parametrize(
+        ("times", "error"),
+        [
+            ([{"bad": 1}, {"bad": 1}, {"bad": 1}], "invalid or unparseable"),
+            ([None, None, None], "contains missing"),
+        ],
+    )
+    def test_rejects_invalid_or_missing_rate_times(
+        self, times: list[object], error: str
     ) -> None:
-        """Test timezone-naive datetime values are localized to UTC."""
-        from datetime import datetime  # noqa: PLC0415
-
-        frame = pd.DataFrame(
-            {
-                "time": [datetime(2024, 1, 1, 0, 0), datetime(2024, 1, 1, 1, 0)],  # noqa: DTZ001
-                "close": [1.1, 1.2],
-            },
-        )
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=frame,
+        """Timestamp normalization rejects invalid and missing values."""
+        client = _mock_trade_client()
+        client.copy_rates_from_pos.return_value = pd.DataFrame(
+            {"time": times, "close": [1, 2, 3]},
         )
 
-        result = fetch_latest_closed_rates_indexed(
-            MagicMock(),
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert isinstance(result.index, pd.DatetimeIndex)
-        assert result.index.tz is not None
-        assert str(result.index.tz) == "UTC"
-        assert result.index[0].year == 2024
-
-    def test_converts_aware_datetime_to_utc(self, mocker: MockerFixture) -> None:
-        """Test timezone-aware datetime values are converted to UTC."""
-        from datetime import datetime, timedelta, timezone  # noqa: PLC0415
-
-        tz_plus5 = timezone(timedelta(hours=5))
-        frame = pd.DataFrame(
-            {
-                "time": [datetime(2024, 1, 1, 5, 0, tzinfo=tz_plus5)],
-                "close": [1.1],
-            },
-        )
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=frame,
-        )
-
-        result = fetch_latest_closed_rates_indexed(
-            MagicMock(),
-            symbol="EURUSD",
-            granularity="M1",
-            count=1,
-        )
-
-        assert isinstance(result.index, pd.DatetimeIndex)
-        assert str(result.index.tz) == "UTC"
-        assert result.index[0].hour == 0
-
-    def test_raises_on_missing_time_column(self, mocker: MockerFixture) -> None:
-        """Test missing time column after the underlying fetch raises ValueError."""
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=pd.DataFrame({"close": [1.1]}),
-        )
-
-        with pytest.raises(ValueError, match="missing a time column"):
+        with pytest.raises(ValueError, match=error):
             fetch_latest_closed_rates_indexed(
-                MagicMock(),
-                symbol="EURUSD",
-                granularity="M1",
-                count=1,
+                client, symbol="EURUSD", granularity="M1", count=2
             )
 
-    def test_raises_on_unparseable_time_column(self, mocker: MockerFixture) -> None:
-        """Test unparseable time data raises a clear ValueError."""
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=pd.DataFrame({"time": ["not-a-date"], "close": [1.1]}),
+
+class TestExecutionBrokerFailures:
+    """Broker failures after input validation always produce receipts."""
+
+    def test_close_continues_after_filling_mode_failure(self) -> None:
+        """One failed close receipt does not prevent later positions being handled."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {"ticket": 1, "symbol": "FAIL", "type": 0, "volume": 0.1},
+                {"ticket": 2, "symbol": "EURUSD", "type": 0, "volume": 0.1},
+            ],
         )
 
-        with pytest.raises(ValueError, match="invalid or unparseable time data"):
-            fetch_latest_closed_rates_indexed(
-                MagicMock(),
-                symbol="EURUSD",
-                granularity="M1",
-                count=1,
-            )
+        def _symbol_info(*, symbol: str) -> dict[str, object]:
+            if symbol == "FAIL":
+                msg = "metadata unavailable"
+                raise RuntimeError(msg)
+            return {"visible": True, "filling_mode": 2}
 
-    def test_raises_on_nat_time_column(self, mocker: MockerFixture) -> None:
-        """Test NaT in the time column raises ValueError instead of silently passing."""
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=pd.DataFrame(
-                {"time": [1700000000, None], "close": [1.1, 1.2]},
-            ),
+        client.symbol_info_as_dict.side_effect = _symbol_info
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = {"retcode": 10009}
+
+        results = close_open_positions(client)
+
+        assert [result.status for result in results] == ["failed", "filled"]
+        assert results[0].position_id == 1
+
+    def test_sltp_symbol_selection_failure_is_a_receipt(self) -> None:
+        """SL/TP selection failures preserve the known position context."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1}],
         )
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_select.return_value = False
 
-        with pytest.raises(ValueError, match=r"missing.*NaT.*timestamp"):
-            fetch_latest_closed_rates_indexed(
-                MagicMock(),
-                symbol="EURUSD",
-                granularity="M1",
-                count=2,
-            )
+        results = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.0)
 
-    def test_drops_time_column_and_sets_index(self, mocker: MockerFixture) -> None:
-        """Test the returned DataFrame has the DatetimeIndex and no time column."""
-        frame = pd.DataFrame(
-            {
-                "time": [1700000000, 1700003600],
-                "open": [1.0, 1.1],
-                "close": [1.1, 1.2],
-            },
-        )
-        mocker.patch(
-            "mt5cli.trading.fetch_latest_closed_rates_for_trading_client",
-            return_value=frame,
-        )
-
-        result = fetch_latest_closed_rates_indexed(
-            MagicMock(),
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert "time" not in result.columns
-        assert "open" in result.columns
-        assert "close" in result.columns
-        assert isinstance(result.index, pd.DatetimeIndex)
-
-    def test_copy_rates_from_pos_fallback_produces_utc_datetime_index(self) -> None:
-        """Fallback path via copy_rates_from_pos_as_df produces a UTC DatetimeIndex."""
-        client = MagicMock(spec=["copy_rates_from_pos_as_df"])
-        client.copy_rates_from_pos_as_df.return_value = pd.DataFrame(
-            {
-                "time": [1700000000, 1700003600, 1700007200],
-                "close": [1.1, 1.2, 1.3],
-            },
-        )
-
-        result = fetch_latest_closed_rates_indexed(
-            client,
-            symbol="EURUSD",
-            granularity="M1",
-            count=2,
-        )
-
-        assert isinstance(result.index, pd.DatetimeIndex)
-        assert result.index.name == "time"
-        assert str(result.index.tz) == "UTC"
-        assert "time" not in result.columns
-        assert list(result["close"]) == [1.1, 1.2]
+        assert results[0].status == "failed"
+        assert results[0].position_id == 1
 
 
 class TestExtractTickPrice:
@@ -4334,258 +3842,3 @@ class TestEstimateServerClockOffsetSeconds:
     def test_is_listed_in_trading_module_all(self) -> None:
         """The helper is exported through mt5cli.trading.__all__."""
         assert "estimate_server_clock_offset_seconds" in trading.__all__
-
-
-class TestFetchRecentHistoryDealsForTradingClient:
-    """Tests for fetch_recent_history_deals_for_trading_client."""
-
-    def _fake_client(self, return_value: pd.DataFrame | None) -> MagicMock:
-        client = MagicMock()
-        client.history_deals_get_as_df.return_value = return_value
-        return client
-
-    def test_passes_correct_date_range_and_filters(self) -> None:
-        """Calls history_deals_get_as_df with derived date_from/date_to."""
-        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        client = self._fake_client(pd.DataFrame())
-
-        fetch_recent_history_deals_for_trading_client(
-            client,
-            symbol="JP225",
-            group="FX*",
-            hours=6.0,
-            date_to=anchor,
-        )
-
-        client.history_deals_get_as_df.assert_called_once_with(
-            date_from=anchor - timedelta(hours=6.0),
-            date_to=anchor,
-            group="FX*",
-            symbol="JP225",
-        )
-
-    def test_raises_for_zero_hours(self) -> None:
-        """hours=0 raises ValueError."""
-        client = self._fake_client(pd.DataFrame())
-        with pytest.raises(ValueError, match="hours must be finite and positive"):
-            fetch_recent_history_deals_for_trading_client(client, hours=0)
-
-    def test_raises_for_negative_hours(self) -> None:
-        """Negative hours raises ValueError."""
-        client = self._fake_client(pd.DataFrame())
-        with pytest.raises(ValueError, match="hours must be finite and positive"):
-            fetch_recent_history_deals_for_trading_client(client, hours=-1.0)
-
-    @pytest.mark.parametrize("bad_hours", [float("nan"), float("inf"), float("-inf")])
-    def test_raises_for_non_finite_hours(self, bad_hours: float) -> None:
-        """nan, inf, and -inf raise ValueError before reaching timedelta."""
-        client = self._fake_client(pd.DataFrame())
-        with pytest.raises(ValueError, match="hours must be finite and positive"):
-            fetch_recent_history_deals_for_trading_client(client, hours=bad_hours)
-
-    def test_none_result_returns_empty_dataframe(self) -> None:
-        """None from underlying client becomes an empty DataFrame."""
-        client = self._fake_client(None)
-        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
-        assert isinstance(result, pd.DataFrame)
-        assert result.empty
-
-    def test_empty_dataframe_result_preserves_schema(self) -> None:
-        """Empty DataFrame from client is returned with its columns intact."""
-        schema_df = pd.DataFrame(columns=["time", "symbol", "profit", "volume"])
-        client = self._fake_client(schema_df)
-        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
-        assert result.empty
-        assert list(result.columns) == ["time", "symbol", "profit", "volume"]
-
-    def test_none_result_returns_bare_empty_dataframe(self) -> None:
-        """None from client becomes a bare empty DataFrame (no columns)."""
-        client = self._fake_client(None)
-        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
-        assert result.empty
-        assert list(result.columns) == []
-
-    def test_sorts_by_time_and_resets_index(self) -> None:
-        """Unsorted time rows are sorted chronologically and index is reset."""
-        t1 = datetime(2024, 6, 1, 9, 0, tzinfo=UTC)
-        t2 = datetime(2024, 6, 1, 10, 0, tzinfo=UTC)
-        t3 = datetime(2024, 6, 1, 11, 0, tzinfo=UTC)
-        df = pd.DataFrame({"time": [t3, t1, t2], "profit": [3.0, 1.0, 2.0]})
-        client = self._fake_client(df)
-
-        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
-
-        assert list(result["time"]) == [t1, t2, t3]
-        assert list(result.index) == [0, 1, 2]
-
-    def test_preserves_all_columns(self) -> None:
-        """No columns are dropped from the underlying client result."""
-        anchor = datetime(2024, 6, 1, 12, 0, tzinfo=UTC)
-        df = pd.DataFrame({
-            "time": [anchor],
-            "symbol": ["JP225"],
-            "type": [0],
-            "entry": [1],
-            "volume": [0.1],
-            "profit": [50.0],
-            "position_id": [123456],
-            "commission": [-0.5],
-        })
-        client = self._fake_client(df)
-
-        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
-
-        assert set(result.columns) == {
-            "time",
-            "symbol",
-            "type",
-            "entry",
-            "volume",
-            "profit",
-            "position_id",
-            "commission",
-        }
-
-    def test_no_time_column_still_returns_data(self) -> None:
-        """DataFrames without a time column are returned with RangeIndex."""
-        df = pd.DataFrame({"profit": [1.0, 2.0], "ticket": [10, 11]})
-        client = self._fake_client(df)
-
-        result = fetch_recent_history_deals_for_trading_client(client, hours=24.0)
-
-        assert list(result["profit"]) == [1.0, 2.0]
-        assert list(result.index) == [0, 1]
-
-    def test_defaults_date_to_to_utc_now(self, mocker: MockerFixture) -> None:
-        """When date_to is omitted, the window end is datetime.now(UTC)."""
-        frozen = datetime(2024, 6, 1, 0, 0, 0, tzinfo=UTC)
-        mock_dt = mocker.patch("mt5cli.trading.datetime")
-        mock_dt.now.return_value = frozen
-        client = self._fake_client(pd.DataFrame())
-
-        fetch_recent_history_deals_for_trading_client(client, hours=1.0)
-
-        mock_dt.now.assert_called_once_with(UTC)
-        client.history_deals_get_as_df.assert_called_once_with(
-            date_from=frozen - timedelta(hours=1.0),
-            date_to=frozen,
-            group=None,
-            symbol=None,
-        )
-
-    def test_server_clock_offset_shifts_the_trailing_window(self) -> None:
-        """A positive offset shifts both window ends by that many seconds."""
-        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        client = self._fake_client(pd.DataFrame())
-
-        fetch_recent_history_deals_for_trading_client(
-            client,
-            hours=6.0,
-            date_to=anchor,
-            server_clock_offset_seconds=10800.0,
-        )
-
-        client.history_deals_get_as_df.assert_called_once_with(
-            date_from=anchor - timedelta(hours=6.0) + timedelta(hours=3),
-            date_to=anchor + timedelta(hours=3),
-            group=None,
-            symbol=None,
-        )
-
-    def test_omitted_server_clock_offset_keeps_current_behavior(self) -> None:
-        """Omitting the offset keeps the window anchored to true UTC."""
-        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        client = self._fake_client(pd.DataFrame())
-
-        fetch_recent_history_deals_for_trading_client(
-            client,
-            hours=6.0,
-            date_to=anchor,
-        )
-
-        client.history_deals_get_as_df.assert_called_once_with(
-            date_from=anchor - timedelta(hours=6.0),
-            date_to=anchor,
-            group=None,
-            symbol=None,
-        )
-
-    def test_negative_server_clock_offset_shifts_the_trailing_window(self) -> None:
-        """A negative offset (server behind UTC) shifts both ends backward."""
-        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        client = self._fake_client(pd.DataFrame())
-
-        fetch_recent_history_deals_for_trading_client(
-            client,
-            hours=6.0,
-            date_to=anchor,
-            server_clock_offset_seconds=-10800.0,
-        )
-
-        client.history_deals_get_as_df.assert_called_once_with(
-            date_from=anchor - timedelta(hours=6.0) - timedelta(hours=3),
-            date_to=anchor - timedelta(hours=3),
-            group=None,
-            symbol=None,
-        )
-
-    @pytest.mark.parametrize("bad_offset", [float("nan"), float("inf"), float("-inf")])
-    def test_raises_for_non_finite_server_clock_offset(
-        self,
-        bad_offset: float,
-    ) -> None:
-        """nan/inf/-inf offsets raise ValueError before reaching timedelta."""
-        client = self._fake_client(pd.DataFrame())
-
-        with pytest.raises(
-            ValueError,
-            match="server_clock_offset_seconds must be finite",
-        ):
-            fetch_recent_history_deals_for_trading_client(
-                client,
-                hours=6.0,
-                server_clock_offset_seconds=bad_offset,
-            )
-
-        client.history_deals_get_as_df.assert_not_called()
-
-
-class TestCreateTradingClientHistoryDealsIntegration:
-    """Verify create_trading_client() result satisfies fetch_recent_history_deals."""
-
-    def test_create_trading_client_result_usable_with_history_deals_helper(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """create_trading_client() result passes directly to fetch_recent_history_deals.
-
-        This exercises the intended SDK call path without a live MT5 terminal.
-        The mock satisfies both _Mt5ClientProtocol and _HistoryDealsClientProtocol.
-        """
-        mock_raw_client = MagicMock()
-        mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
-            return_value=mock_raw_client,
-        )
-
-        anchor = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        expected_df = pd.DataFrame({"time": [anchor], "profit": [10.0]})
-        mock_raw_client.history_deals_get_as_df.return_value = expected_df
-
-        client = create_trading_client(login=12345, server="Demo")
-        result = fetch_recent_history_deals_for_trading_client(
-            client,
-            symbol="EURUSD",
-            hours=6.0,
-            date_to=anchor,
-        )
-
-        mock_raw_client.history_deals_get_as_df.assert_called_once_with(
-            date_from=anchor - timedelta(hours=6.0),
-            date_to=anchor,
-            group=None,
-            symbol="EURUSD",
-            ticket=None,
-            position=None,
-        )
-        assert list(result["profit"]) == [10.0]

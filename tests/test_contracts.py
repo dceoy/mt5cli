@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -478,6 +480,45 @@ class TestStableSdkContract:
     def test_stable_exports_are_importable_from_package_root(self, name: str) -> None:
         """Stable SDK names resolve through ``from mt5cli import ...``."""
         assert hasattr(mt5cli, name), f"{name!r} missing from mt5cli package root"
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "create_trading_client",
+            "mt5_trading_session",
+            "fetch_latest_closed_rates_for_trading_client",
+            "fetch_recent_history_deals_for_trading_client",
+        ],
+    )
+    def test_removed_legacy_apis_are_not_public(self, name: str) -> None:
+        """No public factory or session can reopen the raw-client lifecycle path."""
+        assert name not in mt5cli.__all__
+        assert name not in STABLE_SDK_EXPORTS
+        assert not hasattr(mt5cli, name)
+
+    def test_public_function_annotations_hide_raw_pdmt5_clients(self) -> None:
+        """The root facade never exposes a low-level pdmt5 client type."""
+        for name in mt5cli.__all__:
+            value = getattr(mt5cli, name)
+            if not callable(value) or inspect.isclass(value):
+                continue
+            annotations = inspect.get_annotations(value, eval_str=False)
+            assert all(
+                "Mt5DataClient" not in str(annotation)
+                for annotation in annotations.values()
+            ), name
+
+    def test_documented_contract_identifies_runtime_export_set(self) -> None:
+        """The public-contract document points to the same runtime authority."""
+        contract_doc = (
+            Path(__file__).parents[1] / "docs" / "api" / "public-contract.md"
+        ).read_text(encoding="utf-8")
+        assert "`mt5cli.STABLE_SDK_EXPORTS`" in contract_doc
+        assert set(mt5cli.__all__) - {"STABLE_SDK_EXPORTS"} == set(STABLE_SDK_EXPORTS)
+        undocumented = sorted(
+            name for name in STABLE_SDK_EXPORTS if f"`{name}`" not in contract_doc
+        )
+        assert not undocumented, f"Undocumented stable exports: {undocumented}"
 
 
 @pytest.mark.parametrize(

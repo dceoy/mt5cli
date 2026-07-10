@@ -37,7 +37,6 @@ from mt5cli import (
     detect_position_side,
     determine_order_limits,
     estimate_order_margin,
-    fetch_latest_closed_rates_for_trading_client,
     fetch_latest_closed_rates_indexed,
     get_account_snapshot,
     get_positions_frame,
@@ -63,13 +62,7 @@ buy_margin = (
     estimate_order_margin(client, "EURUSD", "BUY", volume) if volume > 0 else 0.0
 )
 open_margin = calculate_positions_margin(client, symbols=["EURUSD"])
-closed_bars = fetch_latest_closed_rates_for_trading_client(
-    client,
-    symbol="EURUSD",
-    granularity="M1",
-    count=100,
-)
-# Or fetch with a UTC DatetimeIndex instead of a "time" column:
+# Fetch closed bars with a UTC DatetimeIndex instead of a "time" column:
 indexed_bars = fetch_latest_closed_rates_indexed(
     client,
     symbol="EURUSD",
@@ -125,9 +118,10 @@ still round with `digits=8` and stop-level validation is skipped.
 `unit_margin_ratio` and `preserved_margin_ratio` for `calculate_margin_and_volume()`
 accept `0 <= ratio <= 1`; `unit_margin_ratio=0` requests one minimum valid unit
 when the post-reserve margin can afford it. Negative `margin_free` is clamped to
-`0.0` before sizing. Execution helpers return normalized `OrderExecutionResult`
-dictionaries containing the request, response, status, retcode, and `dry_run`
-flag; `dry_run=True` never sends an order or mutates Market Watch visibility.
+`0.0` before sizing. Execution helpers return frozen, typed
+`OrderExecutionResult` receipts. Access fields directly and call `to_dict()`
+only when serializing; `dry_run=True` never sends an order or mutates Market
+Watch visibility.
 `ensure_symbol_selected()` adds hidden symbols to Market Watch before live order
 placement and SL/TP updates. Failed, malformed, or unknown broker retcodes are
 fail-closed and returned as `status="failed"` while keeping the normalized
@@ -205,50 +199,26 @@ unless it is measured and applied explicitly.
 
 `estimate_server_clock_offset_seconds()` reads the latest tick for a symbol
 and returns the broker's clock offset from true UTC, rounded to the nearest
-half hour, or `None` when no valid tick time is available. Pass the result to
-`fetch_recent_history_deals_for_trading_client()` via
-`server_clock_offset_seconds` to shift the trailing window so it covers the
-true most-recent deals:
+half hour, or `None` when no valid tick time is available. Apply the result in
+the downstream time-window calculation when comparing broker timestamps to
+true UTC.
 
-```python
-from mt5cli import (
-    create_trading_client,
-    estimate_server_clock_offset_seconds,
-    fetch_recent_history_deals_for_trading_client,
-)
-
-client = create_trading_client(login=12345, server="Broker-Demo")
-try:
-    offset = estimate_server_clock_offset_seconds(client, "JP225")
-    deals_df = fetch_recent_history_deals_for_trading_client(
-        client,
-        symbol="JP225",
-        hours=24,
-        server_clock_offset_seconds=offset,
-    )
-finally:
-    client.shutdown()
-```
-
-No offset is applied automatically anywhere; omitting
-`server_clock_offset_seconds` keeps the trailing window anchored to true UTC
-(current behavior, byte-identical to prior releases).
+No offset is applied automatically by history retrieval helpers.
 
 ## Migration from application-local helpers
 
-| Application-local concern                                | mt5cli replacement                                                                      |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Manual terminal spawn/kill around trading code           | `mt5_trading_session()`                                                                 |
-| Local position-side detection                            | `detect_position_side()`                                                                |
-| Local margin/volume sizing                               | `calculate_margin_and_volume()`                                                         |
-| Local broker volume step normalization                   | `normalize_order_volume()`                                                              |
-| Local order or position margin estimation                | `estimate_order_margin()`, `calculate_positions_margin()`                               |
-| Local closed-bar fetch from a trading session            | `fetch_latest_closed_rates_for_trading_client()`, `fetch_latest_closed_rates_indexed()` |
-| Local recent deal history fetch from a trading session   | `fetch_recent_history_deals_for_trading_client()`                                       |
-| Local broker server clock offset measurement             | `estimate_server_clock_offset_seconds()`                                                |
-| Local SL/TP price derivation                             | `determine_order_limits()`                                                              |
-| Throttled SQLite history loop with ad-hoc error handling | `ThrottledHistoryUpdater(suppress_errors=True)`                                         |
+| Application-local concern                                | mt5cli replacement                                                     |
+| -------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Manual terminal spawn/kill around trading code           | `with mt5_session(config) as client:`                                  |
+| Local position-side detection                            | `detect_position_side()`                                               |
+| Local margin/volume sizing                               | `calculate_margin_and_volume()`                                        |
+| Local broker volume step normalization                   | `normalize_order_volume()`                                             |
+| Local order or position margin estimation                | `estimate_order_margin()`, `calculate_positions_margin()`              |
+| Local closed-bar fetch from a session                    | `fetch_latest_closed_rates()` or `fetch_latest_closed_rates_indexed()` |
+| Local recent deal history fetch from a session           | `client.recent_history_deals()`                                        |
+| Local broker server clock offset measurement             | `estimate_server_clock_offset_seconds()`                               |
+| Local SL/TP price derivation                             | `determine_order_limits()`                                             |
+| Throttled SQLite history loop with ad-hoc error handling | `ThrottledHistoryUpdater(suppress_errors=True)`                        |
 
-Keep read-only data collection on `mt5_session()` / `MT5Client`; use
-`mt5_trading_session()` only where order placement or trading calculations are
-required.
+Use `mt5_session()` / `MT5Client` for both data collection and generic
+execution helpers.

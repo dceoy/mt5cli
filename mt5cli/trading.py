@@ -3,25 +3,20 @@
 from __future__ import annotations
 
 import logging
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from math import floor, isfinite
 from numbers import Integral, Real
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
 
 import pandas as pd
-from pdmt5 import Mt5Config, Mt5RuntimeError
+from pdmt5 import Mt5RuntimeError
 
-from .client import MT5Client, mt5_session
 from .exceptions import Mt5OperationError
 from .history import drop_forming_rate_bar
-from .sdk import build_config
-from .utils import coerce_login as _coerce_login
-from .utils import parse_timeframe
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
     from typing import Any
 
 _logger = logging.getLogger(__name__)
@@ -72,30 +67,6 @@ class _Mt5ClientProtocol(Protocol):
 
     def last_error(self) -> object:
         """Return the last error message or info."""
-        ...
-
-
-class _HistoryDealsClientProtocol(Protocol):
-    """Minimal protocol for MT5 clients capable of retrieving history deals.
-
-    Describes the single method required by
-    :func:`fetch_recent_history_deals_for_trading_client`. The raw
-    ``pdmt5.Mt5DataClient`` returned by :func:`create_trading_client`
-    satisfies this protocol. ``mt5cli.sdk.Mt5CliClient`` (used via
-    ``mt5_session()``) exposes ``history_deals()`` instead and does not
-    satisfy this protocol.
-    """
-
-    def history_deals_get_as_df(
-        self,
-        date_from: datetime,
-        date_to: datetime,
-        group: str | None = None,
-        symbol: str | None = None,
-        ticket: int | None = None,
-        position: int | None = None,
-    ) -> pd.DataFrame | None:
-        """Return historical deals as a DataFrame, or None when none exist."""
         ...
 
 
@@ -163,22 +134,9 @@ class OrderExecutionResult:
     request: dict[str, object]
     response: dict[str, object] | None
 
-    @property
-    def volume(self) -> float:
-        """Deprecated shorthand retained for tabular consumers."""
-        return self.requested_volume
-
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-compatible representation of this receipt."""
         return cast("dict[str, object]", asdict(self))
-
-    def __getitem__(self, key: str) -> object:
-        """Provide temporary mapping-style access for existing integrations.
-
-        Returns:
-            Receipt field selected by ``key``.
-        """
-        return self.to_dict()[key]
 
 
 _ORDER_FILLING_MODES: frozenset[str] = frozenset({"IOC", "FOK", "RETURN"})
@@ -261,21 +219,17 @@ __all__ = [
     "calculate_trailing_stop_updates",
     "calculate_volume_by_margin",
     "close_open_positions",
-    "create_trading_client",
     "detect_position_side",
     "determine_order_limits",
     "ensure_symbol_selected",
     "estimate_order_margin",
     "estimate_server_clock_offset_seconds",
     "extract_tick_price",
-    "fetch_latest_closed_rates_for_trading_client",
     "fetch_latest_closed_rates_indexed",
-    "fetch_recent_history_deals_for_trading_client",
     "get_account_snapshot",
     "get_positions_frame",
     "get_symbol_snapshot",
     "get_tick_snapshot",
-    "mt5_trading_session",
     "normalize_order_volume",
     "place_market_order",
     "resolve_broker_filling_mode",
@@ -388,26 +342,6 @@ def _sum_position_volume(positions: pd.DataFrame, position_type: object) -> floa
     return float(matched.to_numpy(dtype=float).sum())
 
 
-def _resolve_config(
-    *,
-    config: Mt5Config | None,
-    login: int | str | None,
-    password: str | None,
-    server: str | None,
-    path: str | None,
-    timeout: int | None,
-) -> Mt5Config:
-    if config is not None:
-        return config
-    return build_config(
-        path=path,
-        login=_coerce_login(login),
-        password=password,
-        server=server,
-        timeout=timeout,
-    )
-
-
 def _normalize_order_side(side: str) -> OrderSide:
     normalized = side.upper()
     if normalized in {"BUY", "LONG"}:
@@ -470,6 +404,18 @@ def _position_side_from_order_side(side: str) -> PositionSide:
     raise ValueError(msg)
 
 
+def _require_tick_price(price: float | None, symbol: str) -> float:
+    """Return a broker quote or raise the normalized missing-quote error.
+
+    Raises:
+        Mt5OperationError: If the quote is unavailable.
+    """
+    if price is None:
+        msg = f"Tick price is unavailable for {symbol!r}."
+        raise Mt5OperationError(msg)
+    return price
+
+
 def _snapshot_from_value(value: object, fields: tuple[str, ...]) -> dict[str, object]:
     if isinstance(value, pd.DataFrame):
         row: dict[str, object] = (
@@ -509,9 +455,7 @@ def _resolve_mt5_constant(
     allowed: frozenset[str],
 ) -> int:
     normalized = value.upper()
-    if normalized not in allowed:
-        msg = f"Unsupported {prefix.lower()} mode: {value!r}."
-        raise ValueError(msg)
+    _ = allowed
     name = f"{prefix}_{normalized}"
     try:
         return cast("int", getattr(mt5, name))
@@ -776,37 +720,6 @@ def _calculate_min_volume_if_affordable(
     return round(volume_min, 10) if 0 < min_margin <= available_margin else 0.0
 
 
-def create_trading_client(
-    *,
-    config: Mt5Config | None = None,
-    login: int | str | None = None,
-    password: str | None = None,
-    server: str | None = None,
-    path: str | None = None,
-    timeout: int | None = None,
-    retry_count: int = 0,
-) -> MT5Client:
-    """Create a connected :class:`MT5Client` for transitional internal use.
-
-    New callers must use :func:`mt5cli.mt5_session`; it has explicit ownership
-    semantics and cannot leak a low-level pdmt5 client.
-
-    Returns:
-        Connected public client.
-    """
-    mt5_config = _resolve_config(
-        config=config,
-        login=login,
-        password=password,
-        server=server,
-        path=path,
-        timeout=timeout,
-    )
-    client = MT5Client(config=mt5_config, retry_count=retry_count)
-    client.__enter__()  # noqa: PLC2801
-    return client
-
-
 def detect_position_side(
     client: _Mt5ClientProtocol,
     symbol: str,
@@ -904,8 +817,7 @@ def estimate_server_clock_offset_seconds(
     reading and discarded (with a warning) rather than returned.
 
     No offset is applied anywhere automatically; pass the result to
-    :func:`fetch_recent_history_deals_for_trading_client` (via
-    ``server_clock_offset_seconds``) or use it directly when comparing
+    a caller's history query or use it directly when comparing
     MT5-labeled timestamps to wall-clock time.
 
     Args:
@@ -1070,6 +982,40 @@ def _ensure_rate_time_column(frame: pd.DataFrame) -> pd.DataFrame:
             normalized = normalized.rename(columns={normalized.columns[0]: "time"})
         return normalized
     return frame
+
+
+def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
+    """Convert MT5 epoch or datetime-like rate timestamps to UTC.
+
+    Returns:
+        UTC-aware timestamps.
+
+    Raises:
+        ValueError: If timestamp data cannot be normalized.
+    """
+    try:
+        arr = series.to_numpy()
+        non_null = series.dropna()
+        object_numbers = (
+            pd.api.types.is_object_dtype(series)
+            and non_null.map(
+                lambda value: type(value) is not bool and isinstance(value, Real),
+            ).all()
+        )
+        numeric_dtype = pd.api.types.is_numeric_dtype(
+            series
+        ) and not pd.api.types.is_bool_dtype(series)
+        if numeric_dtype or object_numbers:
+            idx = pd.to_datetime(arr, unit="s", utc=True)
+        else:
+            idx = pd.to_datetime(arr, utc=True)
+    except Exception as exc:
+        msg = f"Rate data for {symbol!r} has invalid or unparseable time data."
+        raise ValueError(msg) from exc
+    if any(idx.isna()):
+        msg = f"Rate data for {symbol!r} contains missing (NaT) timestamp values."
+        raise ValueError(msg)
+    return idx
 
 
 def estimate_order_margin(
@@ -1256,9 +1202,7 @@ def calculate_new_position_margin_ratio(
         price = extract_tick_price(
             get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
         )
-        if price is None:
-            msg = f"Tick price is unavailable for {symbol!r}."
-            raise Mt5OperationError(msg)
+        price = _require_tick_price(price, symbol)
         order_type = (
             client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
         )
@@ -1677,39 +1621,22 @@ def place_market_order(  # noqa: C901, PLR0913
         Normalized execution result containing request and response details.
 
     Raises:
-        Mt5OperationError: If volume or required tick data is invalid.
+        Mt5OperationError: If volume is invalid.
+        ValueError: If an order mode is unsupported.
     """
     if volume <= 0:
         msg = "volume must be positive."
         raise Mt5OperationError(msg)
     side = _normalize_order_side(order_side)
-    if not dry_run:
-        ensure_symbol_selected(client, symbol)
-    tick = get_tick_snapshot(client, symbol)
-    price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
-    if price is None:
-        msg = f"Tick price is unavailable for {symbol!r}."
-        raise Mt5OperationError(msg)
-    request = {
-        "action": client.mt5.TRADE_ACTION_DEAL,
+    if order_filling_mode not in _ORDER_FILLING_MODES:
+        msg = f"Unsupported order_filling mode: {order_filling_mode!r}."
+        raise ValueError(msg)
+    if order_time_mode not in _ORDER_TIME_MODES:
+        msg = f"Unsupported order_time mode: {order_time_mode!r}."
+        raise ValueError(msg)
+    request: dict[str, object] = {
         "symbol": symbol,
         "volume": volume,
-        "type": (
-            client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
-        ),
-        "price": price,
-        "type_filling": _resolve_mt5_constant(
-            client.mt5,
-            "ORDER_FILLING",
-            order_filling_mode,
-            _ORDER_FILLING_MODES,
-        ),
-        "type_time": _resolve_mt5_constant(
-            client.mt5,
-            "ORDER_TIME",
-            order_time_mode,
-            _ORDER_TIME_MODES,
-        ),
     }
     if sl is not None:
         request["sl"] = sl
@@ -1723,29 +1650,44 @@ def place_market_order(  # noqa: C901, PLR0913
         request["comment"] = comment
     if magic is not None:
         request["magic"] = magic
-    if dry_run:
-        return _execution_receipt(
-            mt5=client.mt5,
-            symbol=symbol,
-            order_side=side,
-            request=cast("dict[str, object]", request),
-            dry_run=True,
-        )
     try:
+        mt5 = client.mt5
+        request.update({
+            "action": mt5.TRADE_ACTION_DEAL,
+            "type": mt5.ORDER_TYPE_BUY if side == "BUY" else mt5.ORDER_TYPE_SELL,
+            "type_filling": _resolve_mt5_constant(
+                mt5, "ORDER_FILLING", order_filling_mode, _ORDER_FILLING_MODES
+            ),
+            "type_time": _resolve_mt5_constant(
+                mt5, "ORDER_TIME", order_time_mode, _ORDER_TIME_MODES
+            ),
+        })
+        if dry_run:
+            return _execution_receipt(
+                mt5=mt5,
+                symbol=symbol,
+                order_side=side,
+                request=request,
+                dry_run=True,
+            )
+        ensure_symbol_selected(client, symbol)
+        tick = get_tick_snapshot(client, symbol)
+        price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
+        request["price"] = _require_tick_price(price, symbol)
         response = client.order_send(request)
     except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
         return _execution_receipt(
-            mt5=client.mt5,
+            mt5=getattr(client, "mt5", object()),
             symbol=symbol,
             order_side=side,
-            request=cast("dict[str, object]", request),
+            request=request,
             error=exc,
         )
     return _execution_receipt(
-        mt5=client.mt5,
+        mt5=mt5,
         symbol=symbol,
         order_side=side,
-        request=cast("dict[str, object]", request),
+        request=request,
         response=response,
     )
 
@@ -1803,12 +1745,29 @@ def close_open_positions(
         side: OrderSide = "SELL" if pos_type == client.mt5.POSITION_TYPE_BUY else "BUY"
         symbol = str(row["symbol"])
         if order_filling_mode is None:
-            if symbol not in resolved_filling_modes:
-                resolved_filling_modes[symbol] = resolve_broker_filling_mode(
-                    client,
-                    symbol=symbol,
+            try:
+                if symbol not in resolved_filling_modes:
+                    resolved_filling_modes[symbol] = resolve_broker_filling_mode(
+                        client,
+                        symbol=symbol,
+                    )
+                filling_mode = resolved_filling_modes[symbol]
+            except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
+                results.append(
+                    _execution_receipt(
+                        mt5=client.mt5,
+                        symbol=symbol,
+                        order_side=side,
+                        request={
+                            "symbol": symbol,
+                            "volume": float(row["volume"]),
+                            "position": int(row["ticket"]),
+                            **({"magic": magic} if magic is not None else {}),
+                        },
+                        error=exc,
+                    )
                 )
-            filling_mode = resolved_filling_modes[symbol]
+                continue
         else:
             filling_mode = order_filling_mode
         result = place_market_order(
@@ -2000,8 +1959,8 @@ def update_sltp_for_open_positions(
                 )
             )
             continue
-        ensure_symbol_selected(client, str(row["symbol"]))
         try:
+            ensure_symbol_selected(client, str(row["symbol"]))
             response = client.order_send(request)
         except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
             results.append(
@@ -2026,98 +1985,6 @@ def update_sltp_for_open_positions(
     return results
 
 
-def fetch_latest_closed_rates_for_trading_client(
-    client: _Mt5ClientProtocol,
-    *,
-    symbol: str,
-    granularity: str,
-    count: int,
-) -> pd.DataFrame:
-    """Fetch the latest closed bars from a connected trading client.
-
-    Returns:
-        Up to ``count`` closed bars ordered oldest to newest.
-
-    Raises:
-        ValueError: If ``count`` is not positive, rate data is empty or
-            malformed, or the ``time`` column is missing.
-        Mt5OperationError: If the trading client cannot fetch rate data.
-    """
-    if count <= 0:
-        msg = "count must be positive."
-        raise ValueError(msg)
-    timeframe = parse_timeframe(granularity)
-    fetch_method = getattr(client, "fetch_latest_rates_as_df", None)
-    copy_method = getattr(client, "copy_rates_from_pos_as_df", None)
-    if callable(fetch_method):
-        fetched = fetch_method(symbol, granularity, count + 1)
-    elif callable(copy_method):
-        fetched = copy_method(
-            symbol=symbol, timeframe=timeframe, start_pos=0, count=count + 1
-        )
-    else:
-        msg = "MT5 trading client cannot fetch rate data."
-        raise Mt5OperationError(msg)
-    if not isinstance(fetched, pd.DataFrame):
-        msg = (
-            f"Malformed rate data for {symbol!r} at granularity {granularity!r}: "
-            "expected a DataFrame."
-        )
-        raise ValueError(msg)  # noqa: TRY004
-    frame = fetched
-    frame = _ensure_rate_time_column(frame)
-    if "time" not in frame.columns:
-        msg = f"Rate data is missing a time column for {symbol!r}."
-        raise ValueError(msg)
-    closed = drop_forming_rate_bar(frame)
-    if closed.empty:
-        msg = (
-            f"Rate data is empty for {symbol!r} at granularity {granularity!r} "
-            f"with count {count}."
-        )
-        raise ValueError(msg)
-    return closed.tail(count).reset_index(drop=True)
-
-
-def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
-    """Convert a rate time series to a UTC-aware DatetimeIndex.
-
-    Handles MT5 epoch seconds (including object-dtype Python numbers), timezone-
-    naive datetime-like values, and timezone-aware datetime-like values.
-
-    Returns:
-        UTC-aware DatetimeIndex.
-
-    Raises:
-        ValueError: If the time data is invalid, unparseable, or contains NaT.
-    """
-    try:
-        arr = series.to_numpy()
-        non_null = series.dropna()
-        object_numbers = (
-            pd.api.types.is_object_dtype(series)
-            and non_null.map(
-                lambda value: type(value) is not bool and isinstance(value, Real),
-            ).all()
-        )
-        numeric_dtype = pd.api.types.is_numeric_dtype(
-            series
-        ) and not pd.api.types.is_bool_dtype(
-            series,
-        )
-        if numeric_dtype or object_numbers:
-            idx = pd.to_datetime(arr, unit="s", utc=True)
-        else:
-            idx = pd.to_datetime(arr, utc=True)
-    except Exception as exc:
-        msg = f"Rate data for {symbol!r} has invalid or unparseable time data."
-        raise ValueError(msg) from exc
-    if any(idx.isna()):
-        msg = f"Rate data for {symbol!r} contains missing (NaT) timestamp values."
-        raise ValueError(msg)
-    return idx
-
-
 def fetch_latest_closed_rates_indexed(
     client: _Mt5ClientProtocol,
     *,
@@ -2125,16 +1992,15 @@ def fetch_latest_closed_rates_indexed(
     granularity: str,
     count: int,
 ) -> pd.DataFrame:
-    """Fetch the latest closed bars with a UTC DatetimeIndex from a trading client.
+    """Fetch the latest closed bars with a UTC DatetimeIndex from a client.
 
-    Internally reuses :func:`fetch_latest_closed_rates_for_trading_client` for
-    closed-bar detection and validation, then converts the ``time`` column to a
-    UTC-aware :class:`~pandas.DatetimeIndex` named ``"time"`` and drops the
-    original column. Intended for downstream time-series consumers that require
-    a datetime index rather than a ``time`` column.
+    Fetches one additional current bar, removes it, then converts the ``time``
+    column to a UTC-aware :class:`~pandas.DatetimeIndex` named ``"time"`` and
+    drops the original column. Intended for downstream time-series consumers
+    that require a datetime index rather than a ``time`` column.
 
     Args:
-        client: Connected trading client with rate-fetch capability.
+        client: Connected public client with rate-fetch capability.
         symbol: Symbol name.
         granularity: Timeframe string (for example ``"M1"``, ``"H1"``).
         count: Maximum number of closed bars to return.
@@ -2148,13 +2014,25 @@ def fetch_latest_closed_rates_indexed(
         ValueError: If ``count`` is not positive, rate data is empty or
             malformed, the ``time`` column is missing, or timestamp data
             is invalid or unparseable.
+        Mt5OperationError: If the client cannot fetch rate data.
+        TypeError: If the client returns a non-DataFrame payload.
     """
-    frame = fetch_latest_closed_rates_for_trading_client(
-        client,
-        symbol=symbol,
-        granularity=granularity,
-        count=count,
-    )
+    if count <= 0:
+        msg = "count must be positive."
+        raise ValueError(msg)
+    copy_rates = getattr(client, "copy_rates_from_pos", None)
+    if not callable(copy_rates):
+        msg = "MT5 client cannot fetch rate data."
+        raise Mt5OperationError(msg)
+    frame = copy_rates(symbol, granularity, 0, count + 1)
+    if not isinstance(frame, pd.DataFrame):
+        msg = "MT5 client returned malformed rate data."
+        raise TypeError(msg)
+    frame = drop_forming_rate_bar(_ensure_rate_time_column(frame))
+    if frame.empty:
+        msg = f"Rate data is empty for {symbol!r} at granularity {granularity!r}."
+        raise ValueError(msg)
+    frame = frame.tail(count).reset_index(drop=True)
     if "time" not in frame.columns:
         msg = f"Rate data is missing a time column for {symbol!r}."
         raise ValueError(msg)
@@ -2163,161 +2041,3 @@ def fetch_latest_closed_rates_indexed(
     result = frame.drop(columns=["time"])
     result.index = idx
     return result
-
-
-def fetch_recent_history_deals_for_trading_client(
-    client: MT5Client | _HistoryDealsClientProtocol,
-    *,
-    symbol: str | None = None,
-    group: str | None = None,
-    hours: float = 24.0,
-    date_to: datetime | None = None,
-    server_clock_offset_seconds: float | None = None,
-) -> pd.DataFrame:
-    """Fetch recent history deals from an already-connected trading client.
-
-    Computes a trailing window ending at ``date_to`` (or ``datetime.now(UTC)``
-    when omitted) and delegates to the client's ``history_deals_get_as_df``
-    method. The object returned by :func:`create_trading_client` (a raw
-    ``pdmt5.Mt5DataClient``) satisfies this protocol directly. Note that
-    ``mt5cli.sdk.Mt5CliClient`` (used via ``mt5_session()``) exposes
-    ``history_deals()``, not ``history_deals_get_as_df()``, and therefore does
-    not satisfy this protocol; use this helper with trading-client sessions only.
-
-    The returned DataFrame preserves every column from the underlying client
-    (``time``, ``symbol``, ``type``, ``entry``, ``volume``, ``profit``,
-    ``position_id``, etc.). No strategy-specific transformations are applied;
-    downstream packages own entry/exit classification, Kelly fractions, and
-    any other betting or signal semantics.
-
-    MT5 deal timestamps are labeled in the broker server's wall clock, which
-    is commonly UTC+2 or UTC+3 rather than true UTC, so a window computed
-    from true UTC ``now`` can miss the most recent deals on such brokers.
-    Pass ``server_clock_offset_seconds`` (see
-    :func:`estimate_server_clock_offset_seconds`) to shift the window so it
-    covers the true most-recent deals.
-
-    Args:
-        client: Connected ``pdmt5.Mt5DataClient`` (or compatible) with
-            ``history_deals_get_as_df`` capability, as returned by
-            :func:`create_trading_client`.
-        symbol: Optional symbol filter passed to the underlying client.
-        group: Optional symbol group filter passed to the underlying client.
-        hours: Trailing window length in hours. Must be positive.
-        date_to: Window end timestamp. Defaults to ``datetime.now(UTC)``.
-        server_clock_offset_seconds: Optional broker server clock offset
-            (server time minus UTC) applied to both ends of the window. Must
-            be finite when provided. Defaults to ``None``, which keeps the
-            window anchored to true UTC (current behavior, byte-identical
-            when omitted).
-
-    Returns:
-        DataFrame ordered chronologically by ``time`` (when the column
-        exists) with a ``RangeIndex``. Schema-preserving empty DataFrames
-        (zero rows but columns present) are passed through with a reset
-        index. Returns a bare empty DataFrame only when the underlying
-        client returns ``None``.
-
-    Raises:
-        ValueError: If ``hours`` is not positive, or if
-            ``server_clock_offset_seconds`` is not finite.
-
-    Example::
-
-        from mt5cli import (
-            create_trading_client,
-            estimate_server_clock_offset_seconds,
-            fetch_recent_history_deals_for_trading_client,
-        )
-
-        client = create_trading_client(login=12345, server="Broker-Demo")
-        try:
-            offset = estimate_server_clock_offset_seconds(client, "JP225")
-            deals_df = fetch_recent_history_deals_for_trading_client(
-                client,
-                symbol="JP225",
-                hours=24,
-                server_clock_offset_seconds=offset,
-            )
-        finally:
-            client.shutdown()
-    """
-    if not isfinite(hours) or hours <= 0:
-        msg = "hours must be finite and positive."
-        raise ValueError(msg)
-    if server_clock_offset_seconds is not None and not isfinite(
-        server_clock_offset_seconds,
-    ):
-        msg = "server_clock_offset_seconds must be finite."
-        raise ValueError(msg)
-    end = date_to if date_to is not None else datetime.now(UTC)
-    start = end - timedelta(hours=hours)
-    if server_clock_offset_seconds is not None:
-        offset = timedelta(seconds=server_clock_offset_seconds)
-        start += offset
-        end += offset
-    if isinstance(client, MT5Client):
-        raw = client.history_deals(
-            date_from=start,
-            date_to=end,
-            group=group,
-            symbol=symbol,
-        )
-    else:
-        raw = client.history_deals_get_as_df(
-            date_from=start,
-            date_to=end,
-            group=group,
-            symbol=symbol,
-        )
-    if raw is None:
-        return pd.DataFrame()
-    if raw.empty:
-        return raw.reset_index(drop=True)
-    if "time" in raw.columns:
-        raw = raw.sort_values("time")
-    return raw.reset_index(drop=True)
-
-
-@contextmanager
-def mt5_trading_session(
-    config: Mt5Config | None = None,
-    *,
-    login: int | str | None = None,
-    password: str | None = None,
-    server: str | None = None,
-    path: str | None = None,
-    timeout: int | None = None,
-    retry_count: int = 0,
-) -> Iterator[MT5Client]:
-    """Open a trading-capable MT5 session and always shut down safely.
-
-    Launches the MetaTrader 5 terminal using ``Mt5Config.path`` when set,
-    initializes and logs in via ``initialize_and_login_mt5()``, yields a
-    connected client supporting required MT5 methods, and calls ``shutdown()``
-    on exit even when an error is raised inside the context.
-
-    Args:
-        config: MT5 connection configuration. Defaults to an empty config that
-            attaches to a running terminal.
-        login: Optional trading account login.
-        password: Optional trading account password.
-        server: Optional trading server name.
-        path: Optional terminal executable path.
-        timeout: Optional connection timeout in milliseconds.
-        retry_count: Number of initialization retries.
-
-    Yields:
-        Connected client supporting required MT5 trading methods.
-    """
-    _ = retry_count
-    resolved = _resolve_config(
-        config=config,
-        login=login,
-        password=password,
-        server=server,
-        path=path,
-        timeout=timeout,
-    )
-    with mt5_session(resolved) as client:
-        yield client

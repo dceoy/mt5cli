@@ -393,9 +393,11 @@ def connected_client(
     )
     try:
         client.initialize_and_login_mt5()
-        yield client
     except Exception as exc:
+        client.shutdown()
         raise normalize_mt5_exception(exc) from exc
+    try:
+        yield client
     finally:
         client.shutdown()
 
@@ -416,9 +418,12 @@ def _run_with_client(
 
     Returns:
         Value returned by ``fetch_fn``.
-    """
+    """  # noqa: DOC501
     with connected_client(config, retry_count=retry_count) as client:
-        return fetch_fn(client)
+        try:
+            return fetch_fn(client)
+        except Exception as exc:
+            raise normalize_mt5_exception(exc) from exc
 
 
 @contextmanager
@@ -983,7 +988,7 @@ def _resolve_update_history_request(
 
 def update_history(  # noqa: PLR0913
     *,
-    client: Mt5DataClient,
+    client: object,
     output: Path | str,
     symbols: Sequence[str],
     datasets: set[Dataset] | None = None,
@@ -998,15 +1003,15 @@ def update_history(  # noqa: PLR0913
 ) -> None:
     """Incrementally append MT5 history into a SQLite database.
 
-    Uses an already-connected ``Mt5DataClient`` and does not create or close
-    the MT5 connection. For first-time tables, data is fetched from
+    Uses an already-connected client and does not create or close the MT5
+    connection. For first-time tables, data is fetched from
     ``date_to - lookback_hours``. Subsequent runs resume from existing
     ``MAX(time)`` per symbol (and timeframe for rates); when
     ``include_account_events=True``, account-level deals use a separate cursor
     over ``type NOT IN (0, 1)`` / empty-symbol rows.
 
     Args:
-        client: Connected MT5 data client.
+        client: Connected MT5 client implementation.
         output: SQLite database path.
         symbols: Symbols to update.
         datasets: Datasets to include (defaults to rates, history-orders,
@@ -1049,7 +1054,7 @@ def update_history(  # noqa: PLR0913
             before = conn.total_changes
             write_incremental_datasets(
                 conn,
-                client,
+                cast("Mt5DataClient", client),
                 symbols,
                 request.selected,
                 request.resolved_timeframes,
@@ -1204,7 +1209,7 @@ class ThrottledHistoryUpdater:
             return True
         return (time.monotonic() - self._last_update_monotonic) >= self.interval_seconds
 
-    def update(self, client: Mt5DataClient, symbols: Sequence[str]) -> bool:
+    def update(self, client: object, symbols: Sequence[str]) -> bool:
         """Run a throttled incremental history update.
 
         Args:
@@ -2318,7 +2323,7 @@ def _snapshot_terminal(
 
 def update_observability(
     *,
-    client: Mt5DataClient,
+    client: object,
     output: Path | str,
     symbols: Sequence[str] | None = None,
     include_account: bool = True,
@@ -2333,7 +2338,7 @@ def update_observability(
     places orders or modifies trading state.
 
     Args:
-        client: Connected MT5 data client.
+        client: Connected MT5 client implementation.
         output: SQLite database path.
         symbols: Optional symbol filter for positions and orders. When None,
             all positions and orders are snapshotted.
@@ -2346,6 +2351,7 @@ def update_observability(
             then use ``snapshot`` repeatedly without this flag.
     """
     observed_at = int(datetime.now(UTC).timestamp())
+    raw_client = cast("Mt5DataClient", client)
     with closing(sqlite3.connect(Path(output))) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
@@ -2358,13 +2364,13 @@ def update_observability(
             login: int | None = None
             try:
                 if include_account:
-                    login = _snapshot_account(conn, client, run_id)
+                    login = _snapshot_account(conn, raw_client, run_id)
                 if include_positions:
-                    _snapshot_positions(conn, client, run_id, login, symbols)
+                    _snapshot_positions(conn, raw_client, run_id, login, symbols)
                 if include_orders:
-                    _snapshot_orders(conn, client, run_id, login, symbols)
+                    _snapshot_orders(conn, raw_client, run_id, login, symbols)
                 if include_terminal:
-                    _snapshot_terminal(conn, client, run_id)
+                    _snapshot_terminal(conn, raw_client, run_id)
                 record_snapshot_run(conn, run_id, "ok")
             except Exception:
                 record_snapshot_run(conn, run_id, "error")
