@@ -8,6 +8,7 @@ import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, SupportsInt, cast, overload
 
@@ -28,9 +29,48 @@ from .utils import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from pdmt5 import Mt5DataClient
 
 logger = logging.getLogger(__name__)
+
+
+def _history_frame(
+    client: object,
+    public_operation: str,
+    pdmt5_operation: str,
+    **kwargs: object,
+) -> pd.DataFrame:
+    """Use the facade operation, with pdmt5 adaptation confined internally.
+
+    Returns:
+        Collected frame, or an empty frame for an absent legacy adapter result.
+
+    Raises:
+        TypeError: If a legacy adapter attribute is not callable.
+    """
+    operation = getattr(client, public_operation, None)
+    result = operation(**kwargs) if callable(operation) else None
+    if isinstance(result, pd.DataFrame):
+        return result
+    adapter = getattr(client, pdmt5_operation, None)
+    if not callable(adapter):
+        msg = f"MT5 client attribute is not callable: {pdmt5_operation}"
+        raise TypeError(msg)
+    result = adapter(**kwargs)
+    if not isinstance(result, pd.DataFrame):
+        return pd.DataFrame()
+    return result
+
+
+def _history_fetch(
+    client: object, public_operation: str, pdmt5_operation: str, **kwargs: object
+) -> pd.DataFrame:
+    """Create a typed history fetch callback for dataset writers.
+
+    Returns:
+        The frame collected by the public facade operation.
+    """
+    return _history_frame(client, public_operation, pdmt5_operation, **kwargs)
+
 
 _SQLITE_TEXT_TIME_COLUMNS: frozenset[str] = frozenset({
     "time",
@@ -1741,7 +1781,7 @@ def _record_symbol_time_dedup(
 
 def write_rates_dataset(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     timeframe: int,
     date_from: datetime,
@@ -1756,7 +1796,10 @@ def write_rates_dataset(
     """
 
     def _fetch_rates_frame(sym: str) -> pd.DataFrame:
-        frame = client.copy_rates_range_as_df(
+        frame = _history_frame(
+            client,
+            "copy_rates_range",
+            "copy_rates_range_as_df",
             symbol=sym,
             timeframe=timeframe,
             date_from=date_from,
@@ -1779,7 +1822,7 @@ def write_rates_dataset(
 
 def write_ticks_dataset(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     flags: int,
     date_from: datetime,
@@ -1794,7 +1837,10 @@ def write_ticks_dataset(
     """
 
     def _fetch_ticks_frame(sym: str) -> pd.DataFrame:
-        frame = client.copy_ticks_range_as_df(
+        frame = _history_frame(
+            client,
+            "copy_ticks_range",
+            "copy_ticks_range_as_df",
             symbol=sym,
             date_from=date_from,
             date_to=date_to,
@@ -1816,7 +1862,7 @@ def write_ticks_dataset(
 
 def write_symbols_dataset(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     snapshot_time: datetime,
     if_exists: IfExists,
@@ -1836,7 +1882,8 @@ def write_symbols_dataset(
 
     def _fetch_symbol_frame(sym: str) -> pd.DataFrame:
         try:
-            info = client.symbol_info_as_dict(symbol=sym)
+            fetch = getattr(client, "symbol_info_as_dict", None)
+            info = fetch(symbol=sym) if callable(fetch) else None
         except Mt5RuntimeError:
             info = None
         if not isinstance(info, Mapping):
@@ -1845,10 +1892,13 @@ def write_symbols_dataset(
                 sym,
             )
             info = {}
-        if info.get("point"):
-            metadata = {field: info.get(field) for field in _SYMBOLS_SNAPSHOT_FIELDS}
+        typed_info = cast("Mapping[str, object]", info)
+        if typed_info.get("point"):
+            metadata = {
+                field: typed_info.get(field) for field in _SYMBOLS_SNAPSHOT_FIELDS
+            }
         else:
-            if info:
+            if typed_info:
                 logger.warning(
                     "Symbol %r has missing or zero point; persisting NULL metadata.",
                     sym,
@@ -1922,7 +1972,7 @@ def write_history_dataset(
 
 def _write_incremental_rates(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     resolved_timeframes: list[int],
     fallback_start: datetime,
@@ -1968,7 +2018,7 @@ def _write_incremental_rates(
 
 def _write_incremental_ticks(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     resolved_tick_flags: int,
     fallback_start: datetime,
@@ -2006,7 +2056,7 @@ def _write_incremental_ticks(
 
 def _write_incremental_symbols(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     end_date: datetime,
     written_columns: dict[Dataset, set[str]],
@@ -2025,7 +2075,7 @@ def _write_incremental_symbols(
 
 def _write_incremental_history_orders(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     fallback_start: datetime,
     end_date: datetime,
@@ -2043,7 +2093,12 @@ def _write_incremental_history_orders(
         start_date = start_by_symbol[symbol, None]
         if write_history_dataset(
             conn,
-            client.history_orders_get_as_df,
+            partial(
+                _history_fetch,
+                client,
+                "history_orders",
+                "history_orders_get_as_df",
+            ),
             Dataset.history_orders,
             [symbol],
             start_date,
@@ -2063,7 +2118,7 @@ def _write_incremental_history_orders(
 
 def _write_incremental_history_deals(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     fallback_start: datetime,
     end_date: datetime,
@@ -2086,7 +2141,10 @@ def _write_incremental_history_deals(
         )
         fetch_start = min([*start_by_symbol.values(), account_event_start])
         frame = filter_incremental_history_deals_frame(
-            client.history_deals_get_as_df(
+            _history_frame(
+                client,
+                "history_deals",
+                "history_deals_get_as_df",
                 date_from=fetch_start,
                 date_to=end_date,
             ),
@@ -2146,7 +2204,12 @@ def _write_incremental_history_deals(
         start_date = start_by_symbol[symbol, None]
         if write_history_dataset(
             conn,
-            client.history_deals_get_as_df,
+            partial(
+                _history_fetch,
+                client,
+                "history_deals",
+                "history_deals_get_as_df",
+            ),
             Dataset.history_deals,
             [symbol],
             start_date,
@@ -2202,7 +2265,7 @@ def _finalize_incremental_writes(
 
 def write_incremental_datasets(  # noqa: PLR0913
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     selected_datasets: set[Dataset],
     resolved_timeframes: list[int],
@@ -2294,7 +2357,7 @@ def write_incremental_datasets(  # noqa: PLR0913
 
 def write_collected_datasets(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     symbols: Sequence[str],
     datasets: set[Dataset],
     timeframe: int,
@@ -2334,7 +2397,12 @@ def write_collected_datasets(
         written_tables.add(Dataset.ticks)
     if Dataset.history_orders in datasets and write_history_dataset(
         conn,
-        client.history_orders_get_as_df,
+        partial(
+            _history_fetch,
+            client,
+            "history_orders",
+            "history_orders_get_as_df",
+        ),
         Dataset.history_orders,
         symbols,
         date_from,
@@ -2346,7 +2414,12 @@ def write_collected_datasets(
         written_tables.add(Dataset.history_orders)
     if Dataset.history_deals in datasets and write_history_dataset(
         conn,
-        client.history_deals_get_as_df,
+        partial(
+            _history_fetch,
+            client,
+            "history_deals",
+            "history_deals_get_as_df",
+        ),
         Dataset.history_deals,
         symbols,
         date_from,

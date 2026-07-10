@@ -422,7 +422,7 @@ def _run_with_client(
     with connected_client(config, retry_count=retry_count) as client:
         try:
             return fetch_fn(client)
-        except Exception as exc:
+        except Mt5RuntimeError as exc:
             raise normalize_mt5_exception(exc) from exc
 
 
@@ -1054,7 +1054,7 @@ def update_history(  # noqa: PLR0913
             before = conn.total_changes
             write_incremental_datasets(
                 conn,
-                cast("Mt5DataClient", client),
+                client,
                 symbols,
                 request.selected,
                 request.resolved_timeframes,
@@ -2248,12 +2248,44 @@ def _emit_position_metrics(
         )
 
 
+def _client_frame(client: object, operation: str) -> pd.DataFrame:
+    """Call a public client operation with an internal pdmt5 adapter fallback.
+
+    Returns:
+        The normalized DataFrame returned by the client.
+
+    Raises:
+        TypeError: If no callable adapter returns a DataFrame.
+    """
+    method = getattr(client, operation, None)
+    result = method() if callable(method) else None
+    if isinstance(result, pd.DataFrame):
+        return result
+    pdmt5_operations = {
+        "account_info": "account_info_as_df",
+        "terminal_info": "terminal_info_as_df",
+        "positions": "positions_get_as_df",
+        "orders": "orders_get_as_df",
+    }
+    adapter = getattr(
+        client, pdmt5_operations.get(operation, f"{operation}_as_df"), None
+    )
+    if not callable(adapter):
+        msg = f"MT5 client does not support {operation}."
+        raise TypeError(msg)
+    result = adapter()
+    if not isinstance(result, pd.DataFrame):
+        msg = f"MT5 client {operation} did not return a DataFrame."
+        raise TypeError(msg)
+    return result
+
+
 def _snapshot_account(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     run_id: int,
 ) -> int | None:
-    df = client.account_info_as_df()
+    df = _client_frame(client, "account_info")
     if df.empty:
         logger.warning(
             "account_info_as_df returned empty frame; skipping account snapshot"
@@ -2268,12 +2300,12 @@ def _snapshot_account(
 
 def _snapshot_positions(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     run_id: int,
     login: int | None,
     symbols: Sequence[str] | None,
 ) -> None:
-    df: pd.DataFrame = client.positions_get_as_df()
+    df = _client_frame(client, "positions")
     if symbols is not None and not df.empty and "symbol" in df.columns:
         df = df[df["symbol"].isin(symbols)].reset_index(drop=True)
     raw = df.to_dict(orient="records") if not df.empty else []
@@ -2284,12 +2316,12 @@ def _snapshot_positions(
 
 def _snapshot_orders(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     run_id: int,
     login: int | None,
     symbols: Sequence[str] | None,
 ) -> None:
-    df: pd.DataFrame = client.orders_get_as_df()
+    df = _client_frame(client, "orders")
     if symbols is not None and not df.empty and "symbol" in df.columns:
         df = df[df["symbol"].isin(symbols)].reset_index(drop=True)
     raw = df.to_dict(orient="records") if not df.empty else []
@@ -2307,10 +2339,10 @@ def _emit_terminal_metrics(row: dict[str, object]) -> None:
 
 def _snapshot_terminal(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: object,
     run_id: int,
 ) -> None:
-    df = client.terminal_info_as_df()
+    df = _client_frame(client, "terminal_info")
     if df.empty:
         logger.warning(
             "terminal_info_as_df returned empty frame; skipping terminal snapshot"
@@ -2351,7 +2383,6 @@ def update_observability(
             then use ``snapshot`` repeatedly without this flag.
     """
     observed_at = int(datetime.now(UTC).timestamp())
-    raw_client = cast("Mt5DataClient", client)
     with closing(sqlite3.connect(Path(output))) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
@@ -2364,13 +2395,13 @@ def update_observability(
             login: int | None = None
             try:
                 if include_account:
-                    login = _snapshot_account(conn, raw_client, run_id)
+                    login = _snapshot_account(conn, client, run_id)
                 if include_positions:
-                    _snapshot_positions(conn, raw_client, run_id, login, symbols)
+                    _snapshot_positions(conn, client, run_id, login, symbols)
                 if include_orders:
-                    _snapshot_orders(conn, raw_client, run_id, login, symbols)
+                    _snapshot_orders(conn, client, run_id, login, symbols)
                 if include_terminal:
-                    _snapshot_terminal(conn, raw_client, run_id)
+                    _snapshot_terminal(conn, client, run_id)
                 record_snapshot_run(conn, run_id, "ok")
             except Exception:
                 record_snapshot_run(conn, run_id, "error")

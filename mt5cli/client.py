@@ -87,6 +87,11 @@ class MT5Client(Mt5CliClient):
         frame = self.account_info()
         return {} if frame.empty else cast("dict[str, object]", frame.iloc[0].to_dict())
 
+    def symbol_info_as_dict(self, symbol: str) -> dict[str, object]:
+        """Return one symbol snapshot as a plain mapping."""
+        frame = self.symbol_info(symbol)
+        return {} if frame.empty else cast("dict[str, object]", frame.iloc[0].to_dict())
+
     def positions_get_as_df(self, symbol: str | None = None) -> pd.DataFrame:
         """Return open positions in the canonical DataFrame schema."""
         return self.positions(symbol=symbol)

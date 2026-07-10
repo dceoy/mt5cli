@@ -307,10 +307,11 @@ def test_granularity_name_falls_back_for_unknown_timeframe(
 
 
 def test_normalize_mt5_exception_passthrough_and_generic() -> None:
-    """Normalization preserves mt5cli errors and wraps unknown exceptions."""
+    """Normalization preserves mt5cli and unrelated application exceptions."""
     original = Mt5CliError("known")
     assert normalize_mt5_exception(original) is original
-    assert isinstance(normalize_mt5_exception(ValueError("x")), Mt5CliError)
+    application_error = ValueError("x")
+    assert normalize_mt5_exception(application_error) is application_error
 
 
 def test_schema_columns_and_extra_required_validation() -> None:

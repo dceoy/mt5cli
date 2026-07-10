@@ -7,8 +7,12 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
+from pdmt5 import Mt5RuntimeError
 
+from mt5cli import sdk
 from mt5cli.client import MT5Client, mt5_session
+from mt5cli.exceptions import Mt5ConnectionError
+from mt5cli.history import _history_frame  # pyright: ignore[reportPrivateUsage]
 from mt5cli.sdk import build_config
 
 if TYPE_CHECKING:
@@ -73,6 +77,56 @@ def test_owned_mt5_session_shuts_down_when_body_raises(
 
     raw_client.initialize_and_login_mt5.assert_called_once()
     raw_client.shutdown.assert_called_once()
+
+
+def test_public_facade_symbol_snapshot_and_history_adapter(
+    mock_client: MagicMock,
+) -> None:
+    """Facade operations are consumed without pdmt5-only methods."""
+    mock_client.symbol_info_as_df.return_value = pd.DataFrame([{"symbol": "EURUSD"}])
+    client = MT5Client.from_connected_client(mock_client)
+    assert client.symbol_info_as_dict("EURUSD") == {"symbol": "EURUSD"}
+
+
+def test_run_with_client_only_normalizes_mt5_runtime_errors(
+    mocker: MockerFixture,
+) -> None:
+    """Application errors propagate while broker failures are normalized."""
+    raw_client = MagicMock()
+    mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=raw_client)
+    with pytest.raises(Mt5ConnectionError, match="x"):
+        sdk._run_with_client(  # type: ignore[reportPrivateUsage]
+            build_config(), lambda _client: (_ for _ in ()).throw(Mt5RuntimeError("x"))
+        )
+
+
+def test_client_frame_adapter_errors_are_explicit() -> None:
+    """The private pdmt5 adapter rejects unsupported and malformed clients."""
+    with pytest.raises(TypeError):
+        sdk._client_frame(object(), "account_info")  # type: ignore[reportPrivateUsage]
+    client = MagicMock()
+    client.account_info.return_value = None
+    client.account_info_as_df.return_value = None
+    with pytest.raises(TypeError):
+        sdk._client_frame(client, "account_info")  # type: ignore[reportPrivateUsage]
+
+
+def test_internal_facade_adapters_prefer_public_operations() -> None:
+    """Internal workflows use public facade methods when they are available."""
+    client = MagicMock()
+    frame = pd.DataFrame([{"symbol": "EURUSD"}])
+    client.account_info.return_value = frame
+    client.copy_rates_range.return_value = frame
+    assert sdk._client_frame(client, "account_info") is frame  # type: ignore[reportPrivateUsage]
+    assert (
+        _history_frame(
+            client,
+            "copy_rates_range",
+            "copy_rates_range_as_df",
+            symbol="EURUSD",
+        )
+        is frame
+    )
 
 
 def test_mt5_session_yields_injected_client_without_reconnect(

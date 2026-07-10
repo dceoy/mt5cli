@@ -27,7 +27,6 @@ from mt5cli.cli import (
     app,
     main,
 )
-from mt5cli.exceptions import Mt5CliError
 
 runner = CliRunner()
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -71,7 +70,7 @@ class TestExecuteExport:
             table="data",
             config=MagicMock(),
         )
-        with pytest.raises(Mt5CliError, match="boom"):
+        with pytest.raises(RuntimeError, match="boom"):
             _execute_export(ctx, _sdk_client(ctx).account_info)
         mock_client.shutdown.assert_called_once()
 

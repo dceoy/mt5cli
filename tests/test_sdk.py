@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from pdmt5 import Mt5Config, Mt5DataClient
 
 from mt5cli import sdk
-from mt5cli.exceptions import Mt5CliError, Mt5ConnectionError
+from mt5cli.exceptions import Mt5ConnectionError
 from mt5cli.history import DEFAULT_HISTORY_TIMEFRAMES, write_rates_dataset
 from mt5cli.sdk import (
     AccountSpec,
@@ -215,7 +215,7 @@ class TestConnectionLifecycle:
         mock_client = MagicMock()
         mock_client.account_info_as_df.side_effect = RuntimeError("boom")
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
-        with pytest.raises(Mt5CliError, match="boom"):
+        with pytest.raises(RuntimeError, match="boom"):
             sdk._run_with_client(  # type: ignore[reportPrivateUsage]
                 MagicMock(),
                 lambda c: c.account_info_as_df(),
@@ -1350,7 +1350,7 @@ class TestRecentTicks:
         tick.time = object()
         client.symbol_info_tick.return_value = tick
         mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
-        with pytest.raises(Mt5CliError, match="Unsupported tick time value"):
+        with pytest.raises(TypeError, match="Unsupported tick time value"):
             Mt5CliClient().recent_ticks("EURUSD", 30)
 
     @pytest.mark.parametrize(

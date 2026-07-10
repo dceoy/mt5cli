@@ -1650,6 +1650,7 @@ def place_market_order(  # noqa: C901, PLR0913
         request["comment"] = comment
     if magic is not None:
         request["magic"] = magic
+    mt5: Any = object()
     try:
         mt5 = client.mt5
         request.update({
@@ -1677,7 +1678,7 @@ def place_market_order(  # noqa: C901, PLR0913
         response = client.order_send(request)
     except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
         return _execution_receipt(
-            mt5=getattr(client, "mt5", object()),
+            mt5=mt5,
             symbol=symbol,
             order_side=side,
             request=request,

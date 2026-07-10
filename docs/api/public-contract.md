@@ -29,9 +29,11 @@ functions, parser helpers, low-level MT5 wrappers) are available directly from
 their owning modules (`mt5cli.schemas`, `mt5cli.utils`, `mt5cli.converters`,
 `mt5cli.sdk`, etc.) and are not part of the root SDK surface.
 
-Issue #115 remains open: the broader internal responsibility decomposition is
-not claimed as complete by this release. The package-root facade remains the
-only supported downstream API while that work is completed separately.
+Connection lifecycle is owned by `mt5cli.client`; market-data calls are exposed
+by `MT5Client`; `mt5cli.history` owns SQLite history writers; `mt5cli.grafana`
+owns snapshot/Grafana persistence; and `mt5cli.trading` owns order preparation
+and normalized execution receipts. `sdk.py` remains a compatibility location
+for read-only batch orchestration, not an alternate public client lifecycle.
 
 ## Stable downstream SDK API
 
@@ -157,6 +159,12 @@ Both functions write to the SQLite path given by `output=`. The optional
 `grafana-schema` once to set up the schema, then call `snapshot` repeatedly
 without this flag.
 
+Pass the `MT5Client` yielded by `mt5_session()` directly to both
+`update_history(client=...)` and `update_observability(client=...)`. These
+workflows call the facade's canonical data methods (`account_info`, `positions`,
+`orders`, `terminal_info`, `copy_rates_range`, `copy_ticks_range`,
+`history_orders`, and `history_deals`); callers never need a pdmt5 client.
+
 **Snapshot tables** (created by `create_snapshot_tables` in `mt5cli.grafana`):
 
 | Table                | Content                                   |
@@ -201,6 +209,10 @@ Lower-level helpers (`ensure_grafana_schema`, `create_grafana_views`,
 | Symbol                                                                     | Role                          |
 | -------------------------------------------------------------------------- | ----------------------------- |
 | `Mt5CliError`, `Mt5ConnectionError`, `Mt5OperationError`, `Mt5SchemaError` | Stable mt5cli exception types |
+
+Only failures from the MT5/pdmt5 boundary are normalized. Exceptions raised by
+application callbacks, input validation, SQLite, or the filesystem propagate
+unchanged, after owned sessions have shut down exactly once.
 
 ## Module-scoped helpers
 

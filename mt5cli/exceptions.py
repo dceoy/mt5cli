@@ -52,21 +52,21 @@ def is_recoverable_mt5_error(exc: BaseException) -> bool:
     return isinstance(exc, _RECOVERABLE_MT5_ERRORS)
 
 
-def normalize_mt5_exception(exc: BaseException) -> Mt5CliError:
+def normalize_mt5_exception(exc: BaseException) -> BaseException:
     """Map pdmt5/MT5 exceptions to stable mt5cli exception types.
 
     Args:
         exc: Original exception from MT5 or pdmt5.
 
     Returns:
-        ``Mt5ConnectionError`` for runtime failures, or the original exception
-        when it is not recognized.
+        ``Mt5ConnectionError`` for runtime failures; unrelated exceptions are
+        returned unchanged.
     """
     if isinstance(exc, Mt5RuntimeError):
         return Mt5ConnectionError(str(exc))
     if isinstance(exc, Mt5CliError):
         return exc
-    return Mt5CliError(str(exc))
+    return exc
 
 
 def call_with_normalized_errors(fn: Callable[[], T]) -> T:
