@@ -2295,7 +2295,7 @@ class TestVolumeAndExecution:
         )
 
         assert result["status"] == expected_status
-        assert result.volume == 0.1
+        _assert_close(result.volume, 0.1)
 
     def test_place_market_order_captures_send_errors_in_receipt(self) -> None:
         """Test live send failures normalize to failed execution receipts."""

@@ -75,7 +75,9 @@ def test_mt5_client_operational_helpers_route_through_connected_client(
         group=None,
         ticket=None,
     )
-    assert client.order_calc_margin(0, "EURUSD", 0.1, 1.1) == 12.5
+    margin = client.order_calc_margin(0, "EURUSD", 0.1, 1.1)
+    mock_client.order_calc_margin.assert_called_once_with(0, "EURUSD", 0.1, 1.1)
+    assert margin is mock_client.order_calc_margin.return_value
     assert client.symbol_select("EURUSD", enable=False) is True
 
 
