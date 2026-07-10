@@ -3465,7 +3465,7 @@ class TestExecutionNormalizationInternals:
             "items": ({"y": 2},),
         }
 
-        plain = _plain_value(value)
+        plain = cast("dict[str, object]", _plain_value(value))
 
         assert plain["when"] == "2024-01-02T00:00:00+00:00"
         assert plain["rows"] == [{"retcode": 1}]
