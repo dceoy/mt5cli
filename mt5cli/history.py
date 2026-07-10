@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Literal, SupportsInt, cast, overload
 
 import pandas as pd
 from pdmt5 import Mt5RuntimeError
-from pdmt5 import get_timeframe_name as _get_timeframe_name
+from pdmt5.constants import get_timeframe_name as _get_timeframe_name
 
 from .schemas import DEDUP_KEYS, REQUIRED_COLUMNS, DataKind, ensure_utc_columns
 from .utils import (
