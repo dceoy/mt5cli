@@ -906,6 +906,17 @@ _REMOVED_PDMT5_ROOT_EXPORTS: frozenset[str] = frozenset({
 })
 
 
+def _pdmt5_module_bindings(tree: ast.Module) -> set[str]:
+    """Return local names bound to the ``pdmt5`` module itself via ``import pdmt5``."""
+    return {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "pdmt5"
+    }
+
+
 def _find_removed_pdmt5_root_imports(source_path: Path) -> list[str]:
     tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
     found: list[str] = []
@@ -916,6 +927,16 @@ def _find_removed_pdmt5_root_imports(source_path: Path) -> list[str]:
                 for alias in node.names
                 if alias.name in _REMOVED_PDMT5_ROOT_EXPORTS
             )
+    module_names = _pdmt5_module_bindings(tree)
+    if module_names:
+        found.extend(
+            node.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and node.attr in _REMOVED_PDMT5_ROOT_EXPORTS
+            and isinstance(node.value, ast.Name)
+            and node.value.id in module_names
+        )
     return found
 
 
@@ -931,6 +952,36 @@ def test_no_removed_pdmt5_root_introspection_imports() -> None:
         "Removed pdmt5 root introspection helpers must be imported from "
         f"pdmt5.constants instead: {offenders}"
     )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import pdmt5\npdmt5.get_timeframe_name(1)\n",
+        "import pdmt5 as p5\np5.get_timeframe_name(1)\n",
+    ],
+    ids=["direct-module-import", "aliased-module-import"],
+)
+def test_removed_pdmt5_root_imports_detects_module_qualified_access(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    """The AST guard also catches ``import pdmt5``-qualified root attribute access."""
+    module_path = tmp_path / "offender.py"
+    module_path.write_text(source, encoding="utf-8")
+    assert _find_removed_pdmt5_root_imports(module_path) == ["get_timeframe_name"]
+
+
+def test_removed_pdmt5_root_imports_ignores_constants_submodule_access(
+    tmp_path: Path,
+) -> None:
+    """Accessing helpers via the stable ``pdmt5.constants`` submodule is not flagged."""
+    module_path = tmp_path / "clean.py"
+    module_path.write_text(
+        "import pdmt5.constants\npdmt5.constants.get_timeframe_name(1)\n",
+        encoding="utf-8",
+    )
+    assert _find_removed_pdmt5_root_imports(module_path) == []
 
 
 def test_import_mt5cli_succeeds() -> None:
