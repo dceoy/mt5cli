@@ -17,7 +17,7 @@ from pytest_mock import MockerFixture  # noqa: TC002
 
 from mt5cli import trading
 from mt5cli.client import MT5Client
-from mt5cli.exceptions import Mt5OperationError
+from mt5cli.exceptions import Mt5CliError, Mt5ConnectionError, Mt5OperationError
 from mt5cli.sdk import build_config
 from mt5cli.trading import (
     MarginVolume,
@@ -3159,8 +3159,6 @@ class TestVolumeAndExecution:
         mocker: MockerFixture,
     ) -> None:
         """Test shutdown is called when initialization fails."""
-        from mt5cli.exceptions import Mt5ConnectionError
-
         mock_raw_client = MagicMock()
         mock_raw_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("boom")
         mocker.patch(
@@ -3328,8 +3326,6 @@ class TestVolumeAndExecution:
 
     def test_shuts_down_when_body_raises(self, mocker: MockerFixture) -> None:
         """Test shutdown is called when the context body raises."""
-        from mt5cli.exceptions import Mt5CliError
-
         mock_raw_client = MagicMock()
         mocker.patch(
             "mt5cli.sdk.Mt5DataClient",

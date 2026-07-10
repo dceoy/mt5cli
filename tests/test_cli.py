@@ -743,7 +743,7 @@ class TestClosePositions:
     def test_close_positions_filter(
         self,
         tmp_path: Path,
-        trading_client: MagicMock,
+        trading_client: MagicMock,  # noqa: ARG002
         extra_args: list[str],
         expected_symbols: set[str],
     ) -> None:
@@ -762,7 +762,6 @@ class TestClosePositions:
     def test_missing_symbol_and_ticket_fails(
         self,
         tmp_path: Path,
-        mocker: MockerFixture,
     ) -> None:
         """Test that omitting both --symbol and --ticket fails closed."""
         output = tmp_path / "close.json"
@@ -776,7 +775,7 @@ class TestClosePositions:
     def test_output_export_dry_run(
         self,
         tmp_path: Path,
-        trading_client: MagicMock,
+        trading_client: MagicMock,  # noqa: ARG002
     ) -> None:
         """Test dry-run results export with status=dry_run."""
         output = tmp_path / "close.json"
