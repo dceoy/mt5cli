@@ -27,6 +27,9 @@ from mt5cli.trading import (
     ProjectionMode,
     _filter_positions,  # type: ignore[reportPrivateUsage]
     _Mt5ClientProtocol,  # type: ignore[reportPrivateUsage]
+    _plain_value,  # type: ignore[reportPrivateUsage]
+    _response_mapping,  # type: ignore[reportPrivateUsage]
+    _snapshot_from_value,  # type: ignore[reportPrivateUsage]
     calculate_account_projected_margin_ratio,
     calculate_margin_and_volume,
     calculate_new_position_margin_ratio,
@@ -757,6 +760,18 @@ class TestSnapshotsAndState:
 
         assert get_symbol_snapshot(client, "USDJPY")["digits"] == 3
         _assert_close(get_tick_snapshot(client, "USDJPY")["ask"], 1.1)
+
+    def test_account_snapshot_reads_dataframe_snapshots(self) -> None:
+        """Test account snapshots accept one-row DataFrame broker payloads."""
+        client = MagicMock()
+        client.account_info_as_dict.return_value = pd.DataFrame(
+            [{"login": 42, "equity": 100.0}],
+        )
+
+        result = get_account_snapshot(client)
+
+        assert result["login"] == 42
+        _assert_close(result["equity"], 100.0)
 
     def test_positions_frame_adds_stable_columns(self) -> None:
         """Test missing position columns are added to empty frames."""
@@ -2253,6 +2268,67 @@ class TestVolumeAndExecution:
         client.order_send.assert_called_once()
 
     @pytest.mark.parametrize(
+        ("retcode", "expected_status"),
+        [
+            (10008, "placed"),
+            (10010, "partial_fill"),
+        ],
+        ids=["placed", "partial-fill"],
+    )
+    def test_place_market_order_maps_broker_status_categories(
+        self,
+        retcode: int,
+        expected_status: str,
+    ) -> None:
+        """Test broker retcodes map to placed and partial-fill statuses."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": retcode, "comment": "ok"}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["status"] == expected_status
+        assert result.volume == 0.1
+
+    def test_place_market_order_captures_send_errors_in_receipt(self) -> None:
+        """Test live send failures normalize to failed execution receipts."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.side_effect = RuntimeError("send failed")
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["status"] == "failed"
+        assert "send failed" in str(result["comment"])
+
+    def test_place_market_order_marks_unmappable_response_as_failed(self) -> None:
+        """Test unsupported broker response shapes normalize to failed receipts."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = object()
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+        )
+
+        assert result["status"] == "failed"
+
+    @pytest.mark.parametrize(
         ("raw_retcode", "expected_retcode"),
         [
             (10013, 10013),
@@ -2695,6 +2771,20 @@ class TestVolumeAndExecution:
 
         assert _request_from_result(result[0])["type_filling"] == expected
         client.symbol_info_as_dict.assert_not_called()
+
+    def test_close_open_positions_captures_send_errors_in_receipt(self) -> None:
+        """Test close failures normalize to failed execution receipts."""
+        client = _mock_trade_client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [{"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 0.1}],
+        )
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.side_effect = RuntimeError("close failed")
+
+        results = close_open_positions(client, symbols="EURUSD")
+
+        assert results[0]["status"] == "failed"
+        assert "close failed" in str(results[0]["comment"])
 
     def test_filter_positions_magic_is_fail_closed_without_magic_column(self) -> None:
         """Test direct magic filtering fails closed when the DataFrame lacks magic."""
@@ -3289,6 +3379,29 @@ class TestVolumeAndExecution:
         else:
             assert result[0]["status"] == "rejected"
 
+    def test_update_sltp_captures_send_errors_in_receipt(self) -> None:
+        """Test live SL/TP updates normalize send failures to failed receipts."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": True}
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+        client.order_send.side_effect = RuntimeError("sltp failed")
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        assert result[0]["status"] == "failed"
+        assert "sltp failed" in str(result[0]["comment"])
+
     def test_trading_typed_dict_exports(self) -> None:
         """Test order-planning TypedDict contracts are importable."""
         margin: MarginVolume = {
@@ -3337,6 +3450,37 @@ class TestVolumeAndExecution:
             raise RuntimeError(body_error)
 
         mock_raw_client.shutdown.assert_called_once()
+
+
+class TestExecutionNormalizationInternals:
+    """Tests for execution receipt normalization helpers."""
+
+    def test_plain_value_serializes_nested_structures(self) -> None:
+        """Test diagnostic serialization handles nested broker payloads."""
+        row = SimpleNamespace(_asdict=lambda: {"retcode": 1})
+        value = {
+            "when": datetime(2024, 1, 2, tzinfo=UTC),
+            "rows": [row],
+            "frame": pd.DataFrame([{"x": 1}]),
+            "items": ({"y": 2},),
+        }
+
+        plain = _plain_value(value)
+
+        assert plain["when"] == "2024-01-02T00:00:00+00:00"
+        assert plain["rows"] == [{"retcode": 1}]
+        assert plain["frame"] == [{"x": 1}]
+        assert plain["items"] == [{"y": 2}]
+
+    def test_snapshot_from_value_with_empty_fields_returns_full_row(self) -> None:
+        """Test empty field filters return the full normalized row."""
+        row = _snapshot_from_value(pd.DataFrame([{"a": 1, "b": 2}]), ())
+        assert row == {"a": 1, "b": 2}
+
+    def test_response_mapping_handles_empty_and_dict_responses(self) -> None:
+        """Test response normalization covers empty frames and plain mappings."""
+        assert _response_mapping(pd.DataFrame()) == {}
+        assert _response_mapping({"retcode": 10009}) == {"retcode": 10009}
 
 
 class TestFetchLatestClosedRatesForTradingClient:
