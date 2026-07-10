@@ -15,13 +15,9 @@ downstream app -> mt5cli -> pdmt5 -> MetaTrader 5
 | **mt5cli**     | CLI/batch workflows; SQLite history collection; normalized datasets; closed-bar helpers; small downstream operational SDK; generic broker-facing margin/volume/order orchestration |
 | **downstream** | Strategy logic; signals; risk policy; backtesting; optimization; YAML/application semantics                                                                                        |
 
-Downstream code should import raw pdmt5 types and constants (such as
-`Mt5Config`, `Mt5RuntimeError`, `TIMEFRAME_MAP`, `COPY_TICKS_MAP`) directly
-from `pdmt5` when needed. mt5cli does not serve as a pass-through compatibility
-namespace for pdmt5. mt5cli's trading helpers type their client parameter against
-an internal protocol backed by `pdmt5.Mt5DataClient`; `Mt5TradingClient` is no
-longer required. `pdmt5.Mt5TradingError` was removed upstream in pdmt5 1.0.4;
-mt5cli raises `Mt5OperationError` for all trading-related failures.
+`pdmt5` is an implementation detail for downstream applications. Applications
+use `MT5Client` and `mt5_session()` for all data, calculations, history, and
+execution helpers; no mt5cli public API returns or requires a raw pdmt5 client.
 
 Note: the former `mt5cli` re-export `TICK_FLAG_MAP` corresponds to `COPY_TICKS_MAP`
 in pdmt5 — the name changed, it was not simply moved.
@@ -42,10 +38,9 @@ These names are exported from `mt5cli` and enumerated in
 
 | Symbol                                          | Role                                                                                                                                                                                                                                                                              |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MT5Client`                                     | Read-only data client with optional `order_check` / `order_send`                                                                                                                                                                                                                  |
+| `MT5Client`                                     | The single connected client for data, history, calculations, order checking, and order sending |
 | `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True` |
-| `mt5_session`                                   | Context manager: initialize, login, yield client, shutdown                                                                                                                                                                                                                        |
-| `create_trading_client`, `mt5_trading_session`  | Trading-capable MT5 client lifecycle; returns a raw `pdmt5.Mt5DataClient` (not `MT5Client`) supporting order execution, account management, and history deal retrieval                                                                                                            |
+| `mt5_session`                                   | Canonical context manager: initialize/login once, yield `MT5Client`, shut down once; a supplied `client=` remains caller-owned. |
 | `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                          |
 | `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                            |
 
@@ -59,7 +54,6 @@ timestamp normalization in downstream apps.
 | ------------------------------------------------ | ------------------------------------------------------------------------------- |
 | `drop_forming_rate_bar`                          | Remove the last row from chronologically ordered rate data                      |
 | `fetch_latest_closed_rates`                      | Single connected client: fetch `count + 1`, drop forming bar                    |
-| `fetch_latest_closed_rates_for_trading_client`   | Closed bars from an active trading client session; returns RangeIndex           |
 | `fetch_latest_closed_rates_indexed`              | Same as above but returns a UTC `DatetimeIndex` named `"time"` (no time column) |
 | `collect_latest_closed_rates_for_accounts`       | Multi-account closed bars with optional retry wrapper                           |
 | `collect_latest_closed_rates_by_granularity`     | Same data keyed by `(symbol, granularity_name)`                                 |
@@ -102,7 +96,6 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `calculate_trailing_stop_updates`                                                                                              | Per-ticket generic trailing stop-loss update plan                 |
 | `resolve_broker_filling_mode`                                                                                                  | Broker-supported filling-mode selection helper                    |
 | `ensure_symbol_selected`                                                                                                       | Select/verify Market Watch visibility                             |
-| `fetch_recent_history_deals_for_trading_client`                                                                                | Recent deal history from a connected trading client               |
 | `place_market_order`, `close_open_positions`, `update_sltp_for_open_positions`, `update_trailing_stop_loss_for_open_positions` | Order execution helpers (`dry_run` supported)                     |
 | `MarginVolume`, `OrderLimits`, `OrderExecutionResult`                                                                          | Typed return contracts for order helpers                          |
 | `OrderSide`, `OrderFillingMode`, `OrderTimeMode`, `PositionSide`, `ExecutionStatus`                                            | Typed enums for order helpers                                     |
@@ -124,9 +117,23 @@ symbol metadata as a pre-check only; it does not guarantee live order acceptance
 after price movement and does not inspect `trade_freeze_level`. Live
 `place_market_order()` and SL/TP updates call
 `ensure_symbol_selected()` so hidden symbols are added to Market Watch before
-sending requests. Failed, malformed, or unknown broker retcodes are fail-closed
-and returned as `status="failed"` with normalized `request` / `response` details;
-`dry_run=True` never calls `ensure_symbol_selected()` or `order_send()`.
+sending requests. `OrderExecutionResult` is a frozen, JSON-compatible receipt.
+Its direct fields are `status`, `symbol`, `order_side`, `requested_volume`,
+`filled_volume`, `request_price`, `filled_price`, `order_ticket`, `deal_ticket`,
+`position_id`, `magic`, `retcode`, `comment`, `dry_run`, `request`, and
+`response`. Fill values are null unless the broker supplies them. Statuses are
+`filled`, `partial_fill`, `placed`, `dry_run`, `skipped`, `rejected`,
+`malformed`, and `failed`; unknown retcodes are rejected, missing retcodes are
+malformed, and runtime failures are failed. A dry run includes its request but
+has no fills, identifiers, or response and never selects a symbol or sends.
+
+## Breaking migration
+
+`create_trading_client()` and `mt5_trading_session()` are removed from the
+package-root API. Replace either with `with mt5_session(config) as client:` and
+retrieve deal history through `client.history_deals()` or
+`client.recent_history_deals()`. Consume execution receipt attributes instead
+of parsing a raw broker response or assuming requested volume was filled.
 
 ### Grafana observability (SQLite read model)
 

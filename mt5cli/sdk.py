@@ -18,6 +18,7 @@ import pandas as pd
 from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
 from pydantic import SecretStr
 
+from .exceptions import normalize_mt5_exception
 from .grafana import (
     create_snapshot_tables,
     ensure_grafana_schema,
@@ -383,7 +384,8 @@ def connected_client(
 
     Yields:
         Connected ``Mt5DataClient`` instance.
-    """
+
+    """  # noqa: DOC501
     client = (
         Mt5DataClient(config=config)
         if retry_count is None
@@ -392,6 +394,8 @@ def connected_client(
     try:
         client.initialize_and_login_mt5()
         yield client
+    except Exception as exc:
+        raise normalize_mt5_exception(exc) from exc
     finally:
         client.shutdown()
 

@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from math import floor, isfinite
 from numbers import Integral, Real
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
 
 import pandas as pd
-from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
+from pdmt5 import Mt5Config, Mt5RuntimeError
 
+from .client import MT5Client, mt5_session
 from .exceptions import Mt5OperationError
 from .history import drop_forming_rate_bar
 from .sdk import build_config
@@ -72,14 +74,6 @@ class _Mt5ClientProtocol(Protocol):
         """Return the last error message or info."""
         ...
 
-    def shutdown(self) -> None:
-        """Shut down the MT5 client."""
-        ...
-
-    def initialize_and_login_mt5(self) -> None:
-        """Initialize and login to MT5."""
-        ...
-
 
 class _HistoryDealsClientProtocol(Protocol):
     """Minimal protocol for MT5 clients capable of retrieving history deals.
@@ -105,24 +99,20 @@ class _HistoryDealsClientProtocol(Protocol):
         ...
 
 
-class _TradingHistoryDealsClientProtocol(
-    _Mt5ClientProtocol,
-    _HistoryDealsClientProtocol,
-    Protocol,
-):
-    """Combined protocol for trading clients that also support history deal retrieval.
-
-    The raw ``pdmt5.Mt5DataClient`` returned by :func:`create_trading_client`
-    satisfies both :class:`_Mt5ClientProtocol` and
-    :class:`_HistoryDealsClientProtocol`, so it satisfies this combined protocol.
-    """
-
-
 PositionSide = Literal["long", "short"]
 OrderSide = Literal["BUY", "SELL"]
 OrderFillingMode = Literal["IOC", "FOK", "RETURN"]
 OrderTimeMode = Literal["GTC", "DAY", "SPECIFIED", "SPECIFIED_DAY"]
-ExecutionStatus = Literal["executed", "dry_run", "skipped", "failed"]
+ExecutionStatus = Literal[
+    "filled",
+    "partial_fill",
+    "placed",
+    "dry_run",
+    "skipped",
+    "rejected",
+    "malformed",
+    "failed",
+]
 ProjectionMode = Literal["add", "replace_symbol"]
 
 
@@ -147,18 +137,48 @@ class OrderLimits(TypedDict):
     take_profit: float | None
 
 
-class OrderExecutionResult(TypedDict):
-    """Normalized result from market-order and position-management helpers."""
+@dataclass(frozen=True)
+class OrderExecutionResult:
+    """Serialization-safe normalized receipt for an execution request.
+
+    ``filled_volume`` and ``filled_price`` are only populated when returned by
+    the broker; a successful retcode never implies that the requested values
+    were filled. ``response`` is diagnostic data, not the primary contract.
+    """
 
     status: ExecutionStatus
     symbol: str
     order_side: OrderSide
-    volume: float
+    requested_volume: float
+    filled_volume: float | None
+    request_price: float | None
+    filled_price: float | None
+    order_ticket: int | None
+    deal_ticket: int | None
+    position_id: int | None
+    magic: int | None
     retcode: int | None
     comment: str | None
+    dry_run: bool
     request: dict[str, object]
     response: dict[str, object] | None
-    dry_run: bool
+
+    @property
+    def volume(self) -> float:
+        """Deprecated shorthand retained for tabular consumers."""
+        return self.requested_volume
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-compatible representation of this receipt."""
+        return cast("dict[str, object]", asdict(self))
+
+    def __getitem__(self, key: str) -> object:
+        """Provide temporary mapping-style access for existing integrations.
+
+        Returns:
+            Receipt field selected by ``key``.
+        """
+        return self.to_dict()[key]
 
 
 _ORDER_FILLING_MODES: frozenset[str] = frozenset({"IOC", "FOK", "RETURN"})
@@ -571,13 +591,156 @@ def _success_retcodes(mt5: object) -> frozenset[int]:
     return frozenset(values) or _SUCCESS_RETCODE_FALLBACKS
 
 
-def _order_status_from_retcode(mt5: object, retcode: object) -> ExecutionStatus:
-    normalized = _optional_int(retcode)
-    if normalized is None:
+def _plain_value(value: object) -> object:  # noqa: PLR0911
+    """Convert broker values into JSON-compatible diagnostic data.
+
+    Returns:
+        Value composed only of JSON-compatible primitives, mappings, and lists.
+    """
+    as_dict = getattr(value, "_asdict", None)
+    if callable(as_dict):
+        return _plain_value(as_dict())
+    if isinstance(value, pd.DataFrame):
+        return [_plain_value(row) for row in value.to_dict("records")]
+    if isinstance(value, dict):
+        mapping = cast("dict[object, object]", value)
+        return {str(key): _plain_value(item) for key, item in mapping.items()}
+    if isinstance(value, list | tuple):
+        sequence = cast("list[object] | tuple[object, ...]", value)
+        return [_plain_value(item) for item in sequence]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return repr(value)
+
+
+def _response_mapping(response: object) -> dict[str, object] | None:
+    """Normalize supported pdmt5 response shapes to a plain mapping.
+
+    Returns:
+        Stable diagnostic mapping, or ``None`` for an unsupported response.
+    """
+    if response is None:
+        return None
+    if isinstance(response, pd.DataFrame):
+        if response.empty:
+            return {}
+        return cast("dict[str, object]", _plain_value(response.iloc[0].to_dict()))
+    value = _plain_value(response)
+    if isinstance(value, dict):
+        return cast("dict[str, object]", value)
+    fields = (
+        "retcode",
+        "comment",
+        "order",
+        "deal",
+        "position",
+        "volume",
+        "price",
+        "magic",
+    )
+    mapped = {
+        field: getattr(response, field) for field in fields if hasattr(response, field)
+    }
+    return cast("dict[str, object]", _plain_value(mapped)) if mapped else None
+
+
+def _receipt_status(
+    mt5: object, retcode: int | None, response: dict[str, object] | None
+) -> ExecutionStatus:
+    """Map broker result categories without inferring fill details.
+
+    Returns:
+        Stable execution status.
+    """
+    if response is None:
         return "failed"
-    if normalized not in _success_retcodes(mt5):
-        return "failed"
-    return "executed"
+    if retcode is None:
+        return "malformed"
+    partial = _optional_int(getattr(mt5, "TRADE_RETCODE_DONE_PARTIAL", 10010))
+    placed = _optional_int(getattr(mt5, "TRADE_RETCODE_PLACED", 10008))
+    done = _optional_int(getattr(mt5, "TRADE_RETCODE_DONE", 10009))
+    if retcode == partial:
+        return "partial_fill"
+    if retcode == placed:
+        return "placed"
+    if retcode == done or retcode in _success_retcodes(mt5):
+        return "filled"
+    return "rejected"
+
+
+def _execution_receipt(
+    *,
+    mt5: object,
+    symbol: str,
+    order_side: OrderSide,
+    request: dict[str, object],
+    response: object = None,
+    dry_run: bool = False,
+    status: ExecutionStatus | None = None,
+    error: BaseException | None = None,
+) -> OrderExecutionResult:
+    """Create the one public execution receipt from any broker response.
+
+    Returns:
+        Fully normalized execution receipt.
+    """
+    normalized_request = cast("dict[str, object]", _plain_value(request))
+    normalized_response = _response_mapping(response)
+    retcode = (
+        None
+        if normalized_response is None
+        else _optional_int(normalized_response.get("retcode"))
+    )
+    if dry_run:
+        resolved_status: ExecutionStatus = "dry_run"
+        normalized_response = None
+    elif error is not None:
+        resolved_status = "failed"
+    else:
+        resolved_status = status or _receipt_status(mt5, retcode, normalized_response)
+    comment = (
+        str(error)
+        if error is not None
+        else None
+        if normalized_response is None
+        else _optional_str(normalized_response.get("comment"))
+    )
+    return OrderExecutionResult(
+        status=resolved_status,
+        symbol=symbol,
+        order_side=order_side,
+        requested_volume=_optional_price(request.get("volume")) or 0.0,
+        filled_volume=None
+        if normalized_response is None
+        else _optional_price(normalized_response.get("volume")),
+        request_price=_optional_price(request.get("price")),
+        filled_price=None
+        if normalized_response is None
+        else _optional_price(normalized_response.get("price")),
+        order_ticket=None
+        if normalized_response is None
+        else _optional_int(normalized_response.get("order")),
+        deal_ticket=None
+        if normalized_response is None
+        else _optional_int(normalized_response.get("deal")),
+        position_id=(
+            _optional_int(request.get("position"))
+            if normalized_response is None
+            else _optional_int(normalized_response.get("position"))
+            or _optional_int(request.get("position"))
+        ),
+        magic=_optional_int(request.get("magic"))
+        if normalized_response is None
+        else _optional_int(normalized_response.get("magic"))
+        or _optional_int(request.get("magic")),
+        retcode=retcode,
+        comment=comment,
+        dry_run=dry_run,
+        request=normalized_request,
+        response=normalized_response,
+    )
 
 
 def _calculate_min_volume_if_affordable(
@@ -622,25 +785,14 @@ def create_trading_client(
     path: str | None = None,
     timeout: int | None = None,
     retry_count: int = 0,
-) -> _TradingHistoryDealsClientProtocol:
-    """Return an initialized and logged-in trading client.
+) -> MT5Client:
+    """Create a connected :class:`MT5Client` for transitional internal use.
 
-    The returned object is a raw ``pdmt5.Mt5DataClient`` instance, not the
-    higher-level ``mt5cli.MT5Client`` wrapper. Use ``mt5_session()`` /
-    ``MT5Client`` for read-only data collection. For live trading helpers
-    (margin, volume, order execution, position management) pass the returned
-    client to the strategy-agnostic helpers in this module.
-
-    For history deal retrieval use
-    :func:`fetch_recent_history_deals_for_trading_client`; the returned client
-    satisfies :class:`_HistoryDealsClientProtocol` so no additional wrapping is
-    required.
+    New callers must use :func:`mt5cli.mt5_session`; it has explicit ownership
+    semantics and cannot leak a low-level pdmt5 client.
 
     Returns:
-        A ``pdmt5.Mt5DataClient`` instance satisfying ``_Mt5ClientProtocol``
-        and ``_HistoryDealsClientProtocol``. Caller is responsible for calling
-        ``client.shutdown()`` when done; prefer ``mt5_trading_session()`` to
-        manage lifetime automatically.
+        Connected public client.
     """
     mt5_config = _resolve_config(
         config=config,
@@ -650,12 +802,8 @@ def create_trading_client(
         path=path,
         timeout=timeout,
     )
-    client = Mt5DataClient(config=mt5_config, retry_count=retry_count)
-    try:
-        client.initialize_and_login_mt5()
-    except Exception:
-        client.shutdown()
-        raise
+    client = MT5Client(config=mt5_config, retry_count=retry_count)
+    client.__enter__()  # noqa: PLC2801
     return client
 
 
@@ -1576,32 +1724,30 @@ def place_market_order(  # noqa: C901, PLR0913
     if magic is not None:
         request["magic"] = magic
     if dry_run:
-        return {
-            "status": "dry_run",
-            "symbol": symbol,
-            "order_side": side,
-            "volume": volume,
-            "retcode": None,
-            "comment": None,
-            "request": cast("dict[str, object]", request),
-            "response": None,
-            "dry_run": True,
-        }
-    response = client.order_send(request)
-    response_dict = _snapshot_from_value(response, ())
-    raw_retcode = response_dict.get("retcode")
-    retcode = _optional_int(raw_retcode)
-    return {
-        "status": _order_status_from_retcode(client.mt5, raw_retcode),
-        "symbol": symbol,
-        "order_side": side,
-        "volume": volume,
-        "retcode": retcode,
-        "comment": _optional_str(response_dict.get("comment")),
-        "request": cast("dict[str, object]", request),
-        "response": response_dict,
-        "dry_run": False,
-    }
+        return _execution_receipt(
+            mt5=client.mt5,
+            symbol=symbol,
+            order_side=side,
+            request=cast("dict[str, object]", request),
+            dry_run=True,
+        )
+    try:
+        response = client.order_send(request)
+    except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
+        return _execution_receipt(
+            mt5=client.mt5,
+            symbol=symbol,
+            order_side=side,
+            request=cast("dict[str, object]", request),
+            error=exc,
+        )
+    return _execution_receipt(
+        mt5=client.mt5,
+        symbol=symbol,
+        order_side=side,
+        request=cast("dict[str, object]", request),
+        response=response,
+    )
 
 
 def _filter_positions(
@@ -1840,34 +1986,42 @@ def update_sltp_for_open_positions(
             request["sl"] = sl
         if tp is not None:
             request["tp"] = tp
+        side: OrderSide = (
+            "BUY" if row["type"] == client.mt5.POSITION_TYPE_BUY else "SELL"
+        )
         if dry_run:
-            response = None
-            status: ExecutionStatus = "dry_run"
-        else:
-            ensure_symbol_selected(client, str(row["symbol"]))
-            response = _snapshot_from_value(client.order_send(request), ())
-            status = _order_status_from_retcode(
-                client.mt5,
-                response.get("retcode"),
+            results.append(
+                _execution_receipt(
+                    mt5=client.mt5,
+                    symbol=str(row["symbol"]),
+                    order_side=side,
+                    request=cast("dict[str, object]", request),
+                    dry_run=True,
+                )
             )
+            continue
+        ensure_symbol_selected(client, str(row["symbol"]))
+        try:
+            response = client.order_send(request)
+        except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
+            results.append(
+                _execution_receipt(
+                    mt5=client.mt5,
+                    symbol=str(row["symbol"]),
+                    order_side=side,
+                    request=cast("dict[str, object]", request),
+                    error=exc,
+                )
+            )
+            continue
         results.append(
-            {
-                "status": status,
-                "symbol": str(row["symbol"]),
-                "order_side": "BUY"
-                if row["type"] == client.mt5.POSITION_TYPE_BUY
-                else "SELL",
-                "volume": float(row["volume"]),
-                "retcode": None
-                if response is None
-                else _optional_int(response.get("retcode")),
-                "comment": None
-                if response is None
-                else _optional_str(response.get("comment")),
-                "request": cast("dict[str, object]", request),
-                "response": response,
-                "dry_run": dry_run,
-            },
+            _execution_receipt(
+                mt5=client.mt5,
+                symbol=str(row["symbol"]),
+                order_side=side,
+                request=cast("dict[str, object]", request),
+                response=response,
+            )
         )
     return results
 
@@ -2012,7 +2166,7 @@ def fetch_latest_closed_rates_indexed(
 
 
 def fetch_recent_history_deals_for_trading_client(
-    client: _HistoryDealsClientProtocol,
+    client: MT5Client | _HistoryDealsClientProtocol,
     *,
     symbol: str | None = None,
     group: str | None = None,
@@ -2102,12 +2256,20 @@ def fetch_recent_history_deals_for_trading_client(
         offset = timedelta(seconds=server_clock_offset_seconds)
         start += offset
         end += offset
-    raw = client.history_deals_get_as_df(
-        date_from=start,
-        date_to=end,
-        group=group,
-        symbol=symbol,
-    )
+    if isinstance(client, MT5Client):
+        raw = client.history_deals(
+            date_from=start,
+            date_to=end,
+            group=group,
+            symbol=symbol,
+        )
+    else:
+        raw = client.history_deals_get_as_df(
+            date_from=start,
+            date_to=end,
+            group=group,
+            symbol=symbol,
+        )
     if raw is None:
         return pd.DataFrame()
     if raw.empty:
@@ -2127,7 +2289,7 @@ def mt5_trading_session(
     path: str | None = None,
     timeout: int | None = None,
     retry_count: int = 0,
-) -> Iterator[_TradingHistoryDealsClientProtocol]:
+) -> Iterator[MT5Client]:
     """Open a trading-capable MT5 session and always shut down safely.
 
     Launches the MetaTrader 5 terminal using ``Mt5Config.path`` when set,
@@ -2148,16 +2310,14 @@ def mt5_trading_session(
     Yields:
         Connected client supporting required MT5 trading methods.
     """
-    client = create_trading_client(
+    _ = retry_count
+    resolved = _resolve_config(
         config=config,
         login=login,
         password=password,
         server=server,
         path=path,
         timeout=timeout,
-        retry_count=retry_count,
     )
-    try:
+    with mt5_session(resolved) as client:
         yield client
-    finally:
-        client.shutdown()

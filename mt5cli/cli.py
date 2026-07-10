@@ -16,13 +16,13 @@ import pandas as pd
 import typer
 
 from . import sdk
-from .client import MT5Client
+from .client import MT5Client, mt5_session
 from .history import (
     open_existing_sqlite_database,
     report_rate_gaps,
     resolve_granularity_name,
 )
-from .trading import OrderExecutionResult, close_open_positions, create_trading_client
+from .trading import OrderExecutionResult, close_open_positions
 from .utils import (
     DATETIME_TYPE,
     REQUEST_TYPE,
@@ -692,7 +692,14 @@ _EXECUTION_RESULT_COLUMNS: list[str] = [
     "status",
     "symbol",
     "order_side",
-    "volume",
+    "requested_volume",
+    "filled_volume",
+    "request_price",
+    "filled_price",
+    "order_ticket",
+    "deal_ticket",
+    "position_id",
+    "magic",
     "retcode",
     "comment",
     "request",
@@ -706,11 +713,11 @@ def _execution_results_to_df(results: list[OrderExecutionResult]) -> pd.DataFram
         return pd.DataFrame(columns=_EXECUTION_RESULT_COLUMNS)
     rows = [
         {
-            **r,
-            "request": json.dumps(r["request"]),
-            "response": json.dumps(r["response"]),
+            **result.to_dict(),
+            "request": json.dumps(result.request),
+            "response": json.dumps(result.response),
         }
-        for r in results
+        for result in results
     ]
     return pd.DataFrame(rows)
 
@@ -796,8 +803,7 @@ def close_positions(
         msg = "Pass --yes to close live positions."
         raise typer.BadParameter(msg, param_hint="--yes")
     export_ctx = _get_export_context(ctx)
-    client = create_trading_client(config=export_ctx.config)
-    try:
+    with mt5_session(export_ctx.config) as client:
         results = close_open_positions(
             client,
             symbols=list(symbol) if symbol else None,
@@ -808,8 +814,6 @@ def close_positions(
             magic=magic,
             dry_run=dry_run,
         )
-    finally:
-        client.shutdown()
     df = _execution_results_to_df(results)
     _execute_export(ctx, lambda: df)
 

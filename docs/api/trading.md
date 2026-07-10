@@ -4,40 +4,24 @@
 
 ## Trading-capable MT5 sessions
 
-`create_trading_client()` and `mt5_trading_session()` complement the read-only
-`mt5_session()` helper in `sdk.py`. They return or yield an initialized
-client supporting order execution and account management, use `Mt5Config.path`
-to launch the terminal when configured, and `mt5_trading_session()` always
-calls `shutdown()` on exit.
-
-`create_trading_client()` returns a raw `pdmt5.Mt5DataClient` instance, not the
-higher-level `MT5Client` wrapper. Use `mt5_session()` / `MT5Client` for
-read-only data collection; use `mt5_trading_session()` only where order
-placement or trading calculations are required.
+`mt5_session()` is the single lifecycle API. It yields `MT5Client`, which
+supports both market data and generic operational execution. It initializes and
+logs in once, then shuts down once; passing `client=` yields a caller-owned
+client without changing its lifecycle.
 
 ```python
-from mt5cli import create_trading_client, mt5_trading_session
+from mt5cli import mt5_session
 
-with mt5_trading_session(
-    path=r"C:\Program Files\MetaTrader 5\terminal64.exe",
-    login="12345",
-    password="secret",
-    server="Broker-Demo",
-    retry_count=2,
-) as client:
-    positions = client.positions_get_as_df(symbol="EURUSD")
-
-client = create_trading_client(login=12345, server="Broker-Demo")
-try:
-    account = client.account_info_as_dict()
-finally:
-    client.shutdown()
+with mt5_session() as client:
+    positions = client.positions(symbol="EURUSD")
+    account = client.account_info()
 ```
 
 `login` accepts `int`, numeric `str`, or an empty string; empty strings are
 treated as unset. `path`, `password`, `server`, and `timeout` are forwarded to
 `pdmt5.Mt5Config`, and omitted `timeout` values keep the lower-level default.
-Use `mt5_session()` / `MT5Client` for read-only data collection.
+The same client also retrieves canonical deal history with
+`client.history_deals()` and `client.recent_history_deals()`.
 
 ## State and order helpers
 
@@ -189,10 +173,8 @@ through the stable package root without embedding entry/exit policy.
 
 ## Retrieving recent history deals
 
-`fetch_recent_history_deals_for_trading_client()` fetches history deals from an
-already-connected trading client over a trailing time window. It works directly
-with the object returned by `create_trading_client()` (a raw
-`pdmt5.Mt5DataClient`) without requiring any additional wrapping.
+`MT5Client.recent_history_deals()` fetches canonical history deals from the
+single connected client over a trailing time window.
 
 The helper returns a chronologically sorted DataFrame with a `RangeIndex` and
 all columns from the underlying client (`time`, `symbol`, `type`, `entry`,
@@ -201,33 +183,10 @@ strategy-specific transformations — entry/exit classification, Kelly fractions
 and betting semantics belong in downstream applications.
 
 ```python
-from mt5cli import (
-    create_trading_client,
-    fetch_recent_history_deals_for_trading_client,
-)
+from mt5cli import mt5_session
 
-client = create_trading_client(login=12345, server="Broker-Demo")
-try:
-    deals_df = fetch_recent_history_deals_for_trading_client(
-        client,
-        symbol="JP225",
-        hours=24,
-    )
-finally:
-    client.shutdown()
-```
-
-Or inside a managed session:
-
-```python
-from mt5cli import fetch_recent_history_deals_for_trading_client, mt5_trading_session
-
-with mt5_trading_session(login=12345, server="Broker-Demo") as client:
-    deals_df = fetch_recent_history_deals_for_trading_client(
-        client,
-        symbol="JP225",
-        hours=48,
-    )
+with mt5_session() as client:
+    deals_df = client.recent_history_deals(symbol="JP225", hours=24)
 ```
 
 `hours` must be positive; `date_to` defaults to `datetime.now(UTC)`. An empty

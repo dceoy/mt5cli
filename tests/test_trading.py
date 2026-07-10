@@ -86,8 +86,8 @@ def _assert_close(actual: object, expected: float) -> None:
     assert abs(float(cast("float", actual)) - expected) < 1e-9
 
 
-def _request_from_result(result: OrderExecutionResult) -> dict[str, object]:  # noqa: FURB118
-    return result["request"]
+def _request_from_result(result: OrderExecutionResult) -> dict[str, object]:
+    return cast("dict[str, object]", result["request"])
 
 
 _MISSING_RETCODE: object = (
@@ -3303,17 +3303,20 @@ class TestVolumeAndExecution:
             "stop_loss": 0.9,
             "take_profit": 1.1,
         }
-        execution: OrderExecutionResult = {
-            "status": "dry_run",
-            "symbol": "EURUSD",
-            "order_side": "BUY",
-            "volume": 0.1,
-            "retcode": None,
-            "comment": None,
-            "request": {"action": 20},
-            "response": None,
-            "dry_run": True,
-        }
+        execution = cast(
+            "OrderExecutionResult",
+            {
+                "status": "dry_run",
+                "symbol": "EURUSD",
+                "order_side": "BUY",
+                "volume": 0.1,
+                "retcode": None,
+                "comment": None,
+                "request": {"action": 20},
+                "response": None,
+                "dry_run": True,
+            },
+        )
         _assert_close(margin["buy_volume"], 0.1)
         _assert_close(limits["entry"], 1.0)
         assert execution["status"] == "dry_run"

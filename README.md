@@ -103,28 +103,17 @@ unset. Pass `allow_whole_dollar_env=True` to expand `${ENV_VAR}` and bare
 from mt5cli import (
     build_config,
     calculate_spread_ratio,
-    create_trading_client,
     get_account_snapshot,
-    mt5_trading_session,
+    mt5_session,
 )
 
 # Login from environment — numeric string is coerced to int automatically
 config = build_config(login="$MT5_LOGIN", allow_whole_dollar_env=True)
 
-with mt5_trading_session(
-    path=r"C:\Program Files\MetaTrader 5\terminal64.exe",
-    login="12345",
-    password="from-env-or-secret-store",
-    server="Broker-Demo",
-) as client:
+with mt5_session(config) as client:
     account = get_account_snapshot(client)
     spread = calculate_spread_ratio(client, "EURUSD")
-
-client = create_trading_client(login=12345, server="Broker-Demo")
-try:
-    positions = client.positions_get_as_df(symbol="EURUSD")
-finally:
-    client.shutdown()
+    positions = client.positions(symbol="EURUSD")
 ```
 
 ## CLI usage
