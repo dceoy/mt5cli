@@ -649,8 +649,6 @@ class TestClosePositions:
     @pytest.fixture
     def trading_client(self, mocker: MockerFixture) -> MagicMock:
         """Patch mt5_session and return a mock trading client."""
-        from contextlib import contextmanager
-
         client = _build_mock_trading_client()
         client.positions_get_as_df.return_value = pd.DataFrame([
             {"ticket": 1, "symbol": "JP225", "type": 0, "volume": 1.0, "magic": 7},
@@ -715,9 +713,9 @@ class TestClosePositions:
         yes_included: bool,
     ) -> None:
         """Test --yes gates live close-positions execution."""
-        trading_client.order_send.return_value = pd.DataFrame(
-            [{"retcode": 10009, "comment": "ok"}]
-        )
+        trading_client.order_send.return_value = pd.DataFrame([
+            {"retcode": 10009, "comment": "ok"}
+        ])
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
