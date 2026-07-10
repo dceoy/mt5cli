@@ -31,7 +31,9 @@ from mt5cli.exceptions import (
 )
 from mt5cli.retry import retry_with_backoff
 from mt5cli.schemas import (
+    DEDUP_KEYS,
     REQUIRED_COLUMNS,
+    TIME_COLUMNS,
     DataKind,
     ensure_utc_columns,
     normalize_dataframe,
@@ -311,11 +313,23 @@ def test_normalize_mt5_exception_passthrough_and_generic() -> None:
 
 def test_schema_columns_and_extra_required_validation() -> None:
     """Schema helpers expose contracts and honor extra required columns."""
-    assert schema_columns(DataKind.rates)
+    assert schema_columns(DataKind.rates) == REQUIRED_COLUMNS[DataKind.rates]
     validate_schema(pd.DataFrame(), DataKind.rates)
     frame = _sample_frame(DataKind.rates)
     with pytest.raises(Mt5SchemaError, match="storage_symbol"):
         validate_schema(frame, DataKind.rates, extra_required=["storage_symbol"])
+
+
+def test_dedup_keys_match_storage_deduplication_contract() -> None:
+    """SQLite history dedup keys stay aligned with the documented schema contract."""
+    assert DEDUP_KEYS[DataKind.rates][0] == ("symbol", "timeframe", "time")
+    assert DEDUP_KEYS[DataKind.ticks][0] == ("symbol", "time_msc")
+
+
+def test_time_columns_include_optional_order_fields() -> None:
+    """Schema contracts document optional MT5 time columns per dataset kind."""
+    assert "time_done" in TIME_COLUMNS[DataKind.orders]
+    assert "time_setup_msc" in TIME_COLUMNS[DataKind.history_orders]
 
 
 def test_normalize_dataframe_empty_and_tick_sort_paths() -> None:
@@ -464,3 +478,28 @@ class TestStableSdkContract:
     def test_stable_exports_are_importable_from_package_root(self, name: str) -> None:
         """Stable SDK names resolve through ``from mt5cli import ...``."""
         assert hasattr(mt5cli, name), f"{name!r} missing from mt5cli package root"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Mt5Config",
+        "Mt5RuntimeError",
+        "Mt5DataClient",
+        "TIMEFRAME_MAP",
+        "COPY_TICKS_MAP",
+        "ORDER_TYPE_MAP",
+    ],
+)
+def test_pdmt5_pass_through_names_stay_out_of_public_contract(name: str) -> None:
+    """Downstream code must import pdmt5 types/constants directly from pdmt5.
+
+    docs/api/public-contract.md documents that mt5cli is not a pass-through
+    compatibility namespace for pdmt5; these names must never reappear on the
+    mt5cli package root.
+    """
+    assert name not in STABLE_SDK_EXPORTS, (
+        f"{name!r} should not be in STABLE_SDK_EXPORTS"
+    )
+    assert name not in mt5cli.__all__, f"{name!r} should not be in mt5cli.__all__"
+    assert not hasattr(mt5cli, name), f"{name!r} should not be on the mt5cli root"

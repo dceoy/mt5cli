@@ -6,9 +6,11 @@ from unittest.mock import MagicMock
 
 import pytest
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+from pytest_mock import MockerFixture  # noqa: TC002
 
 from mt5cli.telemetry import (
     _Mt5Metrics,  # type: ignore[reportPrivateUsage]
+    configure_metrics,
     enable_otel_metrics,
 )
 
@@ -225,6 +227,20 @@ class TestMt5Metrics:
         m = _Mt5Metrics()
         with getattr(m, method)(**kwargs):
             pass
+
+
+class TestConfigureMetrics:
+    """Tests for the module-level configure_metrics wiring function."""
+
+    def test_configure_metrics_delegates_to_global_registry(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """configure_metrics(meter) delegates exactly once to the registry."""
+        meter = MagicMock()
+        configure_spy = mocker.patch("mt5cli.telemetry._metrics.configure")
+        configure_metrics(meter)
+        configure_spy.assert_called_once_with(meter)
 
 
 class TestEnableOtelMetrics:

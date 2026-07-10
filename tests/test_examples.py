@@ -44,6 +44,18 @@ class TestGrafanaExamples:
             f"{dashboard_path.name} must contain queries against grafana_* views"
         )
 
+    @pytest.mark.parametrize("private_pattern", ["password", "api_key", "apikey"])
+    def test_dashboard_json_has_no_private_placeholders(
+        self,
+        dashboard_path: Path,
+        private_pattern: str,
+    ) -> None:
+        """Dashboard JSON files contain no obvious credential placeholders."""
+        content = dashboard_path.read_text(encoding="utf-8").lower()
+        assert private_pattern not in content, (
+            f"{dashboard_path.name} contains {private_pattern!r}"
+        )
+
     @pytest.mark.parametrize("field", ["uid", "title"])
     def test_dashboard_json_has_required_field(
         self,
