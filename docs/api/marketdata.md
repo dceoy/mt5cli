@@ -1,6 +1,6 @@
 # Market Data Module
 
-::: mt5cli.market_data
+::: mt5cli.marketdata
 
 ## Resilient multi-account orchestration
 

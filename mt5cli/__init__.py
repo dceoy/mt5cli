@@ -28,7 +28,7 @@ from .history import (
     update_history,
     update_history_with_config,
 )
-from .market_data import (
+from .marketdata import (
     AccountSpec,
     collect_latest_closed_rates_by_granularity,
     collect_latest_closed_rates_for_accounts,

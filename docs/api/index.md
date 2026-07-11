@@ -12,7 +12,7 @@ responsibilities.
 | ----------------------------------------- | ------------------------------------------------------------------------------------ |
 | [Public API Contract](public-contract.md) | Stable downstream SDK exports, CLI boundary, and out-of-scope items                  |
 | [Client](client.md)                       | `MT5Client` / `mt5_session()` — the sole connection lifecycle and client abstraction |
-| [Market Data](market_data.md)             | Stateless one-off market-data reads and multi-account rate collection                |
+| [Market Data](marketdata.md)              | Stateless one-off market-data reads and multi-account rate collection                |
 | [Schemas](schemas.md)                     | Canonical DataFrame contracts and normalization helpers                              |
 | [Converters](converters.md)               | Symbol, timeframe, timezone, and date-range utilities                                |
 | [Exceptions](exceptions.md)               | Stable mt5cli exception types and MT5 error normalization                            |
@@ -31,7 +31,7 @@ flowchart TD
     App["Downstream application"] --> Client["MT5Client / mt5_session"]
     CLI["mt5cli CLI"] --> Client
     Client --> PDMT5["pdmt5.Mt5DataClient"]
-    MarketData["market_data"] --> Client
+    MarketData["marketdata"] --> Client
     History["history"] --> Client
     Observability["observability"] --> Client
     Observability --> Grafana["grafana"]

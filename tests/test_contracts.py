@@ -16,7 +16,7 @@ import mt5cli
 import mt5cli.cli
 import mt5cli.client
 import mt5cli.history
-import mt5cli.market_data
+import mt5cli.marketdata
 import mt5cli.observability
 import mt5cli.trading
 import mt5cli.utils
@@ -581,7 +581,7 @@ class TestSingleConnectionLifecycleContract:
         """No mt5cli submodule other than client.py defines mt5_session."""
         submodules = [
             mt5cli.history,
-            mt5cli.market_data,
+            mt5cli.marketdata,
             mt5cli.observability,
             mt5cli.trading,
             mt5cli.cli,

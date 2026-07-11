@@ -1,4 +1,4 @@
-"""Tests for mt5cli.market_data module."""
+"""Tests for mt5cli.marketdata module."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pdmt5 import Mt5RuntimeError
 
 from mt5cli.client import build_config
 from mt5cli.exceptions import Mt5ConnectionError
-from mt5cli.market_data import (
+from mt5cli.marketdata import (
     AccountSpec,
     account_info,
     collect_latest_closed_rates_by_granularity,
@@ -245,7 +245,7 @@ class TestCollectLatestRatesForAccountsWithRetries:
         """Test no retry happens when the first attempt succeeds."""
         expected = {("EURUSD", 1): pd.DataFrame()}
         wrapped = mocker.patch(
-            "mt5cli.market_data.collect_latest_rates_for_accounts",
+            "mt5cli.marketdata.collect_latest_rates_for_accounts",
             return_value=expected,
         )
         sleep = mocker.patch("mt5cli.retry.time.sleep")
@@ -266,7 +266,7 @@ class TestCollectLatestRatesForAccountsWithRetries:
         """Test transient MT5 errors are retried with exponential backoff."""
         expected = {("EURUSD", 1): pd.DataFrame()}
         wrapped = mocker.patch(
-            "mt5cli.market_data.collect_latest_rates_for_accounts",
+            "mt5cli.marketdata.collect_latest_rates_for_accounts",
             side_effect=[
                 Mt5RuntimeError("boom"),
                 Mt5RuntimeError("boom"),
@@ -291,7 +291,7 @@ class TestCollectLatestRatesForAccountsWithRetries:
     def test_reraises_after_exhausting_retries(self, mocker: MockerFixture) -> None:
         """Test the final error is re-raised once retries are exhausted."""
         wrapped = mocker.patch(
-            "mt5cli.market_data.collect_latest_rates_for_accounts",
+            "mt5cli.marketdata.collect_latest_rates_for_accounts",
             side_effect=Mt5RuntimeError("boom"),
         )
         sleep = mocker.patch("mt5cli.retry.time.sleep")
@@ -317,7 +317,7 @@ class TestCollectLatestRatesForAccountsWithRetries:
             Mt5ConnectionError("terminal unavailable"),
             expected,
         ]
-        mocker.patch("mt5cli.market_data.MT5Client", return_value=client)
+        mocker.patch("mt5cli.marketdata.MT5Client", return_value=client)
         sleep = mocker.patch("mt5cli.retry.time.sleep")
 
         result = collect_latest_rates_for_accounts_with_retries(
@@ -334,7 +334,7 @@ class TestCollectLatestRatesForAccountsWithRetries:
     def test_does_not_retry_unrelated_errors(self, mocker: MockerFixture) -> None:
         """Test non-MT5 errors propagate without retrying."""
         wrapped = mocker.patch(
-            "mt5cli.market_data.collect_latest_rates_for_accounts",
+            "mt5cli.marketdata.collect_latest_rates_for_accounts",
             side_effect=ValueError("bad input"),
         )
         sleep = mocker.patch("mt5cli.retry.time.sleep")
@@ -361,7 +361,7 @@ class TestCollectLatestClosedRatesForAccounts:
         """Test closed-bar collection requests one extra bar at start_pos=0."""
         df_rate = pd.DataFrame({"time": [1, 2, 3], "close": [1.1, 1.2, 1.3]})
         wrapped = mocker.patch(
-            "mt5cli.market_data.collect_latest_rates_for_accounts_with_retries",
+            "mt5cli.marketdata.collect_latest_rates_for_accounts_with_retries",
             return_value={("EURUSD", 1): df_rate},
         )
         accounts = [AccountSpec(symbols=["EURUSD"])]
@@ -404,7 +404,7 @@ class TestCollectLatestClosedRatesForAccounts:
     ) -> None:
         """Test empty effective frames raise after start_pos/forming-bar handling."""
         mocker.patch(
-            "mt5cli.market_data.collect_latest_rates_for_accounts_with_retries",
+            "mt5cli.marketdata.collect_latest_rates_for_accounts_with_retries",
             return_value={("EURUSD", 1): rates_frame},
         )
 
@@ -422,7 +422,7 @@ class TestCollectLatestClosedRatesForAccounts:
         """Test start_pos > 0 fetches count bars without dropping the last row."""
         df_rate = pd.DataFrame({"time": [1, 2], "close": [1.1, 1.2]})
         wrapped = mocker.patch(
-            "mt5cli.market_data.collect_latest_rates_for_accounts_with_retries",
+            "mt5cli.marketdata.collect_latest_rates_for_accounts_with_retries",
             return_value={("EURUSD", 1): df_rate},
         )
 
@@ -460,7 +460,7 @@ class TestCollectLatestClosedRatesForAccounts:
     ) -> None:
         """Test invalid count/start_pos values are rejected before MT5 is called."""
         wrapped = mocker.patch(
-            "mt5cli.market_data.collect_latest_rates_for_accounts_with_retries",
+            "mt5cli.marketdata.collect_latest_rates_for_accounts_with_retries",
         )
 
         with pytest.raises(ValueError, match=match):
@@ -478,7 +478,7 @@ class TestCollectLatestClosedRatesForAccounts:
     ) -> None:
         """Test each returned series is trimmed and validated independently."""
         mocker.patch(
-            "mt5cli.market_data.collect_latest_rates_for_accounts_with_retries",
+            "mt5cli.marketdata.collect_latest_rates_for_accounts_with_retries",
             return_value={
                 ("EURUSD", 1): pd.DataFrame(
                     {"time": [1, 2, 3], "close": [1.1, 1.2, 1.3]},
@@ -569,7 +569,7 @@ class TestCollectLatestClosedRatesByGranularity:
         """Test closed rates are keyed by symbol and granularity name."""
         df_rate = pd.DataFrame({"time": [1, 2], "close": [1.1, 1.2]})
         wrapped = mocker.patch(
-            "mt5cli.market_data.collect_latest_closed_rates_for_accounts",
+            "mt5cli.marketdata.collect_latest_closed_rates_for_accounts",
             return_value={("EURUSD", 1): df_rate},
         )
 

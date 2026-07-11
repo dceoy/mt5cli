@@ -21,7 +21,7 @@ from mt5cli.client import (
     substitute_mapping_values,
 )
 from mt5cli.exceptions import Mt5ConnectionError
-from mt5cli.market_data import (
+from mt5cli.marketdata import (
     collect_latest_rates,
     copy_rates_range,
     recent_history_deals,
@@ -774,7 +774,7 @@ class TestMT5ClientMethods:
         mock_client.account_info.return_value = account_info_value
         mock_client.symbols_total.return_value = 42
 
-        from mt5cli.market_data import mt5_summary  # noqa: PLC0415
+        from mt5cli.marketdata import mt5_summary  # noqa: PLC0415
 
         assert mt5_summary() == expected
 
@@ -794,7 +794,7 @@ class TestMT5ClientMethods:
         )
         mock_client.symbols_total.return_value = 42
 
-        from mt5cli.market_data import mt5_summary_as_df  # noqa: PLC0415
+        from mt5cli.marketdata import mt5_summary_as_df  # noqa: PLC0415
 
         result = mt5_summary_as_df()
 
@@ -853,7 +853,7 @@ class TestRecentTicks:
             "bid": [1.0],
         })
         mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
-        from mt5cli.market_data import recent_ticks  # noqa: PLC0415
+        from mt5cli.marketdata import recent_ticks  # noqa: PLC0415
 
         result = recent_ticks(
             "EURUSD",
@@ -955,7 +955,7 @@ class TestRecentTicks:
             "bid": [1.0, 1.1, 1.2],
         })
         mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
-        from mt5cli.market_data import recent_ticks  # noqa: PLC0415
+        from mt5cli.marketdata import recent_ticks  # noqa: PLC0415
 
         result = recent_ticks(
             "EURUSD",
@@ -993,7 +993,7 @@ class TestMinimumMargins:
         client.mt5.ORDER_TYPE_BUY = 0
         client.mt5.ORDER_TYPE_SELL = 1
         mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
-        from mt5cli.market_data import minimum_margins  # noqa: PLC0415
+        from mt5cli.marketdata import minimum_margins  # noqa: PLC0415
 
         result = minimum_margins("EURUSD", config=build_config(login=123))
 

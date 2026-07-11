@@ -58,7 +58,7 @@ nav:
       - Overview: api/index.md
       - Public API Contract: api/public-contract.md
       - Client: api/client.md
-      - Market Data: api/market_data.md
+      - Market Data: api/marketdata.md
       - Schemas: api/schemas.md
       - Converters: api/converters.md
       - Exceptions: api/exceptions.md
