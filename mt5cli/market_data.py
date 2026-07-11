@@ -430,9 +430,9 @@ def collect_latest_rates_for_accounts_with_retries(
     """Collect latest rates across accounts, retrying transient MT5 failures.
 
     Wraps :func:`collect_latest_rates_for_accounts` with bounded exponential
-    backoff. Only ``pdmt5.Mt5RuntimeError`` is retried; other exceptions
-    propagate immediately. The final failure is re-raised once retries are
-    exhausted.
+    backoff. Only ``pdmt5.Mt5RuntimeError`` and its normalized
+    ``Mt5ConnectionError`` form are retried; other exceptions propagate
+    immediately. The final failure is re-raised once retries are exhausted.
 
     Args:
         accounts: Account groups to read. Each must define at least one symbol.
@@ -449,8 +449,7 @@ def collect_latest_rates_for_accounts_with_retries(
     Returns:
         Mapping keyed by ``(symbol, timeframe_int)``. Propagates ``ValueError``
         for invalid inputs (see :func:`collect_latest_rates_for_accounts`) and
-        re-raises the last ``pdmt5.Mt5RuntimeError`` once retries are
-        exhausted.
+        re-raises the last recoverable MT5 error once retries are exhausted.
     """
 
     def _collect() -> dict[tuple[str, int], pd.DataFrame]:

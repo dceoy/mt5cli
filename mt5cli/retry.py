@@ -29,8 +29,9 @@ def retry_with_backoff(
 ) -> T:
     """Call ``fn`` with bounded exponential backoff on recoverable MT5 errors.
 
-    Only ``pdmt5.Mt5RuntimeError`` is retried. Other exceptions propagate
-    immediately. The final failure is re-raised once retries are exhausted.
+    Only ``pdmt5.Mt5RuntimeError`` and its normalized ``Mt5ConnectionError``
+    form are retried. Other exceptions propagate immediately. The final
+    failure is re-raised once retries are exhausted.
 
     Args:
         fn: Callable performing MT5 work.

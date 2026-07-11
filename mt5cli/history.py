@@ -22,6 +22,7 @@ from .client import (
     _connected_client,  # pyright: ignore[reportPrivateUsage]
     build_config,
 )
+from .exceptions import Mt5ConnectionError
 from .schemas import DEDUP_KEYS, REQUIRED_COLUMNS, DataKind, ensure_utc_columns
 from .telemetry import get_metrics
 from .utils import (
@@ -1846,7 +1847,7 @@ def write_symbols_dataset(
     def _fetch_symbol_frame(sym: str) -> pd.DataFrame:
         try:
             info: object = client.symbol_info_as_dict(symbol=sym)
-        except Mt5RuntimeError:
+        except (Mt5RuntimeError, Mt5ConnectionError):
             info = None
         if not isinstance(info, Mapping):
             logger.warning(
@@ -2383,6 +2384,7 @@ def write_collected_datasets(
 
 _RECOVERABLE_HISTORY_UPDATE_ERRORS: tuple[type[BaseException], ...] = (
     Mt5RuntimeError,
+    Mt5ConnectionError,
     sqlite3.Error,
     ValueError,
     OSError,
@@ -2663,7 +2665,8 @@ class ThrottledHistoryUpdater:
             interval_seconds: Minimum seconds between successful updates. Values
                 ``<= 0`` update on every call.
             suppress_errors: When True, recoverable errors (``Mt5RuntimeError``,
-                ``sqlite3.Error``, ``ValueError``, and ``OSError``) raised
+                ``Mt5ConnectionError``, ``sqlite3.Error``, ``ValueError``, and
+                ``OSError``) raised
                 during an update are swallowed and :meth:`update` returns False
                 without advancing the throttle. When False (default),
                 recoverable errors propagate so callers control logging.
@@ -2719,8 +2722,9 @@ class ThrottledHistoryUpdater:
             propagate to the caller.
 
         Raises:
-            Mt5RuntimeError: When ``suppress_errors`` is False and the update
-                fails with a recoverable MT5, SQLite, validation, or I/O error.
+            Mt5ConnectionError: When ``suppress_errors`` is False and the
+                update fails with a recoverable MT5, SQLite, validation, or
+                I/O error.
         """  # noqa: DOC502
         if not self.should_update():
             return False

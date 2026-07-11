@@ -21,7 +21,7 @@ __all__ = [
     "normalize_mt5_exception",
 ]
 
-_RECOVERABLE_MT5_ERRORS: tuple[type[BaseException], ...] = (Mt5RuntimeError,)
+_NORMALIZABLE_MT5_ERRORS: tuple[type[BaseException], ...] = (Mt5RuntimeError,)
 
 
 class Mt5CliError(Exception):
@@ -40,6 +40,12 @@ class Mt5SchemaError(Mt5CliError):
     """Raised when a DataFrame does not match an expected dataset schema."""
 
 
+_RECOVERABLE_MT5_ERRORS: tuple[type[BaseException], ...] = (
+    Mt5RuntimeError,
+    Mt5ConnectionError,
+)
+
+
 def is_recoverable_mt5_error(exc: BaseException) -> bool:
     """Return whether an exception is a transient MT5 failure worth retrying.
 
@@ -47,7 +53,8 @@ def is_recoverable_mt5_error(exc: BaseException) -> bool:
         exc: Exception raised by MT5 or pdmt5.
 
     Returns:
-        True for ``Mt5RuntimeError``.
+        True for ``Mt5RuntimeError`` and its normalized ``Mt5ConnectionError``
+        form.
     """
     return isinstance(exc, _RECOVERABLE_MT5_ERRORS)
 
@@ -80,6 +87,6 @@ def call_with_normalized_errors(fn: Callable[[], T]) -> T:
     """
     try:
         return fn()
-    except _RECOVERABLE_MT5_ERRORS as exc:
+    except _NORMALIZABLE_MT5_ERRORS as exc:
         normalized = normalize_mt5_exception(exc)
         raise normalized from exc

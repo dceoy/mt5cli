@@ -10,6 +10,7 @@ private primitives defined here instead of duplicating lifecycle behavior.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from contextlib import contextmanager
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterator, Sequence
 
 T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "MT5Client",
@@ -345,6 +348,22 @@ def build_config(
     )
 
 
+def _shutdown_client(client: Mt5DataClient, *, raise_on_error: bool) -> None:
+    """Shut down a client, normalizing or logging shutdown failures.
+
+    When ``raise_on_error`` is True (cleanup is the only failure), a shutdown
+    failure is raised as the stable normalized exception. When False (an
+    initialization or session-body exception is already propagating), the
+    failure is logged so the primary exception passes through unchanged.
+    """  # noqa: DOC501
+    try:
+        client.shutdown()
+    except Exception as exc:
+        if raise_on_error:
+            raise normalize_mt5_exception(exc) from exc
+        logger.warning("MT5 shutdown failed during cleanup", exc_info=True)
+
+
 @contextmanager
 def _connected_client(
     config: Mt5Config,
@@ -375,12 +394,14 @@ def _connected_client(
     try:
         client.initialize_and_login_mt5()
     except Exception as exc:
-        client.shutdown()
+        _shutdown_client(client, raise_on_error=False)
         raise normalize_mt5_exception(exc) from exc
     try:
         yield client
-    finally:
-        client.shutdown()
+    except BaseException:
+        _shutdown_client(client, raise_on_error=False)
+        raise
+    _shutdown_client(client, raise_on_error=True)
 
 
 def _run_with_client(
@@ -466,7 +487,7 @@ class _BaseMT5Client:
         try:
             client.initialize_and_login_mt5()
         except Exception as exc:
-            client.shutdown()
+            _shutdown_client(client, raise_on_error=False)
             raise normalize_mt5_exception(exc) from exc
         self._client = client
         self._owns_client = True  # only set when this method created the client
@@ -478,10 +499,16 @@ class _BaseMT5Client:
         exc: BaseException | None,
         tb: object,
     ) -> None:
-        """Shut down the persistent MT5 connection."""
+        """Shut down the persistent MT5 connection.
+
+        A shutdown failure is raised as the stable normalized exception only
+        when no exception is already propagating from the ``with`` body;
+        otherwise it is logged so the body exception passes through.
+        """
         if self._client is not None and self._owns_client:
-            self._client.shutdown()
+            client = self._client
             self._client = None
+            _shutdown_client(client, raise_on_error=exc is None)
 
     def _fetch_value(self, fetch_fn: Callable[[Mt5DataClient], T]) -> T:
         if self._client is not None:

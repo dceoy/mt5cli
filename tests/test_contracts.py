@@ -217,7 +217,7 @@ def test_granularity_name_maps_timeframe_alias() -> None:
 
 @pytest.mark.parametrize(
     "exc",
-    [Mt5RuntimeError("init failed")],
+    [Mt5RuntimeError("init failed"), Mt5ConnectionError("normalized failure")],
 )
 def test_is_recoverable_mt5_error(exc: Exception) -> None:
     """Recoverable MT5 errors are classified consistently."""

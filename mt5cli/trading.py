@@ -648,11 +648,11 @@ def _execution_receipt(
         if normalized_response is None
         else _optional_int(normalized_response.get("retcode"))
     )
-    if dry_run:
-        resolved_status: ExecutionStatus = "dry_run"
+    if error is not None:
+        resolved_status: ExecutionStatus = "failed"
+    elif dry_run:
+        resolved_status = "dry_run"
         normalized_response = None
-    elif error is not None:
-        resolved_status = "failed"
     else:
         resolved_status = status or _receipt_status(mt5, retcode, normalized_response)
     comment = (
@@ -1699,6 +1699,7 @@ def place_market_order(  # noqa: C901, PLR0913
             symbol=symbol,
             order_side=side,
             request=request,
+            dry_run=dry_run,
             error=exc,
         )
     return _execution_receipt(
@@ -1787,6 +1788,7 @@ def close_open_positions(
                         "position": int(row["ticket"]),
                         **({"magic": magic} if magic is not None else {}),
                     },
+                    dry_run=dry_run,
                     error=exc,
                 )
             )
@@ -1980,6 +1982,7 @@ def update_sltp_for_open_positions(
                     symbol=symbol,
                     order_side=side,
                     request=request,
+                    dry_run=dry_run,
                     error=exc,
                 )
             )

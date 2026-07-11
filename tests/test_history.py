@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 from pdmt5 import TIMEFRAME_MAP, Mt5RuntimeError
 
 from mt5cli import history
+from mt5cli.exceptions import Mt5ConnectionError
 from mt5cli.history import (
     DEFAULT_HISTORY_DATASETS,
     DEFAULT_HISTORY_TIMEFRAMES,
@@ -2634,14 +2635,19 @@ class TestIncrementalIntegration:
         assert "XAUUSD" in caplog.text
         assert "missing or zero point" in caplog.text
 
+    @pytest.mark.parametrize(
+        "error",
+        [Mt5RuntimeError("unknown symbol"), Mt5ConnectionError("unknown symbol")],
+    )
     def test_write_symbols_dataset_nulls_metadata_when_lookup_raises(
         self,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
+        error: Exception,
     ) -> None:
         """Test an unknown/invalid symbol persists NULL metadata, not an abort."""
         client = MagicMock()
-        client.symbol_info_as_dict.side_effect = Mt5RuntimeError("unknown symbol")
+        client.symbol_info_as_dict.side_effect = error
         written_columns: dict[Dataset, set[str]] = {}
         with (
             caplog.at_level(logging.WARNING, logger="mt5cli.history"),
@@ -4497,6 +4503,7 @@ class TestThrottledHistoryUpdater:
         "error",
         [
             Mt5RuntimeError("boom"),
+            Mt5ConnectionError("normalized boom"),
             sqlite3.OperationalError("locked"),
             ValueError("invalid symbols"),
             OSError("disk full"),

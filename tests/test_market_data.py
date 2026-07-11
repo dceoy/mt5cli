@@ -10,6 +10,7 @@ import pytest
 from pdmt5 import Mt5RuntimeError
 
 from mt5cli.client import build_config
+from mt5cli.exceptions import Mt5ConnectionError
 from mt5cli.market_data import (
     AccountSpec,
     account_info,
@@ -306,6 +307,29 @@ class TestCollectLatestRatesForAccountsWithRetries:
 
         assert wrapped.call_count == 3
         assert sleep.call_count == 2
+
+    def test_retries_normalized_client_errors(self, mocker: MockerFixture) -> None:
+        """Test Mt5ConnectionError raised by MT5Client is retried end to end."""
+        expected = {("EURUSD", 1): pd.DataFrame()}
+        client = mocker.MagicMock()
+        client.__enter__.return_value = client
+        client.collect_latest_rates.side_effect = [
+            Mt5ConnectionError("terminal unavailable"),
+            expected,
+        ]
+        mocker.patch("mt5cli.market_data.MT5Client", return_value=client)
+        sleep = mocker.patch("mt5cli.retry.time.sleep")
+
+        result = collect_latest_rates_for_accounts_with_retries(
+            [AccountSpec(symbols=["EURUSD"])],
+            ["M1"],
+            count=1,
+            retry_count=1,
+        )
+
+        assert result == expected
+        assert client.collect_latest_rates.call_count == 2
+        assert sleep.call_count == 1
 
     def test_does_not_retry_unrelated_errors(self, mocker: MockerFixture) -> None:
         """Test non-MT5 errors propagate without retrying."""

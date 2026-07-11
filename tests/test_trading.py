@@ -2096,6 +2096,7 @@ class TestVolumeAndExecution:
         )
 
         assert result.status == "failed"
+        assert result.dry_run is True
         assert "Tick price is unavailable" in str(result.comment)
         client.symbol_select.assert_not_called()
         client.order_send.assert_not_called()
@@ -2182,6 +2183,7 @@ class TestVolumeAndExecution:
         )
 
         assert result.status == "failed"
+        assert result.dry_run is True
         assert "ORDER_FILLING_IOC" in str(result.comment)
 
     def test_place_market_order_rejects_invalid_volume(self) -> None:
