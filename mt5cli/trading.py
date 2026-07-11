@@ -565,6 +565,8 @@ def _plain_value(value: object) -> object:  # noqa: PLR0911
         return [_plain_value(item) for item in sequence]
     if isinstance(value, datetime):
         return value.isoformat()
+    if isinstance(value, float) and not isfinite(value):
+        return None
     if value is None or isinstance(value, str | int | float | bool):
         return value
     return repr(value)
@@ -686,10 +688,16 @@ def _execution_receipt(
             else _optional_positive_int(normalized_response.get("position"))
             or _optional_positive_int(request.get("position"))
         ),
-        magic=_optional_int(request.get("magic"))
-        if normalized_response is None
-        else _optional_int(normalized_response.get("magic"))
-        or _optional_int(request.get("magic")),
+        magic=(
+            _optional_int(request.get("magic"))
+            if normalized_response is None
+            else (
+                response_magic
+                if (response_magic := _optional_int(normalized_response.get("magic")))
+                is not None
+                else _optional_int(request.get("magic"))
+            )
+        ),
         retcode=retcode,
         comment=comment,
         dry_run=dry_run,

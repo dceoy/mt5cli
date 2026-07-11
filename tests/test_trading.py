@@ -2243,6 +2243,24 @@ class TestVolumeAndExecution:
         assert result.retcode == 10009
         client.order_send.assert_called_once()
 
+    def test_place_market_order_preserves_explicit_response_magic_zero(self) -> None:
+        """Test an explicit response magic of zero is not replaced by the request."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+        client.order_send.return_value = pd.DataFrame(
+            [{"retcode": 10009, "comment": "done", "magic": 0}],
+        )
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="SELL",
+            magic=42,
+        )
+
+        assert result.magic == 0
+
     @pytest.mark.parametrize(
         ("retcode", "expected_status"),
         [
@@ -3451,6 +3469,13 @@ class TestExecutionNormalizationInternals:
         assert plain["rows"] == [{"retcode": 1}]
         assert plain["frame"] == [{"x": 1}]
         assert plain["items"] == [{"y": 2}]
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_plain_value_normalizes_non_finite_floats_to_none(
+        self, value: float
+    ) -> None:
+        """Test non-finite floats become JSON-safe ``None``."""
+        assert _plain_value(value) is None
 
     def test_snapshot_from_value_with_empty_fields_returns_full_row(self) -> None:
         """Test empty field filters return the full normalized row."""
