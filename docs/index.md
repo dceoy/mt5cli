@@ -48,8 +48,8 @@ from mt5cli import (
     mt5_session,
 )
 from mt5cli.history import load_rate_data, resolve_rate_view_name
+from mt5cli.marketdata import minimum_margins, recent_ticks
 from mt5cli.schemas import DataKind, normalize_dataframe
-from mt5cli.sdk import minimum_margins, recent_ticks
 from mt5cli.utils import Dataset, export_dataframe
 
 # Persistent session for multiple calls
@@ -233,8 +233,9 @@ See the [History schema diagram](api/history.md#entity-relationship-diagram) for
 Browse the API documentation for detailed module information:
 
 - [CLI Module](api/cli.md) - CLI application with data export and execution commands
-- [SDK Module](api/sdk.md) - Programmatic read-only data collection API
-- [Utils Module](api/utils.md) - Constants, parameter types, parsers, and export utilities
+- [Client Module](api/client.md) - `MT5Client` / `mt5_session()` connection lifecycle
+- [Market Data Module](api/marketdata.md) - Programmatic read-only data collection API
+- [Utils Module](api/utils.md) - Constants, parsers, and export utilities
 
 ## Development
 

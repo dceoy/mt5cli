@@ -8,32 +8,34 @@ import os
 import re
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime  # noqa: TC003
+from datetime import datetime
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
+import click
 import pandas as pd
 import typer
 
-from . import sdk
-from .client import MT5Client
+from .client import MT5Client, build_config, mt5_session
+from .history import collect_history as _collect_history
 from .history import (
     open_existing_sqlite_database,
     report_rate_gaps,
     resolve_granularity_name,
 )
-from .trading import OrderExecutionResult, close_open_positions, create_trading_client
+from .observability import update_observability_with_config
+from .trading import OrderExecutionResult, close_open_positions
 from .utils import (
-    DATETIME_TYPE,
-    REQUEST_TYPE,
-    TICK_FLAGS_TYPE,
-    TIMEFRAME_TYPE,
     Dataset,
     IfExists,
     LogLevel,
     OutputFormat,
     detect_format,
     export_dataframe,
+    parse_datetime,
+    parse_request,
+    parse_tick_flags,
+    parse_timeframe,
 )
 
 if TYPE_CHECKING:
@@ -45,6 +47,126 @@ if TYPE_CHECKING:
     from .trading import OrderFillingMode
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Click parameter types
+# ---------------------------------------------------------------------------
+
+
+class _DateTimeType(click.ParamType):
+    """Click parameter type for ISO 8601 datetime strings."""
+
+    name = "DATETIME"
+
+    def convert(
+        self,
+        value: object,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> datetime:
+        """Convert a string value to a timezone-aware datetime.
+
+        Args:
+            value: Raw value from the command line.
+            param: Click parameter instance.
+            ctx: Click context.
+
+        Returns:
+            Parsed datetime.
+        """
+        if isinstance(value, datetime):
+            return value
+        try:
+            return parse_datetime(str(value))
+        except ValueError as exc:
+            self.fail(str(exc), param, ctx)
+
+
+class _TimeframeType(click.ParamType):
+    """Click parameter type for MT5 timeframe values."""
+
+    name = "TIMEFRAME"
+
+    def convert(
+        self,
+        value: object,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> int:
+        """Convert a string or integer value to a timeframe integer.
+
+        Args:
+            value: Raw value from the command line.
+            param: Click parameter instance.
+            ctx: Click context.
+
+        Returns:
+            Integer timeframe value.
+        """
+        try:
+            return parse_timeframe(value)
+        except ValueError as exc:
+            self.fail(str(exc), param, ctx)
+
+
+class _TickFlagsType(click.ParamType):
+    """Click parameter type for MT5 tick copy flags."""
+
+    name = "FLAGS"
+
+    def convert(
+        self,
+        value: object,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> int:
+        """Convert a string or integer value to a tick flags integer.
+
+        Args:
+            value: Raw value from the command line.
+            param: Click parameter instance.
+            ctx: Click context.
+
+        Returns:
+            Integer tick flag value.
+        """
+        try:
+            return parse_tick_flags(value)
+        except ValueError as exc:
+            self.fail(str(exc), param, ctx)
+
+
+class _RequestType(click.ParamType):
+    """Click parameter type for JSON order requests."""
+
+    name = "REQUEST"
+
+    def convert(
+        self,
+        value: object,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> dict[str, Any]:
+        """Convert a raw CLI value to an order request dictionary.
+
+        Args:
+            value: Raw value from the command line.
+            param: Click parameter instance.
+            ctx: Click context.
+
+        Returns:
+            Parsed request dictionary.
+        """
+        try:
+            return parse_request(str(value))
+        except ValueError as exc:
+            self.fail(str(exc), param, ctx)
+
+
+DATETIME_TYPE = _DateTimeType()
+TIMEFRAME_TYPE = _TimeframeType()
+TICK_FLAGS_TYPE = _TickFlagsType()
+REQUEST_TYPE = _RequestType()
 
 # ---------------------------------------------------------------------------
 # Export context
@@ -241,7 +363,7 @@ def _callback(  # pyright: ignore[reportUnusedFunction]
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
     try:
-        config = sdk.build_config(
+        config = build_config(
             path=_resolve_cli_option(path, _CLI_ENV_DEFAULTS["path"]),
             login=_resolve_cli_option(login, _CLI_ENV_DEFAULTS["login"]),
             password=_resolve_cli_option(password, _CLI_ENV_DEFAULTS["password"]),
@@ -692,7 +814,14 @@ _EXECUTION_RESULT_COLUMNS: list[str] = [
     "status",
     "symbol",
     "order_side",
-    "volume",
+    "requested_volume",
+    "filled_volume",
+    "request_price",
+    "filled_price",
+    "order_ticket",
+    "deal_ticket",
+    "position_id",
+    "magic",
     "retcode",
     "comment",
     "request",
@@ -706,11 +835,11 @@ def _execution_results_to_df(results: list[OrderExecutionResult]) -> pd.DataFram
         return pd.DataFrame(columns=_EXECUTION_RESULT_COLUMNS)
     rows = [
         {
-            **r,
-            "request": json.dumps(r["request"]),
-            "response": json.dumps(r["response"]),
+            **result.to_dict(),
+            "request": json.dumps(result.request),
+            "response": json.dumps(result.response),
         }
-        for r in results
+        for result in results
     ]
     return pd.DataFrame(rows)
 
@@ -796,8 +925,7 @@ def close_positions(
         msg = "Pass --yes to close live positions."
         raise typer.BadParameter(msg, param_hint="--yes")
     export_ctx = _get_export_context(ctx)
-    client = create_trading_client(config=export_ctx.config)
-    try:
+    with mt5_session(export_ctx.config) as client:
         results = close_open_positions(
             client,
             symbols=list(symbol) if symbol else None,
@@ -808,8 +936,6 @@ def close_positions(
             magic=magic,
             dry_run=dry_run,
         )
-    finally:
-        client.shutdown()
     df = _execution_results_to_df(results)
     _execute_export(ctx, lambda: df)
 
@@ -976,7 +1102,7 @@ def collect_history(
         )
         raise typer.BadParameter(msg)
     datasets = set(dataset) if dataset is not None else None
-    sdk.collect_history(
+    _collect_history(
         output=export_ctx.output,
         symbols=symbol,
         date_from=date_from,
@@ -1097,7 +1223,7 @@ def snapshot(
             " Use a .db/.sqlite/.sqlite3 extension or --format sqlite3."
         )
         raise typer.BadParameter(msg)
-    sdk.update_observability_with_config(
+    update_observability_with_config(
         output=export_ctx.output,
         config=export_ctx.config,
         symbols=list(symbol) if symbol else None,

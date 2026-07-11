@@ -58,13 +58,14 @@ nav:
       - Overview: api/index.md
       - Public API Contract: api/public-contract.md
       - Client: api/client.md
+      - Market Data: api/marketdata.md
       - Schemas: api/schemas.md
       - Converters: api/converters.md
       - Exceptions: api/exceptions.md
       - CLI: api/cli.md
-      - SDK: api/sdk.md
       - Trading: api/trading.md
       - History Collection (SQLite): api/history.md
+      - Observability: api/observability.md
       - Telemetry: api/telemetry.md
       - Grafana: api/grafana.md
       - Utils: api/utils.md

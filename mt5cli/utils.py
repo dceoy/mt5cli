@@ -1,4 +1,8 @@
-"""Utility constants, types, and functions for the mt5cli package."""
+"""Generic conversion, parsing, and export utilities for the mt5cli package.
+
+These helpers are independent of the MT5 connection lifecycle and contain no
+Click/Typer adapters; CLI-specific parameter types live in :mod:`mt5cli.cli`.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +14,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeGuard
 
-import click
 from pdmt5 import COPY_TICKS_MAP as _COPY_TICKS_MAP
 from pdmt5 import TIMEFRAME_MAP as _TIMEFRAME_MAP
 from pdmt5 import parse_copy_ticks as _parse_copy_ticks
@@ -87,126 +90,6 @@ class IfExists(StrEnum):
     REPLACE = "replace"
     FAIL = "fail"
 
-
-# ---------------------------------------------------------------------------
-# Click parameter types
-# ---------------------------------------------------------------------------
-
-
-class _DateTimeType(click.ParamType):
-    """Click parameter type for ISO 8601 datetime strings."""
-
-    name = "DATETIME"
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
-    ) -> datetime:
-        """Convert a string value to a timezone-aware datetime.
-
-        Args:
-            value: Raw value from the command line.
-            param: Click parameter instance.
-            ctx: Click context.
-
-        Returns:
-            Parsed datetime.
-        """
-        if isinstance(value, datetime):
-            return value
-        try:
-            return parse_datetime(str(value))
-        except ValueError as exc:
-            self.fail(str(exc), param, ctx)
-
-
-class _TimeframeType(click.ParamType):
-    """Click parameter type for MT5 timeframe values."""
-
-    name = "TIMEFRAME"
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
-    ) -> int:
-        """Convert a string or integer value to a timeframe integer.
-
-        Args:
-            value: Raw value from the command line.
-            param: Click parameter instance.
-            ctx: Click context.
-
-        Returns:
-            Integer timeframe value.
-        """
-        try:
-            return parse_timeframe(value)
-        except ValueError as exc:
-            self.fail(str(exc), param, ctx)
-
-
-class _TickFlagsType(click.ParamType):
-    """Click parameter type for MT5 tick copy flags."""
-
-    name = "FLAGS"
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
-    ) -> int:
-        """Convert a string or integer value to a tick flags integer.
-
-        Args:
-            value: Raw value from the command line.
-            param: Click parameter instance.
-            ctx: Click context.
-
-        Returns:
-            Integer tick flag value.
-        """
-        try:
-            return parse_tick_flags(value)
-        except ValueError as exc:
-            self.fail(str(exc), param, ctx)
-
-
-class _RequestType(click.ParamType):
-    """Click parameter type for JSON order requests."""
-
-    name = "REQUEST"
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
-    ) -> dict[str, Any]:
-        """Convert a raw CLI value to an order request dictionary.
-
-        Args:
-            value: Raw value from the command line.
-            param: Click parameter instance.
-            ctx: Click context.
-
-        Returns:
-            Parsed request dictionary.
-        """
-        try:
-            return parse_request(str(value))
-        except ValueError as exc:
-            self.fail(str(exc), param, ctx)
-
-
-DATETIME_TYPE = _DateTimeType()
-TIMEFRAME_TYPE = _TimeframeType()
-TICK_FLAGS_TYPE = _TickFlagsType()
-REQUEST_TYPE = _RequestType()
 
 # ---------------------------------------------------------------------------
 # Public utility functions

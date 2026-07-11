@@ -103,28 +103,17 @@ unset. Pass `allow_whole_dollar_env=True` to expand `${ENV_VAR}` and bare
 from mt5cli import (
     build_config,
     calculate_spread_ratio,
-    create_trading_client,
     get_account_snapshot,
-    mt5_trading_session,
+    mt5_session,
 )
 
 # Login from environment — numeric string is coerced to int automatically
 config = build_config(login="$MT5_LOGIN", allow_whole_dollar_env=True)
 
-with mt5_trading_session(
-    path=r"C:\Program Files\MetaTrader 5\terminal64.exe",
-    login="12345",
-    password="from-env-or-secret-store",
-    server="Broker-Demo",
-) as client:
+with mt5_session(config) as client:
     account = get_account_snapshot(client)
     spread = calculate_spread_ratio(client, "EURUSD")
-
-client = create_trading_client(login=12345, server="Broker-Demo")
-try:
-    positions = client.positions_get_as_df(symbol="EURUSD")
-finally:
-    client.shutdown()
+    positions = client.positions(symbol="EURUSD")
 ```
 
 ## CLI usage
@@ -247,30 +236,19 @@ Appends one timestamped row per data type. Never places orders or modifies tradi
 #### SDK usage
 
 ```python
-from pdmt5 import Mt5DataClient, Mt5Config
-from mt5cli import update_observability, update_observability_with_config
+from pdmt5 import Mt5Config
+from mt5cli import update_observability_with_config
 
-# Reuse an already-connected client
-client = Mt5DataClient(config=Mt5Config(login=12345))
-client.initialize_and_login_mt5()
-try:
-    update_observability(
-        client=client,
-        output="history.db",
-        symbols=["EURUSD", "GBPUSD"],  # optional position/order filter
-        include_account=True,
-        include_positions=True,
-        include_orders=True,
-        include_terminal=True,
-        with_grafana_schema=True,
-    )
-finally:
-    client.shutdown()
-
-# Standalone wrapper that opens/closes MT5 automatically
+# This wrapper owns the MT5 connection automatically.
 update_observability_with_config(
     output="history.db",
     config=Mt5Config(login=12345),
+    symbols=["EURUSD", "GBPUSD"],  # optional position/order filter
+    include_account=True,
+    include_positions=True,
+    include_orders=True,
+    include_terminal=True,
+    with_grafana_schema=True,
 )
 ```
 
@@ -328,33 +306,21 @@ OpenTelemetry metrics are documented in [`docs/api/telemetry.md`](docs/api/telem
 For automated pipelines, use the importable incremental API instead of re-fetching fixed date ranges:
 
 ```python
-from pdmt5 import Mt5Config, Mt5DataClient
-from mt5cli import update_history, update_history_with_config
+from pdmt5 import Mt5Config
+from mt5cli import update_history_with_config
 from mt5cli.utils import Dataset
 
-# Reuse an already-connected pdmt5 client (does not open/close MT5)
-client = Mt5DataClient(config=Mt5Config(login=12345))
-client.initialize_and_login_mt5()
-try:
-    update_history(
-        client=client,
-        output="history.db",
-        symbols=["EURUSD", "GBPUSD"],
-        datasets={Dataset.rates, Dataset.history_deals},
-        timeframes=["M1", "H1"],  # default: all fixed MT5 timeframes
-        lookback_hours=24,
-        create_rate_views=True,
-        with_views=True,
-        include_account_events=True,
-    )
-finally:
-    client.shutdown()
-
-# Standalone wrapper that opens and closes MT5 for you
+# This wrapper opens and closes MT5 for you.
 update_history_with_config(
     output="history.db",
-    symbols=["EURUSD"],
+    symbols=["EURUSD", "GBPUSD"],
     config=Mt5Config(login=12345),
+    datasets={Dataset.rates, Dataset.history_deals},
+    timeframes=["M1", "H1"],  # default: all fixed MT5 timeframes
+    lookback_hours=24,
+    create_rate_views=True,
+    with_views=True,
+    include_account_events=True,
 )
 ```
 
@@ -381,8 +347,8 @@ eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 ```
 
 - **Credential resolution**: use `resolve_account_spec()` / `resolve_account_specs()` to merge explicit override values over `AccountSpec` fields and expand `${ENV_VAR}` placeholders (via `substitute_env_placeholders()`), raising `ValueError` for missing variables. This keeps secrets out of plan/config files without coupling to any strategy code. For config dicts or nested structures loaded from YAML/TOML, use `substitute_mapping_values(data, keys={"login", "password"})` to expand placeholders only for caller-specified keys — key names are never hard-coded in mt5cli.
-- **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, `OSError`, and MT5 client capability errors for history API methods without advancing the throttle (other `AttributeError` / `TypeError` values always propagate). Pass `update_backend` to inject a custom history update callable (same keyword arguments as `update_history`) instead of monkey-patching `mt5cli.sdk.update_history`.
-- **Trading session helpers**: use `mt5_trading_session()` for a trading-capable client that initializes/logs in via `Mt5Config.path` and always shuts down safely. Pair with `detect_position_side()`, `calculate_margin_and_volume()`, and `determine_order_limits()` for generic position and sizing utilities. Keep read-only collection on `mt5_session()` / `MT5Client`.
+- **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, and `OSError` without advancing the throttle (`AttributeError` / `TypeError` always propagate, since the client passed to `update()` must implement the canonical `HistoryClient` method names). Pass `update_backend` to inject a custom history update callable (same keyword arguments as `update_history`) instead of monkey-patching `mt5cli.history.update_history`.
+- **Trading helpers**: use `mt5_session()` for both market data and generic execution helpers. It owns initialization and shutdown for sessions it creates; caller-supplied clients remain caller-owned.
 - **Granularity-keyed rate loading**: `load_rate_series_by_granularity()` builds targets with `build_rate_targets()`, loads them with `load_rate_series_from_sqlite()`, and returns a mapping keyed by `(symbol | None, granularity_name)` such as `("EURUSD", "M1")` to reduce downstream boilerplate.
 - **MT5 session helper**: use the `mt5_session()` context manager to attach to (or, when `Mt5Config.path` is set, launch) an MT5 terminal, log in, and yield a connected `MT5Client` that shuts down on exit.
 - **SQLite export helpers**: use `export_dataframe_to_sqlite()` for append mode, optional index export, and post-write deduplication by key columns.
@@ -400,7 +366,7 @@ Replace local MT5 lifecycle and trading helper code with mt5cli imports:
 
 ```python
 # Before (local application helpers)
-# with local_mt5_trading_session(config) as client:
+# with local_mt5_session(config) as client:
 #     side = local_detect_position_side(client, symbol)
 #     sizing = local_calculate_margin_and_volume(client, symbol, unit_ratio, preserved_ratio)
 #     limits = local_determine_order_limits(client, symbol, side, sl_ratio, tp_ratio)
@@ -411,12 +377,10 @@ from mt5cli import (
     calculate_margin_and_volume,
     detect_position_side,
     determine_order_limits,
-    mt5_trading_session,
+    mt5_session,
 )
 
-with mt5_trading_session(
-    Mt5Config(path=terminal_path, login=login), retry_count=2
-) as client:
+with mt5_session(Mt5Config(path=terminal_path, login=login)) as client:
     side = detect_position_side(client, symbol)
     sizing = calculate_margin_and_volume(
         client, symbol, unit_margin_ratio=0.5, preserved_margin_ratio=0.2
@@ -434,19 +398,15 @@ with mt5_trading_session(
 Throttled history updates use a separate read-only session:
 
 ```python
-from pdmt5 import Mt5Config, Mt5DataClient
+from pdmt5 import Mt5Config
 
-from mt5cli import ThrottledHistoryUpdater
+from mt5cli import ThrottledHistoryUpdater, mt5_session
 
 updater = ThrottledHistoryUpdater(
     output="history.db", interval_seconds=60, suppress_errors=True
 )
-client = Mt5DataClient(config=Mt5Config(login=login))
-client.initialize_and_login_mt5()
-try:
+with mt5_session(Mt5Config(login=login)) as client:
     updater.update(client, ["EURUSD"])
-finally:
-    client.shutdown()
 ```
 
 Read-only collectors can keep using `mt5_session()` and `MT5Client`.

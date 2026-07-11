@@ -1,21 +1,30 @@
-"""SQLite storage helpers for the ``collect-history`` incremental data pipeline."""
+"""History collection, incremental updates, and SQLite storage for MT5 data."""
 
 from __future__ import annotations
 
 import logging
 import re
 import sqlite3
+import time
 from collections.abc import Mapping
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, SupportsInt, cast, overload
 
 import pandas as pd
-from pdmt5 import Mt5RuntimeError
+from pdmt5 import Mt5Config, Mt5RuntimeError
 from pdmt5.constants import get_timeframe_name as _get_timeframe_name
 
+from .client import (
+    MT5Client,
+    _connected_client,  # pyright: ignore[reportPrivateUsage]
+    build_config,
+)
+from .exceptions import Mt5ConnectionError
 from .schemas import DEDUP_KEYS, REQUIRED_COLUMNS, DataKind, ensure_utc_columns
+from .telemetry import get_metrics
 from .utils import (
     TIMEFRAME_NAMES,
     Dataset,
@@ -28,9 +37,10 @@ from .utils import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from pdmt5 import Mt5DataClient
+    from .contract import HistoryClient
 
 logger = logging.getLogger(__name__)
+
 
 _SQLITE_TEXT_TIME_COLUMNS: frozenset[str] = frozenset({
     "time",
@@ -1741,7 +1751,7 @@ def _record_symbol_time_dedup(
 
 def write_rates_dataset(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     timeframe: int,
     date_from: datetime,
@@ -1756,7 +1766,7 @@ def write_rates_dataset(
     """
 
     def _fetch_rates_frame(sym: str) -> pd.DataFrame:
-        frame = client.copy_rates_range_as_df(
+        frame = client.copy_rates_range(
             symbol=sym,
             timeframe=timeframe,
             date_from=date_from,
@@ -1779,7 +1789,7 @@ def write_rates_dataset(
 
 def write_ticks_dataset(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     flags: int,
     date_from: datetime,
@@ -1794,7 +1804,7 @@ def write_ticks_dataset(
     """
 
     def _fetch_ticks_frame(sym: str) -> pd.DataFrame:
-        frame = client.copy_ticks_range_as_df(
+        frame = client.copy_ticks_range(
             symbol=sym,
             date_from=date_from,
             date_to=date_to,
@@ -1816,7 +1826,7 @@ def write_ticks_dataset(
 
 def write_symbols_dataset(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     snapshot_time: datetime,
     if_exists: IfExists,
@@ -1836,8 +1846,8 @@ def write_symbols_dataset(
 
     def _fetch_symbol_frame(sym: str) -> pd.DataFrame:
         try:
-            info = client.symbol_info_as_dict(symbol=sym)
-        except Mt5RuntimeError:
+            info: object = client.symbol_info_as_dict(symbol=sym)
+        except (Mt5RuntimeError, Mt5ConnectionError):
             info = None
         if not isinstance(info, Mapping):
             logger.warning(
@@ -1845,10 +1855,13 @@ def write_symbols_dataset(
                 sym,
             )
             info = {}
-        if info.get("point"):
-            metadata = {field: info.get(field) for field in _SYMBOLS_SNAPSHOT_FIELDS}
+        typed_info = cast("Mapping[str, object]", info)
+        if typed_info.get("point"):
+            metadata = {
+                field: typed_info.get(field) for field in _SYMBOLS_SNAPSHOT_FIELDS
+            }
         else:
-            if info:
+            if typed_info:
                 logger.warning(
                     "Symbol %r has missing or zero point; persisting NULL metadata.",
                     sym,
@@ -1922,7 +1935,7 @@ def write_history_dataset(
 
 def _write_incremental_rates(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     resolved_timeframes: list[int],
     fallback_start: datetime,
@@ -1968,7 +1981,7 @@ def _write_incremental_rates(
 
 def _write_incremental_ticks(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     resolved_tick_flags: int,
     fallback_start: datetime,
@@ -2006,7 +2019,7 @@ def _write_incremental_ticks(
 
 def _write_incremental_symbols(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     end_date: datetime,
     written_columns: dict[Dataset, set[str]],
@@ -2025,7 +2038,7 @@ def _write_incremental_symbols(
 
 def _write_incremental_history_orders(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     fallback_start: datetime,
     end_date: datetime,
@@ -2043,7 +2056,7 @@ def _write_incremental_history_orders(
         start_date = start_by_symbol[symbol, None]
         if write_history_dataset(
             conn,
-            client.history_orders_get_as_df,
+            client.history_orders,
             Dataset.history_orders,
             [symbol],
             start_date,
@@ -2063,7 +2076,7 @@ def _write_incremental_history_orders(
 
 def _write_incremental_history_deals(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     fallback_start: datetime,
     end_date: datetime,
@@ -2086,10 +2099,7 @@ def _write_incremental_history_deals(
         )
         fetch_start = min([*start_by_symbol.values(), account_event_start])
         frame = filter_incremental_history_deals_frame(
-            client.history_deals_get_as_df(
-                date_from=fetch_start,
-                date_to=end_date,
-            ),
+            client.history_deals(date_from=fetch_start, date_to=end_date),
             symbols,
             {symbol: start_by_symbol[symbol, None] for symbol in symbols},
             account_event_start,
@@ -2146,7 +2156,7 @@ def _write_incremental_history_deals(
         start_date = start_by_symbol[symbol, None]
         if write_history_dataset(
             conn,
-            client.history_deals_get_as_df,
+            client.history_deals,
             Dataset.history_deals,
             [symbol],
             start_date,
@@ -2202,7 +2212,7 @@ def _finalize_incremental_writes(
 
 def write_incremental_datasets(  # noqa: PLR0913
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     selected_datasets: set[Dataset],
     resolved_timeframes: list[int],
@@ -2294,7 +2304,7 @@ def write_incremental_datasets(  # noqa: PLR0913
 
 def write_collected_datasets(
     conn: sqlite3.Connection,
-    client: Mt5DataClient,
+    client: HistoryClient,
     symbols: Sequence[str],
     datasets: set[Dataset],
     timeframe: int,
@@ -2334,7 +2344,7 @@ def write_collected_datasets(
         written_tables.add(Dataset.ticks)
     if Dataset.history_orders in datasets and write_history_dataset(
         conn,
-        client.history_orders_get_as_df,
+        client.history_orders,
         Dataset.history_orders,
         symbols,
         date_from,
@@ -2346,7 +2356,7 @@ def write_collected_datasets(
         written_tables.add(Dataset.history_orders)
     if Dataset.history_deals in datasets and write_history_dataset(
         conn,
-        client.history_deals_get_as_df,
+        client.history_deals,
         Dataset.history_deals,
         symbols,
         date_from,
@@ -2366,3 +2376,459 @@ def write_collected_datasets(
     ):
         written_tables.add(Dataset.symbols)
     return written_tables, written_columns
+
+
+# ---------------------------------------------------------------------------
+# Incremental history update and one-shot collection orchestration
+# ---------------------------------------------------------------------------
+
+_RECOVERABLE_HISTORY_UPDATE_ERRORS: tuple[type[BaseException], ...] = (
+    Mt5RuntimeError,
+    Mt5ConnectionError,
+    sqlite3.Error,
+    ValueError,
+    OSError,
+)
+
+if TYPE_CHECKING:
+    UpdateHistoryBackend = Callable[..., None]
+
+
+def _resolve_incremental_settings(
+    selected_datasets: set[Dataset],
+    timeframes: Sequence[int | str] | None,
+    flags: int | str,
+) -> tuple[list[int], int]:
+    """Resolve dataset-specific incremental update settings.
+
+    Returns:
+        Tuple of resolved rate timeframes and tick copy flags.
+
+    Raises:
+        ValueError: If timeframe or tick flag values are invalid.
+    """
+    resolved_timeframes: list[int] = []
+    if Dataset.rates in selected_datasets:
+        try:
+            resolved_timeframes = resolve_history_timeframes(timeframes)
+        except ValueError as exc:
+            msg = str(exc)
+            raise ValueError(msg) from exc
+    resolved_tick_flags = 0
+    if Dataset.ticks in selected_datasets:
+        try:
+            resolved_tick_flags = resolve_history_tick_flags(flags)
+        except ValueError as exc:
+            msg = str(exc)
+            raise ValueError(msg) from exc
+    return resolved_timeframes, resolved_tick_flags
+
+
+@dataclass(frozen=True)
+class _UpdateHistoryRequest:
+    selected: set[Dataset]
+    end: datetime
+    fallback_start: datetime
+    resolved_timeframes: list[int]
+    resolved_tick_flags: int
+    output_path: Path
+
+
+def _resolve_update_history_request(
+    *,
+    output: Path | str,
+    symbols: Sequence[str],
+    datasets: set[Dataset] | None,
+    timeframes: Sequence[int | str] | None,
+    flags: int | str,
+    lookback_hours: float,
+    date_to: datetime | str | None,
+) -> _UpdateHistoryRequest | None:
+    """Validate and resolve incremental history update inputs.
+
+    Returns:
+        Resolved request parameters, or None when no datasets are selected.
+
+    Raises:
+        ValueError: If symbols are empty, lookback_hours is not positive, or
+            timeframe/flag values are invalid.
+    """
+    if lookback_hours <= 0:
+        msg = "lookback_hours must be positive."
+        raise ValueError(msg)
+    selected = resolve_history_datasets(datasets)
+    if not selected:
+        logger.info("Skipping SQLite history update: no datasets selected.")
+        return None
+    if not symbols:
+        msg = "At least one symbol is required."
+        raise ValueError(msg)
+
+    if date_to is not None:
+        end = parse_datetime(date_to) if isinstance(date_to, str) else date_to
+    else:
+        end = datetime.now(UTC)
+    fallback_start = end - timedelta(hours=lookback_hours)
+    resolved_timeframes, resolved_tick_flags = _resolve_incremental_settings(
+        selected,
+        timeframes,
+        flags,
+    )
+    return _UpdateHistoryRequest(
+        selected=selected,
+        end=end,
+        fallback_start=fallback_start,
+        resolved_timeframes=resolved_timeframes,
+        resolved_tick_flags=resolved_tick_flags,
+        output_path=Path(output),
+    )
+
+
+def update_history(  # noqa: PLR0913
+    *,
+    client: HistoryClient,
+    output: Path | str,
+    symbols: Sequence[str],
+    datasets: set[Dataset] | None = None,
+    timeframes: Sequence[int | str] | None = None,
+    flags: int | str = "ALL",
+    lookback_hours: float = 24.0,
+    date_to: datetime | str | None = None,
+    deduplicate: bool = True,
+    create_rate_views: bool = True,
+    with_views: bool = False,
+    include_account_events: bool = True,
+) -> None:
+    """Incrementally append MT5 history into a SQLite database.
+
+    Uses an already-connected client and does not create or close the MT5
+    connection. For first-time tables, data is fetched from
+    ``date_to - lookback_hours``. Subsequent runs resume from existing
+    ``MAX(time)`` per symbol (and timeframe for rates); when
+    ``include_account_events=True``, account-level deals use a separate cursor
+    over ``type NOT IN (0, 1)`` / empty-symbol rows.
+
+    Args:
+        client: Connected MT5 client implementation.
+        output: SQLite database path.
+        symbols: Symbols to update.
+        datasets: Datasets to include (defaults to rates, history-orders,
+            history-deals; pass ``{Dataset.ticks}`` to opt in to ticks,
+            or ``{Dataset.symbols}`` to opt in to symbol metadata
+            snapshots).
+        timeframes: Rate timeframes to update (defaults to all fixed MT5
+            timeframes when None).
+        flags: Tick copy flags as integer or name (e.g. ``ALL``).
+        lookback_hours: First-run lookback when a table has no prior rows.
+        date_to: Optional update end datetime. Defaults to now (UTC).
+        deduplicate: Remove duplicate rows after append, keeping latest ROWID.
+        create_rate_views: Create ``rate_<symbol>__<timeframe>`` views.
+        with_views: Create ``cash_events`` and ``positions_reconstructed`` views.
+        include_account_events: Include account-level cash events in
+            ``history_deals`` when True.
+    """
+    request = _resolve_update_history_request(
+        output=output,
+        symbols=symbols,
+        datasets=datasets,
+        timeframes=timeframes,
+        flags=flags,
+        lookback_hours=lookback_hours,
+        date_to=date_to,
+    )
+    if request is None:
+        return
+    logger.info(
+        "Updating history in SQLite: symbols=%s, datasets=%s, path=%s",
+        list(symbols),
+        sorted(dataset.value for dataset in request.selected),
+        request.output_path,
+    )
+    with closing(sqlite3.connect(request.output_path)) as conn, conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        m = get_metrics()
+        with m.record_history_update(dataset="history"):
+            before = conn.total_changes
+            write_incremental_datasets(
+                conn,
+                client,
+                symbols,
+                request.selected,
+                request.resolved_timeframes,
+                request.resolved_tick_flags,
+                request.fallback_start,
+                request.end,
+                deduplicate=deduplicate,
+                create_rate_views=create_rate_views,
+                with_views=with_views,
+                include_account_events=include_account_events,
+            )
+            m.add_history_rows(conn.total_changes - before, dataset="history")
+
+
+def update_history_with_config(  # noqa: PLR0913
+    *,
+    output: Path | str,
+    symbols: Sequence[str],
+    config: Mt5Config | None = None,
+    datasets: set[Dataset] | None = None,
+    timeframes: Sequence[int | str] | None = None,
+    flags: int | str = "ALL",
+    lookback_hours: float = 24.0,
+    date_to: datetime | str | None = None,
+    deduplicate: bool = True,
+    create_rate_views: bool = True,
+    with_views: bool = False,
+    include_account_events: bool = True,
+) -> None:
+    """Incrementally append MT5 history, opening and closing the MT5 connection.
+
+    Convenience wrapper around :func:`update_history` for standalone use.
+    """
+    request = _resolve_update_history_request(
+        output=output,
+        symbols=symbols,
+        datasets=datasets,
+        timeframes=timeframes,
+        flags=flags,
+        lookback_hours=lookback_hours,
+        date_to=date_to,
+    )
+    if request is None:
+        return
+    mt5_config = config or build_config()
+    with _connected_client(mt5_config) as raw_client:
+        client = MT5Client._from_connected_client(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+            raw_client
+        )
+        update_history(
+            client=client,
+            output=output,
+            symbols=symbols,
+            datasets=datasets,
+            timeframes=timeframes,
+            flags=flags,
+            lookback_hours=lookback_hours,
+            date_to=date_to,
+            deduplicate=deduplicate,
+            create_rate_views=create_rate_views,
+            with_views=with_views,
+            include_account_events=include_account_events,
+        )
+
+
+class ThrottledHistoryUpdater:
+    """Throttled incremental SQLite history updater for long-running apps.
+
+    Wraps :func:`update_history` (or a custom ``update_backend``) with a minimum
+    interval between successful updates, so a tight application loop can call
+    :meth:`update` every iteration without re-fetching MT5 history more often
+    than desired. Timing uses a monotonic clock, so it is unaffected by
+    wall-clock changes.
+
+    Downstream applications may pass ``update_backend`` to substitute the
+    default :func:`update_history` implementation—for example to add
+    application-specific logging, metrics, or test doubles—without monkey-
+    patching :func:`update_history`.
+    """
+
+    def __init__(
+        self,
+        *,
+        output: Path | str,
+        datasets: set[Dataset] | None = None,
+        timeframes: Sequence[int | str] | None = None,
+        flags: int | str = "ALL",
+        lookback_hours: float = 24.0,
+        with_views: bool = False,
+        include_account_events: bool = True,
+        interval_seconds: float = 0.0,
+        suppress_errors: bool = False,
+        update_backend: UpdateHistoryBackend | None = None,
+    ) -> None:
+        """Initialize the throttled updater.
+
+        Args:
+            output: SQLite database path.
+            datasets: Datasets to include (defaults to rates, history-orders,
+                history-deals; pass ``{Dataset.ticks}`` to opt in to ticks,
+                or ``{Dataset.symbols}`` to opt in to symbol metadata
+                snapshots).
+            timeframes: Rate timeframes to update (defaults to all fixed MT5
+                timeframes).
+            flags: Tick copy flags as integer or name (e.g. ``ALL``).
+            lookback_hours: First-run lookback when a table has no prior rows.
+            with_views: Create ``cash_events`` and ``positions_reconstructed``
+                views.
+            include_account_events: Include account-level cash events.
+            interval_seconds: Minimum seconds between successful updates. Values
+                ``<= 0`` update on every call.
+            suppress_errors: When True, recoverable errors (``Mt5RuntimeError``,
+                ``Mt5ConnectionError``, ``sqlite3.Error``, ``ValueError``, and
+                ``OSError``) raised
+                during an update are swallowed and :meth:`update` returns False
+                without advancing the throttle. When False (default),
+                recoverable errors propagate so callers control logging.
+            update_backend: Callable invoked instead of :func:`update_history`
+                when :meth:`update` runs. Receives the same keyword arguments as
+                :func:`update_history` (``client``, ``output``, ``symbols``,
+                ``datasets``, ``timeframes``, ``flags``, ``lookback_hours``,
+                ``with_views``, ``include_account_events``). Defaults to
+                :func:`update_history`.
+        """
+        self.output = output
+        self.datasets = datasets
+        self.timeframes = timeframes
+        self.flags = flags
+        self.lookback_hours = lookback_hours
+        self.with_views = with_views
+        self.include_account_events = include_account_events
+        self.interval_seconds = interval_seconds
+        self.suppress_errors = suppress_errors
+        self.update_backend = (
+            update_history if update_backend is None else update_backend
+        )
+        self._last_update_monotonic: float | None = None
+
+    @property
+    def last_update_monotonic(self) -> float | None:
+        """Return the monotonic timestamp of the last successful update."""
+        return self._last_update_monotonic
+
+    def should_update(self) -> bool:
+        """Return whether enough time has elapsed to run another update.
+
+        Returns:
+            True when ``interval_seconds <= 0``, when no update has succeeded
+            yet, or when at least ``interval_seconds`` have elapsed since the
+            last successful update.
+        """
+        if self.interval_seconds <= 0 or self._last_update_monotonic is None:
+            return True
+        return (time.monotonic() - self._last_update_monotonic) >= self.interval_seconds
+
+    def update(self, client: HistoryClient, symbols: Sequence[str]) -> bool:
+        """Run a throttled incremental history update.
+
+        Args:
+            client: Connected MT5 data client.
+            symbols: Symbols to update.
+
+        Returns:
+            True if an update ran successfully, False if it was throttled or
+            (when ``suppress_errors`` is True) failed with a recoverable error.
+            When ``suppress_errors`` is False, recoverable update failures
+            propagate to the caller.
+
+        Raises:
+            Mt5ConnectionError: When ``suppress_errors`` is False and the
+                update fails with a recoverable MT5, SQLite, validation, or
+                I/O error.
+        """  # noqa: DOC502
+        if not self.should_update():
+            return False
+        try:
+            _resolve_update_history_request(
+                output=self.output,
+                symbols=symbols,
+                datasets=self.datasets,
+                timeframes=self.timeframes,
+                flags=self.flags,
+                lookback_hours=self.lookback_hours,
+                date_to=None,
+            )
+            self.update_backend(
+                client=client,
+                output=self.output,
+                symbols=symbols,
+                datasets=self.datasets,
+                timeframes=self.timeframes,
+                flags=self.flags,
+                lookback_hours=self.lookback_hours,
+                with_views=self.with_views,
+                include_account_events=self.include_account_events,
+            )
+        except _RECOVERABLE_HISTORY_UPDATE_ERRORS:
+            if self.suppress_errors:
+                logger.warning("Suppressed history update error", exc_info=True)
+                return False
+            raise
+        self._last_update_monotonic = time.monotonic()
+        return True
+
+
+def collect_history(
+    output: Path,
+    symbols: list[str],
+    date_from: datetime | str,
+    date_to: datetime | str,
+    *,
+    datasets: set[Dataset] | None = None,
+    timeframe: int | str = 1,
+    flags: int | str = "ALL",
+    if_exists: IfExists = IfExists.FAIL,
+    with_views: bool = False,
+    config: Mt5Config | None = None,
+) -> None:
+    """Collect historical datasets into a single SQLite database.
+
+    Args:
+        output: SQLite database path.
+        symbols: Symbols to collect.
+        date_from: Start date.
+        date_to: End date.
+        datasets: Datasets to include (defaults to rates, history-orders,
+            history-deals; pass ``{Dataset.ticks}`` to opt in to ticks,
+            or ``{Dataset.symbols}`` to opt in to symbol metadata
+            snapshots).
+        timeframe: Rates timeframe as integer or name (e.g. ``M1``).
+        flags: Tick copy flags as integer or name (e.g. ``ALL``).
+        if_exists: Behavior when a target table already exists.
+        with_views: Create ``cash_events`` and ``positions_reconstructed`` views.
+        config: MT5 connection configuration.
+    """
+    start = date_from if isinstance(date_from, datetime) else parse_datetime(date_from)
+    end = date_to if isinstance(date_to, datetime) else parse_datetime(date_to)
+    selected = resolve_history_datasets(datasets)
+    tf = parse_timeframe(timeframe)
+    tick_flags = parse_tick_flags(flags)
+    mt5_config = config or build_config()
+    with (
+        _connected_client(mt5_config) as raw_client,
+        closing(sqlite3.connect(output)) as conn,
+        conn,
+    ):
+        client = MT5Client._from_connected_client(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+            raw_client
+        )
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        written_tables, written_columns = write_collected_datasets(
+            conn,
+            client,
+            symbols,
+            selected,
+            tf,
+            tick_flags,
+            start,
+            end,
+            if_exists,
+        )
+        create_history_indexes(conn, written_columns)
+        if with_views and Dataset.history_deals in written_tables:
+            create_cash_events_view(conn, written_columns[Dataset.history_deals])
+            create_positions_reconstructed_view(
+                conn,
+                written_columns[Dataset.history_deals],
+            )
+        elif with_views:
+            logger.warning(
+                "--with-views ignored: history_deals table was not written",
+            )
+    logger.info(
+        "Collected %s for %d symbol(s) into %s",
+        ", ".join(sorted(ds.value for ds in selected)),
+        len(symbols),
+        output,
+    )

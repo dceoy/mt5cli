@@ -1,11 +1,11 @@
-# SDK Module
+# Market Data Module
 
-::: mt5cli.sdk
+::: mt5cli.marketdata
 
 ## Resilient multi-account orchestration
 
-The SDK ships strategy-agnostic helpers for building long-running collectors on
-top of the read-only client. None of them depend on a particular trading
+This module ships strategy-agnostic helpers for building long-running
+collectors on top of `MT5Client`. None of them depend on a particular trading
 application.
 
 ### Retrying transient rate collection
@@ -31,9 +31,8 @@ rates = collect_latest_rates_for_accounts_with_retries(
 ### Latest closed rate bars
 
 MetaTrader 5 `start_pos=0` includes the still-forming current bar as the last
-row. `fetch_latest_closed_rates()` handles one connected `MT5Client`; use
-`fetch_latest_closed_rates_for_trading_client()` from an active trading
-session created by `create_trading_client()`. Multi-account helpers fetch
+row. `fetch_latest_closed_rates()` handles one connected `MT5Client`.
+Multi-account helpers fetch
 `count + 1` bars, drop
 that row with `drop_forming_rate_bar()`, and validate each series is non-empty. Returned frames are ordered
 oldest-to-newest and may contain fewer than `count` rows only when MT5 returns
@@ -108,66 +107,6 @@ accounts = [AccountSpec(symbols=["EURUSD"], password="$MT5_PASSWORD")]
 resolved = resolve_account_specs(accounts, allow_whole_dollar_env=True)
 # resolved[0].password == "secret"
 ```
-
-### Throttled incremental history updates
-
-`ThrottledHistoryUpdater` wraps `update_history()` with a minimum interval
-between successful runs (using a monotonic clock), so an application loop can
-call it every iteration without over-fetching.
-
-```python
-from pdmt5 import Mt5Config, Mt5DataClient
-
-from mt5cli import ThrottledHistoryUpdater
-from mt5cli.utils import Dataset
-
-updater = ThrottledHistoryUpdater(
-    output="history.db",
-    datasets={Dataset.rates},
-    timeframes=["M1"],
-    interval_seconds=60,  # <= 0 updates on every call
-)
-
-client = Mt5DataClient(config=Mt5Config(login=12345))
-client.initialize_and_login_mt5()
-try:
-    while True:
-        updater.update(client, ["EURUSD", "GBPUSD"])  # no-op until 60s elapse
-        # ... do other work; break when shutting down ...
-finally:
-    client.shutdown()
-```
-
-Pass `update_backend` to substitute the default `update_history` implementation
-without monkey-patching `mt5cli.sdk.update_history`. The callable receives the
-same keyword arguments as `update_history` (`client`, `output`, `symbols`,
-`datasets`, `timeframes`, `flags`, `lookback_hours`, `with_views`,
-`include_account_events`). The resolved backend is stored on
-`updater.update_backend` for inspection or subclassing.
-
-```python
-from mt5cli import ThrottledHistoryUpdater, update_history
-
-
-def app_update_history(**kwargs) -> None:
-    update_history(**kwargs)  # or delegate to application-specific logic
-
-
-updater = ThrottledHistoryUpdater(
-    output="history.db",
-    interval_seconds=60,
-    update_backend=app_update_history,
-)
-```
-
-By default recoverable errors (`Mt5RuntimeError`, `sqlite3.Error`,
-`ValueError`, `OSError`, and MT5 client capability
-`AttributeError` / `TypeError` for history API methods) propagate so the caller
-controls logging; pass `suppress_errors=True` to swallow them and return
-`False` without advancing the throttle. Other `AttributeError` / `TypeError`
-values always propagate. Input validation (`_resolve_update_history_request`)
-runs before any MT5 or SQLite calls, but when `suppress_errors=True` the
-resulting `ValueError` is suppressed along with other recoverable errors.
 
 ## Trading-capable sessions
 

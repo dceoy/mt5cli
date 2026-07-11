@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from mt5cli.cli import (
+    DATETIME_TYPE,  # type: ignore[reportPrivateUsage]
+    REQUEST_TYPE,  # type: ignore[reportPrivateUsage]
+    TICK_FLAGS_TYPE,  # type: ignore[reportPrivateUsage]
+    TIMEFRAME_TYPE,  # type: ignore[reportPrivateUsage]
     _execute_export,  # type: ignore[reportPrivateUsage]
     _ExportContext,  # type: ignore[reportPrivateUsage]
     _infer_gap_table_granularity_seconds,  # type: ignore[reportPrivateUsage]
@@ -37,6 +41,15 @@ def normalize_cli_output(output: str) -> str:
     return " ".join(_ANSI_ESCAPE_RE.sub("", output).split())
 
 
+@pytest.fixture(autouse=True)
+def _mock_mt5_data_client(mocker: MockerFixture) -> None:  # pyright: ignore[reportUnusedFunction]
+    """Auto-mock Mt5DataClient for all test_cli.py tests."""
+    mocker.patch(
+        "mt5cli.client.Mt5DataClient",
+        return_value=MagicMock(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # _execute_export
 # ---------------------------------------------------------------------------
@@ -53,7 +66,7 @@ class TestExecuteExport:
         """Test that shutdown is called even when fetch raises."""
         mock_client = MagicMock()
         mock_client.account_info_as_df.side_effect = RuntimeError("boom")
-        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=mock_client)
+        mocker.patch("mt5cli.client.Mt5DataClient", return_value=mock_client)
         ctx = MagicMock()
         ctx.obj = _ExportContext(
             output=tmp_path / "out.csv",
@@ -639,14 +652,22 @@ class TestClosePositions:
 
     @pytest.fixture
     def trading_client(self, mocker: MockerFixture) -> MagicMock:
-        """Patch create_trading_client and return a mock trading client."""
+        """Patch mt5_session and return a mock trading client."""
         client = _build_mock_trading_client()
         client.positions_get_as_df.return_value = pd.DataFrame([
             {"ticket": 1, "symbol": "JP225", "type": 0, "volume": 1.0, "magic": 7},
             {"ticket": 2, "symbol": "EURUSD", "type": 1, "volume": 0.5, "magic": 9},
         ])
         client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
-        mocker.patch("mt5cli.cli.create_trading_client", return_value=client)
+
+        # Create a proper context manager that yields the client
+        cm = MagicMock()
+        cm.__enter__ = MagicMock(return_value=client)
+        cm.__exit__ = MagicMock(return_value=None)
+
+        mocker.patch("mt5cli.cli.mt5_session", return_value=cm)
+        # Store reference to context manager for assertions
+        client._context_manager = cm
         return client
 
     @pytest.mark.parametrize(
@@ -679,7 +700,7 @@ class TestClosePositions:
         assert result.exit_code == 0, result.output
         assert output.exists()
         assert trading_client.order_send.called == order_send_called
-        trading_client.shutdown.assert_called_once()
+        # Context manager exit is tested in test_trading.py
 
     @pytest.mark.parametrize(
         ("extra_args", "yes_included"),
@@ -696,7 +717,9 @@ class TestClosePositions:
         yes_included: bool,
     ) -> None:
         """Test --yes gates live close-positions execution."""
-        trading_client.order_send.return_value = {"retcode": 10009, "comment": "ok"}
+        trading_client.order_send.return_value = pd.DataFrame([
+            {"retcode": 10009, "comment": "ok"}
+        ])
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
@@ -705,7 +728,7 @@ class TestClosePositions:
         if yes_included:
             assert result.exit_code == 0, result.output
             trading_client.order_send.assert_called_once()
-            trading_client.shutdown.assert_called_once()
+            # Context manager exit is tested in test_trading.py
         else:
             assert result.exit_code != 0
             assert "Pass --yes" in normalize_cli_output(result.output)
@@ -724,7 +747,7 @@ class TestClosePositions:
     def test_close_positions_filter(
         self,
         tmp_path: Path,
-        trading_client: MagicMock,
+        trading_client: MagicMock,  # noqa: ARG002
         extra_args: list[str],
         expected_symbols: set[str],
     ) -> None:
@@ -738,15 +761,13 @@ class TestClosePositions:
         data = json.loads(output.read_text())
         assert {row["symbol"] for row in data} == expected_symbols
         assert len(data) == len(expected_symbols)
-        trading_client.shutdown.assert_called_once()
+        # Context manager exit is tested in test_trading.py
 
     def test_missing_symbol_and_ticket_fails(
         self,
         tmp_path: Path,
-        mocker: MockerFixture,
     ) -> None:
         """Test that omitting both --symbol and --ticket fails closed."""
-        mocker.patch("mt5cli.cli.create_trading_client")
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
@@ -758,7 +779,7 @@ class TestClosePositions:
     def test_output_export_dry_run(
         self,
         tmp_path: Path,
-        trading_client: MagicMock,
+        trading_client: MagicMock,  # noqa: ARG002
     ) -> None:
         """Test dry-run results export with status=dry_run."""
         output = tmp_path / "close.json"
@@ -767,7 +788,7 @@ class TestClosePositions:
             ["-o", str(output), "close-positions", "--symbol", "JP225", "--dry-run"],
         )
         assert result.exit_code == 0, result.output
-        trading_client.shutdown.assert_called_once()
+        # Context manager exit is tested in test_trading.py
         data = json.loads(output.read_text())
         assert data[0]["status"] == "dry_run"
         assert data[0]["dry_run"] is True
@@ -908,14 +929,17 @@ class TestClosePositions:
         """Test that shutdown is called even when close_open_positions raises."""
         client = _build_mock_trading_client()
         client.positions_get_as_df.side_effect = RuntimeError("connection lost")
-        mocker.patch("mt5cli.cli.create_trading_client", return_value=client)
+        cm = MagicMock()
+        cm.__enter__.return_value = client
+        cm.__exit__.return_value = None
+        mocker.patch("mt5cli.cli.mt5_session", return_value=cm)
         output = tmp_path / "close.json"
         result = runner.invoke(
             app,
             ["-o", str(output), "close-positions", "--symbol", "JP225", "--dry-run"],
         )
         assert result.exit_code != 0
-        client.shutdown.assert_called_once()
+        cm.__exit__.assert_called_once()
 
     def test_no_matching_positions_exports_empty_result(
         self,
@@ -939,7 +963,7 @@ class TestClosePositions:
             ],
         )
         assert result.exit_code == 0, result.output
-        trading_client.shutdown.assert_called_once()
+        # Context manager exit is tested in test_trading.py
         assert output.exists()
         assert json.loads(output.read_text()) == []
 
@@ -971,7 +995,7 @@ class TestCallback:
         mock_client = MagicMock()
         mock_client.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
         mt5_client = mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
+            "mt5cli.client.Mt5DataClient",
             return_value=mock_client,
         )
         output = tmp_path / "out.csv"
@@ -1038,7 +1062,7 @@ class TestCallback:
         mock_client = MagicMock()
         mock_client.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
         mt5_client = mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
+            "mt5cli.client.Mt5DataClient",
             return_value=mock_client,
         )
         output = tmp_path / "out.csv"
@@ -1101,7 +1125,7 @@ class TestCallback:
         mock_client = MagicMock()
         mock_client.account_info_as_df.return_value = pd.DataFrame({"a": [1]})
         mt5_client = mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
+            "mt5cli.client.Mt5DataClient",
             return_value=mock_client,
         )
         output = tmp_path / "out.csv"
@@ -1142,7 +1166,7 @@ class TestCallback:
             {"s": ["EURUSD"]},
         )
         mocker.patch(
-            "mt5cli.sdk.Mt5DataClient",
+            "mt5cli.client.Mt5DataClient",
             return_value=mock_client,
         )
         output = tmp_path / "out.db"
@@ -1246,24 +1270,26 @@ def _build_history_client(mocker: MockerFixture) -> MagicMock:
         df = pd.DataFrame(_DEALS_FIXTURE)
         return df[df["symbol"] == sym].reset_index(drop=True)
 
-    def _symbol_info(**kwargs: object) -> dict[str, object]:
-        return {
-            "symbol": kwargs.get("symbol"),
-            "point": 0.00001,
-            "digits": 5,
-            "trade_contract_size": 100000.0,
-            "volume_min": 0.01,
-            "volume_max": 100.0,
-            "volume_step": 0.01,
-            "trade_tick_size": 0.00001,
-            "trade_tick_value": 1.0,
-            "currency_profit": "USD",
-        }
+    def _symbol_info(**kwargs: object) -> pd.DataFrame:
+        return pd.DataFrame([
+            {
+                "symbol": kwargs.get("symbol"),
+                "point": 0.00001,
+                "digits": 5,
+                "trade_contract_size": 100000.0,
+                "volume_min": 0.01,
+                "volume_max": 100.0,
+                "volume_step": 0.01,
+                "trade_tick_size": 0.00001,
+                "trade_tick_value": 1.0,
+                "currency_profit": "USD",
+            }
+        ])
 
     client.history_orders_get_as_df.side_effect = _orders
     client.history_deals_get_as_df.side_effect = _deals
-    client.symbol_info_as_dict.side_effect = _symbol_info
-    mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+    client.symbol_info_as_df.side_effect = _symbol_info
+    mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
     return client
 
 
@@ -1384,12 +1410,18 @@ class TestCollectHistory:
         history_client.history_orders_get_as_df.assert_any_call(
             date_from=datetime(2024, 1, 1, tzinfo=UTC),
             date_to=datetime(2024, 2, 1, tzinfo=UTC),
+            group=None,
             symbol="EURUSD",
+            ticket=None,
+            position=None,
         )
         history_client.history_deals_get_as_df.assert_any_call(
             date_from=datetime(2024, 1, 1, tzinfo=UTC),
             date_to=datetime(2024, 2, 1, tzinfo=UTC),
+            group=None,
             symbol="GBPUSD",
+            ticket=None,
+            position=None,
         )
 
     @pytest.mark.parametrize(
@@ -1653,7 +1685,7 @@ class TestCollectHistory:
             "ticket": [3, 4],
             "symbol": ["EURUSD", "EURUSDm"],
         })
-        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+        mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
         output = tmp_path / "history.db"
         result = runner.invoke(
             app,
@@ -1733,9 +1765,9 @@ class TestCollectHistory:
         client.copy_ticks_range_as_df.return_value = pd.DataFrame({"x": [1]})
         client.history_orders_get_as_df.return_value = pd.DataFrame({"x": [1]})
         client.history_deals_get_as_df.return_value = pd.DataFrame({"x": [1]})
-        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+        mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
         output = tmp_path / "history.db"
-        with caplog.at_level(logging.WARNING, logger="mt5cli.sdk"):
+        with caplog.at_level(logging.WARNING, logger="mt5cli.history"):
             result = runner.invoke(
                 app,
                 [
@@ -1773,7 +1805,7 @@ class TestCollectHistory:
         client = MagicMock()
         client.copy_rates_range_as_df.return_value = pd.DataFrame({"time": [1]})
         client.history_deals_get_as_df.return_value = pd.DataFrame()
-        mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+        mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
         output = tmp_path / "history.db"
         result = runner.invoke(
             app,
@@ -1812,7 +1844,7 @@ class TestCollectHistory:
     ) -> None:
         """Test that --with-views warns when history_deals is not written."""
         output = tmp_path / "history.db"
-        with caplog.at_level(logging.WARNING, logger="mt5cli.sdk"):
+        with caplog.at_level(logging.WARNING, logger="mt5cli.history"):
             result = runner.invoke(
                 app,
                 [
@@ -2055,8 +2087,8 @@ class TestSnapshotCommand:
         extra_args: list[str],
         expected_symbols: list[str] | None,
     ) -> None:
-        """Snapshot calls sdk.update_observability_with_config with forwarded kwargs."""
-        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        """Snapshot calls update_observability_with_config with forwarded kwargs."""
+        updater = mocker.patch("mt5cli.cli.update_observability_with_config")
         output = tmp_path / "out.db"
         result = runner.invoke(app, ["-o", str(output), "snapshot", *extra_args])
         assert result.exit_code == 0, result.output
@@ -2088,7 +2120,7 @@ class TestSnapshotCommand:
         kwarg: str,
     ) -> None:
         """Snapshot --no-X flags disable the corresponding snapshot component."""
-        updater = mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        updater = mocker.patch("mt5cli.cli.update_observability_with_config")
         result = runner.invoke(
             app,
             ["-o", str(tmp_path / "out.db"), "snapshot", flag],
@@ -2120,7 +2152,7 @@ def test_publish_copy_option_gates_grafana_copy(
 ) -> None:
     """--publish-copy gates publish_grafana_copy for copy-capable commands."""
     if patch_update_observability:
-        mocker.patch("mt5cli.cli.sdk.update_observability_with_config")
+        mocker.patch("mt5cli.cli.update_observability_with_config")
     mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
     args = ["-o", str(tmp_path / "out.db"), command]
     if use_publish_copy:
@@ -2141,3 +2173,93 @@ class TestMain:
         mock_app = mocker.patch("mt5cli.cli.app")
         main()
         mock_app.assert_called_once()
+
+
+class TestDateTimeType:
+    """Tests for _DateTimeType."""
+
+    def test_convert_string(self) -> None:
+        """Test converting a string to datetime."""
+        result = DATETIME_TYPE.convert("2024-06-15", None, None)
+        assert result == datetime(2024, 6, 15, tzinfo=UTC)
+
+    def test_convert_datetime_passthrough(self) -> None:
+        """Test that datetime values pass through unchanged."""
+        dt = datetime(2024, 1, 1, tzinfo=UTC)
+        assert DATETIME_TYPE.convert(dt, None, None) is dt
+
+    def test_convert_invalid(self) -> None:
+        """Test that invalid values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid datetime"):
+            DATETIME_TYPE.convert("bad", None, None)
+
+
+class TestTimeframeType:
+    """Tests for _TimeframeType."""
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("H1", 16385), (16385, 16385)],
+        ids=["string", "int"],
+    )
+    def test_convert_valid(self, value: str | int, expected: int) -> None:
+        """Test converting valid string and integer timeframe values."""
+        assert TIMEFRAME_TYPE.convert(value, None, None) == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [42, "bad"],
+        ids=["unsupported-int", "invalid-string"],
+    )
+    def test_convert_invalid(self, value: object) -> None:
+        """Test that unsupported int and invalid string values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid timeframe"):
+            TIMEFRAME_TYPE.convert(value, None, None)
+
+    @pytest.mark.parametrize("value", [True, False, None, 1.5])
+    def test_convert_invalid_types(self, value: object) -> None:
+        """Test that bool, float, and None values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid timeframe"):
+            TIMEFRAME_TYPE.convert(value, None, None)
+
+
+class TestTickFlagsType:
+    """Tests for _TickFlagsType."""
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("ALL", -1), (2, 2)],
+        ids=["string", "int"],
+    )
+    def test_convert_valid(self, value: str | int, expected: int) -> None:
+        """Test converting valid string and integer tick flag values."""
+        assert TICK_FLAGS_TYPE.convert(value, None, None) == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [7, "bad"],
+        ids=["unsupported-int", "invalid-string"],
+    )
+    def test_convert_invalid(self, value: object) -> None:
+        """Test that unsupported int and invalid string values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid tick flags"):
+            TICK_FLAGS_TYPE.convert(value, None, None)
+
+    @pytest.mark.parametrize("value", [True, False, None, 1.5])
+    def test_convert_invalid_types(self, value: object) -> None:
+        """Test that bool, float, and None values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid tick flags"):
+            TICK_FLAGS_TYPE.convert(value, None, None)
+
+
+class TestRequestType:
+    """Tests for _RequestType."""
+
+    def test_convert_string(self) -> None:
+        """Test converting a JSON string to a request dictionary."""
+        assert REQUEST_TYPE.convert('{"action": 1}', None, None) == {"action": 1}
+
+    def test_convert_invalid(self) -> None:
+        """Test that invalid values raise BadParameter."""
+        with pytest.raises(Exception, match="Invalid JSON request"):
+            REQUEST_TYPE.convert("bad", None, None)

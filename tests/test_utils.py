@@ -15,10 +15,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from mt5cli.utils import (
-    DATETIME_TYPE,
-    REQUEST_TYPE,
-    TICK_FLAGS_TYPE,
-    TIMEFRAME_TYPE,
     Dataset,
     IfExists,
     detect_format,
@@ -408,98 +404,3 @@ class TestConstants:
     def test_dataset_table_name(self, dataset: Dataset, expected: str) -> None:
         """Test dataset SQLite table names."""
         assert dataset.table_name == expected
-
-
-# ---------------------------------------------------------------------------
-# Click ParamTypes
-# ---------------------------------------------------------------------------
-
-
-class TestDateTimeType:
-    """Tests for _DateTimeType."""
-
-    def test_convert_string(self) -> None:
-        """Test converting a string to datetime."""
-        result = DATETIME_TYPE.convert("2024-06-15", None, None)
-        assert result == datetime(2024, 6, 15, tzinfo=UTC)
-
-    def test_convert_datetime_passthrough(self) -> None:
-        """Test that datetime values pass through unchanged."""
-        dt = datetime(2024, 1, 1, tzinfo=UTC)
-        assert DATETIME_TYPE.convert(dt, None, None) is dt
-
-    def test_convert_invalid(self) -> None:
-        """Test that invalid values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid datetime"):
-            DATETIME_TYPE.convert("bad", None, None)
-
-
-class TestTimeframeType:
-    """Tests for _TimeframeType."""
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [("H1", 16385), (16385, 16385)],
-        ids=["string", "int"],
-    )
-    def test_convert_valid(self, value: str | int, expected: int) -> None:
-        """Test converting valid string and integer timeframe values."""
-        assert TIMEFRAME_TYPE.convert(value, None, None) == expected
-
-    @pytest.mark.parametrize(
-        "value",
-        [42, "bad"],
-        ids=["unsupported-int", "invalid-string"],
-    )
-    def test_convert_invalid(self, value: object) -> None:
-        """Test that unsupported int and invalid string values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid timeframe"):
-            TIMEFRAME_TYPE.convert(value, None, None)
-
-    @pytest.mark.parametrize("value", [True, False, None, 1.5])
-    def test_convert_invalid_types(self, value: object) -> None:
-        """Test that bool, float, and None values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid timeframe"):
-            TIMEFRAME_TYPE.convert(value, None, None)
-
-
-class TestTickFlagsType:
-    """Tests for _TickFlagsType."""
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [("ALL", -1), (2, 2)],
-        ids=["string", "int"],
-    )
-    def test_convert_valid(self, value: str | int, expected: int) -> None:
-        """Test converting valid string and integer tick flag values."""
-        assert TICK_FLAGS_TYPE.convert(value, None, None) == expected
-
-    @pytest.mark.parametrize(
-        "value",
-        [7, "bad"],
-        ids=["unsupported-int", "invalid-string"],
-    )
-    def test_convert_invalid(self, value: object) -> None:
-        """Test that unsupported int and invalid string values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid tick flags"):
-            TICK_FLAGS_TYPE.convert(value, None, None)
-
-    @pytest.mark.parametrize("value", [True, False, None, 1.5])
-    def test_convert_invalid_types(self, value: object) -> None:
-        """Test that bool, float, and None values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid tick flags"):
-            TICK_FLAGS_TYPE.convert(value, None, None)
-
-
-class TestRequestType:
-    """Tests for _RequestType."""
-
-    def test_convert_string(self) -> None:
-        """Test converting a JSON string to a request dictionary."""
-        assert REQUEST_TYPE.convert('{"action": 1}', None, None) == {"action": 1}
-
-    def test_convert_invalid(self) -> None:
-        """Test that invalid values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid JSON request"):
-            REQUEST_TYPE.convert("bad", None, None)
