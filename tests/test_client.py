@@ -29,6 +29,7 @@ from mt5cli.market_data import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from contextlib import AbstractContextManager
 
     from pdmt5 import Mt5DataClient
     from pytest_mock import MockerFixture
@@ -236,20 +237,32 @@ def test_transient_client_propagates_ordinary_application_errors(
     raw_client.shutdown.assert_called_once()
 
 
-def test_mt5_session_cleanup_only_shutdown_failure_is_normalized(
+@pytest.mark.parametrize(
+    "make_session",
+    [mt5_session, MT5Client],
+    ids=["mt5_session", "MT5Client"],
+)
+def test_cleanup_only_shutdown_failure_is_normalized(
     mocker: MockerFixture,
+    make_session: Callable[[], AbstractContextManager[object]],
 ) -> None:
     """A shutdown failure after a successful body raises the stable error."""
     raw_client = MagicMock()
     raw_client.shutdown.side_effect = Mt5RuntimeError("shutdown failed")
     mocker.patch("mt5cli.client.Mt5DataClient", return_value=raw_client)
 
-    with pytest.raises(Mt5ConnectionError, match="shutdown failed"), mt5_session():
+    with pytest.raises(Mt5ConnectionError, match="shutdown failed"), make_session():
         pass
 
 
-def test_mt5_session_body_exception_survives_shutdown_failure(
+@pytest.mark.parametrize(
+    "make_session",
+    [mt5_session, MT5Client],
+    ids=["mt5_session", "MT5Client"],
+)
+def test_body_exception_survives_shutdown_failure(
     mocker: MockerFixture,
+    make_session: Callable[[], AbstractContextManager[object]],
 ) -> None:
     """A session-body exception passes through even when shutdown also fails."""
     raw_client = MagicMock()
@@ -257,14 +270,20 @@ def test_mt5_session_body_exception_survives_shutdown_failure(
     mocker.patch("mt5cli.client.Mt5DataClient", return_value=raw_client)
 
     message = "body failure"
-    with pytest.raises(RuntimeError, match=message), mt5_session():
+    with pytest.raises(RuntimeError, match=message), make_session():
         raise RuntimeError(message)
 
     raw_client.shutdown.assert_called_once()
 
 
-def test_mt5_session_init_failure_survives_shutdown_failure(
+@pytest.mark.parametrize(
+    "make_session",
+    [mt5_session, MT5Client],
+    ids=["mt5_session", "MT5Client"],
+)
+def test_init_failure_survives_shutdown_failure(
     mocker: MockerFixture,
+    make_session: Callable[[], AbstractContextManager[object]],
 ) -> None:
     """The normalized init error stays primary when shutdown also fails."""
     raw_client = MagicMock()
@@ -272,49 +291,8 @@ def test_mt5_session_init_failure_survives_shutdown_failure(
     raw_client.shutdown.side_effect = Mt5RuntimeError("shutdown failed")
     mocker.patch("mt5cli.client.Mt5DataClient", return_value=raw_client)
 
-    with pytest.raises(Mt5ConnectionError, match="init failed"), mt5_session():
+    with pytest.raises(Mt5ConnectionError, match="init failed"), make_session():
         pass
-
-
-def test_mt5_client_enter_init_failure_survives_shutdown_failure(
-    mocker: MockerFixture,
-) -> None:
-    """MT5Client.__enter__ keeps the normalized init error on shutdown failure."""
-    raw_client = MagicMock()
-    raw_client.initialize_and_login_mt5.side_effect = Mt5RuntimeError("init failed")
-    raw_client.shutdown.side_effect = Mt5RuntimeError("shutdown failed")
-    mocker.patch("mt5cli.client.Mt5DataClient", return_value=raw_client)
-
-    client = MT5Client()
-    with pytest.raises(Mt5ConnectionError, match="init failed"), client:
-        pass
-
-
-def test_mt5_client_exit_cleanup_only_shutdown_failure_is_normalized(
-    mocker: MockerFixture,
-) -> None:
-    """MT5Client.__exit__ raises the stable error when only shutdown fails."""
-    raw_client = MagicMock()
-    raw_client.shutdown.side_effect = Mt5RuntimeError("shutdown failed")
-    mocker.patch("mt5cli.client.Mt5DataClient", return_value=raw_client)
-
-    with pytest.raises(Mt5ConnectionError, match="shutdown failed"), MT5Client():
-        pass
-
-
-def test_mt5_client_exit_body_exception_survives_shutdown_failure(
-    mocker: MockerFixture,
-) -> None:
-    """MT5Client.__exit__ preserves the body exception when shutdown fails."""
-    raw_client = MagicMock()
-    raw_client.shutdown.side_effect = Mt5RuntimeError("shutdown failed")
-    mocker.patch("mt5cli.client.Mt5DataClient", return_value=raw_client)
-
-    message = "body failure"
-    with pytest.raises(RuntimeError, match=message), MT5Client():
-        raise RuntimeError(message)
-
-    raw_client.shutdown.assert_called_once()
 
 
 def test_public_facade_symbol_snapshot(mock_client: MagicMock) -> None:
