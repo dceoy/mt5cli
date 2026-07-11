@@ -55,6 +55,10 @@
 </li>
                                     
 <li>
+    <a href="../marketdata/" class="dropdown-item">Market Data</a>
+</li>
+                                    
+<li>
     <a href="../schemas/" class="dropdown-item">Schemas</a>
 </li>
                                     
@@ -71,15 +75,15 @@
 </li>
                                     
 <li>
-    <a href="../sdk/" class="dropdown-item">SDK</a>
-</li>
-                                    
-<li>
     <a href="../trading/" class="dropdown-item">Trading</a>
 </li>
                                     
 <li>
     <a href="../history/" class="dropdown-item">History Collection (SQLite)</a>
+</li>
+                                    
+<li>
+    <a href="../observability/" class="dropdown-item">Observability</a>
 </li>
                                     
 <li>
@@ -145,6 +149,10 @@
               <ul class="nav flex-column">
               </ul>
             </li>
+            <li class="nav-item" data-bs-level="2"><a href="#breaking-migration" class="nav-link">Breaking migration</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
             <li class="nav-item" data-bs-level="2"><a href="#module-scoped-helpers" class="nav-link">Module-scoped helpers</a>
               <ul class="nav flex-column">
               </ul>
@@ -200,13 +208,9 @@ The intended dependency direction is:</p>
 </tr>
 </tbody>
 </table>
-<p>Downstream code should import raw pdmt5 types and constants (such as
-<code>Mt5Config</code>, <code>Mt5RuntimeError</code>, <code>TIMEFRAME_MAP</code>, <code>COPY_TICKS_MAP</code>) directly
-from <code>pdmt5</code> when needed. mt5cli does not serve as a pass-through compatibility
-namespace for pdmt5. mt5cli's trading helpers type their client parameter against
-an internal protocol backed by <code>pdmt5.Mt5DataClient</code>; <code>Mt5TradingClient</code> is no
-longer required. <code>pdmt5.Mt5TradingError</code> was removed upstream in pdmt5 1.0.4;
-mt5cli raises <code>Mt5OperationError</code> for all trading-related failures.</p>
+<p><code>pdmt5</code> is an implementation detail for downstream applications. Applications
+use <code>MT5Client</code> and <code>mt5_session()</code> for all data, calculations, history, and
+execution helpers; no mt5cli public API returns or requires a raw pdmt5 client.</p>
 <p>Note: the former <code>mt5cli</code> re-export <code>TICK_FLAG_MAP</code> corresponds to <code>COPY_TICKS_MAP</code>
 in pdmt5 — the name changed, it was not simply moved.</p>
 <p>Downstream packages should import from the package root (<code>from mt5cli import
@@ -214,7 +218,58 @@ in pdmt5 — the name changed, it was not simply moved.</p>
 every package-root symbol. Lower-level helpers (schema utilities, export
 functions, parser helpers, low-level MT5 wrappers) are available directly from
 their owning modules (<code>mt5cli.schemas</code>, <code>mt5cli.utils</code>, <code>mt5cli.converters</code>,
-<code>mt5cli.sdk</code>, etc.) and are not part of the root SDK surface.</p>
+<code>mt5cli.marketdata</code>, etc.) and are not part of the root SDK surface.</p>
+<h3 id="module-responsibility-map">Module responsibility map<a class="headerlink" href="#module-responsibility-map" title="Permanent link">&para;</a></h3>
+<p><code>mt5cli.sdk</code> has been removed. Each capability now has exactly one owning
+module:</p>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Owns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mt5cli.client</code></td>
+<td>Connection lifecycle (<code>build_config</code>, <code>mt5_session</code>, <code>MT5Client</code>); the sole session factory</td>
+</tr>
+<tr>
+<td><code>mt5cli.marketdata</code></td>
+<td>Stateless one-off market-data reads and multi-account rate collection (<code>AccountSpec</code>, <code>collect_latest_rates_for_accounts</code>, etc.)</td>
+</tr>
+<tr>
+<td><code>mt5cli.history</code></td>
+<td>History collection, incremental updates, and SQLite storage (<code>collect_history</code>, <code>update_history</code>, <code>write_*_dataset</code>, <code>ThrottledHistoryUpdater</code>)</td>
+</tr>
+<tr>
+<td><code>mt5cli.observability</code></td>
+<td>Observability snapshot orchestration (<code>update_observability</code>, <code>update_observability_with_config</code>)</td>
+</tr>
+<tr>
+<td><code>mt5cli.grafana</code></td>
+<td>Grafana schema, views, and snapshot persistence</td>
+</tr>
+<tr>
+<td><code>mt5cli.trading</code></td>
+<td>Order preparation, broker-facing calculations, and normalized execution receipts</td>
+</tr>
+<tr>
+<td><code>mt5cli.contract</code></td>
+<td><code>STABLE_SDK_EXPORTS</code> and the internal <code>HistoryClient</code> / <code>ObservabilityClient</code> protocols</td>
+</tr>
+<tr>
+<td><code>mt5cli.cli</code></td>
+<td>Typer/Click adapters; no MT5 operational logic of its own</td>
+</tr>
+<tr>
+<td><code>mt5cli.utils</code></td>
+<td>Generic conversion, parsing, and file/SQLite export helpers, independent of the MT5 connection lifecycle</td>
+</tr>
+</tbody>
+</table>
+<p>No module combines connection lifecycle, history collection, observability,
+telemetry, SQLite orchestration, and CLI-adjacent concerns.</p>
 <h2 id="stable-downstream-sdk-api">Stable downstream SDK API<a class="headerlink" href="#stable-downstream-sdk-api" title="Permanent link">&para;</a></h2>
 <p>These names are exported from <code>mt5cli</code> and enumerated in
 <code>mt5cli.STABLE_SDK_EXPORTS</code> (defined in <code>mt5cli.contract</code>).</p>
@@ -229,7 +284,7 @@ their owning modules (<code>mt5cli.schemas</code>, <code>mt5cli.utils</code>, <c
 <tbody>
 <tr>
 <td><code>MT5Client</code></td>
-<td>Read-only data client with optional <code>order_check</code> / <code>order_send</code></td>
+<td>The single connected client for data, history, calculations, order checking, and order sending</td>
 </tr>
 <tr>
 <td><code>build_config</code></td>
@@ -237,11 +292,7 @@ their owning modules (<code>mt5cli.schemas</code>, <code>mt5cli.utils</code>, <c
 </tr>
 <tr>
 <td><code>mt5_session</code></td>
-<td>Context manager: initialize, login, yield client, shutdown</td>
-</tr>
-<tr>
-<td><code>create_trading_client</code>, <code>mt5_trading_session</code></td>
-<td>Trading-capable MT5 client lifecycle; returns a raw <code>pdmt5.Mt5DataClient</code> (not <code>MT5Client</code>) supporting order execution, account management, and history deal retrieval</td>
+<td>Canonical context manager: initialize/login once, yield <code>MT5Client</code>, shut down once; a supplied <code>client=</code> remains caller-owned.</td>
 </tr>
 <tr>
 <td><code>AccountSpec</code></td>
@@ -272,10 +323,6 @@ timestamp normalization in downstream apps.</p>
 <tr>
 <td><code>fetch_latest_closed_rates</code></td>
 <td>Single connected client: fetch <code>count + 1</code>, drop forming bar</td>
-</tr>
-<tr>
-<td><code>fetch_latest_closed_rates_for_trading_client</code></td>
-<td>Closed bars from an active trading client session; returns RangeIndex</td>
 </tr>
 <tr>
 <td><code>fetch_latest_closed_rates_indexed</code></td>
@@ -408,10 +455,6 @@ strategy entries, exits, Kelly sizing, or signal logic.</p>
 <td>Select/verify Market Watch visibility</td>
 </tr>
 <tr>
-<td><code>fetch_recent_history_deals_for_trading_client</code></td>
-<td>Recent deal history from a connected trading client</td>
-</tr>
-<tr>
 <td><code>place_market_order</code>, <code>close_open_positions</code>, <code>update_sltp_for_open_positions</code>, <code>update_trailing_stop_loss_for_open_positions</code></td>
 <td>Order execution helpers (<code>dry_run</code> supported)</td>
 </tr>
@@ -443,9 +486,35 @@ symbol metadata as a pre-check only; it does not guarantee live order acceptance
 after price movement and does not inspect <code>trade_freeze_level</code>. Live
 <code>place_market_order()</code> and SL/TP updates call
 <code>ensure_symbol_selected()</code> so hidden symbols are added to Market Watch before
-sending requests. Failed, malformed, or unknown broker retcodes are fail-closed
-and returned as <code>status="failed"</code> with normalized <code>request</code> / <code>response</code> details;
-<code>dry_run=True</code> never calls <code>ensure_symbol_selected()</code> or <code>order_send()</code>.</p>
+sending requests. <code>OrderExecutionResult</code> is a frozen, JSON-compatible receipt.
+Its direct fields are <code>status</code>, <code>symbol</code>, <code>order_side</code>, <code>requested_volume</code>,
+<code>filled_volume</code>, <code>request_price</code>, <code>filled_price</code>, <code>order_ticket</code>, <code>deal_ticket</code>,
+<code>position_id</code>, <code>magic</code>, <code>retcode</code>, <code>comment</code>, <code>dry_run</code>, <code>request</code>, and
+<code>response</code>. Fill values are null unless the broker supplies them. Statuses are
+<code>filled</code>, <code>partial_fill</code>, <code>placed</code>, <code>dry_run</code>, <code>skipped</code>, <code>rejected</code>,
+<code>malformed</code>, and <code>failed</code>; unknown retcodes are rejected, missing retcodes are
+malformed, and runtime failures are failed. A dry-run market order reads the
+current quote into <code>request["price"]</code> (so <code>request_price</code> is populated) but
+has no fills, identifiers, or response and never selects a symbol or sends.
+Broker sentinel identifiers (<code>0</code> or negative order/deal/position values) are
+normalized to <code>None</code>.</p>
+<h2 id="breaking-migration">Breaking migration<a class="headerlink" href="#breaking-migration" title="Permanent link">&para;</a></h2>
+<p><code>create_trading_client()</code> and <code>mt5_trading_session()</code> are removed from the
+package-root API. Replace either with <code>with mt5_session(config) as client:</code> and
+retrieve deal history through <code>client.history_deals()</code> or
+<code>client.recent_history_deals()</code>. Consume execution receipt attributes instead
+of parsing a raw broker response or assuming requested volume was filled.</p>
+<p><code>mt5cli.sdk</code> has been removed entirely, along with its duplicate
+<code>mt5_session()</code> context manager (which used to yield a private
+read-only-only client type) and the <code>Mt5CliClient</code> name. <code>from mt5cli import
+MT5Client, mt5_session</code> remains the only supported way to obtain a connected
+client — there is no alternate public session factory or client type. Code
+that imported market-data or history functions from <code>mt5cli.sdk</code> should import
+them from <code>mt5cli.marketdata</code> or <code>mt5cli.history</code> instead (or, for stable
+names, from the package root). Code that imported <code>update_observability</code> /
+<code>update_observability_with_config</code> from <code>mt5cli.sdk</code> should import them from
+<code>mt5cli.observability</code> instead. No compatibility shims are provided for any of
+these removed import paths.</p>
 <h3 id="grafana-observability-sqlite-read-model">Grafana observability (SQLite read model)<a class="headerlink" href="#grafana-observability-sqlite-read-model" title="Permanent link">&para;</a></h3>
 <p>These helpers prepare a SQLite database as a Grafana datasource. All DDL is
 idempotent (<code>CREATE TABLE IF NOT EXISTS</code>, <code>DROP VIEW IF EXISTS</code> + <code>CREATE
@@ -461,7 +530,7 @@ warning rather than raising an error.</p>
 <tbody>
 <tr>
 <td><code>update_observability</code></td>
-<td>Append one timestamped snapshot row per data type; accepts an already-connected <code>Mt5DataClient</code></td>
+<td>Append one timestamped snapshot row per data type from a connected client implementation</td>
 </tr>
 <tr>
 <td><code>update_observability_with_config</code></td>
@@ -474,6 +543,11 @@ warning rather than raising an error.</p>
 <code>with_grafana_schema=False</code> (default) skips Grafana view/index setup; run
 <code>grafana-schema</code> once to set up the schema, then call <code>snapshot</code> repeatedly
 without this flag.</p>
+<p>Pass the <code>MT5Client</code> yielded by <code>mt5_session()</code> directly to both
+<code>update_history(client=...)</code> and <code>update_observability(client=...)</code>. These
+workflows call the facade's canonical data methods (<code>account_info</code>, <code>positions</code>,
+<code>orders</code>, <code>terminal_info</code>, <code>copy_rates_range</code>, <code>copy_ticks_range</code>,
+<code>history_orders</code>, and <code>history_deals</code>); callers never need a pdmt5 client.</p>
 <p><strong>Snapshot tables</strong> (created by <code>create_snapshot_tables</code> in <code>mt5cli.grafana</code>):</p>
 <table>
 <thead>
@@ -599,6 +673,34 @@ without this flag.</p>
 </tr>
 </tbody>
 </table>
+<p>Only <code>pdmt5.Mt5RuntimeError</code> raised by MT5 operations is normalized (to
+<code>Mt5ConnectionError</code>). Exceptions raised by application callbacks, input
+validation, SQLite, or the filesystem propagate unchanged, after owned
+sessions have shut down exactly once. This normalization is identical for
+every <code>MT5Client</code> call path: a transient client created without a session
+(<code>MT5Client().account_info()</code>), a persistent client entered as a context
+manager (<code>with MT5Client() as client: ...</code>), and a caller-owned client bound
+with <code>MT5Client.from_connected_client(...)</code>. Exceptions raised by code inside
+the body of <code>with mt5_session(...) as client:</code> are never normalized — only
+exceptions raised by an <code>MT5Client</code> method call itself are.
+<code>MT5Client.__enter__()</code> and <code>mt5_session()</code> share the same
+initialization-error contract: an <code>Mt5RuntimeError</code> raised during
+<code>initialize_and_login_mt5()</code> is normalized to <code>Mt5ConnectionError</code> before the
+session is yielded, and the terminal is shut down exactly once on both normal
+and exceptional exit.</p>
+<h3 id="history-and-observability-client-contracts">History and observability client contracts<a class="headerlink" href="#history-and-observability-client-contracts" title="Permanent link">&para;</a></h3>
+<p><code>update_history()</code> and <code>update_observability()</code> type their <code>client</code> parameter
+against internal structural protocols defined in <code>mt5cli.contract</code> —
+<code>HistoryClient</code> (<code>copy_rates_range</code>, <code>copy_ticks_range</code>, <code>history_orders</code>,
+<code>history_deals</code>, <code>symbol_info_as_dict</code>) and <code>ObservabilityClient</code>
+(<code>account_info</code>, <code>terminal_info</code>, <code>positions</code>, <code>orders</code>) — instead of <code>object</code>
+or <code>pdmt5.Mt5DataClient</code>. <code>MT5Client</code> satisfies both protocols, so the
+<code>MT5Client</code> yielded by <code>mt5_session()</code> can be passed directly to
+<code>update_history(client=...)</code> and <code>update_observability(client=...)</code> without
+any adaptation. Raw pdmt5 method-name fallback logic (for example probing for
+<code>copy_rates_range_as_df</code> when <code>copy_rates_range</code> is absent) has been removed;
+callers must supply a client that implements the canonical mt5cli method
+names.</p>
 <h2 id="module-scoped-helpers">Module-scoped helpers<a class="headerlink" href="#module-scoped-helpers" title="Permanent link">&para;</a></h2>
 <p>Lower-level helpers are available from their owning modules and are not part
 of the package-root stable surface. Import them directly when needed:</p>
@@ -619,7 +721,7 @@ of the package-root stable surface. Import them directly when needed:</p>
 <td><code>resolve_rate_view_name</code>, <code>resolve_rate_tables</code>, <code>load_rate_data</code>, <code>build_rate_view_name</code></td>
 </tr>
 <tr>
-<td><code>mt5cli.sdk</code></td>
+<td><code>mt5cli.marketdata</code></td>
 <td><code>copy_rates_from</code>, <code>copy_ticks_from</code>, <code>account_info</code>, <code>symbols</code>, <code>mt5_summary</code>, <code>latest_rates</code></td>
 </tr>
 <tr>
@@ -688,8 +790,8 @@ notice:</p>
 </thead>
 <tbody>
 <tr>
-<td><code>mt5cli.sdk</code></td>
-<td><code>connected_client</code>, <code>_run_with_client</code>, private coercion helpers</td>
+<td><code>mt5cli.client</code></td>
+<td><code>_connected_client</code>, <code>_run_with_client</code>, private coercion helpers</td>
 </tr>
 <tr>
 <td><code>mt5cli.history</code></td>
@@ -720,8 +822,9 @@ The following belong in consuming applications, not in mt5cli:</p>
 <li>Strategy-specific risk policy, position sizing systems, or Kelly fractions</li>
 <li>Entry/exit decision logic or YAML strategy semantics</li>
 <li>Entry-deal classification, Kelly fractions, or betting-specific deal transformations
-  (use <code>fetch_recent_history_deals_for_trading_client</code> to retrieve raw deal data, then
-  apply downstream transformations in your own adapter layer)</li>
+  (retrieve canonical deal data through <code>MT5Client.history_deals()</code> or
+  <code>MT5Client.recent_history_deals()</code>, then apply downstream transformations in
+  your own adapter layer)</li>
 <li>Application-specific credential schema keys wired into mt5cli internals</li>
 </ul>
 <p>mt5cli provides connection lifecycle, normalized data access, SQLite history

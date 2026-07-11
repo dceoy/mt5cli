@@ -55,6 +55,10 @@
 </li>
                                     
 <li>
+    <a href="api/marketdata/" class="dropdown-item">Market Data</a>
+</li>
+                                    
+<li>
     <a href="api/schemas/" class="dropdown-item">Schemas</a>
 </li>
                                     
@@ -71,15 +75,15 @@
 </li>
                                     
 <li>
-    <a href="api/sdk/" class="dropdown-item">SDK</a>
-</li>
-                                    
-<li>
     <a href="api/trading/" class="dropdown-item">Trading</a>
 </li>
                                     
 <li>
     <a href="api/history/" class="dropdown-item">History Collection (SQLite)</a>
+</li>
+                                    
+<li>
+    <a href="api/observability/" class="dropdown-item">Observability</a>
 </li>
                                     
 <li>
@@ -229,8 +233,8 @@
 <a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">mt5_session</span><span class="p">,</span>
 <a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">)</span>
 <a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli.history</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_rate_data</span><span class="p">,</span> <span class="n">resolve_rate_view_name</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli.schemas</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataKind</span><span class="p">,</span> <span class="n">normalize_dataframe</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli.sdk</span><span class="w"> </span><span class="kn">import</span> <span class="n">minimum_margins</span><span class="p">,</span> <span class="n">recent_ticks</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli.marketdata</span><span class="w"> </span><span class="kn">import</span> <span class="n">minimum_margins</span><span class="p">,</span> <span class="n">recent_ticks</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli.schemas</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataKind</span><span class="p">,</span> <span class="n">normalize_dataframe</span>
 <a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">export_dataframe</span>
 <a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>
 <a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="c1"># Persistent session for multiple calls</span>
@@ -588,8 +592,9 @@ applications should prefer dedicated closing helpers or their own risk controls.
 <p>Browse the API documentation for detailed module information:</p>
 <ul>
 <li><a href="api/cli/">CLI Module</a> - CLI application with data export and execution commands</li>
-<li><a href="api/sdk/">SDK Module</a> - Programmatic read-only data collection API</li>
-<li><a href="api/utils/">Utils Module</a> - Constants, parameter types, parsers, and export utilities</li>
+<li><a href="api/client/">Client Module</a> - <code>MT5Client</code> / <code>mt5_session()</code> connection lifecycle</li>
+<li><a href="api/marketdata/">Market Data Module</a> - Programmatic read-only data collection API</li>
+<li><a href="api/utils/">Utils Module</a> - Constants, parsers, and export utilities</li>
 </ul>
 <h2 id="development">Development<a class="headerlink" href="#development" title="Permanent link">&para;</a></h2>
 <p>This project follows strict code quality standards:</p>
@@ -682,5 +687,5 @@ applications should prefer dedicated closing helpers or their own risk controls.
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2026-07-10 17:57:27.895319+00:00
+Build Date UTC : 2026-07-11 09:44:07.065640+00:00
 -->

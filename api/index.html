@@ -55,6 +55,10 @@
 </li>
                                     
 <li>
+    <a href="marketdata/" class="dropdown-item">Market Data</a>
+</li>
+                                    
+<li>
     <a href="schemas/" class="dropdown-item">Schemas</a>
 </li>
                                     
@@ -71,15 +75,15 @@
 </li>
                                     
 <li>
-    <a href="sdk/" class="dropdown-item">SDK</a>
-</li>
-                                    
-<li>
     <a href="trading/" class="dropdown-item">Trading</a>
 </li>
                                     
 <li>
     <a href="history/" class="dropdown-item">History Collection (SQLite)</a>
+</li>
+                                    
+<li>
+    <a href="observability/" class="dropdown-item">Observability</a>
 </li>
                                     
 <li>
@@ -176,7 +180,11 @@ responsibilities.</p>
 </tr>
 <tr>
 <td><a href="client/">Client</a></td>
-<td><code>MT5Client</code> session abstraction for data access and order primitives</td>
+<td><code>MT5Client</code> / <code>mt5_session()</code> — the sole connection lifecycle and client abstraction</td>
+</tr>
+<tr>
+<td><a href="marketdata/">Market Data</a></td>
+<td>Stateless one-off market-data reads and multi-account rate collection</td>
 </tr>
 <tr>
 <td><a href="schemas/">Schemas</a></td>
@@ -191,16 +199,16 @@ responsibilities.</p>
 <td>Stable mt5cli exception types and MT5 error normalization</td>
 </tr>
 <tr>
-<td><a href="sdk/">SDK</a></td>
-<td>Module-level fetch helpers, multi-account collectors, incremental history</td>
-</tr>
-<tr>
 <td><a href="trading/">Trading</a></td>
 <td>Trading-capable sessions and operational helpers</td>
 </tr>
 <tr>
 <td><a href="history/">History Collection (SQLite)</a></td>
 <td>SQLite schema, incremental writes, dedup, and rate views</td>
+</tr>
+<tr>
+<td><a href="observability/">Observability</a></td>
+<td>Account/position/order/terminal snapshot orchestration</td>
 </tr>
 <tr>
 <td><a href="telemetry/">Telemetry</a></td>
@@ -216,18 +224,20 @@ responsibilities.</p>
 </tr>
 <tr>
 <td><a href="utils/">Utils</a></td>
-<td>Parsing helpers and Click parameter types</td>
+<td>Generic parsing, conversion, and export helpers</td>
 </tr>
 </tbody>
 </table>
 <h2 id="architecture-overview">Architecture overview<a class="headerlink" href="#architecture-overview" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>flowchart TD
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    App[&quot;Downstream application&quot;] --&gt; Client[&quot;MT5Client&quot;]
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    App[&quot;Downstream application&quot;] --&gt; Client[&quot;MT5Client / mt5_session&quot;]
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    CLI[&quot;mt5cli CLI&quot;] --&gt; Client
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    Client --&gt; SDK[&quot;sdk / pdmt5&quot;]
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    Client --&gt; Schemas[&quot;schemas&quot;]
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    History[&quot;history SQLite&quot;] --&gt; Utils[&quot;utils export&quot;]
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    SDK --&gt; PDMT5[&quot;pdmt5.Mt5DataClient&quot;]
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    Client --&gt; PDMT5[&quot;pdmt5.Mt5DataClient&quot;]
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    MarketData[&quot;marketdata&quot;] --&gt; Client
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    History[&quot;history&quot;] --&gt; Client
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    Observability[&quot;observability&quot;] --&gt; Client
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    Observability --&gt; Grafana[&quot;grafana&quot;]
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    History --&gt; Utils[&quot;utils export&quot;]
 </code></pre></div>
 <p>Downstream packages should depend on the package root exports documented in the
 <a href="public-contract/">Public API Contract</a> (<code>MT5Client</code>,
