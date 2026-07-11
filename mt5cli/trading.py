@@ -487,6 +487,17 @@ def _optional_int(value: object) -> int | None:
     return None
 
 
+def _optional_positive_int(value: object) -> int | None:
+    """Return a positive integer identifier, or None for absent sentinels.
+
+    Brokers use ``0`` (and occasionally negative values) as "no identifier"
+    sentinels for order, deal, and position tickets. Those must not surface
+    as valid identifiers on the normalized receipt.
+    """
+    parsed = _optional_int(value)
+    return parsed if parsed is not None and parsed > 0 else None
+
+
 def _optional_str(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
@@ -665,15 +676,15 @@ def _execution_receipt(
         else _optional_price(normalized_response.get("price")),
         order_ticket=None
         if normalized_response is None
-        else _optional_int(normalized_response.get("order")),
+        else _optional_positive_int(normalized_response.get("order")),
         deal_ticket=None
         if normalized_response is None
-        else _optional_int(normalized_response.get("deal")),
+        else _optional_positive_int(normalized_response.get("deal")),
         position_id=(
-            _optional_int(request.get("position"))
+            _optional_positive_int(request.get("position"))
             if normalized_response is None
-            else _optional_int(normalized_response.get("position"))
-            or _optional_int(request.get("position"))
+            else _optional_positive_int(normalized_response.get("position"))
+            or _optional_positive_int(request.get("position"))
         ),
         magic=_optional_int(request.get("magic"))
         if normalized_response is None
@@ -1612,10 +1623,13 @@ def place_market_order(  # noqa: C901, PLR0913
 ) -> OrderExecutionResult:
     """Place one normalized market order or return a dry-run result.
 
-    ``order_send()`` raises only when MT5 returns no response. When MT5 returns
-    a response with a known non-success retcode, this helper returns
-    ``status="failed"`` and keeps the normalized response details for callers
-    to inspect.
+    A dry run reads the current side-appropriate quote into
+    ``request["price"]`` and returns a ``status="dry_run"`` receipt without
+    selecting the symbol or sending an order. Live orders return
+    ``status="rejected"`` for a valid non-success retcode,
+    ``status="malformed"`` when the broker response has no valid retcode, and
+    ``status="failed"`` when preparation or submission raises; the normalized
+    request and response stay available for inspection.
 
     Returns:
         Normalized execution result containing request and response details.
@@ -1664,6 +1678,9 @@ def place_market_order(  # noqa: C901, PLR0913
             ),
         })
         if dry_run:
+            tick = get_tick_snapshot(client, symbol)
+            price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
+            request["price"] = _require_tick_price(price, symbol)
             return _execution_receipt(
                 mt5=mt5,
                 symbol=symbol,

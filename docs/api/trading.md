@@ -122,10 +122,23 @@ when the post-reserve margin can afford it. Negative `margin_free` is clamped to
 `OrderExecutionResult` receipts. Access fields directly and call `to_dict()`
 only when serializing; `dry_run=True` never sends an order or mutates Market
 Watch visibility.
+A dry-run market order still reads the current side-appropriate quote into
+`request["price"]`, so `request_price` is populated on the preview receipt,
+while `response` and `filled_price` stay `None`.
 `ensure_symbol_selected()` adds hidden symbols to Market Watch before live order
-placement and SL/TP updates. Failed, malformed, or unknown broker retcodes are
-fail-closed and returned as `status="failed"` while keeping the normalized
-response for inspection.
+placement and SL/TP updates; dry runs never call it. Receipt statuses follow
+the public contract: `filled`, `partial_fill`, and `placed` map to broker
+success retcodes; unknown but valid integer retcodes are `rejected`; a broker
+response with a missing or unparsable retcode is `malformed`; exceptions during
+MT5 constant access, symbol preparation, tick retrieval, or order submission
+are `failed`; `skipped` means no execution was attempted for a defined
+operational reason; `dry_run` is a preview only. The raw `request` and
+`response` mappings remain diagnostic fields — use the normalized direct fields
+(`request_price`, `filled_price`, `order_ticket`, `deal_ticket`,
+`position_id`, `retcode`, ...) for standard execution metadata. Broker sentinel
+identifiers (`0` or negative order/deal/position values) are normalized to
+`None`; close and SL/TP receipts keep the known positive position ticket from
+the request when the broker response omits it.
 
 ## Order planning return contracts
 

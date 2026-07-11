@@ -144,8 +144,11 @@ Its direct fields are `status`, `symbol`, `order_side`, `requested_volume`,
 `response`. Fill values are null unless the broker supplies them. Statuses are
 `filled`, `partial_fill`, `placed`, `dry_run`, `skipped`, `rejected`,
 `malformed`, and `failed`; unknown retcodes are rejected, missing retcodes are
-malformed, and runtime failures are failed. A dry run includes its request but
+malformed, and runtime failures are failed. A dry-run market order reads the
+current quote into `request["price"]` (so `request_price` is populated) but
 has no fills, identifiers, or response and never selects a symbol or sends.
+Broker sentinel identifiers (`0` or negative order/deal/position values) are
+normalized to `None`.
 
 ## Breaking migration
 

@@ -22,8 +22,10 @@ from mt5cli.trading import (
     OrderLimits,
     OrderSide,
     ProjectionMode,
+    _execution_receipt,  # type: ignore[reportPrivateUsage]
     _filter_positions,  # type: ignore[reportPrivateUsage]
     _Mt5ClientProtocol,  # type: ignore[reportPrivateUsage]
+    _optional_positive_int,  # type: ignore[reportPrivateUsage]
     _plain_value,  # type: ignore[reportPrivateUsage]
     _response_mapping,  # type: ignore[reportPrivateUsage]
     _snapshot_from_value,  # type: ignore[reportPrivateUsage]
@@ -2049,6 +2051,55 @@ class TestVolumeAndExecution:
         client.order_send.assert_not_called()
         client.symbol_select.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("order_side", "expected_price"),
+        [("BUY", 1.2), ("SELL", 1.1)],
+        ids=["buy-uses-ask", "sell-uses-bid"],
+    )
+    def test_place_market_order_dry_run_populates_request_price(
+        self,
+        order_side: OrderSide,
+        expected_price: float,
+    ) -> None:
+        """Test dry-run receipts quote the side-appropriate price."""
+        client = _mock_trade_client()
+        client.symbol_info_as_dict.return_value = {"visible": False}
+        client.symbol_info_tick_as_dict.return_value = {"ask": 1.2, "bid": 1.1}
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side=order_side,
+            dry_run=True,
+        )
+
+        assert result.status == "dry_run"
+        _assert_close(result.request_price, expected_price)
+        _assert_close(result.request["price"], expected_price)
+        assert result.response is None
+        assert result.filled_price is None
+        client.symbol_select.assert_not_called()
+        client.order_send.assert_not_called()
+
+    def test_place_market_order_dry_run_bad_tick_returns_failed(self) -> None:
+        """Test a dry run without a usable quote fails closed without sending."""
+        client = _mock_trade_client()
+        client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.1}
+
+        result = place_market_order(
+            client,
+            symbol="EURUSD",
+            volume=0.1,
+            order_side="BUY",
+            dry_run=True,
+        )
+
+        assert result.status == "failed"
+        assert "Tick price is unavailable" in str(result.comment)
+        client.symbol_select.assert_not_called()
+        client.order_send.assert_not_called()
+
     def test_place_market_order_supports_limits(self) -> None:
         """Test optional SL/TP values are included in the request."""
         client = _mock_trade_client()
@@ -3403,6 +3454,108 @@ class TestExecutionNormalizationInternals:
         """Test empty field filters return the full normalized row."""
         row = _snapshot_from_value(pd.DataFrame([{"a": 1, "b": 2}]), ())
         assert row == {"a": 1, "b": 2}
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (1, 1),
+            ("123", 123),
+            (0, None),
+            ("0", None),
+            (-1, None),
+            (True, None),
+            (None, None),
+            ("", None),
+            ("invalid", None),
+            (1.5, None),
+        ],
+        ids=[
+            "positive-int",
+            "digit-string",
+            "zero",
+            "zero-string",
+            "negative",
+            "bool",
+            "none",
+            "empty-string",
+            "invalid-string",
+            "float",
+        ],
+    )
+    def test_optional_positive_int(self, value: object, expected: int | None) -> None:
+        """Test identifier normalization returns positive integers only."""
+        assert _optional_positive_int(value) == expected
+
+    def test_execution_receipt_keeps_positive_broker_identifiers(self) -> None:
+        """Test filled responses expose positive order/deal/position tickets."""
+        client = _mock_trade_client()
+
+        result = _execution_receipt(
+            mt5=client.mt5,
+            symbol="EURUSD",
+            order_side="BUY",
+            request={"symbol": "EURUSD", "volume": 0.1},
+            response={"retcode": 10009, "order": 11, "deal": 22, "position": 33},
+        )
+
+        assert result.status == "filled"
+        assert result.order_ticket == 11
+        assert result.deal_ticket == 22
+        assert result.position_id == 33
+
+    def test_execution_receipt_normalizes_zero_identifiers_to_none(self) -> None:
+        """Test rejected responses with zero-sentinel identifiers expose None."""
+        client = _mock_trade_client()
+
+        result = _execution_receipt(
+            mt5=client.mt5,
+            symbol="EURUSD",
+            order_side="BUY",
+            request={"symbol": "EURUSD", "volume": 0.1},
+            response={"retcode": 10013, "order": 0, "deal": 0, "position": 0},
+        )
+
+        assert result.status == "rejected"
+        assert result.order_ticket is None
+        assert result.deal_ticket is None
+        assert result.position_id is None
+
+    def test_execution_receipt_prefers_request_position_over_zero_sentinel(
+        self,
+    ) -> None:
+        """Test close receipts keep the requested position ticket over zero."""
+        client = _mock_trade_client()
+
+        result = _execution_receipt(
+            mt5=client.mt5,
+            symbol="EURUSD",
+            order_side="SELL",
+            request={"symbol": "EURUSD", "volume": 0.1, "position": 123},
+            response={"retcode": 10009, "order": 11, "deal": 22, "position": 0},
+        )
+
+        assert result.position_id == 123
+
+    def test_execution_receipt_normalizes_malformed_identifiers_to_none(self) -> None:
+        """Test negative and malformed identifiers are dropped from receipts."""
+        client = _mock_trade_client()
+
+        result = _execution_receipt(
+            mt5=client.mt5,
+            symbol="EURUSD",
+            order_side="BUY",
+            request={"symbol": "EURUSD", "volume": 0.1},
+            response={
+                "retcode": 10009,
+                "order": -5,
+                "deal": "invalid",
+                "position": True,
+            },
+        )
+
+        assert result.order_ticket is None
+        assert result.deal_ticket is None
+        assert result.position_id is None
 
     def test_response_mapping_handles_empty_and_dict_responses(self) -> None:
         """Test response normalization covers empty frames and plain mappings."""
