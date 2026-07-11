@@ -72,7 +72,7 @@ def build_mock_mt5_data_client() -> MagicMock:
 def mock_client(mocker: MockerFixture) -> MagicMock:
     """Create and patch a mock Mt5DataClient for CLI and SDK tests."""
     client = build_mock_mt5_data_client()
-    mocker.patch("mt5cli.sdk.Mt5DataClient", return_value=client)
+    mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
     return client
 
 

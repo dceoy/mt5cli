@@ -3308,6 +3308,37 @@ class TestVolumeAndExecution:
         assert result[0].status == "failed"
         assert "sltp failed" in str(result[0].comment)
 
+    def test_update_sltp_captures_mt5_constant_access_failures_in_receipt(
+        self,
+    ) -> None:
+        """Test request preparation failures (e.g. mt5 constant access) fail closed."""
+
+        class _RaisingMt5Client(MagicMock):
+            @property
+            def mt5(self) -> Any:  # noqa: ANN401
+                message = "mt5 constants unavailable"
+                raise RuntimeError(message)
+
+        client = _RaisingMt5Client()
+        client.positions_get_as_df.return_value = pd.DataFrame(
+            [
+                {
+                    "ticket": 1,
+                    "symbol": "EURUSD",
+                    "type": 0,
+                    "volume": 0.1,
+                    "sl": 1.0,
+                    "tp": 1.4,
+                },
+            ],
+        )
+
+        result = update_sltp_for_open_positions(client, tickets=[1], stop_loss=1.1)
+
+        assert result[0].status == "failed"
+        assert "mt5 constants unavailable" in str(result[0].comment)
+        client.order_send.assert_not_called()
+
     def test_trading_typed_dict_exports(self) -> None:
         """Test order-planning TypedDict contracts are importable."""
         margin: MarginVolume = {

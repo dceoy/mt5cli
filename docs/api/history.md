@@ -286,3 +286,61 @@ frame = series["EURUSD", 1]  # keyed by (symbol, integer timeframe)
   )
   frame = series["EURUSD", "M1"]  # keyed by (symbol | None, granularity_name)
   ```
+
+## Throttled incremental history updates
+
+`ThrottledHistoryUpdater` wraps `update_history()` with a minimum interval
+between successful runs (using a monotonic clock), so an application loop can
+call it every iteration without over-fetching.
+
+```python
+from pdmt5 import Mt5Config
+
+from mt5cli import ThrottledHistoryUpdater, mt5_session
+from mt5cli.utils import Dataset
+
+updater = ThrottledHistoryUpdater(
+    output="history.db",
+    datasets={Dataset.rates},
+    timeframes=["M1"],
+    interval_seconds=60,  # <= 0 updates on every call
+)
+
+with mt5_session(Mt5Config(login=12345)) as client:
+    while True:
+        updater.update(client, ["EURUSD", "GBPUSD"])  # no-op until 60s elapse
+        # ... do other work; break when shutting down ...
+```
+
+Pass `update_backend` to substitute the default `update_history` implementation
+without monkey-patching `mt5cli.history.update_history`. The callable receives the
+same keyword arguments as `update_history` (`client`, `output`, `symbols`,
+`datasets`, `timeframes`, `flags`, `lookback_hours`, `with_views`,
+`include_account_events`). The resolved backend is stored on
+`updater.update_backend` for inspection or subclassing.
+
+```python
+from mt5cli import ThrottledHistoryUpdater, update_history
+
+
+def app_update_history(**kwargs) -> None:
+    update_history(**kwargs)  # or delegate to application-specific logic
+
+
+updater = ThrottledHistoryUpdater(
+    output="history.db",
+    interval_seconds=60,
+    update_backend=app_update_history,
+)
+```
+
+By default recoverable errors (`Mt5RuntimeError`, `sqlite3.Error`,
+`ValueError`, `OSError`) propagate so the caller controls logging; pass
+`suppress_errors=True` to swallow them and return `False` without advancing the
+throttle. `AttributeError` and `TypeError` are treated as caller programming
+errors and always propagate, even when `suppress_errors=True` — the client
+passed to `update()` must implement the canonical `HistoryClient` method names
+(`copy_rates_range`, `copy_ticks_range`, `history_orders`, `history_deals`,
+`symbol_info_as_dict`). Input validation (`_resolve_update_history_request`)
+runs before any MT5 or SQLite calls, but when `suppress_errors=True` the
+resulting `ValueError` is suppressed along with other recoverable errors.

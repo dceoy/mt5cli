@@ -27,13 +27,27 @@ Downstream packages should import from the package root (`from mt5cli import
 every package-root symbol. Lower-level helpers (schema utilities, export
 functions, parser helpers, low-level MT5 wrappers) are available directly from
 their owning modules (`mt5cli.schemas`, `mt5cli.utils`, `mt5cli.converters`,
-`mt5cli.sdk`, etc.) and are not part of the root SDK surface.
+`mt5cli.market_data`, etc.) and are not part of the root SDK surface.
 
-Connection lifecycle is owned by `mt5cli.client`; market-data calls are exposed
-by `MT5Client`; `mt5cli.history` owns SQLite history writers; `mt5cli.grafana`
-owns snapshot/Grafana persistence; and `mt5cli.trading` owns order preparation
-and normalized execution receipts. `sdk.py` remains a compatibility location
-for read-only batch orchestration, not an alternate public client lifecycle.
+### Module responsibility map
+
+`mt5cli.sdk` has been removed. Each capability now has exactly one owning
+module:
+
+| Module                 | Owns                                                                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mt5cli.client`        | Connection lifecycle (`build_config`, `mt5_session`, `MT5Client`); the sole session factory                                                     |
+| `mt5cli.market_data`   | Stateless one-off market-data reads and multi-account rate collection (`AccountSpec`, `collect_latest_rates_for_accounts`, etc.)                |
+| `mt5cli.history`       | History collection, incremental updates, and SQLite storage (`collect_history`, `update_history`, `write_*_dataset`, `ThrottledHistoryUpdater`) |
+| `mt5cli.observability` | Observability snapshot orchestration (`update_observability`, `update_observability_with_config`)                                               |
+| `mt5cli.grafana`       | Grafana schema, views, and snapshot persistence                                                                                                 |
+| `mt5cli.trading`       | Order preparation, broker-facing calculations, and normalized execution receipts                                                                |
+| `mt5cli.contract`      | `STABLE_SDK_EXPORTS` and the internal `HistoryClient` / `ObservabilityClient` protocols                                                         |
+| `mt5cli.cli`           | Typer/Click adapters; no MT5 operational logic of its own                                                                                       |
+| `mt5cli.utils`         | Generic conversion, parsing, and file/SQLite export helpers, independent of the MT5 connection lifecycle                                        |
+
+No module combines connection lifecycle, history collection, observability,
+telemetry, SQLite orchestration, and CLI-adjacent concerns.
 
 ## Stable downstream SDK API
 
@@ -141,6 +155,18 @@ retrieve deal history through `client.history_deals()` or
 `client.recent_history_deals()`. Consume execution receipt attributes instead
 of parsing a raw broker response or assuming requested volume was filled.
 
+`mt5cli.sdk` has been removed entirely, along with its duplicate
+`mt5_session()` context manager (which used to yield a private
+read-only-only client type) and the `Mt5CliClient` name. `from mt5cli import
+MT5Client, mt5_session` remains the only supported way to obtain a connected
+client — there is no alternate public session factory or client type. Code
+that imported market-data or history functions from `mt5cli.sdk` should import
+them from `mt5cli.market_data` or `mt5cli.history` instead (or, for stable
+names, from the package root). Code that imported `update_observability` /
+`update_observability_with_config` from `mt5cli.sdk` should import them from
+`mt5cli.observability` instead. No compatibility shims are provided for any of
+these removed import paths.
+
 ### Grafana observability (SQLite read model)
 
 These helpers prepare a SQLite database as a Grafana datasource. All DDL is
@@ -210,24 +236,51 @@ Lower-level helpers (`ensure_grafana_schema`, `create_grafana_views`,
 | -------------------------------------------------------------------------- | ----------------------------- |
 | `Mt5CliError`, `Mt5ConnectionError`, `Mt5OperationError`, `Mt5SchemaError` | Stable mt5cli exception types |
 
-Only failures from the MT5/pdmt5 boundary are normalized. Exceptions raised by
-application callbacks, input validation, SQLite, or the filesystem propagate
-unchanged, after owned sessions have shut down exactly once.
+Only `pdmt5.Mt5RuntimeError` raised by MT5 operations is normalized (to
+`Mt5ConnectionError`). Exceptions raised by application callbacks, input
+validation, SQLite, or the filesystem propagate unchanged, after owned
+sessions have shut down exactly once. This normalization is identical for
+every `MT5Client` call path: a transient client created without a session
+(`MT5Client().account_info()`), a persistent client entered as a context
+manager (`with MT5Client() as client: ...`), and a caller-owned client bound
+with `MT5Client.from_connected_client(...)`. Exceptions raised by code inside
+the body of `with mt5_session(...) as client:` are never normalized — only
+exceptions raised by an `MT5Client` method call itself are.
+`MT5Client.__enter__()` and `mt5_session()` share the same
+initialization-error contract: an `Mt5RuntimeError` raised during
+`initialize_and_login_mt5()` is normalized to `Mt5ConnectionError` before the
+session is yielded, and the terminal is shut down exactly once on both normal
+and exceptional exit.
+
+### History and observability client contracts
+
+`update_history()` and `update_observability()` type their `client` parameter
+against internal structural protocols defined in `mt5cli.contract` —
+`HistoryClient` (`copy_rates_range`, `copy_ticks_range`, `history_orders`,
+`history_deals`, `symbol_info_as_dict`) and `ObservabilityClient`
+(`account_info`, `terminal_info`, `positions`, `orders`) — instead of `object`
+or `pdmt5.Mt5DataClient`. `MT5Client` satisfies both protocols, so the
+`MT5Client` yielded by `mt5_session()` can be passed directly to
+`update_history(client=...)` and `update_observability(client=...)` without
+any adaptation. Raw pdmt5 method-name fallback logic (for example probing for
+`copy_rates_range_as_df` when `copy_rates_range` is absent) has been removed;
+callers must supply a client that implements the canonical mt5cli method
+names.
 
 ## Module-scoped helpers
 
 Lower-level helpers are available from their owning modules and are not part
 of the package-root stable surface. Import them directly when needed:
 
-| Module              | Examples                                                                                                                                                                    |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mt5cli.grafana`    | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`, `insert_account_snapshot`, `record_snapshot_run` |
-| `mt5cli.history`    | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`                                                                                   |
-| `mt5cli.sdk`        | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                                              |
-| `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                                          |
-| `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                                                                    |
-| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                                                                                                    |
-| `mt5cli.exceptions` | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`                                                                                        |
+| Module               | Examples                                                                                                                                                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mt5cli.grafana`     | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`, `insert_account_snapshot`, `record_snapshot_run` |
+| `mt5cli.history`     | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`                                                                                   |
+| `mt5cli.market_data` | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                                              |
+| `mt5cli.schemas`     | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                                          |
+| `mt5cli.utils`       | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                                                                    |
+| `mt5cli.converters`  | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                                                                                                    |
+| `mt5cli.exceptions`  | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`                                                                                        |
 
 ## CLI commands
 
@@ -277,7 +330,7 @@ notice:
 
 | Module                   | Examples                                                                  |
 | ------------------------ | ------------------------------------------------------------------------- |
-| `mt5cli.sdk`             | `connected_client`, `_run_with_client`, private coercion helpers          |
+| `mt5cli.client`          | `_connected_client`, `_run_with_client`, private coercion helpers         |
 | `mt5cli.history`         | `write_*_dataset`, `deduplicate_history_tables`, `parse_sqlite_timestamp` |
 | `mt5cli.retry`           | `retry_with_backoff`                                                      |
 | `mt5cli.cli`             | Typer command handlers and Click parameter types                          |

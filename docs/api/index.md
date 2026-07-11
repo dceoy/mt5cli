@@ -8,31 +8,34 @@ responsibilities.
 
 ## Public API layers
 
-| Module                                    | Purpose                                                                   |
-| ----------------------------------------- | ------------------------------------------------------------------------- |
-| [Public API Contract](public-contract.md) | Stable downstream SDK exports, CLI boundary, and out-of-scope items       |
-| [Client](client.md)                       | `MT5Client` session abstraction for data access and order primitives      |
-| [Schemas](schemas.md)                     | Canonical DataFrame contracts and normalization helpers                   |
-| [Converters](converters.md)               | Symbol, timeframe, timezone, and date-range utilities                     |
-| [Exceptions](exceptions.md)               | Stable mt5cli exception types and MT5 error normalization                 |
-| [SDK](sdk.md)                             | Module-level fetch helpers, multi-account collectors, incremental history |
-| [Trading](trading.md)                     | Trading-capable sessions and operational helpers                          |
-| [History Collection (SQLite)](history.md) | SQLite schema, incremental writes, dedup, and rate views                  |
-| [Telemetry](telemetry.md)                 | OpenTelemetry metrics setup, meters, and emitted metric names             |
-| [Grafana](grafana.md)                     | Grafana-ready SQLite schema, views, snapshots, and published copies       |
-| [CLI](cli.md)                             | Typer commands that delegate to the Python API                            |
-| [Utils](utils.md)                         | Parsing helpers and Click parameter types                                 |
+| Module                                    | Purpose                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| [Public API Contract](public-contract.md) | Stable downstream SDK exports, CLI boundary, and out-of-scope items                  |
+| [Client](client.md)                       | `MT5Client` / `mt5_session()` — the sole connection lifecycle and client abstraction |
+| [Market Data](market_data.md)             | Stateless one-off market-data reads and multi-account rate collection                |
+| [Schemas](schemas.md)                     | Canonical DataFrame contracts and normalization helpers                              |
+| [Converters](converters.md)               | Symbol, timeframe, timezone, and date-range utilities                                |
+| [Exceptions](exceptions.md)               | Stable mt5cli exception types and MT5 error normalization                            |
+| [Trading](trading.md)                     | Trading-capable sessions and operational helpers                                     |
+| [History Collection (SQLite)](history.md) | SQLite schema, incremental writes, dedup, and rate views                             |
+| [Observability](observability.md)         | Account/position/order/terminal snapshot orchestration                               |
+| [Telemetry](telemetry.md)                 | OpenTelemetry metrics setup, meters, and emitted metric names                        |
+| [Grafana](grafana.md)                     | Grafana-ready SQLite schema, views, snapshots, and published copies                  |
+| [CLI](cli.md)                             | Typer commands that delegate to the Python API                                       |
+| [Utils](utils.md)                         | Generic parsing, conversion, and export helpers                                      |
 
 ## Architecture overview
 
 ```mermaid
 flowchart TD
-    App["Downstream application"] --> Client["MT5Client"]
+    App["Downstream application"] --> Client["MT5Client / mt5_session"]
     CLI["mt5cli CLI"] --> Client
-    Client --> SDK["sdk / pdmt5"]
-    Client --> Schemas["schemas"]
-    History["history SQLite"] --> Utils["utils export"]
-    SDK --> PDMT5["pdmt5.Mt5DataClient"]
+    Client --> PDMT5["pdmt5.Mt5DataClient"]
+    MarketData["market_data"] --> Client
+    History["history"] --> Client
+    Observability["observability"] --> Client
+    Observability --> Grafana["grafana"]
+    History --> Utils["utils export"]
 ```
 
 Downstream packages should depend on the package root exports documented in the

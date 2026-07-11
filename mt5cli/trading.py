@@ -1743,34 +1743,37 @@ def close_open_positions(
     resolved_filling_modes: dict[str, OrderFillingMode] = {}
     for row in positions.to_dict("records"):
         pos_type = row["type"]
-        side: OrderSide = "SELL" if pos_type == client.mt5.POSITION_TYPE_BUY else "BUY"
         symbol = str(row["symbol"])
-        if order_filling_mode is None:
-            try:
+        side: OrderSide = "BUY"
+        mt5: Any = object()
+        try:
+            mt5 = client.mt5
+            side = "SELL" if pos_type == mt5.POSITION_TYPE_BUY else "BUY"
+            if order_filling_mode is None:
                 if symbol not in resolved_filling_modes:
                     resolved_filling_modes[symbol] = resolve_broker_filling_mode(
                         client,
                         symbol=symbol,
                     )
                 filling_mode = resolved_filling_modes[symbol]
-            except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
-                results.append(
-                    _execution_receipt(
-                        mt5=client.mt5,
-                        symbol=symbol,
-                        order_side=side,
-                        request={
-                            "symbol": symbol,
-                            "volume": float(row["volume"]),
-                            "position": int(row["ticket"]),
-                            **({"magic": magic} if magic is not None else {}),
-                        },
-                        error=exc,
-                    )
+            else:
+                filling_mode = order_filling_mode
+        except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
+            results.append(
+                _execution_receipt(
+                    mt5=mt5,
+                    symbol=symbol,
+                    order_side=side,
+                    request={
+                        "symbol": symbol,
+                        "volume": float(row["volume"]),
+                        "position": int(row["ticket"]),
+                        **({"magic": magic} if magic is not None else {}),
+                    },
+                    error=exc,
                 )
-                continue
-        else:
-            filling_mode = order_filling_mode
+            )
+            continue
         result = place_market_order(
             client,
             symbol=symbol,
@@ -1935,51 +1938,66 @@ def update_sltp_for_open_positions(
     )
     results: list[OrderExecutionResult] = []
     for row in positions.to_dict("records"):
-        request = {
-            "action": client.mt5.TRADE_ACTION_SLTP,
-            "symbol": row["symbol"],
-            "position": row["ticket"],
-        }
-        sl = _optional_price(row.get("sl") if stop_loss is None else stop_loss)
-        tp = _optional_price(row.get("tp") if take_profit is None else take_profit)
-        if sl is not None:
-            request["sl"] = sl
-        if tp is not None:
-            request["tp"] = tp
-        side: OrderSide = (
-            "BUY" if row["type"] == client.mt5.POSITION_TYPE_BUY else "SELL"
-        )
+        symbol = str(row["symbol"])
+        side: OrderSide = "BUY"
+        mt5: Any = object()
+        request: dict[str, object] = {}
+        try:
+            mt5 = client.mt5
+            request = {
+                "action": mt5.TRADE_ACTION_SLTP,
+                "symbol": row["symbol"],
+                "position": row["ticket"],
+            }
+            sl = _optional_price(row.get("sl") if stop_loss is None else stop_loss)
+            tp = _optional_price(row.get("tp") if take_profit is None else take_profit)
+            if sl is not None:
+                request["sl"] = sl
+            if tp is not None:
+                request["tp"] = tp
+            side = "BUY" if row["type"] == mt5.POSITION_TYPE_BUY else "SELL"
+        except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
+            results.append(
+                _execution_receipt(
+                    mt5=mt5,
+                    symbol=symbol,
+                    order_side=side,
+                    request=request,
+                    error=exc,
+                )
+            )
+            continue
         if dry_run:
             results.append(
                 _execution_receipt(
-                    mt5=client.mt5,
-                    symbol=str(row["symbol"]),
+                    mt5=mt5,
+                    symbol=symbol,
                     order_side=side,
-                    request=cast("dict[str, object]", request),
+                    request=request,
                     dry_run=True,
                 )
             )
             continue
         try:
-            ensure_symbol_selected(client, str(row["symbol"]))
+            ensure_symbol_selected(client, symbol)
             response = client.order_send(request)
         except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
             results.append(
                 _execution_receipt(
-                    mt5=client.mt5,
-                    symbol=str(row["symbol"]),
+                    mt5=mt5,
+                    symbol=symbol,
                     order_side=side,
-                    request=cast("dict[str, object]", request),
+                    request=request,
                     error=exc,
                 )
             )
             continue
         results.append(
             _execution_receipt(
-                mt5=client.mt5,
-                symbol=str(row["symbol"]),
+                mt5=mt5,
+                symbol=symbol,
                 order_side=side,
-                request=cast("dict[str, object]", request),
+                request=request,
                 response=response,
             )
         )

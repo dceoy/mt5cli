@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 import pandas as pd
 import pytest
@@ -12,12 +13,22 @@ from pdmt5 import Mt5RuntimeError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 import mt5cli
+import mt5cli.cli
+import mt5cli.client
+import mt5cli.history
+import mt5cli.market_data
+import mt5cli.observability
+import mt5cli.trading
+import mt5cli.utils
 from mt5cli import (
     STABLE_SDK_EXPORTS,
+    MT5Client,
     Mt5CliError,
     Mt5ConnectionError,
     Mt5SchemaError,
+    mt5_session,
 )
+from mt5cli.contract import HistoryClient, ObservabilityClient
 from mt5cli.converters import (
     ensure_utc,
     granularity_name,
@@ -545,3 +556,119 @@ def test_pdmt5_pass_through_names_stay_out_of_public_contract(name: str) -> None
     )
     assert name not in mt5cli.__all__, f"{name!r} should not be in mt5cli.__all__"
     assert not hasattr(mt5cli, name), f"{name!r} should not be on the mt5cli root"
+
+
+class TestSingleConnectionLifecycleContract:
+    """Tests that mt5cli.client is the sole connection-lifecycle owner."""
+
+    def test_sdk_compatibility_module_no_longer_exists(self) -> None:
+        """The removed mt5cli.sdk module cannot be imported."""
+        with pytest.raises(ModuleNotFoundError):
+            import mt5cli.sdk  # pyright: ignore[reportMissingImports,reportUnusedImport]  # noqa: F401, PLC0415
+
+    def test_package_root_mt5_session_is_the_client_module_session(self) -> None:
+        """The package-root mt5_session is the same object as mt5cli.client's."""
+        assert mt5_session is mt5cli.client.mt5_session
+
+    def test_mt5_session_yields_mt5_client(self, mocker: MockerFixture) -> None:
+        """The single public session factory always yields an MT5Client."""
+        raw_client = mocker.MagicMock()
+        mocker.patch("mt5cli.client.Mt5DataClient", return_value=raw_client)
+        with mt5_session() as client:
+            assert isinstance(client, MT5Client)
+
+    def test_no_other_submodule_defines_a_public_mt5_session(self) -> None:
+        """No mt5cli submodule other than client.py defines mt5_session."""
+        submodules = [
+            mt5cli.history,
+            mt5cli.market_data,
+            mt5cli.observability,
+            mt5cli.trading,
+            mt5cli.cli,
+            mt5cli.utils,
+        ]
+        for module in submodules:
+            if hasattr(module, "mt5_session"):
+                assert module.mt5_session is mt5_session, (
+                    f"{module.__name__} must re-export the canonical mt5_session, "
+                    "not define an alternate one"
+                )
+
+    def test_no_public_factory_returns_a_raw_pdmt5_client(self) -> None:
+        """No stable export's return annotation resolves to pdmt5.Mt5DataClient."""
+        for name in STABLE_SDK_EXPORTS:
+            value = getattr(mt5cli, name)
+            if not callable(value) or inspect.isclass(value):
+                continue
+            annotations = inspect.get_annotations(value, eval_str=False)
+            returns = str(annotations.get("return", ""))
+            assert "Mt5DataClient" not in returns, name
+
+    def test_caller_owned_client_is_not_initialized_or_shut_down(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A caller-owned client passed to mt5_session is used as-is."""
+        raw_client = mocker.MagicMock()
+        owned_client = MT5Client.from_connected_client(raw_client)
+        with mt5_session(client=owned_client) as client:
+            assert client is owned_client
+        raw_client.initialize_and_login_mt5.assert_not_called()
+        raw_client.shutdown.assert_not_called()
+
+
+class TestHistoryAndObservabilityClientContracts:
+    """Tests for the internal HistoryClient/ObservabilityClient protocols."""
+
+    def test_protocols_are_defined(self) -> None:
+        """HistoryClient/ObservabilityClient are defined as structural protocols."""
+        assert issubclass(HistoryClient, Protocol)
+        assert issubclass(ObservabilityClient, Protocol)
+
+    @pytest.mark.parametrize(
+        "method_name",
+        [
+            "copy_rates_range",
+            "copy_ticks_range",
+            "history_orders",
+            "history_deals",
+            "symbol_info_as_dict",
+        ],
+    )
+    def test_mt5_client_satisfies_history_client_protocol(
+        self,
+        method_name: str,
+    ) -> None:
+        """MT5Client implements every method required by HistoryClient."""
+        assert callable(getattr(MT5Client, method_name))
+
+    @pytest.mark.parametrize(
+        "method_name",
+        ["account_info", "terminal_info", "positions", "orders"],
+    )
+    def test_mt5_client_satisfies_observability_client_protocol(
+        self,
+        method_name: str,
+    ) -> None:
+        """MT5Client implements every method required by ObservabilityClient."""
+        assert callable(getattr(MT5Client, method_name))
+
+    def test_update_history_does_not_annotate_client_as_object_or_mt5dataclient(
+        self,
+    ) -> None:
+        """update_history's client parameter is a protocol, not object/Mt5DataClient."""
+        annotations = inspect.get_annotations(mt5cli.update_history, eval_str=False)
+        client_annotation = str(annotations["client"])
+        assert client_annotation != "object"
+        assert "Mt5DataClient" not in client_annotation
+
+    def test_update_observability_does_not_annotate_client_as_object_or_mt5dataclient(
+        self,
+    ) -> None:
+        """update_observability's client param is a protocol, not object/raw client."""
+        annotations = inspect.get_annotations(
+            mt5cli.update_observability, eval_str=False
+        )
+        client_annotation = str(annotations["client"])
+        assert client_annotation != "object"
+        assert "Mt5DataClient" not in client_annotation
