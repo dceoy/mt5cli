@@ -52,16 +52,16 @@ class TestMt5Metrics:
             pytest.param(
                 "record_history_update",
                 {"dataset": "rates"},
-                "_history_duration",
-                "_history_failures",
-                "_last_successful_update",
+                "history_duration",
+                "history_failures",
+                "last_successful_update",
                 id="history-update",
             ),
             pytest.param(
                 "record_snapshot_update",
                 {},
-                "_snapshot_duration",
-                "_snapshot_failures",
+                "snapshot_duration",
+                "snapshot_failures",
                 None,
                 id="snapshot-update",
             ),
@@ -81,10 +81,10 @@ class TestMt5Metrics:
         m.configure(meter)
         with getattr(m, method)(**kwargs):
             pass
-        getattr(m, duration_attr).record.assert_called_once()  # type: ignore[reportPrivateUsage]
-        getattr(m, failures_attr).add.assert_not_called()  # type: ignore[reportPrivateUsage]
+        m._instrument(duration_attr).record.assert_called_once()  # type: ignore[reportPrivateUsage]
+        m._instrument(failures_attr).add.assert_not_called()  # type: ignore[reportPrivateUsage]
         if last_success_attr is not None:
-            getattr(m, last_success_attr).set.assert_called_once()  # type: ignore[reportPrivateUsage]
+            m._instrument(last_success_attr).set.assert_called_once()  # type: ignore[reportPrivateUsage]
 
     @pytest.mark.parametrize(
         (
@@ -100,8 +100,8 @@ class TestMt5Metrics:
                 "record_history_update",
                 {"dataset": "rates"},
                 ValueError("boom"),
-                "_history_duration",
-                "_history_failures",
+                "history_duration",
+                "history_failures",
                 {"dataset": "rates"},
                 id="history-update",
             ),
@@ -109,8 +109,8 @@ class TestMt5Metrics:
                 "record_snapshot_update",
                 {},
                 RuntimeError("snap fail"),
-                "_snapshot_duration",
-                "_snapshot_failures",
+                "snapshot_duration",
+                "snapshot_failures",
                 {},
                 id="snapshot-update",
             ),
@@ -134,11 +134,11 @@ class TestMt5Metrics:
             getattr(m, method)(**kwargs),
         ):
             raise exc
-        getattr(m, failures_attr).add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
+        m._instrument(failures_attr).add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
             1,
             failure_labels,
         )
-        getattr(m, duration_attr).record.assert_not_called()  # type: ignore[reportPrivateUsage]
+        m._instrument(duration_attr).record.assert_not_called()  # type: ignore[reportPrivateUsage]
 
     def test_add_history_rows(self) -> None:
         """add_history_rows increments the rows-written counter."""
@@ -146,7 +146,7 @@ class TestMt5Metrics:
         m = _Mt5Metrics()
         m.configure(meter)
         m.add_history_rows(42, dataset="rates")
-        m._history_rows.add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
+        m._instrument("history_rows").add.assert_called_once_with(  # type: ignore[reportPrivateUsage]
             42, {"dataset": "rates"}
         )
 
@@ -162,7 +162,7 @@ class TestMt5Metrics:
                     "profit": 12.5,
                     "volume": 0.01,
                 },
-                "_position_profit",
+                "position_profit",
                 2,
                 id="position-state",
             ),
@@ -173,7 +173,7 @@ class TestMt5Metrics:
                     "trade_allowed": 1.0,
                     "trade_expert": 0.0,
                 },
-                "_terminal_connected",
+                "terminal_connected",
                 3,
                 id="terminal-state",
             ),
@@ -188,7 +188,7 @@ class TestMt5Metrics:
                     "margin_free": 4800.0,
                     "margin_level": 2550.0,
                 },
-                "_account_balance",
+                "account_balance",
                 5,
                 id="account-state",
             ),
@@ -207,8 +207,9 @@ class TestMt5Metrics:
         m.configure(meter)
         getattr(m, method)(**kwargs)
         # Related gauges share the same create_gauge mock; verify total set calls.
-        assert (  # type: ignore[reportPrivateUsage]
-            getattr(m, gauge_attr).set.call_count == expected_set_count
+        assert (
+            m._instrument(gauge_attr).set.call_count  # type: ignore[reportPrivateUsage]
+            == expected_set_count
         )
 
     @pytest.mark.parametrize(

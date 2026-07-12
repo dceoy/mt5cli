@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import re
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,9 +17,9 @@ import typer
 from .client import MT5Client, build_config, mt5_session
 from .history import collect_history as _collect_history
 from .history import (
+    infer_rate_table_granularity_seconds,
     open_existing_sqlite_database,
     report_rate_gaps,
-    resolve_granularity_name,
 )
 from .observability import update_observability_with_config
 from .trading import OrderExecutionResult, close_open_positions
@@ -206,38 +204,10 @@ _CLI_ENV_DEFAULTS: dict[str, str] = {
     "password": "MT5_PASSWORD",
     "server": "MT5_SERVER",
 }
-_RATE_VIEW_NAME_RE = re.compile(
-    r"^rate_(?P<symbol>.+)__(?:(?P<granularity>[A-Z0-9]+)_)?(?P<timeframe>\d+)$",
-)
 
 
 def _get_export_context(ctx: typer.Context) -> _ExportContext:
     return cast("_ExportContext", ctx.obj)
-
-
-def _resolve_cli_option(value: str | None, env_name: str) -> str | None:
-    return value if value is not None else os.environ.get(env_name)
-
-
-def _timeframe_interval_seconds(timeframe: int) -> int | None:
-    granularity = resolve_granularity_name(timeframe)
-    units = {
-        "M": 60,
-        "H": 3600,
-        "D": 86400,
-        "W": 604800,
-    }
-    for prefix, seconds in units.items():
-        suffix = granularity.removeprefix(prefix)
-        if granularity.startswith(prefix) and suffix.isdigit():
-            return int(suffix) * seconds
-    return None
-
-
-def _infer_gap_table_granularity_seconds(table: str) -> int | None:
-    if (match := _RATE_VIEW_NAME_RE.fullmatch(table)) is None:
-        return None
-    return _timeframe_interval_seconds(int(match.group("timeframe")))
 
 
 def _default_gap_tables(conn: sqlite3.Connection) -> list[str]:
@@ -364,10 +334,10 @@ def _callback(  # pyright: ignore[reportUnusedFunction]
         raise typer.BadParameter(str(exc)) from exc
     try:
         config = build_config(
-            path=_resolve_cli_option(path, _CLI_ENV_DEFAULTS["path"]),
-            login=_resolve_cli_option(login, _CLI_ENV_DEFAULTS["login"]),
-            password=_resolve_cli_option(password, _CLI_ENV_DEFAULTS["password"]),
-            server=_resolve_cli_option(server, _CLI_ENV_DEFAULTS["server"]),
+            path=path,
+            login=login,
+            password=password,
+            server=server,
             timeout=timeout,
             allow_whole_dollar_env=True,
         )
@@ -988,7 +958,7 @@ def history_gaps(
         frames: list[pd.DataFrame] = []
         for table_name in tables:
             interval_seconds = (
-                granularity_seconds or _infer_gap_table_granularity_seconds(table_name)
+                granularity_seconds or infer_rate_table_granularity_seconds(table_name)
             )
             if interval_seconds is None:
                 msg = (
@@ -1141,7 +1111,6 @@ def grafana_schema(
     import sqlite3 as _sqlite3  # noqa: PLC0415
 
     from .grafana import (  # noqa: PLC0415
-        create_snapshot_tables,
         ensure_grafana_schema,
         publish_grafana_copy,
     )
@@ -1156,7 +1125,6 @@ def grafana_schema(
     with _sqlite3.connect(export_ctx.output) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
-        create_snapshot_tables(conn)
         ensure_grafana_schema(conn)
     logger.info("Grafana schema applied to %s", export_ctx.output)
     if publish_copy is not None:

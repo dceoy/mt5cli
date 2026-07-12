@@ -10,8 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from pydantic import SecretStr
-
 from .client import (
     MT5Client,
     _require_positive,  # pyright: ignore[reportPrivateUsage]
@@ -73,7 +71,7 @@ __all__ = [
 
 
 def _make_client(*, config: Mt5Config | None = None) -> MT5Client:
-    return MT5Client(config=config) if config is not None else MT5Client()
+    return MT5Client(config=config)
 
 
 def copy_rates_from(
@@ -348,9 +346,14 @@ def _build_account_config(
     login = _coerce_login(account.login)
     if login is None and base_config is not None:
         login = base_config.login
-    base_password = base_config.password if base_config else None
-    if isinstance(base_password, SecretStr):
-        base_password = base_password.get_secret_value()
+    raw_base_password = base_config.password if base_config else None
+    # pdmt5 stores the password as ``str | SecretStr | None``; unwrap the
+    # secret form without importing pydantic directly.
+    base_password = (
+        raw_base_password
+        if raw_base_password is None or isinstance(raw_base_password, str)
+        else raw_base_password.get_secret_value()
+    )
     return build_config(
         path=account.path or (base_config.path if base_config else None),
         login=login,

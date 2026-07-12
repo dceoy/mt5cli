@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -67,30 +67,122 @@ class _NoOp:
 _NOOP: _NoOp = _NoOp()
 
 
+class _InstrumentSpec(NamedTuple):
+    """Declarative OTel instrument definition."""
+
+    key: str
+    kind: str  # "counter", "histogram", or "gauge"
+    name: str
+    description: str
+    unit: str | None = None
+
+
+_INSTRUMENT_SPECS: tuple[_InstrumentSpec, ...] = (
+    _InstrumentSpec(
+        "history_duration",
+        "histogram",
+        "mt5_history_update_duration_seconds",
+        "Duration of incremental history update operations.",
+        unit="s",
+    ),
+    _InstrumentSpec(
+        "history_rows",
+        "counter",
+        "mt5_history_update_rows_total",
+        "Rows written during incremental history updates.",
+    ),
+    _InstrumentSpec(
+        "history_failures",
+        "counter",
+        "mt5_history_update_failures_total",
+        "Number of incremental history update failures.",
+    ),
+    _InstrumentSpec(
+        "snapshot_duration",
+        "histogram",
+        "mt5_snapshot_update_duration_seconds",
+        "Duration of snapshot update operations.",
+        unit="s",
+    ),
+    _InstrumentSpec(
+        "snapshot_failures",
+        "counter",
+        "mt5_snapshot_update_failures_total",
+        "Number of snapshot update failures.",
+    ),
+    _InstrumentSpec(
+        "account_balance", "gauge", "mt5_account_balance", "Account balance."
+    ),
+    _InstrumentSpec("account_equity", "gauge", "mt5_account_equity", "Account equity."),
+    _InstrumentSpec(
+        "account_margin", "gauge", "mt5_account_margin", "Account margin used."
+    ),
+    _InstrumentSpec(
+        "account_margin_free",
+        "gauge",
+        "mt5_account_margin_free",
+        "Account free margin.",
+    ),
+    _InstrumentSpec(
+        "account_margin_level",
+        "gauge",
+        "mt5_account_margin_level",
+        "Account margin level as a percentage.",
+    ),
+    _InstrumentSpec(
+        "position_profit",
+        "gauge",
+        "mt5_position_profit",
+        "Floating profit for an open position.",
+    ),
+    _InstrumentSpec(
+        "position_volume",
+        "gauge",
+        "mt5_position_volume",
+        "Volume of an open position.",
+    ),
+    _InstrumentSpec(
+        "terminal_connected",
+        "gauge",
+        "mt5_terminal_connected",
+        "1 if the terminal is connected to the broker, 0 otherwise.",
+    ),
+    _InstrumentSpec(
+        "terminal_trade_allowed",
+        "gauge",
+        "mt5_terminal_trade_allowed",
+        "1 if trading is allowed by the broker server, 0 otherwise.",
+    ),
+    _InstrumentSpec(
+        "terminal_trade_expert",
+        "gauge",
+        "mt5_terminal_trade_expert",
+        "1 if Expert Advisor trading is enabled, 0 otherwise.",
+    ),
+    _InstrumentSpec(
+        "last_successful_update",
+        "gauge",
+        "mt5_last_successful_update_timestamp",
+        "Unix timestamp of the last successful history update.",
+    ),
+)
+
+
 class _Mt5Metrics:
     """MT5 metric instrument registry.
 
-    Holds references to OTel instruments. All instruments are no-op until
-    :meth:`configure` is called with a compatible meter object.
+    Holds references to OTel instruments keyed by :data:`_INSTRUMENT_SPECS`.
+    All instruments are no-op until :meth:`configure` is called with a
+    compatible meter object.
     """
 
     def __init__(self) -> None:
-        self._history_duration: Any = _NOOP
-        self._history_rows: Any = _NOOP
-        self._history_failures: Any = _NOOP
-        self._snapshot_duration: Any = _NOOP
-        self._snapshot_failures: Any = _NOOP
-        self._account_balance: Any = _NOOP
-        self._account_equity: Any = _NOOP
-        self._account_margin: Any = _NOOP
-        self._account_margin_free: Any = _NOOP
-        self._account_margin_level: Any = _NOOP
-        self._position_profit: Any = _NOOP
-        self._position_volume: Any = _NOOP
-        self._terminal_connected: Any = _NOOP
-        self._terminal_trade_allowed: Any = _NOOP
-        self._terminal_trade_expert: Any = _NOOP
-        self._last_successful_update: Any = _NOOP
+        self._instruments: dict[str, Any] = dict.fromkeys(
+            (spec.key for spec in _INSTRUMENT_SPECS), _NOOP
+        )
+
+    def _instrument(self, key: str) -> Any:  # noqa: ANN401
+        return self._instruments[key]
 
     def configure(self, meter: Any) -> None:  # noqa: ANN401
         """Set up metric instruments from a meter object.
@@ -100,72 +192,15 @@ class _Mt5Metrics:
                 that supports ``create_counter``, ``create_histogram``, and
                 ``create_gauge``.
         """
-        self._history_duration = meter.create_histogram(
-            "mt5_history_update_duration_seconds",
-            unit="s",
-            description="Duration of incremental history update operations.",
-        )
-        self._history_rows = meter.create_counter(
-            "mt5_history_update_rows_total",
-            description="Rows written during incremental history updates.",
-        )
-        self._history_failures = meter.create_counter(
-            "mt5_history_update_failures_total",
-            description="Number of incremental history update failures.",
-        )
-        self._snapshot_duration = meter.create_histogram(
-            "mt5_snapshot_update_duration_seconds",
-            unit="s",
-            description="Duration of snapshot update operations.",
-        )
-        self._snapshot_failures = meter.create_counter(
-            "mt5_snapshot_update_failures_total",
-            description="Number of snapshot update failures.",
-        )
-        self._account_balance = meter.create_gauge(
-            "mt5_account_balance",
-            description="Account balance.",
-        )
-        self._account_equity = meter.create_gauge(
-            "mt5_account_equity",
-            description="Account equity.",
-        )
-        self._account_margin = meter.create_gauge(
-            "mt5_account_margin",
-            description="Account margin used.",
-        )
-        self._account_margin_free = meter.create_gauge(
-            "mt5_account_margin_free",
-            description="Account free margin.",
-        )
-        self._account_margin_level = meter.create_gauge(
-            "mt5_account_margin_level",
-            description="Account margin level as a percentage.",
-        )
-        self._position_profit = meter.create_gauge(
-            "mt5_position_profit",
-            description="Floating profit for an open position.",
-        )
-        self._position_volume = meter.create_gauge(
-            "mt5_position_volume",
-            description="Volume of an open position.",
-        )
-        self._terminal_connected = meter.create_gauge(
-            "mt5_terminal_connected",
-            description="1 if the terminal is connected to the broker, 0 otherwise.",
-        )
-        self._terminal_trade_allowed = meter.create_gauge(
-            "mt5_terminal_trade_allowed",
-            description="1 if trading is allowed by the broker server, 0 otherwise.",
-        )
-        self._terminal_trade_expert = meter.create_gauge(
-            "mt5_terminal_trade_expert",
-            description="1 if Expert Advisor trading is enabled, 0 otherwise.",
-        )
-        self._last_successful_update = meter.create_gauge(
-            "mt5_last_successful_update_timestamp",
-            description="Unix timestamp of the last successful history update.",
-        )
+        for spec in _INSTRUMENT_SPECS:
+            factory = getattr(meter, f"create_{spec.kind}")
+            if spec.unit is not None:
+                instrument = factory(
+                    spec.name, unit=spec.unit, description=spec.description
+                )
+            else:
+                instrument = factory(spec.name, description=spec.description)
+            self._instruments[spec.key] = instrument
 
     @contextmanager
     def record_history_update(
@@ -185,10 +220,10 @@ class _Mt5Metrics:
         start = time.monotonic()
         try:
             yield
-            self._history_duration.record(time.monotonic() - start, attrs)
-            self._last_successful_update.set(time.time(), attrs)
+            self._instrument("history_duration").record(time.monotonic() - start, attrs)
+            self._instrument("last_successful_update").set(time.time(), attrs)
         except Exception:
-            self._history_failures.add(1, attrs)
+            self._instrument("history_failures").add(1, attrs)
             raise
 
     def add_history_rows(self, count: int, *, dataset: str) -> None:
@@ -198,7 +233,7 @@ class _Mt5Metrics:
             count: Number of rows written during this update.
             dataset: Dataset label (e.g. ``"rates"``).
         """
-        self._history_rows.add(count, {"dataset": dataset})
+        self._instrument("history_rows").add(count, {"dataset": dataset})
 
     @contextmanager
     def record_snapshot_update(self) -> Iterator[None]:
@@ -210,9 +245,9 @@ class _Mt5Metrics:
         start = time.monotonic()
         try:
             yield
-            self._snapshot_duration.record(time.monotonic() - start, {})
+            self._instrument("snapshot_duration").record(time.monotonic() - start, {})
         except Exception:
-            self._snapshot_failures.add(1, {})
+            self._instrument("snapshot_failures").add(1, {})
             raise
 
     def record_account_state(
@@ -238,11 +273,11 @@ class _Mt5Metrics:
             margin_level: Margin level percentage.
         """
         attrs: dict[str, str] = {"login": login, "server": server}
-        self._account_balance.set(balance, attrs)
-        self._account_equity.set(equity, attrs)
-        self._account_margin.set(margin, attrs)
-        self._account_margin_free.set(margin_free, attrs)
-        self._account_margin_level.set(margin_level, attrs)
+        self._instrument("account_balance").set(balance, attrs)
+        self._instrument("account_equity").set(equity, attrs)
+        self._instrument("account_margin").set(margin, attrs)
+        self._instrument("account_margin_free").set(margin_free, attrs)
+        self._instrument("account_margin_level").set(margin_level, attrs)
 
     def record_position_state(
         self,
@@ -263,8 +298,8 @@ class _Mt5Metrics:
             volume: Position volume.
         """
         attrs: dict[str, str] = {"login": login, "server": server, "symbol": symbol}
-        self._position_profit.set(profit, attrs)
-        self._position_volume.set(volume, attrs)
+        self._instrument("position_profit").set(profit, attrs)
+        self._instrument("position_volume").set(volume, attrs)
 
     def record_terminal_state(
         self,
@@ -280,9 +315,9 @@ class _Mt5Metrics:
             trade_allowed: 1.0 if broker server allows trading, 0.0 otherwise.
             trade_expert: 1.0 if Expert Advisor trading is enabled, 0.0 otherwise.
         """
-        self._terminal_connected.set(connected, {})
-        self._terminal_trade_allowed.set(trade_allowed, {})
-        self._terminal_trade_expert.set(trade_expert, {})
+        self._instrument("terminal_connected").set(connected, {})
+        self._instrument("terminal_trade_allowed").set(trade_allowed, {})
+        self._instrument("terminal_trade_expert").set(trade_expert, {})
 
 
 _metrics = _Mt5Metrics()

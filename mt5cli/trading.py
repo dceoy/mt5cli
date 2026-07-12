@@ -1207,28 +1207,17 @@ def calculate_new_position_margin_ratio(
 ) -> float:
     """Return total margin/equity ratio after an optional hypothetical position.
 
-    Raises:
-        Mt5OperationError: If equity or required tick data is invalid.
+    Delegates to :func:`calculate_account_projected_margin_ratio`, which owns
+    the canonical account-margin projection logic and raises
+    ``Mt5OperationError`` when equity, account margin, or required tick data
+    is invalid.
     """
-    account = get_account_snapshot(client)
-    equity = float(account.get("equity") or 0.0)
-    if equity <= 0:
-        msg = "Account equity must be positive to calculate margin ratio."
-        raise Mt5OperationError(msg)
-    margin = float(account.get("margin") or 0.0)
-    if new_position_side is not None and new_position_volume > 0:
-        side = _normalize_order_side(new_position_side)
-        price = extract_tick_price(
-            get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
-        )
-        price = _require_tick_price(price, symbol)
-        order_type = (
-            client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
-        )
-        margin += float(
-            client.order_calc_margin(order_type, symbol, new_position_volume, price),
-        )
-    return margin / equity
+    return calculate_account_projected_margin_ratio(
+        client,
+        symbol=symbol,
+        new_position_side=new_position_side,
+        new_position_volume=new_position_volume,
+    )
 
 
 def _account_equity(client: _Mt5ClientProtocol) -> float:

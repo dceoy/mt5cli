@@ -15,11 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from .client import (
-    MT5Client,
-    _connected_client,  # pyright: ignore[reportPrivateUsage]
-    build_config,
-)
+from .client import mt5_session
 from .grafana import (
     create_snapshot_tables,
     ensure_grafana_schema,
@@ -241,11 +237,7 @@ def update_observability_with_config(
         include_terminal: Snapshot terminal info.
         with_grafana_schema: Ensure Grafana views and indexes exist.
     """
-    mt5_config = config or build_config()
-    with _connected_client(mt5_config) as raw_client:
-        client = MT5Client._from_connected_client(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-            raw_client
-        )
+    with mt5_session(config) as client:
         update_observability(
             client=client,
             output=output,
