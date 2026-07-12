@@ -2541,12 +2541,16 @@ class TestIncrementalIntegration:
     def test_write_rates_skips_empty_schema(
         self,
         tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test rates writer skips frames with no columns after normalization."""
+        """Test rates writer logs the symbol when a frame has no columns."""
         client = MagicMock()
         client.copy_rates_range.return_value = pd.DataFrame()
         written_columns: dict[Dataset, set[str]] = {}
-        with sqlite3.connect(tmp_path / "empty-rates.db") as conn:
+        with (
+            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
+            sqlite3.connect(tmp_path / "empty-rates.db") as conn,
+        ):
             assert not write_rates_dataset(
                 conn,
                 client,
@@ -2557,6 +2561,10 @@ class TestIncrementalIntegration:
                 IfExists.APPEND,
                 written_columns,
             )
+        assert (
+            "Skipping rates for symbol=EURUSD: dataset returned no columns"
+            in caplog.text
+        )
 
     def test_write_symbols_dataset_snapshots_metadata(
         self,
