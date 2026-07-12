@@ -1749,9 +1749,17 @@ def _stream_symbol_frames(
     """
     table_exists = False
     for sym in symbols:
+        frame = fetch_frame(sym)
+        if len(frame.columns) == 0:
+            logger.warning(
+                "Skipping %s for symbol=%s: dataset returned no columns",
+                dataset.table_name,
+                sym,
+            )
+            continue
         table_exists = write_streamed_frame(
             conn,
-            fetch_frame(sym),
+            frame,
             dataset,
             table_exists,
             if_exists,
