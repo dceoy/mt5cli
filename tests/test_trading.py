@@ -1506,17 +1506,18 @@ class TestVolumeAndExecution:
         with pytest.raises(Mt5OperationError):
             calculate_new_position_margin_ratio(client, symbol="EURUSD")
 
-    def test_new_position_margin_ratio_defaults_missing_margin_to_zero(self) -> None:
+    @pytest.mark.parametrize(
+        "account",
+        [{"equity": 1000.0}, {"equity": 1000.0, "margin": None}],
+        ids=["absent", "none"],
+    )
+    def test_new_position_margin_ratio_defaults_missing_margin_to_zero(
+        self, account: dict[str, float | None]
+    ) -> None:
         """Test absent or None account margin is normalized to zero."""
         client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0}
+        client.account_info_as_dict.return_value = account
 
-        _assert_close(
-            calculate_new_position_margin_ratio(client, symbol="EURUSD"),
-            0.0,
-        )
-
-        client.account_info_as_dict.return_value = {"equity": 1000.0, "margin": None}
         _assert_close(
             calculate_new_position_margin_ratio(client, symbol="EURUSD"),
             0.0,
