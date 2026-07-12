@@ -1207,6 +1207,10 @@ def calculate_new_position_margin_ratio(
 ) -> float:
     """Return total margin/equity ratio after an optional hypothetical position.
 
+    Missing or falsy account ``equity``/``margin`` values are normalized to
+    ``0.0``, and the hypothetical order margin from ``order_calc_margin()`` is
+    accepted as-is without a positivity check.
+
     Raises:
         Mt5OperationError: If equity or required tick data is invalid.
     """

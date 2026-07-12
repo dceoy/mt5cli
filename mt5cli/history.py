@@ -17,11 +17,7 @@ import pandas as pd
 from pdmt5 import Mt5Config, Mt5RuntimeError
 from pdmt5.constants import get_timeframe_name as _get_timeframe_name
 
-from .client import (
-    MT5Client,
-    _connected_client,  # pyright: ignore[reportPrivateUsage]
-    build_config,
-)
+from .client import mt5_session
 from .exceptions import Mt5ConnectionError
 from .schemas import DEDUP_KEYS, REQUIRED_COLUMNS, DataKind, ensure_utc_columns
 from .telemetry import get_metrics
@@ -156,6 +152,40 @@ def resolve_granularity_name(timeframe: int) -> str:
     except ValueError:
         return str(timeframe)
     return name.removeprefix("TIMEFRAME_")
+
+
+def timeframe_interval_seconds(timeframe: int) -> int | None:
+    """Return the bar interval in seconds for a timeframe integer.
+
+    Returns:
+        Interval seconds when the timeframe maps to a known granularity name
+        (for example ``M1`` -> ``60``), otherwise ``None``.
+    """
+    granularity = resolve_granularity_name(timeframe)
+    units = {
+        "M": 60,
+        "H": 3600,
+        "D": 86400,
+        "W": 604800,
+    }
+    for prefix, seconds in units.items():
+        suffix = granularity.removeprefix(prefix)
+        if granularity.startswith(prefix) and suffix.isdigit():
+            return int(suffix) * seconds
+    return None
+
+
+def infer_rate_table_granularity_seconds(table: str) -> int | None:
+    """Infer the bar interval in seconds from a managed rate table/view name.
+
+    Returns:
+        Interval seconds when ``table`` matches the managed
+        ``rate_<symbol>__[<granularity>_]<timeframe>`` naming convention and
+        the timeframe is known, otherwise ``None``.
+    """
+    if (match := _RATE_VIEW_NAME_RE.fullmatch(table)) is None:
+        return None
+    return timeframe_interval_seconds(int(match.group("timeframe")))
 
 
 def drop_forming_rate_bar(df_rate: pd.DataFrame) -> pd.DataFrame:
@@ -2597,11 +2627,7 @@ def update_history_with_config(  # noqa: PLR0913
     )
     if request is None:
         return
-    mt5_config = config or build_config()
-    with _connected_client(mt5_config) as raw_client:
-        client = MT5Client._from_connected_client(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-            raw_client
-        )
+    with mt5_session(config) as client:
         update_history(
             client=client,
             output=output,
@@ -2793,15 +2819,11 @@ def collect_history(
     selected = resolve_history_datasets(datasets)
     tf = parse_timeframe(timeframe)
     tick_flags = parse_tick_flags(flags)
-    mt5_config = config or build_config()
     with (
-        _connected_client(mt5_config) as raw_client,
+        mt5_session(config) as client,
         closing(sqlite3.connect(output)) as conn,
         conn,
     ):
-        client = MT5Client._from_connected_client(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-            raw_client
-        )
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         written_tables, written_columns = write_collected_datasets(

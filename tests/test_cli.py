@@ -25,11 +25,13 @@ from mt5cli.cli import (
     TIMEFRAME_TYPE,  # type: ignore[reportPrivateUsage]
     _execute_export,  # type: ignore[reportPrivateUsage]
     _ExportContext,  # type: ignore[reportPrivateUsage]
-    _infer_gap_table_granularity_seconds,  # type: ignore[reportPrivateUsage]
     _sdk_client,  # type: ignore[reportPrivateUsage]
-    _timeframe_interval_seconds,  # type: ignore[reportPrivateUsage]
     app,
     main,
+)
+from mt5cli.history import (
+    infer_rate_table_granularity_seconds,
+    timeframe_interval_seconds,
 )
 
 runner = CliRunner()
@@ -1087,8 +1089,8 @@ class TestCallback:
 
     def test_gap_granularity_helpers_cover_unknown_cases(self) -> None:
         """Gap-table granularity helpers should fail cleanly for unknown inputs."""
-        assert _timeframe_interval_seconds(49153) is None
-        assert _infer_gap_table_granularity_seconds("custom_rates") is None
+        assert timeframe_interval_seconds(49153) is None
+        assert infer_rate_table_granularity_seconds("custom_rates") is None
 
     @pytest.mark.parametrize(
         ("args", "env", "exit_code", "match"),

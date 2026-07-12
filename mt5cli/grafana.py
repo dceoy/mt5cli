@@ -9,7 +9,7 @@ import os
 import sqlite3
 import tempfile
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 from .history import get_table_columns
 
@@ -158,113 +158,78 @@ def start_snapshot_run(conn: sqlite3.Connection, observed_at: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _build_grafana_rates(conn: sqlite3.Connection) -> None:
-    cols = get_table_columns(conn, "rates")
-    required = {"time", "symbol", "timeframe"}
-    if not required.issubset(cols):
-        logger.warning(
-            "Skipping grafana_rates: rates table missing columns %s",
-            sorted(required - cols),
-        )
-        return
-    time_expr = _time_col_expr("time")
-    others = _other_cols(cols, {"time"})
-    other_sql = ", ".join(f'"{c}"' for c in others)
-    _create_view_safe(
-        conn,
-        "grafana_rates",
-        f'SELECT {time_expr} AS "time", {other_sql} FROM "rates"',  # noqa: S608
-    )
+class _PassthroughViewSpec(NamedTuple):
+    """Declarative spec for a view that re-exposes one table with a time column.
+
+    ``exclude_time_col`` controls whether the source time column is dropped
+    from the passthrough column list (``grafana_history_orders`` keeps its
+    original ``time_setup`` column alongside the derived ``time``).
+    """
+
+    view: str
+    table: str
+    time_col: str
+    required: frozenset[str]
+    exclude_time_col: bool = True
+    where: str | None = None
 
 
-def _build_grafana_ticks(conn: sqlite3.Connection) -> None:
-    cols = get_table_columns(conn, "ticks")
-    required = {"time", "symbol"}
-    if not required.issubset(cols):
-        logger.warning(
-            "Skipping grafana_ticks: ticks table missing columns %s",
-            sorted(required - cols),
-        )
-        return
-    time_expr = _time_col_expr("time")
-    others = _other_cols(cols, {"time"})
-    other_sql = ", ".join(f'"{c}"' for c in others)
-    _create_view_safe(
-        conn,
-        "grafana_ticks",
-        f'SELECT {time_expr} AS "time", {other_sql} FROM "ticks"',  # noqa: S608
-    )
-
-
-def _build_grafana_history_deals(conn: sqlite3.Connection) -> None:
-    cols = get_table_columns(conn, "history_deals")
-    if "time" not in cols:
-        logger.warning("Skipping grafana_history_deals: history_deals.time is missing")
-        return
-    time_expr = _time_col_expr("time")
-    others = _other_cols(cols, {"time"})
-    other_sql = ", ".join(f'"{c}"' for c in others)
-    _create_view_safe(
-        conn,
-        "grafana_history_deals",
-        f'SELECT {time_expr} AS "time", {other_sql} FROM "history_deals"',  # noqa: S608
-    )
-
-
-def _build_grafana_history_orders(conn: sqlite3.Connection) -> None:
-    cols = get_table_columns(conn, "history_orders")
-    if "time_setup" not in cols:
-        logger.warning(
-            "Skipping grafana_history_orders: history_orders.time_setup is missing"
-        )
-        return
-    time_expr = _time_col_expr("time_setup")
-    others = _other_cols(cols, set())
-    other_sql = ", ".join(f'"{c}"' for c in others)
-    _create_view_safe(
-        conn,
+_PASSTHROUGH_VIEW_SPECS: tuple[_PassthroughViewSpec, ...] = (
+    _PassthroughViewSpec(
+        "grafana_rates", "rates", "time", frozenset({"time", "symbol", "timeframe"})
+    ),
+    _PassthroughViewSpec(
+        "grafana_ticks", "ticks", "time", frozenset({"time", "symbol"})
+    ),
+    _PassthroughViewSpec(
+        "grafana_history_deals", "history_deals", "time", frozenset({"time"})
+    ),
+    _PassthroughViewSpec(
         "grafana_history_orders",
-        f'SELECT {time_expr} AS "time", {other_sql} FROM "history_orders"',  # noqa: S608
-    )
-
-
-def _build_grafana_trade_deals(conn: sqlite3.Connection) -> None:
-    cols = get_table_columns(conn, "history_deals")
-    required = {"time", "type"}
-    if not required.issubset(cols):
-        logger.warning(
-            "Skipping grafana_trade_deals: history_deals missing columns %s",
-            sorted(required - cols),
-        )
-        return
-    time_expr = _time_col_expr("time")
-    others = _other_cols(cols, {"time"})
-    other_sql = ", ".join(f'"{c}"' for c in others)
-    _create_view_safe(
-        conn,
+        "history_orders",
+        "time_setup",
+        frozenset({"time_setup"}),
+        exclude_time_col=False,
+    ),
+    _PassthroughViewSpec(
         "grafana_trade_deals",
-        f'SELECT {time_expr} AS "time", {other_sql}'  # noqa: S608
-        f' FROM "history_deals" WHERE "type" IN {_TRADE_DEAL_TYPES_SQL}',
-    )
+        "history_deals",
+        "time",
+        frozenset({"time", "type"}),
+        where=f'"type" IN {_TRADE_DEAL_TYPES_SQL}',
+    ),
+    _PassthroughViewSpec(
+        "grafana_cash_events",
+        "history_deals",
+        "time",
+        frozenset({"time", "type"}),
+        where=f'"type" NOT IN {_TRADE_DEAL_TYPES_SQL}',
+    ),
+)
 
 
-def _build_grafana_cash_events(conn: sqlite3.Connection) -> None:
-    cols = get_table_columns(conn, "history_deals")
-    required = {"time", "type"}
-    if not required.issubset(cols):
+def _build_passthrough_view(
+    conn: sqlite3.Connection,
+    spec: _PassthroughViewSpec,
+) -> None:
+    cols = get_table_columns(conn, spec.table)
+    if not spec.required.issubset(cols):
         logger.warning(
-            "Skipping grafana_cash_events: history_deals missing columns %s",
-            sorted(required - cols),
+            "Skipping %s: %s table missing columns %s",
+            spec.view,
+            spec.table,
+            sorted(spec.required - cols),
         )
         return
-    time_expr = _time_col_expr("time")
-    others = _other_cols(cols, {"time"})
+    time_expr = _time_col_expr(spec.time_col)
+    others = _other_cols(cols, {spec.time_col} if spec.exclude_time_col else set())
     other_sql = ", ".join(f'"{c}"' for c in others)
+    where_sql = f" WHERE {spec.where}" if spec.where else ""
     _create_view_safe(
         conn,
-        "grafana_cash_events",
+        spec.view,
         f'SELECT {time_expr} AS "time", {other_sql}'  # noqa: S608
-        f' FROM "history_deals" WHERE "type" NOT IN {_TRADE_DEAL_TYPES_SQL}',
+        f' FROM "{spec.table}"{where_sql}',
     )
 
 
@@ -374,20 +339,12 @@ def _build_snapshot_view(
         logger.warning("Skipping %s: snapshot_runs missing required columns", view_name)
 
 
-def _build_grafana_account_snapshots(conn: sqlite3.Connection) -> None:
-    _build_snapshot_view(conn, "grafana_account_snapshots", "account_snapshots")
-
-
-def _build_grafana_position_snapshots(conn: sqlite3.Connection) -> None:
-    _build_snapshot_view(conn, "grafana_position_snapshots", "position_snapshots")
-
-
-def _build_grafana_order_snapshots(conn: sqlite3.Connection) -> None:
-    _build_snapshot_view(conn, "grafana_order_snapshots", "order_snapshots")
-
-
-def _build_grafana_terminal_snapshots(conn: sqlite3.Connection) -> None:
-    _build_snapshot_view(conn, "grafana_terminal_snapshots", "terminal_snapshots")
+_SNAPSHOT_VIEW_TABLES: tuple[tuple[str, str], ...] = (
+    ("grafana_account_snapshots", "account_snapshots"),
+    ("grafana_position_snapshots", "position_snapshots"),
+    ("grafana_order_snapshots", "order_snapshots"),
+    ("grafana_terminal_snapshots", "terminal_snapshots"),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -404,19 +361,13 @@ def create_grafana_views(conn: sqlite3.Connection) -> None:
     """
     for name in _GRAFANA_VIEW_NAMES:
         conn.execute(f'DROP VIEW IF EXISTS "{name}"')
-    _build_grafana_rates(conn)
-    _build_grafana_ticks(conn)
-    _build_grafana_history_deals(conn)
-    _build_grafana_history_orders(conn)
-    _build_grafana_trade_deals(conn)
-    _build_grafana_cash_events(conn)
+    for spec in _PASSTHROUGH_VIEW_SPECS:
+        _build_passthrough_view(conn, spec)
     _build_grafana_realized_pnl(conn)
     _build_grafana_symbol_pnl(conn)
     _build_grafana_trade_stats(conn)
-    _build_grafana_account_snapshots(conn)
-    _build_grafana_position_snapshots(conn)
-    _build_grafana_order_snapshots(conn)
-    _build_grafana_terminal_snapshots(conn)
+    for view_name, table_name in _SNAPSHOT_VIEW_TABLES:
+        _build_snapshot_view(conn, view_name, table_name)
 
 
 def create_grafana_indexes(conn: sqlite3.Connection) -> None:
