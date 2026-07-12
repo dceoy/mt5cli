@@ -1506,6 +1506,39 @@ class TestVolumeAndExecution:
         with pytest.raises(Mt5OperationError):
             calculate_new_position_margin_ratio(client, symbol="EURUSD")
 
+    def test_new_position_margin_ratio_defaults_missing_margin_to_zero(self) -> None:
+        """Test absent or None account margin is normalized to zero."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0}
+
+        _assert_close(
+            calculate_new_position_margin_ratio(client, symbol="EURUSD"),
+            0.0,
+        )
+
+        client.account_info_as_dict.return_value = {"equity": 1000.0, "margin": None}
+        _assert_close(
+            calculate_new_position_margin_ratio(client, symbol="EURUSD"),
+            0.0,
+        )
+
+    def test_new_position_margin_ratio_accepts_non_positive_order_margin(self) -> None:
+        """Test non-positive hypothetical order margin is accepted as-is."""
+        client = _mock_trade_client()
+        client.account_info_as_dict.return_value = {"equity": 1000.0, "margin": 50.0}
+        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
+        client.order_calc_margin.return_value = 0.0
+
+        _assert_close(
+            calculate_new_position_margin_ratio(
+                client,
+                symbol="EURUSD",
+                new_position_side="BUY",
+                new_position_volume=0.1,
+            ),
+            0.05,
+        )
+
     def test_new_position_margin_ratio_rejects_bad_tick(self) -> None:
         """Test missing hypothetical order price raises a trading error."""
         client = _mock_trade_client()

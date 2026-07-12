@@ -1,5 +1,0 @@
-{
-  "permissions": {
-    "allow": ["Skill(commit-push-pr)"]
-  }
-}
