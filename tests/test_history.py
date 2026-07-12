@@ -2388,7 +2388,10 @@ class TestIncrementalIntegration:
                 "SELECT ticket, time_setup, type FROM history_orders",
             ).fetchall()
         assert rows == [(1, "2024-01-01T00:00:01+00:00", 1)]
-        assert "Skipping history_orders: dataset returned no columns" in caplog.text
+        assert (
+            "Skipping history_orders for symbol=GBPUSD: dataset returned no columns"
+            in caplog.text
+        )
 
     def test_write_collected_datasets_and_edge_branches(
         self,
