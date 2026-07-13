@@ -26,7 +26,7 @@ Apply KISS, DRY, and YAGNI when changing code. Prefer the simplest implementatio
 
 ## Testing Guidelines
 
-Tests use pytest, pytest-mock, doctests, and pytest-cov. Test files should match `tests/test_*.py`, classes `Test*`, and functions `test_*`. Coverage is configured with `fail_under = 100`, so add focused tests for every behavior change. Mock MT5/pdmt5 boundaries; do not require a live MetaTrader terminal in unit tests.
+Tests use pytest, pytest-mock, doctests, and pytest-cov. Test files should match `tests/test_*.py`, classes `Test*`, and functions `test_*`. Parametrize unit tests with `pytest.mark.parametrize` when the same behavior needs coverage across multiple inputs. Coverage is configured with `fail_under = 100`, so add focused tests for every behavior change. Mock MT5/pdmt5 boundaries; do not require a live MetaTrader terminal in unit tests.
 
 ## Commit & Pull Request Guidelines
 
