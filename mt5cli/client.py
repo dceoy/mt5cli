@@ -787,6 +787,31 @@ class _BaseMT5Client:
         """Return the last tick for a symbol."""
         return self._fetch(lambda c: c.symbol_info_tick_as_df(symbol=symbol))
 
+    def symbol_info_tick_as_dict(
+        self,
+        symbol: str,
+        *,
+        skip_to_datetime: bool = False,
+    ) -> dict[str, object]:
+        """Return the last tick as a plain mapping.
+
+        Args:
+            symbol: Symbol name.
+            skip_to_datetime: Preserve numeric MT5 time fields when ``True``.
+
+        Returns:
+            Tick fields using the underlying pdmt5 conversion behavior.
+        """
+        return self._fetch_value(
+            lambda c: cast(
+                "dict[str, object]",
+                c.symbol_info_tick_as_dict(
+                    symbol=symbol,
+                    skip_to_datetime=skip_to_datetime,
+                ),
+            )
+        )
+
     def market_book(self, symbol: str) -> pd.DataFrame:
         """Return market depth for a symbol."""
         return self._fetch(lambda c: c.market_book_get_as_df(symbol=symbol))

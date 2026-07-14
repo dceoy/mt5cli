@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from inspect import signature
 from math import floor, isfinite
 from numbers import Integral, Real
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from typing import Any
 
 _logger = logging.getLogger(__name__)
+_DATETIME_TYPES = (datetime, pd.Timestamp)
 
 
 class _Mt5ClientProtocol(Protocol):
@@ -801,14 +803,55 @@ def get_tick_snapshot(
     client: _Mt5ClientProtocol,
     symbol: str,
 ) -> dict[str, float | int | None]:
-    """Return normalized latest tick data, including bid, ask, and timestamp."""
+    """Return normalized latest tick data with a numeric MT5 timestamp.
+
+    The numeric ``time`` preserves the original value returned by MT5 without
+    applying timezone or server-offset correction.
+    """
     method = getattr(client, "symbol_info_tick_as_dict", None)
-    value = (
-        method(symbol=symbol) if callable(method) else client.symbol_info_tick(symbol)
-    )
+    if callable(method):
+        try:
+            signature(method).bind(symbol=symbol, skip_to_datetime=True)
+        except (TypeError, ValueError):
+            value = method(symbol=symbol)
+        else:
+            value = method(symbol=symbol, skip_to_datetime=True)
+    else:
+        value = client.symbol_info_tick(symbol)
     snapshot = _snapshot_from_value(value, _TICK_SNAPSHOT_FIELDS)
     snapshot["symbol"] = snapshot.get("symbol") or symbol
+    snapshot["time"] = _numeric_tick_time(snapshot.get("time"))
     return cast("dict[str, float | int | None]", snapshot)
+
+
+def _numeric_tick_time(value: object) -> float | int | None:
+    """Normalize an MT5 timestamp to its numeric epoch representation.
+
+    Returns:
+        The numeric timestamp, or ``None`` for an unsupported value.
+    """
+    numeric: float | None
+    if value is None or isinstance(value, bool):
+        numeric = None
+    elif isinstance(value, _DATETIME_TYPES):
+        if pd.isna(value):
+            return None
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.tz_localize(UTC)
+        numeric = timestamp.timestamp()
+    elif isinstance(value, Integral):
+        return int(value)
+    elif isinstance(value, Real):
+        numeric = float(value)
+    elif isinstance(value, str):
+        try:
+            numeric = float(value)
+        except ValueError:
+            return None
+    else:
+        numeric = None
+    return numeric if numeric is not None and isfinite(numeric) else None
 
 
 _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS = 1800.0
@@ -821,12 +864,12 @@ def estimate_server_clock_offset_seconds(
 ) -> float | None:
     """Estimate the broker server clock offset from true UTC.
 
-    MT5 tick, bar, and deal timestamps are epoch values labeled in the
-    broker server's wall clock, which is commonly UTC+2 or UTC+3 rather
-    than true UTC. This reads the latest tick for ``symbol`` and compares
-    its timestamp to the current UTC time, rounding to the nearest half
-    hour: server offsets are whole or half-hour multiples, and rounding
-    absorbs a few minutes of real tick staleness.
+    MT5 documents copied tick and bar data as UTC, while the timezone contract
+    for ``symbol_info_tick()`` is not explicit. This helper reads the latest
+    tick for ``symbol`` to validate a suspected broker-specific clock offset
+    before downstream correction. It compares the tick timestamp to the
+    current UTC time and rounds to the nearest half hour, absorbing a few
+    minutes of real tick staleness.
 
     On a closed market, weekend, holiday, or illiquid symbol the latest tick
     can be hours or days old, in which case the tick-vs-now delta reflects

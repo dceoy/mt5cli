@@ -202,19 +202,24 @@ or `None` result from the underlying client is normalized to an empty DataFrame.
 Downstream packages own all strategy-specific transformations. mt5cli does not
 provide entry-deal classification, Kelly sizing, or any betting-specific helpers.
 
-## Broker server clock offset
+## Timestamp sources and broker clock offsets
 
-MT5 tick, bar, and deal timestamps are epoch values labeled in the broker
-server's wall clock, which is commonly UTC+2 or UTC+3 rather than true UTC.
-Any code that mixes those timestamps with true UTC (freshness checks,
-trailing history windows) silently inherits the broker's offset as a bias
-unless it is measured and applied explicitly.
+The MT5 Python documentation describes tick and bar data copied by the
+`copy_ticks_*` and `copy_rates_*` functions as UTC. It does not document a
+different timezone contract for `symbol_info_tick()`, nor should deal epochs
+be assumed to use a broker wall clock without source-specific evidence.
+
+`get_tick_snapshot()` preserves the numeric MT5 epoch value in `time`; it does
+not expose pdmt5's timezone-naive `Timestamp` conversion or alter the instant.
+Any broker-specific offset handling therefore requires evidence from the live
+data source in use and must be applied separately. Do not subtract a presumed
+UTC+2 or UTC+3 offset from timestamps that are already UTC.
 
 `estimate_server_clock_offset_seconds()` reads the latest tick for a symbol
 and returns the broker's clock offset from true UTC, rounded to the nearest
-half hour, or `None` when no valid tick time is available. Apply the result in
-the downstream time-window calculation when comparing broker timestamps to
-true UTC.
+half hour, or `None` when no valid tick time is available. Use it to validate a
+suspected offset for the live `symbol_info_tick()` source before applying the
+result in downstream time-window calculations.
 
 No offset is applied automatically by history retrieval helpers.
 
