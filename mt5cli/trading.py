@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from inspect import signature
 from math import floor, isfinite
 from numbers import Integral, Real
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from typing import Any
 
 _logger = logging.getLogger(__name__)
+_DATETIME_TYPES = (datetime, pd.Timestamp)
 
 
 class _Mt5ClientProtocol(Protocol):
@@ -801,14 +803,53 @@ def get_tick_snapshot(
     client: _Mt5ClientProtocol,
     symbol: str,
 ) -> dict[str, float | int | None]:
-    """Return normalized latest tick data, including bid, ask, and timestamp."""
+    """Return normalized latest tick data with a numeric broker timestamp.
+
+    The numeric ``time`` is the original MT5 epoch value. It labels the broker
+    trade-server wall clock and is not guaranteed to represent true UTC.
+    """
     method = getattr(client, "symbol_info_tick_as_dict", None)
-    value = (
-        method(symbol=symbol) if callable(method) else client.symbol_info_tick(symbol)
-    )
+    if callable(method):
+        try:
+            signature(method).bind(symbol=symbol, skip_to_datetime=True)
+        except (TypeError, ValueError):
+            value = method(symbol=symbol)
+        else:
+            value = method(symbol=symbol, skip_to_datetime=True)
+    else:
+        value = client.symbol_info_tick(symbol)
     snapshot = _snapshot_from_value(value, _TICK_SNAPSHOT_FIELDS)
     snapshot["symbol"] = snapshot.get("symbol") or symbol
+    snapshot["time"] = _numeric_tick_time(snapshot.get("time"))
     return cast("dict[str, float | int | None]", snapshot)
+
+
+def _numeric_tick_time(value: object) -> float | int | None:
+    """Normalize an MT5 timestamp to its numeric broker-wall-clock label.
+
+    Returns:
+        The numeric wall-clock label, or ``None`` for an unsupported value.
+    """
+    numeric: float | None
+    if value is None or isinstance(value, bool):
+        numeric = None
+    elif isinstance(value, _DATETIME_TYPES):
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.tz_localize(UTC)
+        numeric = timestamp.timestamp()
+    elif isinstance(value, Integral):
+        return int(value)
+    elif isinstance(value, Real):
+        numeric = float(value)
+    elif isinstance(value, str):
+        try:
+            numeric = float(value)
+        except ValueError:
+            return None
+    else:
+        numeric = None
+    return numeric if numeric is not None and isfinite(numeric) else None
 
 
 _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS = 1800.0

@@ -15,6 +15,7 @@ from pdmt5 import Mt5RuntimeError
 from pytest_mock import MockerFixture  # noqa: TC002
 
 from mt5cli import trading
+from mt5cli.client import MT5Client
 from mt5cli.exceptions import Mt5OperationError
 from mt5cli.trading import (
     MarginVolume,
@@ -670,6 +671,92 @@ class TestSnapshotsAndState:
 
         assert get_symbol_snapshot(client, "EURUSD")["symbol"] == "EURUSD"
         assert get_tick_snapshot(client, "EURUSD")["symbol"] == "EURUSD"
+
+    def test_tick_snapshot_requests_raw_time_from_mt5_client(self) -> None:
+        """Test the canonical client preserves pdmt5's numeric MT5 time."""
+
+        class ConnectedClient:
+            def symbol_info_tick_as_dict(
+                self,
+                symbol: str,
+                skip_to_datetime: bool = False,
+            ) -> dict[str, float]:
+                assert symbol == "USOIL"
+                assert skip_to_datetime is True
+                return {"time": 1717250400, "bid": 78.5, "ask": 78.6}
+
+        client = MT5Client.from_connected_client(ConnectedClient())
+
+        snapshot = get_tick_snapshot(client, "USOIL")
+
+        assert snapshot["time"] == 1717250400
+        _assert_close(snapshot["bid"], 78.5)
+        _assert_close(snapshot["ask"], 78.6)
+
+    def test_tick_snapshot_supports_dict_method_without_skip_keyword(self) -> None:
+        """Test compatible dictionary clients need not accept pdmt5 options."""
+
+        class DictionaryClient:
+            def symbol_info_tick_as_dict(self, *, symbol: str) -> dict[str, float]:
+                assert symbol == "UKOIL"
+                return {"time": 1717254000, "bid": 80.1, "ask": 80.2}
+
+        snapshot = get_tick_snapshot(
+            cast("_Mt5ClientProtocol", DictionaryClient()),
+            "UKOIL",
+        )
+
+        assert snapshot["time"] == 1717254000
+
+    @pytest.mark.parametrize(
+        "tick_time",
+        [
+            pd.Timestamp("2024-06-01 15:00:00"),
+            pd.Timestamp("2024-06-01 15:00:00", tz=UTC),
+        ],
+        ids=["naive", "timezone-aware"],
+    )
+    def test_tick_snapshot_normalizes_dataframe_timestamp_to_numeric(
+        self,
+        tick_time: pd.Timestamp,
+    ) -> None:
+        """Test DataFrame fallbacks cannot leak a naive pandas Timestamp."""
+        client = MagicMock()
+        del client.symbol_info_tick_as_dict
+        client.symbol_info_tick.return_value = pd.DataFrame(
+            [{"time": tick_time, "bid": 1.0}],
+        )
+
+        snapshot = get_tick_snapshot(client, "EURUSD")
+
+        _assert_close(snapshot["time"], 1717254000.0)
+        assert not isinstance(snapshot["time"], pd.Timestamp)
+
+    @pytest.mark.parametrize(
+        ("tick_time", "expected"),
+        [
+            (True, None),
+            (float("inf"), None),
+            ("1717254000", 1717254000.0),
+            (object(), None),
+        ],
+        ids=["boolean", "non-finite", "numeric-string", "unsupported"],
+    )
+    def test_tick_snapshot_time_always_matches_numeric_contract(
+        self,
+        tick_time: object,
+        expected: float | None,
+    ) -> None:
+        """Test non-canonical time payloads normalize to a number or None."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"time": tick_time}
+
+        snapshot = get_tick_snapshot(client, "EURUSD")
+
+        if expected is None:
+            assert snapshot["time"] is None
+        else:
+            _assert_close(snapshot["time"], expected)
 
     def test_symbol_and_tick_snapshots_use_object_fallbacks(self) -> None:
         """Test symbol and tick snapshots support non-dict MT5 values."""
@@ -3983,19 +4070,21 @@ class TestEstimateServerClockOffsetSeconds:
         client.symbol_info_tick_as_dict.return_value = {"time": tick_time}
         return client
 
-    def test_rounds_positive_offset_to_nearest_half_hour(
+    @pytest.mark.parametrize("server_offset", [7200.0, 10800.0])
+    def test_rounds_positive_broker_offset_to_nearest_half_hour(
         self,
         mocker: MockerFixture,
+        server_offset: float,
     ) -> None:
-        """A tick ~3h ahead of UTC now estimates a rounded +3h offset."""
+        """UTC+2 and UTC+3 broker tick labels yield their server offsets."""
         frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
         mock_dt = mocker.patch("mt5cli.trading.datetime")
         mock_dt.now.return_value = frozen
-        client = self._client_with_tick_time(frozen.timestamp() + 10800.4)
+        client = self._client_with_tick_time(frozen.timestamp() + server_offset + 0.4)
 
         offset = estimate_server_clock_offset_seconds(client, "EURUSD")
 
-        _assert_close(offset, 10800.0)
+        _assert_close(offset, server_offset)
 
     def test_stale_tick_on_utc_server_rounds_to_zero(
         self,

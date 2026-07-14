@@ -210,6 +210,10 @@ Any code that mixes those timestamps with true UTC (freshness checks,
 trailing history windows) silently inherits the broker's offset as a bias
 unless it is measured and applied explicitly.
 
+`get_tick_snapshot()` preserves the numeric MT5 epoch value in `time`; it does
+not expose pdmt5's timezone-naive `Timestamp` conversion. Treat that number as
+a broker wall-clock label, not guaranteed true UTC.
+
 `estimate_server_clock_offset_seconds()` reads the latest tick for a symbol
 and returns the broker's clock offset from true UTC, rounded to the nearest
 half hour, or `None` when no valid tick time is available. Apply the result in
