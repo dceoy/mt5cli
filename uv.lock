@@ -544,7 +544,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.2" },
     { name = "pdmt5", specifier = ">=1.2.0" },
     { name = "pyarrow", marker = "extra == 'parquet'", specifier = ">=19.0.0" },
-    { name = "typer", specifier = ">=0.16.0" },
+    { name = "typer", specifier = ">=0.26.0" },
 ]
 provides-extras = ["parquet", "otel"]
 
