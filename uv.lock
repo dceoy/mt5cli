@@ -537,14 +537,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "click", specifier = ">=8.3.3" },
+    { name = "click", specifier = ">=8.4" },
     { name = "opentelemetry-api", marker = "extra == 'otel'" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'" },
     { name = "pandas", specifier = ">=2.2.2" },
     { name = "pdmt5", specifier = ">=1.2.0" },
     { name = "pyarrow", marker = "extra == 'parquet'", specifier = ">=19.0.0" },
-    { name = "typer", specifier = ">=0.15.0" },
+    { name = "typer", specifier = ">=0.16.0" },
 ]
 provides-extras = ["parquet", "otel"]
 

@@ -11,8 +11,8 @@ requires-python = ">= 3.11, < 3.14"
 dependencies = [
   "pdmt5 >= 1.2.0",
   "pandas >= 2.2.2",
-  "click >= 8.3.3",
-  "typer >= 0.15.0",
+  "click >= 8.4",
+  "typer >= 0.16.0",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",

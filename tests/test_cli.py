@@ -26,6 +26,7 @@ from mt5cli.cli import (
     _execute_export,  # type: ignore[reportPrivateUsage]
     _ExportContext,  # type: ignore[reportPrivateUsage]
     _parse_datetime_parameter,  # type: ignore[reportPrivateUsage]
+    _parse_request_parameter,  # type: ignore[reportPrivateUsage]
     _parse_tick_flags_parameter,  # type: ignore[reportPrivateUsage]
     _parse_timeframe_parameter,  # type: ignore[reportPrivateUsage]
     _sdk_client,  # type: ignore[reportPrivateUsage]
@@ -2283,3 +2284,8 @@ class TestRequestType:
         """Test that invalid values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid JSON request"):
             REQUEST_TYPE.convert("bad", None, None)
+
+    def test_parser_invalid(self) -> None:
+        """Test that Typer receives a BadParameter with validation details."""
+        with pytest.raises(Exception, match="Invalid JSON request"):
+            _parse_request_parameter("bad")
