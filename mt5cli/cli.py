@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class _DateTimeType(click.ParamType):
+class _DateTimeType(click.ParamType[datetime]):
     """Click parameter type for ISO 8601 datetime strings."""
 
     name = "DATETIME"
@@ -59,8 +59,8 @@ class _DateTimeType(click.ParamType):
     def convert(
         self,
         value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
+        param: click.Parameter | None = None,
+        ctx: click.Context | None = None,
     ) -> datetime:
         """Convert a string value to a timezone-aware datetime.
 
@@ -80,7 +80,7 @@ class _DateTimeType(click.ParamType):
             self.fail(str(exc), param, ctx)
 
 
-class _TimeframeType(click.ParamType):
+class _TimeframeType(click.ParamType[int]):
     """Click parameter type for MT5 timeframe values."""
 
     name = "TIMEFRAME"
@@ -88,8 +88,8 @@ class _TimeframeType(click.ParamType):
     def convert(
         self,
         value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
+        param: click.Parameter | None = None,
+        ctx: click.Context | None = None,
     ) -> int:
         """Convert a string or integer value to a timeframe integer.
 
@@ -107,7 +107,7 @@ class _TimeframeType(click.ParamType):
             self.fail(str(exc), param, ctx)
 
 
-class _TickFlagsType(click.ParamType):
+class _TickFlagsType(click.ParamType[int]):
     """Click parameter type for MT5 tick copy flags."""
 
     name = "FLAGS"
@@ -115,8 +115,8 @@ class _TickFlagsType(click.ParamType):
     def convert(
         self,
         value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
+        param: click.Parameter | None = None,
+        ctx: click.Context | None = None,
     ) -> int:
         """Convert a string or integer value to a tick flags integer.
 
@@ -134,7 +134,7 @@ class _TickFlagsType(click.ParamType):
             self.fail(str(exc), param, ctx)
 
 
-class _RequestType(click.ParamType):
+class _RequestType(click.ParamType[dict[str, Any]]):
     """Click parameter type for JSON order requests."""
 
     name = "REQUEST"
@@ -142,8 +142,8 @@ class _RequestType(click.ParamType):
     def convert(
         self,
         value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
+        param: click.Parameter | None = None,
+        ctx: click.Context | None = None,
     ) -> dict[str, Any]:
         """Convert a raw CLI value to an order request dictionary.
 
@@ -165,6 +165,35 @@ DATETIME_TYPE = _DateTimeType()
 TIMEFRAME_TYPE = _TimeframeType()
 TICK_FLAGS_TYPE = _TickFlagsType()
 REQUEST_TYPE = _RequestType()
+
+
+def _parse_datetime_parameter(value: str) -> datetime:
+    try:
+        return parse_datetime(value)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+def _parse_timeframe_parameter(value: str) -> int:
+    try:
+        return parse_timeframe(value)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+def _parse_tick_flags_parameter(value: str) -> int:
+    try:
+        return parse_tick_flags(value)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+def _parse_request_parameter(value: str) -> dict[str, Any]:
+    try:
+        return parse_request(value)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
 
 # ---------------------------------------------------------------------------
 # Export context
@@ -363,14 +392,14 @@ def rates_from(
     timeframe: Annotated[
         int,
         typer.Option(
-            click_type=TIMEFRAME_TYPE,
+            parser=_parse_timeframe_parameter,
             help="Timeframe (e.g., M1, H1, D1, or integer).",
         ),
     ],
     date_from: Annotated[
         datetime,
         typer.Option(
-            click_type=DATETIME_TYPE,
+            parser=_parse_datetime_parameter,
             help="Start date in ISO 8601 format.",
         ),
     ],
@@ -390,7 +419,7 @@ def rates_from_pos(
     timeframe: Annotated[
         int,
         typer.Option(
-            click_type=TIMEFRAME_TYPE,
+            parser=_parse_timeframe_parameter,
             help="Timeframe.",
         ),
     ],
@@ -416,7 +445,7 @@ def latest_rates(
     timeframe: Annotated[
         int,
         typer.Option(
-            click_type=TIMEFRAME_TYPE,
+            parser=_parse_timeframe_parameter,
             help="Timeframe.",
         ),
     ],
@@ -445,17 +474,17 @@ def rates_range(
     timeframe: Annotated[
         int,
         typer.Option(
-            click_type=TIMEFRAME_TYPE,
+            parser=_parse_timeframe_parameter,
             help="Timeframe.",
         ),
     ],
     date_from: Annotated[
         datetime,
-        typer.Option(click_type=DATETIME_TYPE, help="Start date."),
+        typer.Option(parser=_parse_datetime_parameter, help="Start date."),
     ],
     date_to: Annotated[
         datetime,
-        typer.Option(click_type=DATETIME_TYPE, help="End date."),
+        typer.Option(parser=_parse_datetime_parameter, help="End date."),
     ],
 ) -> None:
     """Export rates for a date range."""
@@ -471,13 +500,13 @@ def ticks_from(
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
     date_from: Annotated[
         datetime,
-        typer.Option(click_type=DATETIME_TYPE, help="Start date."),
+        typer.Option(parser=_parse_datetime_parameter, help="Start date."),
     ],
     count: Annotated[int, typer.Option(help="Number of ticks.")],
     flags: Annotated[
         int,
         typer.Option(
-            click_type=TICK_FLAGS_TYPE,
+            parser=_parse_tick_flags_parameter,
             help="Tick flags (ALL, INFO, TRADE, or integer).",
         ),
     ],
@@ -495,15 +524,15 @@ def ticks_range(
     symbol: Annotated[str, typer.Option(help="Symbol name.")],
     date_from: Annotated[
         datetime,
-        typer.Option(click_type=DATETIME_TYPE, help="Start date."),
+        typer.Option(parser=_parse_datetime_parameter, help="Start date."),
     ],
     date_to: Annotated[
         datetime,
-        typer.Option(click_type=DATETIME_TYPE, help="End date."),
+        typer.Option(parser=_parse_datetime_parameter, help="End date."),
     ],
     flags: Annotated[
         int,
-        typer.Option(click_type=TICK_FLAGS_TYPE, help="Tick flags."),
+        typer.Option(parser=_parse_tick_flags_parameter, help="Tick flags."),
     ],
 ) -> None:
     """Export ticks for a date range."""
@@ -523,7 +552,7 @@ def ticks_recent(
     ],
     date_to: Annotated[
         datetime | None,
-        typer.Option(click_type=DATETIME_TYPE, help="Window end date."),
+        typer.Option(parser=_parse_datetime_parameter, help="Window end date."),
     ] = None,
     count: Annotated[
         int,
@@ -532,7 +561,7 @@ def ticks_recent(
     flags: Annotated[
         int,
         typer.Option(
-            click_type=TICK_FLAGS_TYPE,
+            parser=_parse_tick_flags_parameter,
             help="Tick flags (ALL, INFO, TRADE, or integer).",
         ),
     ] = "ALL",  # pyright: ignore[reportArgumentType]
@@ -625,11 +654,11 @@ def history_orders(
     ctx: typer.Context,
     date_from: Annotated[
         datetime | None,
-        typer.Option(click_type=DATETIME_TYPE, help="Start date."),
+        typer.Option(parser=_parse_datetime_parameter, help="Start date."),
     ] = None,
     date_to: Annotated[
         datetime | None,
-        typer.Option(click_type=DATETIME_TYPE, help="End date."),
+        typer.Option(parser=_parse_datetime_parameter, help="End date."),
     ] = None,
     group: Annotated[str | None, typer.Option(help="Group filter.")] = None,
     symbol: Annotated[str | None, typer.Option(help="Symbol filter.")] = None,
@@ -655,11 +684,11 @@ def history_deals(
     ctx: typer.Context,
     date_from: Annotated[
         datetime | None,
-        typer.Option(click_type=DATETIME_TYPE, help="Start date."),
+        typer.Option(parser=_parse_datetime_parameter, help="Start date."),
     ] = None,
     date_to: Annotated[
         datetime | None,
-        typer.Option(click_type=DATETIME_TYPE, help="End date."),
+        typer.Option(parser=_parse_datetime_parameter, help="End date."),
     ] = None,
     group: Annotated[str | None, typer.Option(help="Group filter.")] = None,
     symbol: Annotated[str | None, typer.Option(help="Symbol filter.")] = None,
@@ -686,7 +715,7 @@ def recent_history_deals(
     hours: Annotated[float, typer.Option(help="Lookback window in hours.")],
     date_to: Annotated[
         datetime | None,
-        typer.Option(click_type=DATETIME_TYPE, help="Window end date."),
+        typer.Option(parser=_parse_datetime_parameter, help="Window end date."),
     ] = None,
     group: Annotated[str | None, typer.Option(help="Group filter.")] = None,
     symbol: Annotated[str | None, typer.Option(help="Symbol filter.")] = None,
@@ -744,7 +773,7 @@ def order_check(
     ctx: typer.Context,
     request: Annotated[
         dict[str, Any],
-        typer.Option(click_type=REQUEST_TYPE, help=_REQUEST_OPTION_HELP),
+        typer.Option(parser=_parse_request_parameter, help=_REQUEST_OPTION_HELP),
     ],
 ) -> None:
     """Check funds sufficiency for a trading operation."""
@@ -756,7 +785,7 @@ def order_send(
     ctx: typer.Context,
     request: Annotated[
         dict[str, Any],
-        typer.Option(click_type=REQUEST_TYPE, help=_REQUEST_OPTION_HELP),
+        typer.Option(parser=_parse_request_parameter, help=_REQUEST_OPTION_HELP),
     ],
     yes: Annotated[
         bool,
@@ -995,11 +1024,11 @@ def collect_history(
     ],
     date_from: Annotated[
         datetime,
-        typer.Option(click_type=DATETIME_TYPE, help="Start date."),
+        typer.Option(parser=_parse_datetime_parameter, help="Start date."),
     ],
     date_to: Annotated[
         datetime,
-        typer.Option(click_type=DATETIME_TYPE, help="End date."),
+        typer.Option(parser=_parse_datetime_parameter, help="End date."),
     ],
     dataset: Annotated[
         list[Dataset] | None,
@@ -1016,14 +1045,14 @@ def collect_history(
     timeframe: Annotated[
         int,
         typer.Option(
-            click_type=TIMEFRAME_TYPE,
+            parser=_parse_timeframe_parameter,
             help="Rates timeframe (e.g., M1, H1, D1).",
         ),
     ] = 1,
     flags: Annotated[
         int,
         typer.Option(
-            click_type=TICK_FLAGS_TYPE,
+            parser=_parse_tick_flags_parameter,
             help="Tick copy flags (ALL, INFO, TRADE, or integer).",
         ),
     ] = "ALL",  # pyright: ignore[reportArgumentType]

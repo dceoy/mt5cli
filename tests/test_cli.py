@@ -25,6 +25,9 @@ from mt5cli.cli import (
     TIMEFRAME_TYPE,  # type: ignore[reportPrivateUsage]
     _execute_export,  # type: ignore[reportPrivateUsage]
     _ExportContext,  # type: ignore[reportPrivateUsage]
+    _parse_datetime_parameter,  # type: ignore[reportPrivateUsage]
+    _parse_tick_flags_parameter,  # type: ignore[reportPrivateUsage]
+    _parse_timeframe_parameter,  # type: ignore[reportPrivateUsage]
     _sdk_client,  # type: ignore[reportPrivateUsage]
     app,
     main,
@@ -2195,6 +2198,11 @@ class TestDateTimeType:
         with pytest.raises(Exception, match="Invalid datetime"):
             DATETIME_TYPE.convert("bad", None, None)
 
+    def test_parser_invalid(self) -> None:
+        """Test that Typer receives a BadParameter with validation details."""
+        with pytest.raises(Exception, match="Invalid datetime"):
+            _parse_datetime_parameter("bad")
+
 
 class TestTimeframeType:
     """Tests for _TimeframeType."""
@@ -2224,6 +2232,11 @@ class TestTimeframeType:
         with pytest.raises(Exception, match="Invalid timeframe"):
             TIMEFRAME_TYPE.convert(value, None, None)
 
+    def test_parser_invalid(self) -> None:
+        """Test that Typer receives a BadParameter with validation details."""
+        with pytest.raises(Exception, match="Invalid timeframe"):
+            _parse_timeframe_parameter("bad")
+
 
 class TestTickFlagsType:
     """Tests for _TickFlagsType."""
@@ -2252,6 +2265,11 @@ class TestTickFlagsType:
         """Test that bool, float, and None values raise BadParameter."""
         with pytest.raises(Exception, match="Invalid tick flags"):
             TICK_FLAGS_TYPE.convert(value, None, None)
+
+    def test_parser_invalid(self) -> None:
+        """Test that Typer receives a BadParameter with validation details."""
+        with pytest.raises(Exception, match="Invalid tick flags"):
+            _parse_tick_flags_parameter("bad")
 
 
 class TestRequestType:
