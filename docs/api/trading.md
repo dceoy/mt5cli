@@ -211,8 +211,11 @@ trailing history windows) silently inherits the broker's offset as a bias
 unless it is measured and applied explicitly.
 
 `get_tick_snapshot()` preserves the numeric MT5 epoch value in `time`; it does
-not expose pdmt5's timezone-naive `Timestamp` conversion. Treat that number as
-a broker wall-clock label, not guaranteed true UTC.
+not expose pdmt5's timezone-naive `Timestamp` conversion or alter the instant.
+The MT5 Python documentation describes copied tick and bar data as UTC, while
+`symbol_info_tick()` does not specify a distinct timezone contract. Any
+broker-specific offset handling therefore requires evidence from that live
+data source and must be applied separately.
 
 `estimate_server_clock_offset_seconds()` reads the latest tick for a symbol
 and returns the broker's clock offset from true UTC, rounded to the nearest

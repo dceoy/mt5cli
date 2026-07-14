@@ -803,10 +803,10 @@ def get_tick_snapshot(
     client: _Mt5ClientProtocol,
     symbol: str,
 ) -> dict[str, float | int | None]:
-    """Return normalized latest tick data with a numeric broker timestamp.
+    """Return normalized latest tick data with a numeric MT5 timestamp.
 
-    The numeric ``time`` is the original MT5 epoch value. It labels the broker
-    trade-server wall clock and is not guaranteed to represent true UTC.
+    The numeric ``time`` preserves the original value returned by MT5 without
+    applying timezone or server-offset correction.
     """
     method = getattr(client, "symbol_info_tick_as_dict", None)
     if callable(method):
@@ -825,10 +825,10 @@ def get_tick_snapshot(
 
 
 def _numeric_tick_time(value: object) -> float | int | None:
-    """Normalize an MT5 timestamp to its numeric broker-wall-clock label.
+    """Normalize an MT5 timestamp to its numeric epoch representation.
 
     Returns:
-        The numeric wall-clock label, or ``None`` for an unsupported value.
+        The numeric timestamp, or ``None`` for an unsupported value.
     """
     numeric: float | None
     if value is None or isinstance(value, bool):
