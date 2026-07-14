@@ -737,10 +737,17 @@ class TestSnapshotsAndState:
         [
             (True, None),
             (float("inf"), None),
+            (pd.NaT, None),
             ("1717254000", 1717254000.0),
             (object(), None),
         ],
-        ids=["boolean", "non-finite", "numeric-string", "unsupported"],
+        ids=[
+            "boolean",
+            "non-finite",
+            "missing-datetime",
+            "numeric-string",
+            "unsupported",
+        ],
     )
     def test_tick_snapshot_time_always_matches_numeric_contract(
         self,

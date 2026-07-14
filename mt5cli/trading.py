@@ -834,6 +834,8 @@ def _numeric_tick_time(value: object) -> float | int | None:
     if value is None or isinstance(value, bool):
         numeric = None
     elif isinstance(value, _DATETIME_TYPES):
+        if pd.isna(value):
+            return None
         timestamp = pd.Timestamp(value)
         if timestamp.tzinfo is None:
             timestamp = timestamp.tz_localize(UTC)
@@ -862,12 +864,12 @@ def estimate_server_clock_offset_seconds(
 ) -> float | None:
     """Estimate the broker server clock offset from true UTC.
 
-    MT5 tick, bar, and deal timestamps are epoch values labeled in the
-    broker server's wall clock, which is commonly UTC+2 or UTC+3 rather
-    than true UTC. This reads the latest tick for ``symbol`` and compares
-    its timestamp to the current UTC time, rounding to the nearest half
-    hour: server offsets are whole or half-hour multiples, and rounding
-    absorbs a few minutes of real tick staleness.
+    MT5 documents copied tick and bar data as UTC, while the timezone contract
+    for ``symbol_info_tick()`` is not explicit. This helper reads the latest
+    tick for ``symbol`` to validate a suspected broker-specific clock offset
+    before downstream correction. It compares the tick timestamp to the
+    current UTC time and rounds to the nearest half hour, absorbing a few
+    minutes of real tick staleness.
 
     On a closed market, weekend, holiday, or illiquid symbol the latest tick
     can be hours or days old, in which case the tick-vs-now delta reflects
