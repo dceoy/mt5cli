@@ -499,10 +499,9 @@ wheels = [
 
 [[package]]
 name = "mt5cli"
-version = "1.2.3"
+version = "1.2.4"
 source = { editable = "." }
 dependencies = [
-    { name = "click" },
     { name = "pandas" },
     { name = "pdmt5" },
     { name = "typer" },
@@ -537,7 +536,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "click", specifier = ">=8.4" },
     { name = "opentelemetry-api", marker = "extra == 'otel'" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'" },

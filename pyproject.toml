@@ -1,6 +1,6 @@
 [project]
 name = "mt5cli"
-version = "1.2.3"
+version = "1.2.4"
 description = "Generic MT5 data and execution infrastructure for Python applications"
 authors = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
 maintainers = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
@@ -11,7 +11,6 @@ requires-python = ">= 3.11, < 3.14"
 dependencies = [
   "pdmt5 >= 1.2.0",
   "pandas >= 2.2.2",
-  "click >= 8.4",
   "typer >= 0.26.0",
 ]
 classifiers = [
