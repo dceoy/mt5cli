@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
-from pytest_mock import MockerFixture  # noqa: TC002
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 from mt5cli.telemetry import (
     _Mt5Metrics,  # type: ignore[reportPrivateUsage]

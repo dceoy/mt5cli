@@ -12,11 +12,12 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
-from pytest_mock import MockerFixture  # noqa: TC002
 from typer.testing import CliRunner
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from pytest_mock import MockerFixture
 
 from mt5cli.cli import (
     _execute_export,  # type: ignore[reportPrivateUsage]

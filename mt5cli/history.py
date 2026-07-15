@@ -2755,11 +2755,7 @@ class ThrottledHistoryUpdater:
             When ``suppress_errors`` is False, recoverable update failures
             propagate to the caller.
 
-        Raises:
-            Mt5ConnectionError: When ``suppress_errors`` is False and the
-                update fails with a recoverable MT5, SQLite, validation, or
-                I/O error.
-        """  # noqa: DOC502
+        """
         if not self.should_update():
             return False
         try:

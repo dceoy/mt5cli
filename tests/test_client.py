@@ -24,7 +24,11 @@ from mt5cli.exceptions import Mt5ConnectionError
 from mt5cli.marketdata import (
     collect_latest_rates,
     copy_rates_range,
+    minimum_margins,
+    mt5_summary,
+    mt5_summary_as_df,
     recent_history_deals,
+    recent_ticks,
 )
 
 if TYPE_CHECKING:
@@ -774,8 +778,6 @@ class TestMT5ClientMethods:
         mock_client.account_info.return_value = account_info_value
         mock_client.symbols_total.return_value = 42
 
-        from mt5cli.marketdata import mt5_summary  # noqa: PLC0415
-
         assert mt5_summary() == expected
 
     def test_mt5_summary_as_df_stringifies_nested_values(
@@ -793,8 +795,6 @@ class TestMT5ClientMethods:
             limits={"modes": ("netting", "hedging"), "servers": ["demo"]},
         )
         mock_client.symbols_total.return_value = 42
-
-        from mt5cli.marketdata import mt5_summary_as_df  # noqa: PLC0415
 
         result = mt5_summary_as_df()
 
@@ -853,8 +853,6 @@ class TestRecentTicks:
             "bid": [1.0],
         })
         mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
-        from mt5cli.marketdata import recent_ticks  # noqa: PLC0415
-
         result = recent_ticks(
             "EURUSD",
             60,
@@ -955,8 +953,6 @@ class TestRecentTicks:
             "bid": [1.0, 1.1, 1.2],
         })
         mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
-        from mt5cli.marketdata import recent_ticks  # noqa: PLC0415
-
         result = recent_ticks(
             "EURUSD",
             60,
@@ -993,8 +989,6 @@ class TestMinimumMargins:
         client.mt5.ORDER_TYPE_BUY = 0
         client.mt5.ORDER_TYPE_SELL = 1
         mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
-        from mt5cli.marketdata import minimum_margins  # noqa: PLC0415
-
         result = minimum_margins("EURUSD", config=build_config(login=123))
 
         pd.testing.assert_frame_equal(

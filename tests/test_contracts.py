@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import inspect
 from datetime import UTC, datetime
+from importlib import import_module
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import pandas as pd
 import pytest
 from pdmt5 import Mt5RuntimeError
-from pytest_mock import MockerFixture  # noqa: TC002
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 import mt5cli
 import mt5cli.cli
@@ -564,7 +567,7 @@ class TestSingleConnectionLifecycleContract:
     def test_sdk_compatibility_module_no_longer_exists(self) -> None:
         """The removed mt5cli.sdk module cannot be imported."""
         with pytest.raises(ModuleNotFoundError):
-            import mt5cli.sdk  # pyright: ignore[reportMissingImports,reportUnusedImport]  # noqa: F401, PLC0415
+            import_module("mt5cli.sdk")
 
     def test_package_root_mt5_session_is_the_client_module_session(self) -> None:
         """The package-root mt5_session is the same object as mt5cli.client's."""
