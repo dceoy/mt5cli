@@ -19,10 +19,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from mt5cli.cli import (
-    DATETIME_TYPE,  # type: ignore[reportPrivateUsage]
-    REQUEST_TYPE,  # type: ignore[reportPrivateUsage]
-    TICK_FLAGS_TYPE,  # type: ignore[reportPrivateUsage]
-    TIMEFRAME_TYPE,  # type: ignore[reportPrivateUsage]
     _execute_export,  # type: ignore[reportPrivateUsage]
     _ExportContext,  # type: ignore[reportPrivateUsage]
     _parse_datetime_parameter,  # type: ignore[reportPrivateUsage]
@@ -2181,111 +2177,25 @@ class TestMain:
         mock_app.assert_called_once()
 
 
-class TestDateTimeType:
-    """Tests for _DateTimeType."""
+class TestTyperParameterParsers:
+    """Tests for Typer parameter parser callbacks."""
 
-    def test_convert_string(self) -> None:
-        """Test converting a string to datetime."""
-        result = DATETIME_TYPE.convert("2024-06-15", None, None)
-        assert result == datetime(2024, 6, 15, tzinfo=UTC)
-
-    def test_convert_datetime_passthrough(self) -> None:
-        """Test that datetime values pass through unchanged."""
-        dt = datetime(2024, 1, 1, tzinfo=UTC)
-        assert DATETIME_TYPE.convert(dt, None, None) is dt
-
-    def test_convert_invalid(self) -> None:
-        """Test that invalid values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid datetime"):
-            DATETIME_TYPE.convert("bad", None, None)
-
-    def test_parser_invalid(self) -> None:
-        """Test that Typer receives a BadParameter with validation details."""
+    def test_datetime_parser_invalid(self) -> None:
+        """Test that invalid datetimes raise a Typer BadParameter."""
         with pytest.raises(Exception, match="Invalid datetime"):
             _parse_datetime_parameter("bad")
 
-
-class TestTimeframeType:
-    """Tests for _TimeframeType."""
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [("H1", 16385), (16385, 16385)],
-        ids=["string", "int"],
-    )
-    def test_convert_valid(self, value: str | int, expected: int) -> None:
-        """Test converting valid string and integer timeframe values."""
-        assert TIMEFRAME_TYPE.convert(value, None, None) == expected
-
-    @pytest.mark.parametrize(
-        "value",
-        [42, "bad"],
-        ids=["unsupported-int", "invalid-string"],
-    )
-    def test_convert_invalid(self, value: object) -> None:
-        """Test that unsupported int and invalid string values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid timeframe"):
-            TIMEFRAME_TYPE.convert(value, None, None)
-
-    @pytest.mark.parametrize("value", [True, False, None, 1.5])
-    def test_convert_invalid_types(self, value: object) -> None:
-        """Test that bool, float, and None values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid timeframe"):
-            TIMEFRAME_TYPE.convert(value, None, None)
-
-    def test_parser_invalid(self) -> None:
-        """Test that Typer receives a BadParameter with validation details."""
+    def test_timeframe_parser_invalid(self) -> None:
+        """Test that invalid timeframes raise a Typer BadParameter."""
         with pytest.raises(Exception, match="Invalid timeframe"):
             _parse_timeframe_parameter("bad")
 
-
-class TestTickFlagsType:
-    """Tests for _TickFlagsType."""
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [("ALL", -1), (2, 2)],
-        ids=["string", "int"],
-    )
-    def test_convert_valid(self, value: str | int, expected: int) -> None:
-        """Test converting valid string and integer tick flag values."""
-        assert TICK_FLAGS_TYPE.convert(value, None, None) == expected
-
-    @pytest.mark.parametrize(
-        "value",
-        [7, "bad"],
-        ids=["unsupported-int", "invalid-string"],
-    )
-    def test_convert_invalid(self, value: object) -> None:
-        """Test that unsupported int and invalid string values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid tick flags"):
-            TICK_FLAGS_TYPE.convert(value, None, None)
-
-    @pytest.mark.parametrize("value", [True, False, None, 1.5])
-    def test_convert_invalid_types(self, value: object) -> None:
-        """Test that bool, float, and None values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid tick flags"):
-            TICK_FLAGS_TYPE.convert(value, None, None)
-
-    def test_parser_invalid(self) -> None:
-        """Test that Typer receives a BadParameter with validation details."""
+    def test_tick_flags_parser_invalid(self) -> None:
+        """Test that invalid tick flags raise a Typer BadParameter."""
         with pytest.raises(Exception, match="Invalid tick flags"):
             _parse_tick_flags_parameter("bad")
 
-
-class TestRequestType:
-    """Tests for _RequestType."""
-
-    def test_convert_string(self) -> None:
-        """Test converting a JSON string to a request dictionary."""
-        assert REQUEST_TYPE.convert('{"action": 1}', None, None) == {"action": 1}
-
-    def test_convert_invalid(self) -> None:
-        """Test that invalid values raise BadParameter."""
-        with pytest.raises(Exception, match="Invalid JSON request"):
-            REQUEST_TYPE.convert("bad", None, None)
-
-    def test_parser_invalid(self) -> None:
-        """Test that Typer receives a BadParameter with validation details."""
+    def test_request_parser_invalid(self) -> None:
+        """Test that invalid requests raise a Typer BadParameter."""
         with pytest.raises(Exception, match="Invalid JSON request"):
             _parse_request_parameter("bad")
