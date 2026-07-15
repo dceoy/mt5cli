@@ -355,12 +355,14 @@ def _shutdown_client(client: Mt5DataClient, *, raise_on_error: bool) -> None:
     failure is raised as the stable normalized exception. When False (an
     initialization or session-body exception is already propagating), the
     failure is logged so the primary exception passes through unchanged.
-    """  # noqa: DOC501
+
+    """
     try:
         client.shutdown()
     except Exception as exc:
         if raise_on_error:
-            raise normalize_mt5_exception(exc) from exc
+            normalized = normalize_mt5_exception(exc)
+            raise normalized from exc
         logger.warning("MT5 shutdown failed during cleanup", exc_info=True)
 
 
@@ -385,7 +387,7 @@ def _connected_client(
     Yields:
         Connected ``Mt5DataClient`` instance.
 
-    """  # noqa: DOC501
+    """
     client = (
         Mt5DataClient(config=config)
         if retry_count is None
@@ -395,7 +397,8 @@ def _connected_client(
         client.initialize_and_login_mt5()
     except Exception as exc:
         _shutdown_client(client, raise_on_error=False)
-        raise normalize_mt5_exception(exc) from exc
+        normalized = normalize_mt5_exception(exc)
+        raise normalized from exc
     try:
         yield client
     except BaseException:
@@ -420,12 +423,14 @@ def _run_with_client(
 
     Returns:
         Value returned by ``fetch_fn``.
-    """  # noqa: DOC501
+
+    """
     with _connected_client(config, retry_count=retry_count) as client:
         try:
             return fetch_fn(client)
         except Mt5RuntimeError as exc:
-            raise normalize_mt5_exception(exc) from exc
+            normalized = normalize_mt5_exception(exc)
+            raise normalized from exc
 
 
 class _BaseMT5Client:
@@ -480,7 +485,8 @@ class _BaseMT5Client:
 
         Returns:
             This client instance.
-        """  # noqa: DOC501
+
+        """
         if self._client is not None:
             return self
         client = Mt5DataClient(config=self._config, retry_count=self._retry_count)
@@ -488,7 +494,8 @@ class _BaseMT5Client:
             client.initialize_and_login_mt5()
         except Exception as exc:
             _shutdown_client(client, raise_on_error=False)
-            raise normalize_mt5_exception(exc) from exc
+            normalized = normalize_mt5_exception(exc)
+            raise normalized from exc
         self._client = client
         self._owns_client = True  # only set when this method created the client
         return self

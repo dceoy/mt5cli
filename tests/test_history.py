@@ -10,11 +10,12 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
-from pytest_mock import MockerFixture  # noqa: TC002
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+
+    from pytest_mock import MockerFixture
 
 from pdmt5 import TIMEFRAME_MAP, Mt5RuntimeError
 

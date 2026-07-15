@@ -5,14 +5,16 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any, cast, get_args
+from typing import TYPE_CHECKING, Any, cast, get_args
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 from numpy import int64 as np_int64
 from pdmt5 import Mt5RuntimeError
-from pytest_mock import MockerFixture  # noqa: TC002
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 from mt5cli import trading
 from mt5cli.client import MT5Client

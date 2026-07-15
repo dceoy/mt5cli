@@ -8,10 +8,11 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
-from pytest_mock import MockerFixture  # noqa: TC002
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+    from pytest_mock import MockerFixture
 
 _DATAFRAME_METHODS = (
     "copy_rates_from_as_df",

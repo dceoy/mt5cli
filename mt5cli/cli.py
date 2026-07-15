@@ -6,11 +6,10 @@ import json
 import logging
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime  # noqa: TC003
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
-import click
 import pandas as pd
 import typer
 
@@ -45,126 +44,6 @@ if TYPE_CHECKING:
     from .trading import OrderFillingMode
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Click parameter types
-# ---------------------------------------------------------------------------
-
-
-class _DateTimeType(click.ParamType[datetime]):
-    """Click parameter type for ISO 8601 datetime strings."""
-
-    name = "DATETIME"
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None = None,
-        ctx: click.Context | None = None,
-    ) -> datetime:
-        """Convert a string value to a timezone-aware datetime.
-
-        Args:
-            value: Raw value from the command line.
-            param: Click parameter instance.
-            ctx: Click context.
-
-        Returns:
-            Parsed datetime.
-        """
-        if isinstance(value, datetime):
-            return value
-        try:
-            return parse_datetime(str(value))
-        except ValueError as exc:
-            self.fail(str(exc), param, ctx)
-
-
-class _TimeframeType(click.ParamType[int]):
-    """Click parameter type for MT5 timeframe values."""
-
-    name = "TIMEFRAME"
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None = None,
-        ctx: click.Context | None = None,
-    ) -> int:
-        """Convert a string or integer value to a timeframe integer.
-
-        Args:
-            value: Raw value from the command line.
-            param: Click parameter instance.
-            ctx: Click context.
-
-        Returns:
-            Integer timeframe value.
-        """
-        try:
-            return parse_timeframe(value)
-        except ValueError as exc:
-            self.fail(str(exc), param, ctx)
-
-
-class _TickFlagsType(click.ParamType[int]):
-    """Click parameter type for MT5 tick copy flags."""
-
-    name = "FLAGS"
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None = None,
-        ctx: click.Context | None = None,
-    ) -> int:
-        """Convert a string or integer value to a tick flags integer.
-
-        Args:
-            value: Raw value from the command line.
-            param: Click parameter instance.
-            ctx: Click context.
-
-        Returns:
-            Integer tick flag value.
-        """
-        try:
-            return parse_tick_flags(value)
-        except ValueError as exc:
-            self.fail(str(exc), param, ctx)
-
-
-class _RequestType(click.ParamType[dict[str, Any]]):
-    """Click parameter type for JSON order requests."""
-
-    name = "REQUEST"
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None = None,
-        ctx: click.Context | None = None,
-    ) -> dict[str, Any]:
-        """Convert a raw CLI value to an order request dictionary.
-
-        Args:
-            value: Raw value from the command line.
-            param: Click parameter instance.
-            ctx: Click context.
-
-        Returns:
-            Parsed request dictionary.
-        """
-        try:
-            return parse_request(str(value))
-        except ValueError as exc:
-            self.fail(str(exc), param, ctx)
-
-
-DATETIME_TYPE = _DateTimeType()
-TIMEFRAME_TYPE = _TimeframeType()
-TICK_FLAGS_TYPE = _TickFlagsType()
-REQUEST_TYPE = _RequestType()
 
 
 def _parse_datetime_parameter(value: str) -> datetime:
