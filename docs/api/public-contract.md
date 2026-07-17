@@ -102,7 +102,10 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
 | `get_account_snapshot`, `get_symbol_snapshot`, `get_tick_snapshot`, `get_positions_frame`                                      | Normalized account/symbol/tick/position views                     |
 | `extract_tick_price`                                                                                                           | Positive finite bid/ask extraction from tick mappings             |
-| `estimate_server_clock_offset_seconds`                                                                                         | Broker server clock offset from true UTC, via the latest tick     |
+| `TickClockNormalizer`                                                                                                          | Connection-scoped, copied-tick-validated UTC tick normalization   |
+| `TickClockCalibration`                                                                                                         | Server-clock calibration diagnostics (offset, evidence, status)   |
+| `NormalizedTickSnapshot`                                                                                                       | Typed latest-tick contract with raw vs validated UTC timestamps   |
+| `CalibrationStatus`, `ClockStatus`                                                                                             | Literal status types for clock calibration and normalization      |
 | `detect_position_side`                                                                                                         | Net long / short / flat from open positions                       |
 | `calculate_spread_ratio`                                                                                                       | Relative bid-ask spread                                           |
 | `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio`                             | Margin budget and volume sizing                                   |
