@@ -4256,6 +4256,32 @@ class TestTickClockNormalizer:
         _assert_close(calibration.offset_seconds, 0.0)
         assert calibration.sample_count == 2
 
+    def test_prefers_plausible_offset_over_newer_coincidental_price_match(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A newer coincidental price match cannot shadow a plausible older one."""
+        _freeze_clock(mocker)
+        exact_event_1 = _CLOCK_NOW_EPOCH - 3
+        exact_event_2 = _CLOCK_NOW_EPOCH - 2
+        client = _clock_client(
+            [
+                _live_tick(exact_event_1 + _UTC_PLUS_3),
+                _live_tick(exact_event_2 + _UTC_PLUS_3),
+            ],
+            [
+                _copied_frame(exact_event_1, exact_event_1 + 100),
+                _copied_frame(exact_event_2, exact_event_2 + 100),
+            ],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "calibrated"
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+        assert calibration.sample_count == 2
+
     def test_oanda_like_utc_plus_three_normalizes_snapshot(
         self,
         mocker: MockerFixture,

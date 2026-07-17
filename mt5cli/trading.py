@@ -1104,23 +1104,27 @@ def _usable_copied_ticks(
     ]
 
 
-def _best_matching_tick(
+def _matching_ticks_newest_first(
     candidates: list[tuple[dict[str, object], float]],
     live: Mapping[str, object],
-) -> tuple[dict[str, object], float] | None:
-    """Return the most recent candidate that matches the live tick's fields.
+) -> list[tuple[dict[str, object], float]]:
+    """Return every candidate matching the live tick's fields, newest first.
 
     An actively updating symbol can produce a newer copied tick while the
     live-vs-copied comparison is in flight, so every recent copied row is
     searched for the same market event as ``live`` instead of assuming the
-    newest copied row is the relevant one.
+    newest copied row is the relevant one. A newer row can also
+    coincidentally share ``live``'s price/volume fields without being the
+    same event, so every match is returned for offset-plausibility
+    evaluation rather than only the newest.
 
     Returns:
-        The ``(row, epoch_seconds)`` pair with the largest epoch among
-        ``candidates`` that matches ``live``, or ``None`` when none match.
+        ``(row, epoch_seconds)`` pairs from ``candidates`` that match
+        ``live``, ordered from most to least recent.
     """
     matches = [item for item in candidates if _ticks_match(live, item[0])]
-    return max(matches, key=itemgetter(1)) if matches else None
+    matches.sort(key=itemgetter(1), reverse=True)
+    return matches
 
 
 def _sample_clock_offset(
@@ -1131,10 +1135,15 @@ def _sample_clock_offset(
 ) -> _OffsetSample:
     """Compare one live tick against recent copied UTC ticks.
 
+    Every field-matching copied tick is evaluated, newest first, so a newer
+    row that coincidentally shares the live tick's price/volume fields
+    cannot shadow a plausible offset from an older exact match; recency
+    only breaks ties among candidates that are themselves plausible.
+
     Returns:
         An :class:`_OffsetSample` whose ``offset_seconds`` is set only when
-        a recent copied tick matches the live tick fields and the resulting
-        offset is a plausible half-hour-aligned server clock offset.
+        a matching copied tick yields a plausible half-hour-aligned server
+        clock offset.
     """
     live = _snapshot_from_value(
         _raw_tick_value(client, symbol),
@@ -1154,21 +1163,28 @@ def _sample_clock_offset(
     )
     if not candidates:
         return _OffsetSample(None, "no_copied_ticks", None)
-    matched = _best_matching_tick(candidates, live)
-    if matched is None:
+    matches = _matching_ticks_newest_first(candidates, live)
+    if not matches:
         return _OffsetSample(None, "no_matching_event", None)
-    _, copied_epoch = matched
-    raw_offset = live_epoch - copied_epoch
-    rounded = (
-        round(raw_offset / _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS)
-        * _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS
+    saw_implausible = False
+    for _, copied_epoch in matches:
+        raw_offset = live_epoch - copied_epoch
+        rounded = (
+            round(raw_offset / _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS)
+            * _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS
+        )
+        if abs(raw_offset - rounded) > _OFFSET_RESIDUAL_TOLERANCE_SECONDS:
+            continue
+        if abs(rounded) > _MAX_PLAUSIBLE_SERVER_CLOCK_OFFSET_SECONDS:
+            saw_implausible = True
+            continue
+        live_key = (symbol, live_epoch, live.get("bid"), live.get("ask"))
+        return _OffsetSample(float(rounded), "calibrated", live_key)
+    return _OffsetSample(
+        None,
+        "implausible_offset" if saw_implausible else "no_matching_event",
+        None,
     )
-    if abs(raw_offset - rounded) > _OFFSET_RESIDUAL_TOLERANCE_SECONDS:
-        return _OffsetSample(None, "no_matching_event", None)
-    if abs(rounded) > _MAX_PLAUSIBLE_SERVER_CLOCK_OFFSET_SECONDS:
-        return _OffsetSample(None, "implausible_offset", None)
-    live_key = (symbol, live_epoch, live.get("bid"), live.get("ask"))
-    return _OffsetSample(float(rounded), "calibrated", live_key)
 
 
 class TickClockNormalizer:
