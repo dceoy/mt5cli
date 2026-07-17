@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from inspect import signature
 from math import floor, isfinite
 from numbers import Integral, Real
+from operator import itemgetter
 from time import sleep
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
 
@@ -1084,23 +1085,42 @@ def _recent_copied_ticks(
     return frame if isinstance(frame, pd.DataFrame) else None
 
 
-def _latest_copied_tick(
+def _usable_copied_ticks(
     frame: pd.DataFrame | None,
-) -> tuple[dict[str, object], float] | None:
-    """Return the newest copied tick row and its epoch, or None when absent.
+) -> list[tuple[dict[str, object], float]]:
+    """Return copied rows that carry a usable event epoch.
 
     Returns:
-        A ``(row, epoch_seconds)`` pair for the copied tick with the largest
-        usable timestamp, or ``None`` when no row has one.
+        ``(row, epoch_seconds)`` pairs for every row with a positive
+        timestamp, or an empty list when the frame is missing, empty, or has
+        no row with a usable timestamp.
     """
     if frame is None or frame.empty:
-        return None
-    best: tuple[dict[str, object], float] | None = None
-    for row in cast("list[dict[str, object]]", frame.to_dict("records")):
-        epoch = _tick_event_epoch(row)
-        if epoch is not None and (best is None or epoch > best[1]):
-            best = (row, epoch)
-    return best
+        return []
+    return [
+        (row, epoch)
+        for row in cast("list[dict[str, object]]", frame.to_dict("records"))
+        if (epoch := _tick_event_epoch(row)) is not None
+    ]
+
+
+def _best_matching_tick(
+    candidates: list[tuple[dict[str, object], float]],
+    live: Mapping[str, object],
+) -> tuple[dict[str, object], float] | None:
+    """Return the most recent candidate that matches the live tick's fields.
+
+    An actively updating symbol can produce a newer copied tick while the
+    live-vs-copied comparison is in flight, so every recent copied row is
+    searched for the same market event as ``live`` instead of assuming the
+    newest copied row is the relevant one.
+
+    Returns:
+        The ``(row, epoch_seconds)`` pair with the largest epoch among
+        ``candidates`` that matches ``live``, or ``None`` when none match.
+    """
+    matches = [item for item in candidates if _ticks_match(live, item[0])]
+    return max(matches, key=itemgetter(1)) if matches else None
 
 
 def _sample_clock_offset(
@@ -1113,7 +1133,7 @@ def _sample_clock_offset(
 
     Returns:
         An :class:`_OffsetSample` whose ``offset_seconds`` is set only when
-        the latest copied tick matches the live tick fields and the resulting
+        a recent copied tick matches the live tick fields and the resulting
         offset is a plausible half-hour-aligned server clock offset.
     """
     live = _snapshot_from_value(
@@ -1124,7 +1144,7 @@ def _sample_clock_offset(
     if live_epoch is None:
         return _OffsetSample(None, "no_live_tick", None)
     now_epoch = datetime.now(UTC).timestamp()
-    latest = _latest_copied_tick(
+    candidates = _usable_copied_ticks(
         _recent_copied_ticks(
             client,
             symbol,
@@ -1132,11 +1152,12 @@ def _sample_clock_offset(
             now_epoch=now_epoch,
         ),
     )
-    if latest is None:
+    if not candidates:
         return _OffsetSample(None, "no_copied_ticks", None)
-    copied_row, copied_epoch = latest
-    if not _ticks_match(live, copied_row):
+    matched = _best_matching_tick(candidates, live)
+    if matched is None:
         return _OffsetSample(None, "no_matching_event", None)
+    _, copied_epoch = matched
     raw_offset = live_epoch - copied_epoch
     rounded = (
         round(raw_offset / _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS)
@@ -1162,12 +1183,16 @@ class TickClockNormalizer:
     caches the result per client connection.
 
     A cached calibration is revalidated after ``max_calibration_age_seconds``
-    (covering DST transitions on the broker side) and immediately when a
-    normalized timestamp lands implausibly far in the future, which indicates
-    the broker offset shrank or the calibration is wrong. When no offset can
-    be established safely, normalized snapshots fail closed with
-    ``clock_status="uncalibrated"`` and ``time_utc=None`` instead of treating
-    the raw timestamp as UTC.
+    (covering DST transitions on the broker side), immediately when a
+    normalized timestamp lands implausibly far in the future (evidence the
+    broker offset grew), and periodically via one confirming sample well
+    before the cache would otherwise expire (evidence the broker offset
+    shrank, which a future-skew check alone cannot catch since it looks like
+    ordinary staleness rather than an anomaly). Failed calibrations are
+    retried at most once per ``failed_calibration_retry_seconds`` rather than
+    on every call. When no offset can be established safely, normalized
+    snapshots fail closed with ``clock_status="uncalibrated"`` and
+    ``time_utc=None`` instead of treating the raw timestamp as UTC.
 
     Keep one instance per MT5 connection/account; the calibration is a
     property of the broker server, not of an individual symbol.
@@ -1183,6 +1208,8 @@ class TickClockNormalizer:
         sample_interval_seconds: float = 1.0,
         copied_window_seconds: float = 300.0,
         max_calibration_age_seconds: float = 6 * 3600.0,
+        revalidation_interval_seconds: float = 300.0,
+        failed_calibration_retry_seconds: float = 30.0,
     ) -> None:
         """Initialize a normalizer bound to one connected MT5 client.
 
@@ -1201,7 +1228,18 @@ class TickClockNormalizer:
             copied_window_seconds: Trailing UTC window queried from
                 ``copy_ticks_range`` per sample.
             max_calibration_age_seconds: Age after which a cached calibration
-                is recomputed (bounds DST-transition staleness).
+                is recomputed unconditionally (bounds DST-transition
+                staleness).
+            revalidation_interval_seconds: Minimum time between opportunistic
+                single-sample checks of an otherwise still-fresh cached
+                calibration. A disagreeing sample forces full recalibration,
+                which catches an offset decrease (for example a UTC+3 to
+                UTC+2 transition) well before ``max_calibration_age_seconds``
+                would; an inconclusive or agreeing sample keeps the cached
+                calibration.
+            failed_calibration_retry_seconds: Minimum time between full
+                recalibration attempts after a failed calibration, so a
+                closed or illiquid market does not retry on every call.
 
         Raises:
             ValueError: If a numeric tuning parameter is not positive.
@@ -1212,10 +1250,16 @@ class TickClockNormalizer:
         if sample_interval_seconds < 0:
             msg = "sample_interval_seconds must not be negative."
             raise ValueError(msg)
-        if copied_window_seconds <= 0 or max_calibration_age_seconds <= 0:
+        if (
+            copied_window_seconds <= 0
+            or max_calibration_age_seconds <= 0
+            or revalidation_interval_seconds <= 0
+            or failed_calibration_retry_seconds <= 0
+        ):
             msg = (
-                "copied_window_seconds and max_calibration_age_seconds must"
-                " be positive."
+                "copied_window_seconds, max_calibration_age_seconds,"
+                " revalidation_interval_seconds, and"
+                " failed_calibration_retry_seconds must be positive."
             )
             raise ValueError(msg)
         self._client = client
@@ -1225,7 +1269,10 @@ class TickClockNormalizer:
         self._sample_interval_seconds = sample_interval_seconds
         self._copied_window_seconds = copied_window_seconds
         self._max_calibration_age_seconds = max_calibration_age_seconds
+        self._revalidation_interval_seconds = revalidation_interval_seconds
+        self._failed_calibration_retry_seconds = failed_calibration_retry_seconds
         self._calibration: TickClockCalibration | None = None
+        self._last_attempt_at: float | None = None
 
     @property
     def calibration(self) -> TickClockCalibration | None:
@@ -1259,6 +1306,7 @@ class TickClockNormalizer:
         matched, failures = self._collect_offset_samples(resolved)
         calibration = self._build_calibration(matched, failures)
         self._calibration = calibration
+        self._last_attempt_at = datetime.now(UTC).timestamp()
         if calibration.calibrated:
             _logger.info(
                 "Calibrated MT5 server clock offset: %.0f seconds"
@@ -1278,11 +1326,16 @@ class TickClockNormalizer:
     def get_normalized_tick_snapshot(self, symbol: str) -> NormalizedTickSnapshot:
         """Return the latest tick with a validated UTC timestamp when possible.
 
-        The raw fields mirror :func:`get_tick_snapshot`. ``time_utc`` is set
-        only under a currently valid calibration; when the normalized time
-        would land implausibly far in the future (evidence that the broker
-        offset changed, e.g. a DST transition) the offset is recalibrated
-        once, and the snapshot fails closed if it still cannot be validated.
+        The raw fields mirror :func:`get_tick_snapshot`, fetched only after
+        calibration is confirmed or refreshed; an initial or expired
+        calibration takes multiple paced samples, and fetching the reported
+        tick beforehand would report a snapshot that was already stale by the
+        time calibration finished. ``time_utc`` is set only under a currently
+        valid calibration; when the normalized time would land implausibly
+        far in the future (evidence that the broker offset changed, e.g. a
+        DST transition) the offset is recalibrated once, the tick is
+        refetched, and the snapshot fails closed if it still cannot be
+        validated.
 
         Args:
             symbol: Symbol whose latest tick is normalized.
@@ -1292,10 +1345,10 @@ class TickClockNormalizer:
             snapshot carries ``clock_status="uncalibrated"``, a ``None``
             ``time_utc``, and a ``None`` offset while preserving raw fields.
         """
-        snapshot = get_tick_snapshot(self._client, symbol)
-        raw_time = snapshot.get("time")
         now_epoch = datetime.now(UTC).timestamp()
         calibration = self._current_calibration(symbol, now_epoch=now_epoch)
+        snapshot = get_tick_snapshot(self._client, symbol)
+        raw_time = snapshot.get("time")
         normalized_epoch = _normalized_epoch(raw_time, calibration)
         if (
             normalized_epoch is not None
@@ -1308,6 +1361,9 @@ class TickClockNormalizer:
                 normalized_epoch - now_epoch,
             )
             calibration = self.calibrate(self._symbols or (symbol,))
+            snapshot = get_tick_snapshot(self._client, symbol)
+            raw_time = snapshot.get("time")
+            now_epoch = datetime.now(UTC).timestamp()
             normalized_epoch = _normalized_epoch(raw_time, calibration)
             if (
                 normalized_epoch is not None
@@ -1339,13 +1395,68 @@ class TickClockNormalizer:
         now_epoch: float,
     ) -> TickClockCalibration:
         cached = self._calibration
+        if cached is not None and not cached.calibrated:
+            if (
+                self._last_attempt_at is not None
+                and now_epoch - self._last_attempt_at
+                < self._failed_calibration_retry_seconds
+            ):
+                return cached
+            return self.calibrate(self._symbols or (symbol,))
         if (
-            cached is not None
-            and cached.calibrated
-            and cached.calibrated_at is not None
-            and now_epoch - cached.calibrated_at <= self._max_calibration_age_seconds
+            cached is None
+            or cached.calibrated_at is None
+            or now_epoch - cached.calibrated_at > self._max_calibration_age_seconds
+        ):
+            return self.calibrate(self._symbols or (symbol,))
+        if (
+            self._last_attempt_at is not None
+            and now_epoch - self._last_attempt_at < self._revalidation_interval_seconds
         ):
             return cached
+        revalidated = self._revalidate(cached, symbol, now_epoch=now_epoch)
+        return revalidated if revalidated is not None else cached
+
+    def _revalidate(
+        self,
+        cached: TickClockCalibration,
+        symbol: str,
+        *,
+        now_epoch: float,
+    ) -> TickClockCalibration | None:
+        """Confirm or replace a still-fresh cached calibration with one sample.
+
+        A future-skew check alone never catches a broker offset *decrease*
+        (e.g. a UTC+3 to UTC+2 transition): the resulting normalized time
+        looks stale rather than future, and staleness is also the expected
+        symptom of a quiet market. This periodic single-sample check is
+        symmetric evidence that also detects that case. An inconclusive
+        sample (closed market, no matching event) leaves the cached
+        calibration in place rather than discarding a still-working offset.
+
+        Returns:
+            A freshly recalibrated :class:`TickClockCalibration` when the
+            fresh sample disagreed with ``cached``, or ``None`` when the
+            cached calibration should be kept as-is.
+        """
+        sample = _sample_clock_offset(
+            self._client,
+            symbol,
+            window_seconds=self._copied_window_seconds,
+        )
+        self._last_attempt_at = now_epoch
+        if (
+            sample.offset_seconds is None
+            or sample.offset_seconds == cached.offset_seconds
+        ):
+            return None
+        _logger.warning(
+            "MT5 server clock offset for %s appears to have changed from"
+            " %.0f to %.0f seconds; recalibrating.",
+            symbol,
+            cached.offset_seconds,
+            sample.offset_seconds,
+        )
         return self.calibrate(self._symbols or (symbol,))
 
     def _collect_offset_samples(
@@ -1354,8 +1465,8 @@ class TickClockNormalizer:
     ) -> tuple[dict[tuple[object, ...], tuple[float, str]], list[CalibrationStatus]]:
         matched: dict[tuple[object, ...], tuple[float, str]] = {}
         failures: list[CalibrationStatus] = []
-        first_sample = True
         for symbol in symbols:
+            first_sample = True
             for _ in range(self._samples_per_symbol):
                 if not first_sample and self._sample_interval_seconds > 0:
                     sleep(self._sample_interval_seconds)

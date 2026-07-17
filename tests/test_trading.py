@@ -4217,6 +4217,45 @@ class TestTickClockNormalizer:
             expected_flag,
         )
 
+    def test_matches_older_copied_row_when_newest_row_disagrees(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A newer unrelated copied row does not block matching an older one."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        matching_event = _CLOCK_NOW_EPOCH - 1
+        newer_unrelated_event = _CLOCK_NOW_EPOCH
+        multi_row_frame = pd.DataFrame([
+            {
+                "time": int(matching_event),
+                "bid": 1.1,
+                "ask": 1.2,
+                "last": 0.0,
+                "volume": 5,
+                "time_msc": int(matching_event * 1000),
+            },
+            {
+                "time": int(newer_unrelated_event),
+                "bid": 9.9,
+                "ask": 9.9,
+                "last": 0.0,
+                "volume": 5,
+                "time_msc": int(newer_unrelated_event * 1000),
+            },
+        ])
+        client = _clock_client(
+            [_live_tick(event_1), _live_tick(matching_event)],
+            [_copied_frame(event_1), multi_row_frame],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "calibrated"
+        _assert_close(calibration.offset_seconds, 0.0)
+        assert calibration.sample_count == 2
+
     def test_oanda_like_utc_plus_three_normalizes_snapshot(
         self,
         mocker: MockerFixture,
@@ -4260,6 +4299,8 @@ class TestTickClockNormalizer:
                 # After the broker moves to UTC+3:
                 _live_tick(event_2 + _UTC_PLUS_3),
                 _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                # Refetched after the skew-triggered recalibration completes:
                 _live_tick(event_2 + _UTC_PLUS_3),
             ],
             [
@@ -4316,7 +4357,7 @@ class TestTickClockNormalizer:
         assert snapshot["time_utc"] == datetime.fromtimestamp(stale_event, tz=UTC)
         assert client.copy_ticks_range.call_count == 2
 
-    def test_closed_market_fails_closed_and_retries_next_call(
+    def test_closed_market_fails_closed_and_skips_retry_within_cooldown(
         self,
         mocker: MockerFixture,
     ) -> None:
@@ -4324,7 +4365,7 @@ class TestTickClockNormalizer:
         _freeze_clock(mocker)
         stale = _CLOCK_NOW_EPOCH - 2 * 24 * 3600
         client = _clock_client(
-            [_live_tick(stale) for _ in range(6)],
+            [_live_tick(stale) for _ in range(4)],
             pd.DataFrame(),
         )
         normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
@@ -4341,6 +4382,36 @@ class TestTickClockNormalizer:
         assert not calibration.calibrated
         assert client.copy_ticks_range.call_count == 2
 
+        second = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert second["clock_status"] == "uncalibrated"
+        assert client.copy_ticks_range.call_count == 2
+
+    def test_failed_calibration_retries_after_cooldown_elapses(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A failed calibration is retried once the retry cooldown passes."""
+        mock_dt, _ = _freeze_clock(mocker)
+        stale = _CLOCK_NOW_EPOCH - 2 * 24 * 3600
+        client = _clock_client(
+            [_live_tick(stale) for _ in range(6)],
+            pd.DataFrame(),
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+            failed_calibration_retry_seconds=30.0,
+        )
+
+        normalizer.get_normalized_tick_snapshot("SING30")
+        assert client.copy_ticks_range.call_count == 2
+
+        mock_dt.now.return_value = datetime.fromtimestamp(
+            _CLOCK_NOW_EPOCH + 31.0,
+            tz=UTC,
+        )
         normalizer.get_normalized_tick_snapshot("SING30")
         assert client.copy_ticks_range.call_count == 4
 
@@ -4551,6 +4622,105 @@ class TestTickClockNormalizer:
         assert snapshot["time_utc"] == datetime.fromtimestamp(later_event_2, tz=UTC)
         assert client.copy_ticks_range.call_count == 4
 
+    def test_periodic_revalidation_confirms_unchanged_offset(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A revalidation sample that agrees keeps the cached calibration."""
+        mock_dt, _ = _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_event = later.timestamp() - 1
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(later_event + _UTC_PLUS_3),  # revalidation sample
+                _live_tick(later_event + _UTC_PLUS_3),  # raw snapshot fetch
+            ],
+            [
+                _copied_frame(event_1),
+                _copied_frame(event_2),
+                _copied_frame(later_event),
+            ],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
+        assert client.copy_ticks_range.call_count == 3
+
+    def test_offset_decrease_is_caught_by_periodic_revalidation(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A DST-style offset decrease is caught well before the cache expires.
+
+        A future-skew check alone never catches this: using the stale larger
+        offset makes a fresh tick look stale, not future, which is
+        indistinguishable from ordinary quiet-market staleness.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        revalidation_event = later_epoch - 2
+        recal_event_1 = later_epoch - 4
+        recal_event_2 = later_epoch - 3
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                # The broker has since fallen back from UTC+3 to UTC+2:
+                _live_tick(revalidation_event + _UTC_PLUS_2),
+                _live_tick(recal_event_1 + _UTC_PLUS_2),
+                _live_tick(recal_event_2 + _UTC_PLUS_2),
+                _live_tick(raw_event + _UTC_PLUS_2),
+            ],
+            [
+                _copied_frame(event_1),
+                _copied_frame(event_2),
+                _copied_frame(revalidation_event),
+                _copied_frame(recal_event_1),
+                _copied_frame(recal_event_2),
+            ],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+        assert client.copy_ticks_range.call_count == 5
+
     def test_persistent_future_skew_fails_closed(
         self,
         mocker: MockerFixture,
@@ -4560,7 +4730,7 @@ class TestTickClockNormalizer:
         event_1 = _CLOCK_NOW_EPOCH + _UTC_PLUS_3 - 2
         event_2 = _CLOCK_NOW_EPOCH + _UTC_PLUS_3 - 1
         ticks = [_live_tick(event_2)] + [
-            _live_tick(event) for event in (event_1, event_2, event_1, event_2)
+            _live_tick(event) for event in (event_1, event_2, event_1, event_2, event_2)
         ]
         client = _clock_client(
             ticks,
@@ -4692,9 +4862,9 @@ class TestTickClockNormalizer:
         event_2 = _CLOCK_NOW_EPOCH - 1
         client = _clock_client(
             [
-                {"symbol": "SING30", "bid": 1.1, "ask": 1.2},
                 _live_tick(event_1),
                 _live_tick(event_2),
+                {"symbol": "SING30", "bid": 1.1, "ask": 1.2},
             ],
             [_copied_frame(event_1), _copied_frame(event_2)],
         )
@@ -4767,6 +4937,8 @@ class TestTickClockNormalizer:
             {"sample_interval_seconds": -0.1},
             {"copied_window_seconds": 0.0},
             {"max_calibration_age_seconds": 0.0},
+            {"revalidation_interval_seconds": 0.0},
+            {"failed_calibration_retry_seconds": 0.0},
         ],
         ids=[
             "samples",
@@ -4774,6 +4946,8 @@ class TestTickClockNormalizer:
             "negative-interval",
             "window",
             "max-age",
+            "revalidation-interval",
+            "failed-retry-interval",
         ],
     )
     def test_constructor_rejects_invalid_tuning(

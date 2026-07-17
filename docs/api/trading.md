@@ -253,12 +253,13 @@ A normalized snapshot keeps the raw/UTC distinction explicit:
 
 The offset is never inferred from `latest_tick_time - now` alone. Each
 calibration sample fetches the live `symbol_info_tick()` value **and** recent
-UTC-labeled `copy_ticks_range()` data, then accepts the sample only when the
-latest copied tick matches the live tick on its shared `bid`/`ask`/`last`/
-`volume` fields (with at least one agreeing positive price field) and the
-resulting offset is aligned to a 30-minute increment within the realistic
-UTC-14..UTC+14 range. `time_msc` is preferred over second-resolution `time`
-on both sides when available.
+UTC-labeled `copy_ticks_range()` data, then searches every recent copied row
+(not just the newest) for one that matches the live tick on its shared
+`bid`/`ask`/`last`/`volume` fields (with at least one agreeing positive price
+field); the newest matching row sets the resulting offset, which must align
+to a 30-minute increment within the realistic UTC-14..UTC+14 range.
+`time_msc` is preferred over second-resolution `time` on both sides when
+available.
 
 An offset is accepted only after `min_agreeing_samples` (default 2)
 **distinct** matched tick events agree on the same rounded offset — repeated
@@ -285,13 +286,25 @@ evidence symbols, and last calibration time (`to_dict()` for serialization).
 
 Calibration is a property of the broker server clock, so it is cached on the
 normalizer (keep one instance per MT5 connection/account) and reused across
-symbols and calls. A cached offset is recomputed after
-`max_calibration_age_seconds` (default 6 hours, bounding DST-transition
-staleness) and immediately when a normalized timestamp lands more than two
-minutes in the future — evidence that the broker offset grew, e.g. a UTC+2 to
-UTC+3 transition. If recalibration still cannot validate the timestamp, the
-snapshot fails closed. Failed calibrations are recorded for diagnostics but
-never reused; the next call retries.
+symbols and calls. A cached offset is recomputed in three cases:
+
+- After `max_calibration_age_seconds` (default 6 hours, bounding
+  DST-transition staleness), unconditionally.
+- Immediately when a normalized timestamp lands more than two minutes in the
+  future — evidence that the broker offset grew, e.g. a UTC+2 to UTC+3
+  transition.
+- Periodically, at most once per `revalidation_interval_seconds` (default 5
+  minutes), a single confirming sample is taken against the still-cached
+  offset; a disagreement forces full recalibration. This is what catches a
+  broker offset _decrease_ (e.g. UTC+3 to UTC+2): the resulting normalized
+  time looks stale rather than future, which a future-skew check alone
+  cannot distinguish from ordinary quiet-market staleness.
+
+If recalibration still cannot validate the timestamp, the snapshot fails
+closed. Failed calibrations are recorded for diagnostics but never reused;
+retries are bounded to at most once per `failed_calibration_retry_seconds`
+(default 30 seconds) rather than on every call, so a closed or illiquid
+market does not trigger a full resample on every snapshot request.
 
 A genuinely stale tick (weekend, illiquid symbol) under a valid calibration
 normalizes to its true **past** UTC instant — staleness is preserved, never
