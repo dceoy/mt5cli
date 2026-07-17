@@ -2369,7 +2369,7 @@ class TestIncrementalIntegration:
         end = datetime(2024, 1, 2, tzinfo=UTC)
         with (
             sqlite3.connect(tmp_path / "incremental-orders-without-time.db") as conn,
-            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
+            caplog.at_level(logging.INFO, logger="mt5cli.history"),
         ):
             write_incremental_datasets(
                 conn,
@@ -2393,6 +2393,78 @@ class TestIncrementalIntegration:
             "Skipping history_orders for symbol=GBPUSD: dataset returned no columns"
             in caplog.text
         )
+
+    @pytest.mark.parametrize("include_account_events", [False, True])
+    def test_empty_history_deals_logs_at_info(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        include_account_events: bool,
+    ) -> None:
+        """Test empty history_deals results are informational."""
+        client = MagicMock()
+        client.history_deals.return_value = pd.DataFrame()
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        with (
+            sqlite3.connect(tmp_path / "incremental-empty-deals.db") as conn,
+            caplog.at_level(logging.INFO, logger="mt5cli.history"),
+        ):
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD"],
+                {Dataset.history_deals},
+                [],
+                0,
+                start,
+                end,
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=include_account_events,
+            )
+        expected = (
+            "Skipping history_deals: dataset returned no columns"
+            if include_account_events
+            else "Skipping history_deals for symbol=EURUSD: dataset returned no columns"
+        )
+        records = [record for record in caplog.records if record.message == expected]
+        assert len(records) == 1
+        assert records[0].levelno == logging.INFO
+
+    def test_empty_rates_still_log_warning(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test empty market data remains an operational warning."""
+        client = MagicMock()
+        client.copy_rates_range.return_value = pd.DataFrame()
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        with (
+            sqlite3.connect(tmp_path / "incremental-empty-rates.db") as conn,
+            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
+        ):
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD"],
+                {Dataset.rates},
+                [1],
+                0,
+                start,
+                end,
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=False,
+            )
+        expected = "Skipping rates for symbol=EURUSD: dataset returned no columns"
+        records = [record for record in caplog.records if record.message == expected]
+        assert len(records) == 1
+        assert records[0].levelno == logging.WARNING
 
     def test_write_collected_datasets_and_edge_branches(
         self,
@@ -2751,17 +2823,17 @@ class TestIncrementalIntegration:
         assert isinstance(digits, int)
         assert digits == 5
 
-    def test_finalize_with_views_warning_when_deals_missing(
+    def test_finalize_with_views_info_when_deals_missing(
         self,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test with_views warning when history_deals was not written."""
+        """Test with_views is informational when deal history is empty."""
         client = MagicMock()
         client.copy_rates_range.return_value = pd.DataFrame()
         with (
-            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
-            sqlite3.connect(tmp_path / "views-warning.db") as conn,
+            caplog.at_level(logging.INFO, logger="mt5cli.history"),
+            sqlite3.connect(tmp_path / "views-info.db") as conn,
         ):
             write_incremental_datasets(
                 conn,
@@ -2777,7 +2849,10 @@ class TestIncrementalIntegration:
                 with_views=True,
                 include_account_events=True,
             )
-        assert "with_views ignored" in caplog.text
+        expected = "Skipping history-deal views: no history_deals data was available"
+        records = [record for record in caplog.records if record.message == expected]
+        assert len(records) == 1
+        assert records[0].levelno == logging.INFO
 
     def test_augment_written_columns_creates_new_entry(
         self,
