@@ -399,8 +399,20 @@ strategy entries, exits, Kelly sizing, or signal logic.</p>
 <td>Positive finite bid/ask extraction from tick mappings</td>
 </tr>
 <tr>
-<td><code>estimate_server_clock_offset_seconds</code></td>
-<td>Broker server clock offset from true UTC, via the latest tick</td>
+<td><code>TickClockNormalizer</code></td>
+<td>Connection-scoped, copied-tick-validated UTC tick normalization</td>
+</tr>
+<tr>
+<td><code>TickClockCalibration</code></td>
+<td>Server-clock calibration diagnostics (offset, evidence, status)</td>
+</tr>
+<tr>
+<td><code>NormalizedTickSnapshot</code></td>
+<td>Typed latest-tick contract with raw vs validated UTC timestamps</td>
+</tr>
+<tr>
+<td><code>CalibrationStatus</code>, <code>ClockStatus</code></td>
+<td>Literal status types for clock calibration and normalization</td>
 </tr>
 <tr>
 <td><code>detect_position_side</code></td>
