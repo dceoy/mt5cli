@@ -51,6 +51,10 @@ DEFAULT_HISTORY_DATASETS: frozenset[Dataset] = frozenset({
     Dataset.history_orders,
     Dataset.history_deals,
 })
+_EXPECTED_EMPTY_HISTORY_DATASETS: frozenset[Dataset] = frozenset({
+    Dataset.history_orders,
+    Dataset.history_deals,
+})
 
 _HISTORY_DEDUP_KEYS: dict[Dataset, tuple[tuple[str, ...], ...]] = {
     Dataset.rates: DEDUP_KEYS[DataKind.rates],
@@ -1341,11 +1345,20 @@ def get_incremental_start_datetime(
     return starts[symbol, timeframe]
 
 
+def _empty_dataset_log_level(dataset: Dataset) -> int:
+    """Return the log level for a schema-less dataset result."""
+    if dataset in _EXPECTED_EMPTY_HISTORY_DATASETS:
+        return logging.INFO
+    return logging.WARNING
+
+
 def append_dataframe(
     conn: sqlite3.Connection,
     frame: pd.DataFrame,
     table_name: str,
     if_exists: IfExists,
+    *,
+    empty_log_level: int = logging.WARNING,
 ) -> bool:
     """Append a DataFrame to SQLite when it has a schema.
 
@@ -1353,7 +1366,11 @@ def append_dataframe(
         True if a table was written, False if the frame had no columns.
     """
     if len(frame.columns) == 0:
-        logger.warning("Skipping %s: dataset returned no columns", table_name)
+        logger.log(
+            empty_log_level,
+            "Skipping %s: dataset returned no columns",
+            table_name,
+        )
         return False
     writable = _canonicalize_sqlite_time_columns(frame)
     writable.to_sql(  # type: ignore[reportUnknownMemberType]
@@ -1409,7 +1426,13 @@ def write_streamed_frame(
         True if the dataset table exists after this write attempt.
     """
     write_mode = IfExists.APPEND if table_exists else if_exists
-    if append_dataframe(conn, frame, dataset.table_name, write_mode):
+    if append_dataframe(
+        conn,
+        frame,
+        dataset.table_name,
+        write_mode,
+        empty_log_level=_empty_dataset_log_level(dataset),
+    ):
         record_written_columns(written_columns, dataset, frame)
         return True
     return table_exists
@@ -1751,7 +1774,8 @@ def _stream_symbol_frames(
     for sym in symbols:
         frame = fetch_frame(sym)
         if len(frame.columns) == 0:
-            logger.warning(
+            logger.log(
+                _empty_dataset_log_level(dataset),
                 "Skipping %s for symbol=%s: dataset returned no columns",
                 dataset.table_name,
                 sym,
@@ -2243,8 +2267,8 @@ def _finalize_incremental_writes(
             Dataset.history_deals not in written_columns
             and Dataset.history_deals not in written_tables
         ):
-            logger.warning(
-                "with_views ignored: history_deals table was not available",
+            logger.info(
+                "Skipping history-deal views: no history_deals data was available",
             )
 
 
@@ -2848,9 +2872,13 @@ def collect_history(
                 conn,
                 written_columns[Dataset.history_deals],
             )
+        elif with_views and Dataset.history_deals in selected:
+            logger.info(
+                "Skipping history-deal views: no history_deals data was collected",
+            )
         elif with_views:
             logger.warning(
-                "--with-views ignored: history_deals table was not written",
+                "--with-views requires the history_deals dataset",
             )
     logger.info(
         "Collected %s for %d symbol(s) into %s",

@@ -1866,9 +1866,7 @@ class TestCollectHistory:
                 ],
             )
         assert result.exit_code == 0, result.output
-        assert (
-            "--with-views ignored: history_deals table was not written" in caplog.text
-        )
+        assert "--with-views requires the history_deals dataset" in caplog.text
 
 
 class TestHistoryGapsCommand:

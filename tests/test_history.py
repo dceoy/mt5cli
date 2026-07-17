@@ -2369,7 +2369,7 @@ class TestIncrementalIntegration:
         end = datetime(2024, 1, 2, tzinfo=UTC)
         with (
             sqlite3.connect(tmp_path / "incremental-orders-without-time.db") as conn,
-            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
+            caplog.at_level(logging.INFO, logger="mt5cli.history"),
         ):
             write_incremental_datasets(
                 conn,
@@ -2393,6 +2393,78 @@ class TestIncrementalIntegration:
             "Skipping history_orders for symbol=GBPUSD: dataset returned no columns"
             in caplog.text
         )
+
+    @pytest.mark.parametrize("include_account_events", [False, True])
+    def test_empty_history_deals_logs_at_info(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        include_account_events: bool,
+    ) -> None:
+        """Test empty history_deals results are informational."""
+        client = MagicMock()
+        client.history_deals.return_value = pd.DataFrame()
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        with (
+            sqlite3.connect(tmp_path / "incremental-empty-deals.db") as conn,
+            caplog.at_level(logging.INFO, logger="mt5cli.history"),
+        ):
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD"],
+                {Dataset.history_deals},
+                [],
+                0,
+                start,
+                end,
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=include_account_events,
+            )
+        expected = (
+            "Skipping history_deals: dataset returned no columns"
+            if include_account_events
+            else "Skipping history_deals for symbol=EURUSD: dataset returned no columns"
+        )
+        records = [record for record in caplog.records if record.message == expected]
+        assert len(records) == 1
+        assert records[0].levelno == logging.INFO
+
+    def test_empty_rates_still_log_warning(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test empty market data remains an operational warning."""
+        client = MagicMock()
+        client.copy_rates_range.return_value = pd.DataFrame()
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        with (
+            sqlite3.connect(tmp_path / "incremental-empty-rates.db") as conn,
+            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
+        ):
+            write_incremental_datasets(
+                conn,
+                client,
+                ["EURUSD"],
+                {Dataset.rates},
+                [1],
+                0,
+                start,
+                end,
+                deduplicate=True,
+                create_rate_views=False,
+                with_views=False,
+                include_account_events=False,
+            )
+        expected = "Skipping rates for symbol=EURUSD: dataset returned no columns"
+        records = [record for record in caplog.records if record.message == expected]
+        assert len(records) == 1
+        assert records[0].levelno == logging.WARNING
 
     def test_write_collected_datasets_and_edge_branches(
         self,
@@ -2751,33 +2823,69 @@ class TestIncrementalIntegration:
         assert isinstance(digits, int)
         assert digits == 5
 
-    def test_finalize_with_views_warning_when_deals_missing(
+    @pytest.mark.parametrize(
+        (
+            "selected_datasets",
+            "resolved_timeframes",
+            "deduplicate",
+            "expect_no_warnings",
+        ),
+        [
+            pytest.param(
+                {Dataset.rates, Dataset.history_deals},
+                [1],
+                False,
+                False,
+                id="alongside-empty-rates-still-warns",
+            ),
+            pytest.param(
+                {Dataset.history_deals},
+                [],
+                True,
+                True,
+                id="deals-only-stays-informational",
+            ),
+        ],
+    )
+    def test_finalize_with_views_info_when_deals_missing(
         self,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
+        selected_datasets: set[Dataset],
+        resolved_timeframes: list[int],
+        deduplicate: bool,
+        expect_no_warnings: bool,
     ) -> None:
-        """Test with_views warning when history_deals was not written."""
+        """Test with_views is informational when deal history is empty."""
         client = MagicMock()
         client.copy_rates_range.return_value = pd.DataFrame()
+        client.history_deals.return_value = pd.DataFrame()
         with (
-            caplog.at_level(logging.WARNING, logger="mt5cli.history"),
-            sqlite3.connect(tmp_path / "views-warning.db") as conn,
+            caplog.at_level(logging.INFO, logger="mt5cli.history"),
+            sqlite3.connect(tmp_path / "views-info.db") as conn,
         ):
             write_incremental_datasets(
                 conn,
                 client,
                 ["EURUSD"],
-                {Dataset.rates, Dataset.history_deals},
-                [1],
+                selected_datasets,
+                resolved_timeframes,
                 0,
                 datetime(2024, 1, 1, tzinfo=UTC),
                 datetime(2024, 1, 2, tzinfo=UTC),
-                deduplicate=False,
+                deduplicate=deduplicate,
                 create_rate_views=False,
                 with_views=True,
                 include_account_events=True,
             )
-        assert "with_views ignored" in caplog.text
+        expected = "Skipping history-deal views: no history_deals data was available"
+        records = [record for record in caplog.records if record.message == expected]
+        assert len(records) == 1
+        assert records[0].levelno == logging.INFO
+        if expect_no_warnings:
+            assert not [
+                record for record in caplog.records if record.levelno >= logging.WARNING
+            ]
 
     def test_augment_written_columns_creates_new_entry(
         self,
@@ -4031,6 +4139,54 @@ class TestCollectHistory:
             }
         assert "cash_events" not in views
         assert "positions_reconstructed" not in views
+
+    @pytest.mark.parametrize(
+        ("datasets", "expected_message", "expected_level"),
+        [
+            pytest.param(
+                {Dataset.history_deals},
+                "Skipping history-deal views: no history_deals data was collected",
+                logging.INFO,
+                id="empty-deals-logs-info",
+            ),
+            pytest.param(
+                set[Dataset](),
+                "--with-views requires the history_deals dataset",
+                logging.WARNING,
+                id="missing-deals-dataset-logs-warning",
+            ),
+        ],
+    )
+    def test_collect_history_with_views_deal_skip_messages(
+        self,
+        tmp_path: Path,
+        history_client: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+        datasets: set[Dataset],
+        expected_message: str,
+        expected_level: int,
+    ) -> None:
+        """Test collect_history reports history-deal view skips at the right level."""
+        history_client.history_deals_get_as_df.side_effect = None
+        history_client.history_deals_get_as_df.return_value = pd.DataFrame()
+        with caplog.at_level(logging.INFO, logger="mt5cli.history"):
+            collect_history(
+                tmp_path / "history.db",
+                ["EURUSD"],
+                "2024-01-01",
+                "2024-02-01",
+                datasets=datasets,
+                with_views=True,
+            )
+        records = [
+            record for record in caplog.records if record.message == expected_message
+        ]
+        assert len(records) == 1
+        assert records[0].levelno == expected_level
+        if expected_level == logging.INFO:
+            assert not [
+                record for record in caplog.records if record.levelno >= logging.WARNING
+            ]
 
 
 class TestUpdateHistory:
