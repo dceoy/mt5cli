@@ -4178,9 +4178,19 @@ class TestTickClockNormalizer:
         _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
         mock_sleep.assert_called_once_with(1.0)
 
-    def test_copy_ticks_range_receives_utc_window_and_fallback_flags(
+    @pytest.mark.parametrize(
+        ("mt5_flag", "expected_flag"),
+        [
+            (None, -1),
+            (7, 7),
+        ],
+        ids=["fallback-flags", "client-flag-constant"],
+    )
+    def test_copy_ticks_range_receives_utc_window_and_flags(
         self,
         mocker: MockerFixture,
+        mt5_flag: int | None,
+        expected_flag: int,
     ) -> None:
         """Copied ticks are queried over a trailing UTC window ending now."""
         _freeze_clock(mocker)
@@ -4189,6 +4199,8 @@ class TestTickClockNormalizer:
             [_live_tick(event)],
             _copied_frame(event),
         )
+        if mt5_flag is not None:
+            client.mt5.COPY_TICKS_ALL = mt5_flag
         normalizer = TickClockNormalizer(
             client,
             ["SING30"],
@@ -4202,27 +4214,8 @@ class TestTickClockNormalizer:
             "SING30",
             datetime.fromtimestamp(_CLOCK_NOW_EPOCH - 300.0, tz=UTC),
             datetime.fromtimestamp(_CLOCK_NOW_EPOCH, tz=UTC),
-            -1,
+            expected_flag,
         )
-
-    def test_copy_ticks_range_uses_client_flag_constant(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """An integer COPY_TICKS_ALL constant on client.mt5 is forwarded."""
-        _freeze_clock(mocker)
-        event = _CLOCK_NOW_EPOCH - 1
-        client = _clock_client([_live_tick(event)], _copied_frame(event))
-        client.mt5.COPY_TICKS_ALL = 7
-        normalizer = TickClockNormalizer(
-            client,
-            ["SING30"],
-            samples_per_symbol=1,
-            min_agreeing_samples=1,
-        )
-
-        assert normalizer.calibrate().status == "calibrated"
-        assert client.copy_ticks_range.call_args[0][3] == 7
 
     def test_oanda_like_utc_plus_three_normalizes_snapshot(
         self,
@@ -4402,22 +4395,38 @@ class TestTickClockNormalizer:
         assert calibration.evidence_symbols == ("SING30", "USDJPY")
         assert calibration.sample_count == 2
 
-    def test_live_copied_price_disagreement_is_rejected(
+    @pytest.mark.parametrize(
+        ("label_shift", "copied_kwargs", "expected_status"),
+        [
+            (0.0, {"bid": 9.9}, "no_matching_event"),
+            (600.0, {}, "no_matching_event"),
+            (15 * 3600.0, {}, "implausible_offset"),
+        ],
+        ids=[
+            "price-disagreement",
+            "non-half-hour-delta",
+            "implausible-offset",
+        ],
+    )
+    def test_unsafe_offset_samples_are_rejected(
         self,
         mocker: MockerFixture,
+        label_shift: float,
+        copied_kwargs: dict[str, float],
+        expected_status: str,
     ) -> None:
-        """A latest copied tick with different prices is not the same event."""
+        """Samples without safe same-event evidence never calibrate."""
         _freeze_clock(mocker)
         event = _CLOCK_NOW_EPOCH - 1
         client = _clock_client(
-            [_live_tick(event), _live_tick(event - 1)],
-            _copied_frame(event, bid=9.9),
+            [_live_tick(event + label_shift), _live_tick(event - 1 + label_shift)],
+            _copied_frame(event, **copied_kwargs),
         )
         normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
 
         calibration = normalizer.calibrate()
 
-        assert calibration.status == "no_matching_event"
+        assert calibration.status == expected_status
         assert calibration.offset_seconds is None
 
     def test_offset_disagreement_fails_closed_and_stops_sampling(
@@ -4597,40 +4606,6 @@ class TestTickClockNormalizer:
 
         assert calibration.status == "no_live_tick"
         client.copy_ticks_range.assert_not_called()
-
-    def test_half_hour_misaligned_offset_is_rejected(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Price-coincident ticks with a non-half-hour delta never calibrate."""
-        _freeze_clock(mocker)
-        event = _CLOCK_NOW_EPOCH - 1
-        client = _clock_client(
-            [_live_tick(event + 600), _live_tick(event + 599)],
-            _copied_frame(event),
-        )
-        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
-
-        calibration = normalizer.calibrate()
-
-        assert calibration.status == "no_matching_event"
-
-    def test_implausible_offset_is_rejected(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """Offsets outside the realistic UTC offset range are discarded."""
-        _freeze_clock(mocker)
-        event = _CLOCK_NOW_EPOCH - 1
-        client = _clock_client(
-            [_live_tick(event + 15 * 3600), _live_tick(event - 1 + 15 * 3600)],
-            _copied_frame(event),
-        )
-        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
-
-        calibration = normalizer.calibrate()
-
-        assert calibration.status == "implausible_offset"
 
     @pytest.mark.parametrize(
         ("live_overrides", "copied_kwargs"),
