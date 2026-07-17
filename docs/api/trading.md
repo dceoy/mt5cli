@@ -215,13 +215,104 @@ Any broker-specific offset handling therefore requires evidence from the live
 data source in use and must be applied separately. Do not subtract a presumed
 UTC+2 or UTC+3 offset from timestamps that are already UTC.
 
-`estimate_server_clock_offset_seconds()` reads the latest tick for a symbol
-and returns the broker's clock offset from true UTC, rounded to the nearest
-half hour, or `None` when no valid tick time is available. Use it to validate a
-suspected offset for the live `symbol_info_tick()` source before applying the
-result in downstream time-window calculations.
-
 No offset is applied automatically by history retrieval helpers.
+
+## UTC normalization for live ticks
+
+`TickClockNormalizer` provides the stable API for obtaining a latest tick with
+a **validated** UTC timestamp, so strategy applications never compare a raw
+server-labeled tick time against `datetime.now(UTC)` themselves.
+
+```python
+from mt5cli import TickClockNormalizer, mt5_session
+
+with mt5_session() as client:
+    normalizer = TickClockNormalizer(client, ["SING30", "EURUSD"])
+    snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+    if snapshot["clock_status"] == "calibrated":
+        freshness = now_utc - snapshot["time_utc"]  # safe wall-clock compare
+```
+
+A normalized snapshot keeps the raw/UTC distinction explicit:
+
+```python
+{
+    "symbol": "SING30",
+    "bid": ...,
+    "ask": ...,
+    "last": ...,
+    "volume": ...,
+    "raw_time": 1717243200,  # numeric MT5 epoch, as labeled by broker
+    "time_utc": datetime(..., tzinfo=UTC),  # None unless calibrated
+    "server_clock_offset_seconds": 10800.0,  # None unless calibrated
+    "clock_status": "calibrated",  # or "uncalibrated"
+}
+```
+
+### Calibration evidence
+
+The offset is never inferred from `latest_tick_time - now` alone. Each
+calibration sample fetches the live `symbol_info_tick()` value **and** recent
+UTC-labeled `copy_ticks_range()` data, then searches every recent copied row
+(not just the newest) for one that matches the live tick on its shared
+`bid`/`ask`/`last`/`volume` fields (with at least one agreeing positive price
+field); the newest matching row sets the resulting offset, which must align
+to a 30-minute increment within the realistic UTC-14..UTC+14 range.
+`time_msc` is preferred over second-resolution `time` on both sides when
+available.
+
+An offset is accepted only after `min_agreeing_samples` (default 2)
+**distinct** matched tick events agree on the same rounded offset — repeated
+observations of one unchanged tick never count twice, so an illiquid symbol
+cannot self-confirm. Evidence can come from multiple samples of one actively
+updating symbol (paced by `sample_interval_seconds`) or across several
+symbols passed to the constructor. Any two matched samples that disagree
+abort the calibration (`offset_disagreement`).
+
+### Failure modes and fail-closed behavior
+
+When calibration cannot be established safely — closed market or weekend
+(`no_copied_ticks`), price disagreement or a non-half-hour delta
+(`no_matching_event`), a single matched event only (`insufficient_agreement`),
+missing live data (`no_live_tick`), or an unrealistic delta
+(`implausible_offset`) — snapshots fail closed: `clock_status` is
+`"uncalibrated"`, `time_utc` and `server_clock_offset_seconds` are `None`,
+and the raw fields remain available. A raw timestamp is never silently
+treated as UTC. `normalizer.calibration` exposes the full
+`TickClockCalibration` diagnostics: status, offset, distinct sample count,
+evidence symbols, and last calibration time (`to_dict()` for serialization).
+
+### Caching and revalidation
+
+Calibration is a property of the broker server clock, so it is cached on the
+normalizer (keep one instance per MT5 connection/account) and reused across
+symbols and calls. A cached offset is recomputed in three cases:
+
+- After `max_calibration_age_seconds` (default 6 hours, bounding
+  DST-transition staleness), unconditionally.
+- Immediately when a normalized timestamp lands more than two minutes in the
+  future — evidence that the broker offset grew, e.g. a UTC+2 to UTC+3
+  transition.
+- Periodically, at most once per `revalidation_interval_seconds` (default 5
+  minutes), a single confirming sample is taken against the still-cached
+  offset; a disagreement forces full recalibration. This is what catches a
+  broker offset _decrease_ (e.g. UTC+3 to UTC+2): the resulting normalized
+  time looks stale rather than future, which a future-skew check alone
+  cannot distinguish from ordinary quiet-market staleness.
+
+If recalibration still cannot validate the timestamp, the snapshot fails
+closed. Failed calibrations are recorded for diagnostics but never reused;
+retries are bounded to at most once per `failed_calibration_retry_seconds`
+(default 30 seconds) rather than on every call, so a closed or illiquid
+market does not trigger a full resample on every snapshot request.
+
+A genuinely stale tick (weekend, illiquid symbol) under a valid calibration
+normalizes to its true **past** UTC instant — staleness is preserved, never
+corrected to the present.
+
+mt5cli owns MT5 timestamp normalization only. Freshness thresholds,
+entry-blocking rules, and other strategy policy belong in downstream
+applications.
 
 ## Migration from application-local helpers
 
@@ -234,7 +325,7 @@ No offset is applied automatically by history retrieval helpers.
 | Local order or position margin estimation                | `estimate_order_margin()`, `calculate_positions_margin()`              |
 | Local closed-bar fetch from a session                    | `fetch_latest_closed_rates()` or `fetch_latest_closed_rates_indexed()` |
 | Local recent deal history fetch from a session           | `client.recent_history_deals()`                                        |
-| Local broker server clock offset measurement             | `estimate_server_clock_offset_seconds()`                               |
+| Local broker server clock offset measurement             | `TickClockNormalizer`                                                  |
 | Local SL/TP price derivation                             | `determine_order_limits()`                                             |
 | Throttled SQLite history loop with ad-hoc error handling | `ThrottledHistoryUpdater(suppress_errors=True)`                        |
 

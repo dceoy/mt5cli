@@ -25,6 +25,9 @@ from mt5cli.trading import (
     OrderLimits,
     OrderSide,
     ProjectionMode,
+    TickClockCalibration,
+    TickClockNormalizer,
+    _aggregate_failure_status,  # type: ignore[reportPrivateUsage]
     _execution_receipt,  # type: ignore[reportPrivateUsage]
     _filter_positions,  # type: ignore[reportPrivateUsage]
     _Mt5ClientProtocol,  # type: ignore[reportPrivateUsage]
@@ -48,7 +51,6 @@ from mt5cli.trading import (
     determine_order_limits,
     ensure_symbol_selected,
     estimate_order_margin,
-    estimate_server_clock_offset_seconds,
     extract_tick_price,
     fetch_latest_closed_rates_indexed,
     get_account_snapshot,
@@ -741,6 +743,7 @@ class TestSnapshotsAndState:
             (float("inf"), None),
             (pd.NaT, None),
             ("1717254000", 1717254000.0),
+            ("not-a-number", None),
             (object(), None),
         ],
         ids=[
@@ -748,6 +751,7 @@ class TestSnapshotsAndState:
             "non-finite",
             "missing-datetime",
             "numeric-string",
+            "non-numeric-string",
             "unsupported",
         ],
     )
@@ -4071,117 +4075,936 @@ class TestCalculatePositionsMarginSafe:
         _assert_close(total, 0.0)
 
 
-class TestEstimateServerClockOffsetSeconds:
-    """Tests for estimate_server_clock_offset_seconds."""
+_CLOCK_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+_CLOCK_NOW_EPOCH = _CLOCK_NOW.timestamp()
+_UTC_PLUS_2 = 7200.0
+_UTC_PLUS_3 = 10800.0
 
-    def _client_with_tick_time(self, tick_time: object) -> MagicMock:
-        client = MagicMock()
-        client.symbol_info_tick_as_dict.return_value = {"time": tick_time}
-        return client
 
-    @pytest.mark.parametrize("server_offset", [7200.0, 10800.0])
-    def test_rounds_positive_broker_offset_to_nearest_half_hour(
+def _freeze_clock(
+    mocker: MockerFixture,
+    now: datetime = _CLOCK_NOW,
+) -> tuple[MagicMock, MagicMock]:
+    mock_dt = mocker.patch("mt5cli.trading.datetime")
+    mock_dt.now.return_value = now
+    mock_dt.fromtimestamp.side_effect = datetime.fromtimestamp
+    mock_sleep = mocker.patch("mt5cli.trading.sleep")
+    return mock_dt, mock_sleep
+
+
+def _live_tick(
+    server_epoch: float,
+    *,
+    bid: float | None = 1.1,
+    ask: float | None = 1.2,
+    last: float | None = 0.0,
+    volume: int | None = 5,
+) -> dict[str, object]:
+    return {
+        "symbol": "SING30",
+        "time": int(server_epoch),
+        "time_msc": int(server_epoch * 1000),
+        "bid": bid,
+        "ask": ask,
+        "last": last,
+        "volume": volume,
+    }
+
+
+def _copied_frame(
+    *utc_epochs: float,
+    bid: float = 1.1,
+    ask: float = 1.2,
+    volume: float = 5,
+) -> pd.DataFrame:
+    return pd.DataFrame([
+        {
+            "time": int(epoch),
+            "bid": bid,
+            "ask": ask,
+            "last": 0.0,
+            "volume": volume,
+            "time_msc": int(epoch * 1000),
+            "flags": 2,
+            "volume_real": float(volume),
+        }
+        for epoch in utc_epochs
+    ])
+
+
+def _clock_client(
+    live_ticks: list[dict[str, object]],
+    copied: list[object] | object,
+) -> MagicMock:
+    client = MagicMock()
+    client.symbol_info_tick_as_dict.side_effect = live_ticks
+    if isinstance(copied, list):
+        client.copy_ticks_range.side_effect = copied
+    else:
+        client.copy_ticks_range.return_value = copied
+    return client
+
+
+class TestTickClockNormalizer:
+    """Tests for TickClockNormalizer calibration and UTC normalization."""
+
+    def test_utc_native_broker_calibrates_zero_offset(
         self,
         mocker: MockerFixture,
-        server_offset: float,
     ) -> None:
-        """UTC+2 and UTC+3 broker tick labels yield their server offsets."""
-        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        mock_dt = mocker.patch("mt5cli.trading.datetime")
-        mock_dt.now.return_value = frozen
-        client = self._client_with_tick_time(frozen.timestamp() + server_offset + 0.4)
+        """A broker whose tick labels are true UTC calibrates to offset 0."""
+        _, mock_sleep = _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [_live_tick(event_1), _live_tick(event_2)],
+            [
+                _copied_frame(event_1 - 8, event_1),
+                _copied_frame(event_2, event_2 - 5),
+            ],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+        )
 
-        offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+        calibration = normalizer.calibrate()
 
-        _assert_close(offset, server_offset)
+        assert calibration.status == "calibrated"
+        _assert_close(calibration.offset_seconds, 0.0)
+        assert calibration.sample_count == 2
+        assert calibration.evidence_symbols == ("SING30",)
+        _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
+        mock_sleep.assert_called_once_with(1.0)
 
-    def test_stale_tick_on_utc_server_rounds_to_zero(
+    @pytest.mark.parametrize(
+        ("mt5_flag", "expected_flag"),
+        [
+            (None, -1),
+            (7, 7),
+        ],
+        ids=["fallback-flags", "client-flag-constant"],
+    )
+    def test_copy_ticks_range_receives_utc_window_and_flags(
+        self,
+        mocker: MockerFixture,
+        mt5_flag: int | None,
+        expected_flag: int,
+    ) -> None:
+        """Copied ticks are queried over a trailing UTC window ending now."""
+        _freeze_clock(mocker)
+        event = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [_live_tick(event)],
+            _copied_frame(event),
+        )
+        if mt5_flag is not None:
+            client.mt5.COPY_TICKS_ALL = mt5_flag
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=1,
+            min_agreeing_samples=1,
+            copied_window_seconds=300.0,
+        )
+
+        assert normalizer.calibrate().status == "calibrated"
+        client.copy_ticks_range.assert_called_once_with(
+            "SING30",
+            datetime.fromtimestamp(_CLOCK_NOW_EPOCH - 300.0, tz=UTC),
+            datetime.fromtimestamp(_CLOCK_NOW_EPOCH, tz=UTC),
+            expected_flag,
+        )
+
+    def test_matches_older_copied_row_when_newest_row_disagrees(
         self,
         mocker: MockerFixture,
     ) -> None:
-        """A tick 90s stale on a true-UTC server estimates a zero offset."""
-        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        mock_dt = mocker.patch("mt5cli.trading.datetime")
-        mock_dt.now.return_value = frozen
-        client = self._client_with_tick_time(frozen.timestamp() - 90)
+        """A newer unrelated copied row does not block matching an older one."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        matching_event = _CLOCK_NOW_EPOCH - 1
+        newer_unrelated_event = _CLOCK_NOW_EPOCH
+        multi_row_frame = pd.DataFrame([
+            {
+                "time": int(matching_event),
+                "bid": 1.1,
+                "ask": 1.2,
+                "last": 0.0,
+                "volume": 5,
+                "time_msc": int(matching_event * 1000),
+            },
+            {
+                "time": int(newer_unrelated_event),
+                "bid": 9.9,
+                "ask": 9.9,
+                "last": 0.0,
+                "volume": 5,
+                "time_msc": int(newer_unrelated_event * 1000),
+            },
+        ])
+        client = _clock_client(
+            [_live_tick(event_1), _live_tick(matching_event)],
+            [_copied_frame(event_1), multi_row_frame],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
 
-        offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+        calibration = normalizer.calibrate()
 
-        _assert_close(offset, 0.0)
+        assert calibration.status == "calibrated"
+        _assert_close(calibration.offset_seconds, 0.0)
+        assert calibration.sample_count == 2
 
-    def test_rounds_negative_offset_to_nearest_half_hour(
+    def test_prefers_plausible_offset_over_newer_coincidental_price_match(
         self,
         mocker: MockerFixture,
     ) -> None:
-        """A tick ~3h behind UTC now estimates a rounded -3h offset."""
-        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        mock_dt = mocker.patch("mt5cli.trading.datetime")
-        mock_dt.now.return_value = frozen
-        client = self._client_with_tick_time(frozen.timestamp() - 10800.4)
+        """A newer coincidental price match cannot shadow a plausible older one."""
+        _freeze_clock(mocker)
+        exact_event_1 = _CLOCK_NOW_EPOCH - 3
+        exact_event_2 = _CLOCK_NOW_EPOCH - 2
+        client = _clock_client(
+            [
+                _live_tick(exact_event_1 + _UTC_PLUS_3),
+                _live_tick(exact_event_2 + _UTC_PLUS_3),
+            ],
+            [
+                _copied_frame(exact_event_1, exact_event_1 + 100),
+                _copied_frame(exact_event_2, exact_event_2 + 100),
+            ],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
 
-        offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+        calibration = normalizer.calibrate()
 
-        _assert_close(offset, -10800.0)
+        assert calibration.status == "calibrated"
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+        assert calibration.sample_count == 2
 
-    def test_discards_implausible_offset_from_a_stale_weekend_tick(
+    def test_oanda_like_utc_plus_three_normalizes_snapshot(
         self,
         mocker: MockerFixture,
-        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """A multi-day-stale tick yields None instead of a bogus large offset."""
-        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        mock_dt = mocker.patch("mt5cli.trading.datetime")
-        mock_dt.now.return_value = frozen
-        stale_tick_time = frozen.timestamp() - (3 * 24 * 3600)
-        client = self._client_with_tick_time(stale_tick_time)
+        """A UTC+3 server-clock label yields a validated UTC timestamp."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+            ],
+            [_copied_frame(event_1), _copied_frame(event_2)],
+        )
+        normalizer = TickClockNormalizer(client, samples_per_symbol=2)
 
-        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
-            offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
 
-        assert offset is None
-        assert "EURUSD" in caplog.text
-        assert "implausible" in caplog.text
+        assert snapshot["symbol"] == "SING30"
+        assert snapshot["clock_status"] == "calibrated"
+        assert snapshot["raw_time"] == int(event_2 + _UTC_PLUS_3)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(event_2, tz=UTC)
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        _assert_close(snapshot["bid"], 1.1)
+        _assert_close(snapshot["ask"], 1.2)
 
-    @pytest.mark.parametrize("tick_time", [None, 0, -1, "not-a-number"])
-    def test_missing_or_invalid_tick_time_returns_none(
-        self,
-        tick_time: object,
-    ) -> None:
-        """Missing, zero, negative, or non-numeric tick times yield None."""
-        client = self._client_with_tick_time(tick_time)
-        assert estimate_server_clock_offset_seconds(client, "EURUSD") is None
-
-    def test_logs_warning_when_tick_time_invalid(
-        self,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """An invalid tick time logs a warning explaining the None result."""
-        client = self._client_with_tick_time(None)
-
-        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
-            offset = estimate_server_clock_offset_seconds(client, "EURUSD")
-
-        assert offset is None
-        assert "EURUSD" in caplog.text
-        assert "no valid tick time" in caplog.text
-
-    def test_logs_estimated_offset_at_info(
+    def test_utc2_to_utc3_transition_triggers_recalibration(
         self,
         mocker: MockerFixture,
-        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """The estimated offset is logged at INFO for observability."""
-        frozen = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        mock_dt = mocker.patch("mt5cli.trading.datetime")
-        mock_dt.now.return_value = frozen
-        client = self._client_with_tick_time(frozen.timestamp() + 10800.0)
+        """A DST-style offset increase is detected and recalibrated."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_2),
+                _live_tick(event_2 + _UTC_PLUS_2),
+                # After the broker moves to UTC+3:
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                # Refetched after the skew-triggered recalibration completes:
+                _live_tick(event_2 + _UTC_PLUS_3),
+            ],
+            [
+                _copied_frame(event_1),
+                _copied_frame(event_2),
+                _copied_frame(event_1),
+                _copied_frame(event_2),
+            ],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_2)
 
-        with caplog.at_level(logging.INFO, logger="mt5cli.trading"):
-            offset = estimate_server_clock_offset_seconds(client, "EURUSD")
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
 
-        _assert_close(offset, 10800.0)
-        assert "10800" in caplog.text
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(event_2, tz=UTC)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
 
-    def test_is_listed_in_trading_module_all(self) -> None:
-        """The helper is exported through mt5cli.trading.__all__."""
-        assert "estimate_server_clock_offset_seconds" in trading.__all__
+    def test_stale_tick_keeps_historical_utc_time(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A genuinely stale tick is normalized to its past UTC instant."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        stale_event = _CLOCK_NOW_EPOCH - _UTC_PLUS_2
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(stale_event + _UTC_PLUS_3),
+            ],
+            [_copied_frame(event_1), _copied_frame(event_2)],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+        )
+        normalizer.calibrate()
+
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        assert snapshot["time_utc"] == datetime.fromtimestamp(stale_event, tz=UTC)
+        assert client.copy_ticks_range.call_count == 2
+
+    def test_closed_market_fails_closed_and_skips_retry_within_cooldown(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Weekend/closed-market data yields an uncalibrated snapshot."""
+        _freeze_clock(mocker)
+        stale = _CLOCK_NOW_EPOCH - 2 * 24 * 3600
+        client = _clock_client(
+            [_live_tick(stale) for _ in range(4)],
+            pd.DataFrame(),
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "uncalibrated"
+        assert snapshot["time_utc"] is None
+        assert snapshot["server_clock_offset_seconds"] is None
+        assert snapshot["raw_time"] == int(stale)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        assert calibration.status == "no_copied_ticks"
+        assert not calibration.calibrated
+        assert client.copy_ticks_range.call_count == 2
+
+        second = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert second["clock_status"] == "uncalibrated"
+        assert client.copy_ticks_range.call_count == 2
+
+    def test_failed_calibration_retries_after_cooldown_elapses(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A failed calibration is retried once the retry cooldown passes."""
+        mock_dt, _ = _freeze_clock(mocker)
+        stale = _CLOCK_NOW_EPOCH - 2 * 24 * 3600
+        client = _clock_client(
+            [_live_tick(stale) for _ in range(6)],
+            pd.DataFrame(),
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+            failed_calibration_retry_seconds=30.0,
+        )
+
+        normalizer.get_normalized_tick_snapshot("SING30")
+        assert client.copy_ticks_range.call_count == 2
+
+        mock_dt.now.return_value = datetime.fromtimestamp(
+            _CLOCK_NOW_EPOCH + 31.0,
+            tz=UTC,
+        )
+        normalizer.get_normalized_tick_snapshot("SING30")
+        assert client.copy_ticks_range.call_count == 4
+
+    def test_illiquid_symbol_identical_ticks_are_insufficient(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Repeated samples of one unchanged tick never accept an offset."""
+        _freeze_clock(mocker)
+        event = _CLOCK_NOW_EPOCH - 30
+        client = _clock_client(
+            [_live_tick(event), _live_tick(event), _live_tick(event)],
+            _copied_frame(event),
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=3)
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "insufficient_agreement"
+        assert calibration.offset_seconds is None
+        assert calibration.sample_count == 1
+        assert calibration.calibrated_at is None
+
+    def test_agreement_across_multiple_symbols(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """One matched event per active symbol is enough combined evidence."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3, bid=150.0, ask=150.1),
+            ],
+            [
+                _copied_frame(event_1),
+                _copied_frame(event_2, bid=150.0, ask=150.1),
+            ],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30", "USDJPY"],
+            samples_per_symbol=1,
+        )
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "calibrated"
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+        assert calibration.evidence_symbols == ("SING30", "USDJPY")
+        assert calibration.sample_count == 2
+
+    @pytest.mark.parametrize(
+        ("label_shift", "copied_kwargs", "expected_status"),
+        [
+            (0.0, {"bid": 9.9}, "no_matching_event"),
+            (600.0, {}, "no_matching_event"),
+            (15 * 3600.0, {}, "implausible_offset"),
+        ],
+        ids=[
+            "price-disagreement",
+            "non-half-hour-delta",
+            "implausible-offset",
+        ],
+    )
+    def test_unsafe_offset_samples_are_rejected(
+        self,
+        mocker: MockerFixture,
+        label_shift: float,
+        copied_kwargs: dict[str, float],
+        expected_status: str,
+    ) -> None:
+        """Samples without safe same-event evidence never calibrate."""
+        _freeze_clock(mocker)
+        event = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [_live_tick(event + label_shift), _live_tick(event - 1 + label_shift)],
+            _copied_frame(event, **copied_kwargs),
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == expected_status
+        assert calibration.offset_seconds is None
+
+    def test_offset_disagreement_fails_closed_and_stops_sampling(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Conflicting per-sample offsets are never averaged or accepted."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_2),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+            ],
+            [_copied_frame(event_1), _copied_frame(event_2)],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=3)
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "offset_disagreement"
+        assert calibration.offset_seconds is None
+        assert calibration.sample_count == 2
+        assert client.copy_ticks_range.call_count == 2
+
+    @pytest.mark.parametrize(
+        "copied",
+        [
+            Mt5RuntimeError("terminal gone"),
+            None,
+            pd.DataFrame({"bid": [1.1], "ask": [1.2]}),
+            pd.DataFrame({"time": [0], "bid": [1.1], "ask": [1.2]}),
+        ],
+        ids=["raises", "not-a-frame", "no-time-columns", "non-positive-time"],
+    )
+    def test_malformed_or_unavailable_copied_ticks_fail_closed(
+        self,
+        mocker: MockerFixture,
+        copied: object,
+    ) -> None:
+        """Broken copied-tick data can never produce a calibration."""
+        _freeze_clock(mocker)
+        event = _CLOCK_NOW_EPOCH - 1
+        side_effect: list[object] = [copied, copied]
+        client = _clock_client(
+            [_live_tick(event), _live_tick(event - 1)],
+            side_effect,
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "no_copied_ticks"
+        assert calibration.offset_seconds is None
+
+    def test_cached_calibration_is_reused_across_symbols_and_calls(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Calibration is cached per connection, not per symbol or call."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3, bid=150.0),
+            ],
+            [_copied_frame(event_1), _copied_frame(event_2)],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+        normalizer.calibrate()
+
+        first = normalizer.get_normalized_tick_snapshot("SING30")
+        second = normalizer.get_normalized_tick_snapshot("USDJPY")
+
+        assert first["clock_status"] == "calibrated"
+        assert second["clock_status"] == "calibrated"
+        _assert_close(second["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert client.copy_ticks_range.call_count == 2
+
+    def test_recalibrates_after_max_calibration_age(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """An aged calibration is recomputed, catching offset changes."""
+        mock_dt, _ = _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 7 * 3600, tz=UTC)
+        later_event_1 = later.timestamp() - 2
+        later_event_2 = later.timestamp() - 1
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                # Seven hours later the broker labels ticks UTC+2:
+                _live_tick(later_event_2 + _UTC_PLUS_2),
+                _live_tick(later_event_1 + _UTC_PLUS_2),
+                _live_tick(later_event_2 + _UTC_PLUS_2),
+            ],
+            [
+                _copied_frame(event_1),
+                _copied_frame(event_2),
+                _copied_frame(later_event_1),
+                _copied_frame(later_event_2),
+            ],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(later_event_2, tz=UTC)
+        assert client.copy_ticks_range.call_count == 4
+
+    def test_periodic_revalidation_confirms_unchanged_offset(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A revalidation sample that agrees keeps the cached calibration."""
+        mock_dt, _ = _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_event = later.timestamp() - 1
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(later_event + _UTC_PLUS_3),  # revalidation sample
+                _live_tick(later_event + _UTC_PLUS_3),  # raw snapshot fetch
+            ],
+            [
+                _copied_frame(event_1),
+                _copied_frame(event_2),
+                _copied_frame(later_event),
+            ],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
+        assert client.copy_ticks_range.call_count == 3
+
+    def test_offset_decrease_is_caught_by_periodic_revalidation(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A DST-style offset decrease is caught well before the cache expires.
+
+        A future-skew check alone never catches this: using the stale larger
+        offset makes a fresh tick look stale, not future, which is
+        indistinguishable from ordinary quiet-market staleness.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        revalidation_event = later_epoch - 2
+        recal_event_1 = later_epoch - 4
+        recal_event_2 = later_epoch - 3
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                # The broker has since fallen back from UTC+3 to UTC+2:
+                _live_tick(revalidation_event + _UTC_PLUS_2),
+                _live_tick(recal_event_1 + _UTC_PLUS_2),
+                _live_tick(recal_event_2 + _UTC_PLUS_2),
+                _live_tick(raw_event + _UTC_PLUS_2),
+            ],
+            [
+                _copied_frame(event_1),
+                _copied_frame(event_2),
+                _copied_frame(revalidation_event),
+                _copied_frame(recal_event_1),
+                _copied_frame(recal_event_2),
+            ],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+        assert client.copy_ticks_range.call_count == 5
+
+    def test_persistent_future_skew_fails_closed(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A snapshot is never trusted when its UTC time stays in the future."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH + _UTC_PLUS_3 - 2
+        event_2 = _CLOCK_NOW_EPOCH + _UTC_PLUS_3 - 1
+        ticks = [_live_tick(event_2)] + [
+            _live_tick(event) for event in (event_1, event_2, event_1, event_2, event_2)
+        ]
+        client = _clock_client(
+            ticks,
+            [_copied_frame(event) for event in (event_1, event_2, event_1, event_2)],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "uncalibrated"
+        assert snapshot["time_utc"] is None
+        assert snapshot["server_clock_offset_seconds"] is None
+        assert client.copy_ticks_range.call_count == 4
+
+    def test_raw_get_tick_snapshot_contract_is_preserved(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """get_tick_snapshot still returns the raw numeric MT5 timestamp."""
+        _freeze_clock(mocker)
+        raw = _CLOCK_NOW_EPOCH + _UTC_PLUS_3
+        client = _clock_client([_live_tick(raw)], pd.DataFrame())
+
+        snapshot = get_tick_snapshot(client, "SING30")
+
+        assert set(snapshot) == {"symbol", "time", "bid", "ask", "last", "volume"}
+        assert snapshot["time"] == int(raw)
+        client.copy_ticks_range.assert_not_called()
+
+    def test_no_live_tick_fails_before_copied_lookup(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A missing live tick time aborts sampling without copied queries."""
+        _freeze_clock(mocker)
+        client = _clock_client(
+            [{"symbol": "SING30", "time": None}, {"symbol": "SING30"}],
+            pd.DataFrame(),
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "no_live_tick"
+        client.copy_ticks_range.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("live_overrides", "copied_kwargs"),
+        [
+            ({"bid": None, "ask": None, "last": None}, {}),
+            ({"bid": 0.0, "ask": None, "last": None}, {"bid": 0.0}),
+            ({"volume": 6}, {}),
+            ({"bid": "1.1", "ask": None, "last": None}, {}),
+            ({"bid": float("nan"), "ask": None, "last": None}, {}),
+        ],
+        ids=[
+            "volume-only",
+            "zero-price-only",
+            "volume-mismatch",
+            "string-price",
+            "nan-price",
+        ],
+    )
+    def test_weak_or_contradictory_field_evidence_is_rejected(
+        self,
+        mocker: MockerFixture,
+        live_overrides: dict[str, object],
+        copied_kwargs: dict[str, float],
+    ) -> None:
+        """Matching needs at least one agreeing positive price field."""
+        _freeze_clock(mocker)
+        event = _CLOCK_NOW_EPOCH - 1
+        live: dict[str, object] = {**_live_tick(event), **live_overrides}
+        client = _clock_client(
+            [live],
+            _copied_frame(event, **copied_kwargs),
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=1,
+            min_agreeing_samples=1,
+        )
+
+        assert normalizer.calibrate().status == "no_matching_event"
+
+    def test_copied_time_msc_datetime_and_time_fallbacks(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Copied rows may carry datetime time_msc or only a time column."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        frame_datetime_msc = pd.DataFrame([
+            {
+                "time_msc": pd.Timestamp(event_1, unit="s", tz=UTC),
+                "bid": 1.1,
+                "ask": 1.2,
+            },
+        ])
+        frame_time_only = pd.DataFrame([
+            {"time": int(event_2), "bid": 1.1, "ask": 1.2},
+            {
+                "time": 0,
+                "time_msc": pd.Timestamp(0, unit="s", tz=UTC),
+                "bid": 1.1,
+                "ask": 1.2,
+            },
+        ])
+        client = _clock_client(
+            [_live_tick(event_1), _live_tick(event_2)],
+            [frame_datetime_msc, frame_time_only],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "calibrated"
+        _assert_close(calibration.offset_seconds, 0.0)
+
+    def test_snapshot_without_raw_time_fails_closed_even_when_calibrated(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A calibrated clock cannot normalize a tick that lacks a time."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [
+                _live_tick(event_1),
+                _live_tick(event_2),
+                {"symbol": "SING30", "bid": 1.1, "ask": 1.2},
+            ],
+            [_copied_frame(event_1), _copied_frame(event_2)],
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["raw_time"] is None
+        assert snapshot["time_utc"] is None
+        assert snapshot["clock_status"] == "uncalibrated"
+        calibration = normalizer.calibration
+        assert calibration is not None
+        assert calibration.status == "calibrated"
+
+    def test_invalidate_forces_recalibration(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """invalidate() drops the cache so the next call recalibrates."""
+        _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [_live_tick(event_1), _live_tick(event_2)] * 2,
+            [_copied_frame(event_1), _copied_frame(event_2)] * 2,
+        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=2)
+        assert normalizer.calibration is None
+        normalizer.calibrate()
+
+        normalizer.invalidate()
+
+        assert normalizer.calibration is None
+        assert normalizer.calibrate().status == "calibrated"
+        assert client.copy_ticks_range.call_count == 4
+
+    def test_zero_sample_interval_never_sleeps(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """sample_interval_seconds=0 disables pacing between samples."""
+        _, mock_sleep = _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [_live_tick(event_1), _live_tick(event_2)],
+            [_copied_frame(event_1), _copied_frame(event_2)],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+            sample_interval_seconds=0.0,
+        )
+
+        assert normalizer.calibrate().status == "calibrated"
+        mock_sleep.assert_not_called()
+
+    def test_calibrate_without_symbols_raises(self) -> None:
+        """Calibration requires at least one symbol."""
+        normalizer = TickClockNormalizer(MagicMock())
+        with pytest.raises(ValueError, match="At least one symbol"):
+            normalizer.calibrate()
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"samples_per_symbol": 0},
+            {"min_agreeing_samples": 0},
+            {"sample_interval_seconds": -0.1},
+            {"copied_window_seconds": 0.0},
+            {"max_calibration_age_seconds": 0.0},
+            {"revalidation_interval_seconds": 0.0},
+            {"failed_calibration_retry_seconds": 0.0},
+        ],
+        ids=[
+            "samples",
+            "min-agreeing",
+            "negative-interval",
+            "window",
+            "max-age",
+            "revalidation-interval",
+            "failed-retry-interval",
+        ],
+    )
+    def test_constructor_rejects_invalid_tuning(
+        self,
+        kwargs: dict[str, float],
+    ) -> None:
+        """Non-positive tuning parameters are rejected up front."""
+        with pytest.raises(ValueError, match="must"):
+            TickClockNormalizer(MagicMock(), ["SING30"], **kwargs)  # type: ignore[arg-type]
+
+    def test_calibration_to_dict_and_aggregate_fallback(self) -> None:
+        """Diagnostics serialize cleanly and the fallback reason is stable."""
+        calibration = TickClockCalibration(
+            status="calibrated",
+            offset_seconds=_UTC_PLUS_3,
+            sample_count=2,
+            evidence_symbols=("SING30",),
+            calibrated_at=_CLOCK_NOW_EPOCH,
+        )
+        assert calibration.calibrated
+        assert calibration.to_dict() == {
+            "status": "calibrated",
+            "offset_seconds": _UTC_PLUS_3,
+            "sample_count": 2,
+            "evidence_symbols": ("SING30",),
+            "calibrated_at": _CLOCK_NOW_EPOCH,
+        }
+        assert _aggregate_failure_status([]) == "no_live_tick"
+
+    def test_exported_through_trading_module_all(self) -> None:
+        """The normalization API is part of the module's public surface."""
+        assert "TickClockNormalizer" in trading.__all__
+        assert "TickClockCalibration" in trading.__all__
+        assert "NormalizedTickSnapshot" in trading.__all__
