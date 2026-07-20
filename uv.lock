@@ -10,6 +10,13 @@ required-markers = [
     "sys_platform == 'win32'",
 ]
 
+[options]
+exclude-newer = "2026-07-13T15:37:13.721821839Z"
+exclude-newer-span = "P1W"
+
+[options.exclude-newer-package]
+pdmt5 = false
+
 [[package]]
 name = "annotated-doc"
 version = "0.0.4"
