@@ -1060,7 +1060,14 @@ def _recent_copied_ticks(
     window_seconds: float,
     now_epoch: float,
 ) -> pd.DataFrame | None:
-    """Fetch copied ticks for the trailing UTC window ending now.
+    """Fetch copied ticks for the trailing UTC window ending just past now.
+
+    The upper query bound extends ``_MAX_FUTURE_SKEW_SECONDS`` past
+    ``now_epoch`` so a live tick whose true UTC event is slightly ahead of
+    the host clock (feed/server clock skew, not a broker wall-clock label)
+    still falls inside the queried range and can be matched; that tolerance
+    matches the future-skew bound already enforced on normalized snapshots,
+    so it cannot admit an event further ahead than the supported policy.
 
     Returns:
         The copied-tick DataFrame, or ``None`` when retrieval fails or the
@@ -1069,13 +1076,14 @@ def _recent_copied_ticks(
     flags = getattr(getattr(client, "mt5", None), "COPY_TICKS_ALL", None)
     if not isinstance(flags, int):
         flags = _COPY_TICKS_ALL_FALLBACK
+    query_end_epoch = now_epoch + _MAX_FUTURE_SKEW_SECONDS
     try:
         frame = cast(
             "object",
             client.copy_ticks_range(
                 symbol,
                 datetime.fromtimestamp(now_epoch - window_seconds, tz=UTC),
-                datetime.fromtimestamp(now_epoch, tz=UTC),
+                datetime.fromtimestamp(query_end_epoch, tz=UTC),
                 flags,
             ),
         )
@@ -1242,7 +1250,10 @@ class TickClockNormalizer:
             sample_interval_seconds: Pause between consecutive samples so an
                 actively updating symbol can produce distinct tick events.
             copied_window_seconds: Trailing UTC window queried from
-                ``copy_ticks_range`` per sample.
+                ``copy_ticks_range`` per sample, ending
+                ``_MAX_FUTURE_SKEW_SECONDS`` past the host clock's current
+                time so a live tick slightly ahead of the host clock (feed
+                clock skew) remains matchable.
             max_calibration_age_seconds: Age after which a cached calibration
                 is recomputed unconditionally (bounds DST-transition
                 staleness).

@@ -14,12 +14,15 @@ from numpy import int64 as np_int64
 from pdmt5 import Mt5RuntimeError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pytest_mock import MockerFixture
 
 from mt5cli import trading
 from mt5cli.client import MT5Client
 from mt5cli.exceptions import Mt5OperationError
 from mt5cli.trading import (
+    _MAX_FUTURE_SKEW_SECONDS,  # type: ignore[reportPrivateUsage]
     MarginVolume,
     OrderExecutionResult,
     OrderLimits,
@@ -4145,6 +4148,31 @@ def _clock_client(
     return client
 
 
+def _windowed_copy_ticks_range(
+    frame: pd.DataFrame,
+) -> Callable[[str, datetime, datetime, int], pd.DataFrame]:
+    """Build a ``copy_ticks_range`` fake that filters rows by query bounds.
+
+    Real MT5 only returns rows within ``[date_from, date_to]``; a plain
+    canned return value would hide a regression where the production code
+    queries too narrow a window, since the mock would return the same rows
+    regardless of the arguments it was called with.
+    """
+
+    def _copy_ticks_range(
+        _symbol: str,
+        date_from: datetime,
+        date_to: datetime,
+        _flags: int,
+    ) -> pd.DataFrame:
+        from_epoch = date_from.timestamp()
+        to_epoch = date_to.timestamp()
+        mask = (frame["time"] >= from_epoch) & (frame["time"] <= to_epoch)
+        return frame[mask].reset_index(drop=True)
+
+    return _copy_ticks_range
+
+
 class TestTickClockNormalizer:
     """Tests for TickClockNormalizer calibration and UTC normalization."""
 
@@ -4192,7 +4220,7 @@ class TestTickClockNormalizer:
         mt5_flag: int | None,
         expected_flag: int,
     ) -> None:
-        """Copied ticks are queried over a trailing UTC window ending now."""
+        """Copied ticks are queried over a window trailing and past now."""
         _freeze_clock(mocker)
         event = _CLOCK_NOW_EPOCH - 1
         client = _clock_client(
@@ -4213,9 +4241,86 @@ class TestTickClockNormalizer:
         client.copy_ticks_range.assert_called_once_with(
             "SING30",
             datetime.fromtimestamp(_CLOCK_NOW_EPOCH - 300.0, tz=UTC),
-            datetime.fromtimestamp(_CLOCK_NOW_EPOCH, tz=UTC),
+            datetime.fromtimestamp(
+                _CLOCK_NOW_EPOCH + _MAX_FUTURE_SKEW_SECONDS,
+                tz=UTC,
+            ),
             expected_flag,
         )
+
+    def test_live_tick_ahead_of_host_clock_matches_within_widened_window(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A live tick ~16s ahead of the host clock still calibrates.
+
+        Reproduces the dceoy/mteor#428 production failure: the feed/server
+        clock can run slightly ahead of the host OS clock, so the true UTC
+        event backing a live tick can itself land a few seconds past
+        ``datetime.now(UTC)``. Querying ``copy_ticks_range`` with
+        ``date_to=now`` would exclude that event, leaving only an unrelated
+        older row and forcing ``no_matching_event`` on every sample.
+        """
+        _freeze_clock(mocker)
+        skew = 16.0
+        true_utc_event = _CLOCK_NOW_EPOCH + skew
+        older_unrelated_event = _CLOCK_NOW_EPOCH - 30
+        copied = pd.concat(
+            [
+                _copied_frame(older_unrelated_event, bid=9.9, ask=9.9),
+                _copied_frame(true_utc_event),
+            ],
+            ignore_index=True,
+        )
+        client = _clock_client(
+            [_live_tick(true_utc_event + _UTC_PLUS_3)],
+            pd.DataFrame(),
+        )
+        client.copy_ticks_range.side_effect = _windowed_copy_ticks_range(copied)
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=1,
+            min_agreeing_samples=1,
+        )
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "calibrated"
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+        assert client.copy_ticks_range.call_count == 1
+
+    def test_copied_event_beyond_future_skew_policy_is_not_matched(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """An event further ahead than the tolerated skew is never queried.
+
+        The widened upper bound is bounded, not open-ended: it matches
+        ``_MAX_FUTURE_SKEW_SECONDS``, the same policy enforced on normalized
+        snapshots, so an event beyond that horizon is excluded from the
+        copied-tick query and can never be silently accepted as a match.
+        """
+        _freeze_clock(mocker)
+        beyond_skew_event = _CLOCK_NOW_EPOCH + _MAX_FUTURE_SKEW_SECONDS + 1.0
+        client = _clock_client(
+            [_live_tick(beyond_skew_event + _UTC_PLUS_3)],
+            pd.DataFrame(),
+        )
+        client.copy_ticks_range.side_effect = _windowed_copy_ticks_range(
+            _copied_frame(beyond_skew_event),
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=1,
+            min_agreeing_samples=1,
+        )
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "no_copied_ticks"
+        assert calibration.offset_seconds is None
 
     def test_matches_older_copied_row_when_newest_row_disagrees(
         self,
