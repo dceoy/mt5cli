@@ -269,6 +269,16 @@ updating symbol (paced by `sample_interval_seconds`) or across several
 symbols passed to the constructor. Any two matched samples that disagree
 abort the calibration (`offset_disagreement`).
 
+The `copy_ticks_range()` query backing each sample extends its upper bound
+`_MAX_FUTURE_SKEW_SECONDS` (2 minutes) past the host clock's current time, in
+addition to covering the full trailing `copied_window_seconds`. A live tick's
+true UTC event is not always at or before the host clock — feed/broker clock
+skew can put it a few seconds ahead — and without that tolerance the matching
+copied row would never be queried, so calibration would always report
+`no_matching_event`. The tolerance is bounded, not open-ended: an event
+further ahead than `_MAX_FUTURE_SKEW_SECONDS` is still excluded from the
+query and cannot be matched.
+
 ### Failure modes and fail-closed behavior
 
 When calibration cannot be established safely — closed market or weekend
