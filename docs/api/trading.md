@@ -255,9 +255,10 @@ The offset is never inferred from `latest_tick_time - now` alone. Each
 calibration sample fetches the live `symbol_info_tick()` value **and** recent
 UTC-labeled `copy_ticks_range()` data, then searches every recent copied row
 (not just the newest) for one that matches the live tick on its shared
-`bid`/`ask`/`last`/`volume` fields (with at least one agreeing positive price
-field); the newest matching row sets the resulting offset, which must align
-to a 30-minute increment within the realistic UTC-14..UTC+14 range.
+positive `bid`/`ask`/`last` fields. Volume is not used as event identity
+because latest-tick and copied-tick views can represent OTC quote volume
+differently. The newest matching row sets the resulting offset, which must
+align to a 30-minute increment within the realistic UTC-14..UTC+14 range.
 `time_msc` is preferred over second-resolution `time` on both sides when
 available.
 
@@ -304,11 +305,12 @@ symbols and calls. A cached offset is recomputed in three cases:
   future — evidence that the broker offset grew, e.g. a UTC+2 to UTC+3
   transition.
 - Periodically, at most once per `revalidation_interval_seconds` (default 5
-  minutes), a single confirming sample is taken against the still-cached
-  offset; a disagreement forces full recalibration. This is what catches a
-  broker offset _decrease_ (e.g. UTC+3 to UTC+2): the resulting normalized
-  time looks stale rather than future, which a future-skew check alone
-  cannot distinguish from ordinary quiet-market staleness.
+  minutes), configured symbols are sampled until one confirms the
+  still-cached offset. Closed or inconclusive symbols are skipped; a detected
+  disagreement forces full recalibration. This is what catches a broker
+  offset _decrease_ (e.g. UTC+3 to UTC+2): the resulting normalized time
+  looks stale rather than future, which a future-skew check alone cannot
+  distinguish from ordinary quiet-market staleness.
 
 If recalibration still cannot validate the timestamp, the snapshot fails
 closed. Failed calibrations are recorded for diagnostics but never reused;

@@ -4795,6 +4795,88 @@ class TestTickClockNormalizer:
         _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
         assert client.copy_ticks_range.call_count == 3
 
+    def test_revalidation_uses_active_configured_symbol_when_one_is_closed(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """One closed symbol cannot hide fresh connection-wide evidence."""
+        mock_dt, _ = _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_event = later.timestamp() - 1
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3, bid=150.0, ask=150.1),
+                _live_tick(event_1 + _UTC_PLUS_3),  # closed revalidation sample
+                _live_tick(later_event + _UTC_PLUS_3, bid=150.0, ask=150.1),
+                _live_tick(later_event + _UTC_PLUS_3, bid=150.0, ask=150.1),
+            ],
+            [
+                _copied_frame(event_1),
+                _copied_frame(event_2, bid=150.0, ask=150.1),
+                pd.DataFrame(),
+                _copied_frame(later_event, bid=150.0, ask=150.1),
+            ],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["CLOSED", "ACTIVE"],
+            samples_per_symbol=1,
+            revalidation_interval_seconds=60.0,
+        )
+        assert normalizer.calibrate().status == "calibrated"
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("ACTIVE")
+
+        assert snapshot["clock_status"] == "calibrated"
+        assert snapshot["time_utc"] == datetime.fromtimestamp(later_event, tz=UTC)
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert [
+            call.kwargs["symbol"]
+            for call in client.symbol_info_tick_as_dict.call_args_list
+        ] == ["CLOSED", "ACTIVE", "CLOSED", "ACTIVE", "ACTIVE"]
+
+    def test_inconclusive_revalidation_keeps_cached_offset(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A closed market does not discard a still-valid cached offset."""
+        mock_dt, _ = _freeze_clock(mocker)
+        event_1 = _CLOCK_NOW_EPOCH - 2
+        event_2 = _CLOCK_NOW_EPOCH - 1
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        client = _clock_client(
+            [
+                _live_tick(event_1 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+                _live_tick(event_2 + _UTC_PLUS_3),
+            ],
+            [
+                _copied_frame(event_1),
+                _copied_frame(event_2),
+                pd.DataFrame(),
+            ],
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert client.copy_ticks_range.call_count == 3
+
     def test_offset_decrease_is_caught_by_periodic_revalidation(
         self,
         mocker: MockerFixture,
@@ -4913,14 +4995,12 @@ class TestTickClockNormalizer:
         [
             ({"bid": None, "ask": None, "last": None}, {}),
             ({"bid": 0.0, "ask": None, "last": None}, {"bid": 0.0}),
-            ({"volume": 6}, {}),
             ({"bid": "1.1", "ask": None, "last": None}, {}),
             ({"bid": float("nan"), "ask": None, "last": None}, {}),
         ],
         ids=[
             "volume-only",
             "zero-price-only",
-            "volume-mismatch",
             "string-price",
             "nan-price",
         ],
@@ -4947,6 +5027,57 @@ class TestTickClockNormalizer:
         )
 
         assert normalizer.calibrate().status == "no_matching_event"
+
+    def test_volume_difference_does_not_hide_matching_quote_event(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Bid/ask identity remains usable when live and copied volumes differ."""
+        _freeze_clock(mocker)
+        event = _CLOCK_NOW_EPOCH - 1
+        client = _clock_client(
+            [_live_tick(event + _UTC_PLUS_3, volume=6)],
+            _copied_frame(event, volume=5),
+        )
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=1,
+            min_agreeing_samples=1,
+        )
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "calibrated"
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+
+    def test_half_hour_delayed_feed_is_not_inferred_from_host_clock(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Advancing stale ticks cannot become fresh through host-time rounding."""
+        _freeze_clock(mocker)
+        delayed_event_1 = _CLOCK_NOW_EPOCH - 1802
+        delayed_event_2 = _CLOCK_NOW_EPOCH - 1801
+        copied = _copied_frame(delayed_event_1, delayed_event_2)
+        client = _clock_client(
+            [
+                _live_tick(delayed_event_1 + _UTC_PLUS_3),
+                _live_tick(delayed_event_2 + _UTC_PLUS_3),
+            ],
+            pd.DataFrame(),
+        )
+        client.copy_ticks_range.side_effect = _windowed_copy_ticks_range(copied)
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            samples_per_symbol=2,
+        )
+
+        calibration = normalizer.calibrate()
+
+        assert calibration.status == "no_copied_ticks"
+        assert calibration.offset_seconds is None
 
     def test_copied_time_msc_datetime_and_time_fallbacks(
         self,

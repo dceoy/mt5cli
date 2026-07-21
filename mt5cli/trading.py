@@ -1028,18 +1028,25 @@ def _match_value(value: object) -> float | None:
 def _ticks_match(live: Mapping[str, object], copied: Mapping[str, object]) -> bool:
     """Decide whether a live tick and a copied tick are the same market event.
 
-    Every field present on both sides (``bid``, ``ask``, ``last``,
-    ``volume``) must agree, and at least one positive price field must supply
-    evidence; volume agreement or all-zero prices alone are insufficient.
+    Every positive price field present on both sides must agree, and at least
+    one such field must supply evidence. ``volume`` is deliberately excluded:
+    MT5's latest-tick snapshot and copied-tick history can expose different
+    volume representations for the same quote event, especially for OTC
+    instruments whose meaningful fields are Bid and Ask.
 
     Returns:
         True when the two ticks plausibly describe the same market event.
     """
     matched_price_field = False
-    for field in (*_TICK_MATCH_PRICE_FIELDS, "volume"):
+    for field in _TICK_MATCH_PRICE_FIELDS:
         live_value = _match_value(live.get(field))
         copied_value = _match_value(copied.get(field))
-        if live_value is None or copied_value is None:
+        if (
+            live_value is None
+            or copied_value is None
+            or live_value <= 0
+            or copied_value <= 0
+        ):
             continue
         tolerance = _PRICE_MATCH_RELATIVE_TOLERANCE * max(
             1.0,
@@ -1048,8 +1055,7 @@ def _ticks_match(live: Mapping[str, object], copied: Mapping[str, object]) -> bo
         )
         if abs(live_value - copied_value) > tolerance:
             return False
-        if field in _TICK_MATCH_PRICE_FIELDS and live_value > 0:
-            matched_price_field = True
+        matched_price_field = True
     return matched_price_field
 
 
@@ -1122,7 +1128,7 @@ def _matching_ticks_newest_first(
     live-vs-copied comparison is in flight, so every recent copied row is
     searched for the same market event as ``live`` instead of assuming the
     newest copied row is the relevant one. A newer row can also
-    coincidentally share ``live``'s price/volume fields without being the
+    coincidentally share ``live``'s price fields without being the
     same event, so every match is returned for offset-plausibility
     evaluation rather than only the newest.
 
@@ -1144,7 +1150,7 @@ def _sample_clock_offset(
     """Compare one live tick against recent copied UTC ticks.
 
     Every field-matching copied tick is evaluated, newest first, so a newer
-    row that coincidentally shares the live tick's price/volume fields
+    row that coincidentally shares the live tick's price fields
     cannot shadow a plausible offset from an older exact match; recency
     only breaks ties among candidates that are themselves plausible.
 
@@ -1258,12 +1264,13 @@ class TickClockNormalizer:
                 is recomputed unconditionally (bounds DST-transition
                 staleness).
             revalidation_interval_seconds: Minimum time between opportunistic
-                single-sample checks of an otherwise still-fresh cached
-                calibration. A disagreeing sample forces full recalibration,
-                which catches an offset decrease (for example a UTC+3 to
-                UTC+2 transition) well before ``max_calibration_age_seconds``
-                would; an inconclusive or agreeing sample keeps the cached
-                calibration.
+                checks of an otherwise still-fresh cached calibration.
+                Configured symbols are sampled until one confirms the cache;
+                a disagreeing sample forces full recalibration only when none
+                confirms it. This catches an offset decrease (for example a
+                UTC+3 to UTC+2 transition) well before
+                ``max_calibration_age_seconds`` would, while a closed symbol
+                cannot hide fresh evidence from another active symbol.
             failed_calibration_retry_seconds: Minimum time between full
                 recalibration attempts after a failed calibration, so a
                 closed or illiquid market does not retry on every call.
@@ -1451,36 +1458,40 @@ class TickClockNormalizer:
         *,
         now_epoch: float,
     ) -> TickClockCalibration | None:
-        """Confirm or replace a still-fresh cached calibration with one sample.
+        """Confirm or replace a still-fresh cached calibration with live symbols.
 
         A future-skew check alone never catches a broker offset *decrease*
         (e.g. a UTC+3 to UTC+2 transition): the resulting normalized time
         looks stale rather than future, and staleness is also the expected
-        symptom of a quiet market. This periodic single-sample check is
-        symmetric evidence that also detects that case. An inconclusive
-        sample (closed market, no matching event) leaves the cached
-        calibration in place rather than discarding a still-working offset.
+        symptom of a quiet market. This periodic check probes the configured
+        symbols until one confirms the cached offset. Inconclusive samples
+        from closed markets are skipped, so one regional symbol cannot hide
+        fresh evidence from another active symbol.
 
         Returns:
             A freshly recalibrated :class:`TickClockCalibration` when the
             fresh sample disagreed with ``cached``, or ``None`` when the
             cached calibration should be kept as-is.
         """
-        sample = _sample_clock_offset(
-            self._client,
-            symbol,
-            window_seconds=self._copied_window_seconds,
-        )
         self._last_attempt_at = now_epoch
-        if (
-            sample.offset_seconds is None
-            or sample.offset_seconds == cached.offset_seconds
-        ):
+        changed_sample: tuple[str, _OffsetSample] | None = None
+        for candidate in self._symbols or (symbol,):
+            sample = _sample_clock_offset(
+                self._client,
+                candidate,
+                window_seconds=self._copied_window_seconds,
+            )
+            if sample.offset_seconds == cached.offset_seconds:
+                return None
+            if sample.offset_seconds is not None and changed_sample is None:
+                changed_sample = (candidate, sample)
+        if changed_sample is None:
             return None
+        candidate, sample = changed_sample
         _logger.warning(
             "MT5 server clock offset for %s appears to have changed from"
             " %.0f to %.0f seconds; recalibrating.",
-            symbol,
+            candidate,
             cached.offset_seconds,
             sample.offset_seconds,
         )
