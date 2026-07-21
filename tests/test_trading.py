@@ -4580,7 +4580,7 @@ class TestTickClockNormalizer:
         calibration = normalizer.calibration
         assert calibration is not None
         _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
-        assert calibration.sample_count == 3
+        assert calibration.sample_count == 2
 
     def test_offset_decrease_from_utc3_to_utc2_caught_by_periodic_revalidation(
         self,
@@ -4628,6 +4628,103 @@ class TestTickClockNormalizer:
         calibration = normalizer.calibration
         assert calibration is not None
         _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+
+    def test_revalidation_tolerates_tick_observed_well_after_its_event(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A changed epoch is evidence even when detected long after it occurred.
+
+        An infrequently-traded symbol checked only once per
+        ``revalidation_interval_seconds`` can easily surface a fresh event
+        that itself happened well before it was polled: a changed epoch only
+        proves the event occurred sometime since the previous poll, not that
+        it occurred within the fixed residual tolerance of *this* poll. The
+        extra slack is bounded by the elapsed time since the previous poll,
+        so it cannot be mistaken for evidence of the wrong offset bucket.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # Periodic revalidation sample: this fresh post-DST event
+            # actually occurred 30 seconds before it was polled, so its raw
+            # offset residual from the UTC+2 bucket is 30 seconds -- well
+            # past the fixed 5-second tolerance on its own.
+            _live_tick(later_epoch - 30.0 + _UTC_PLUS_2),
+            # Full recalibration confirms UTC+2:
+            _live_tick(later_epoch - 4 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 3 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2),
+            # Raw snapshot fetch, normalized correctly under the new offset:
+            _live_tick(raw_event + _UTC_PLUS_2),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+
+    def test_revalidation_without_any_baseline_retries_on_the_next_call(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A wholly baseline-less revalidation round does not consume the interval.
+
+        When no configured symbol has a prior observation to compare
+        against, the round cannot confirm or refute the cached offset
+        either way, so it must not count as a completed opportunistic check:
+        the very next call retries immediately instead of waiting a full
+        ``revalidation_interval_seconds`` for the first real comparison.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3, symbol="A"),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3, symbol="A"),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3, symbol="A"),
+            # First call at `later`: "B" has no baseline yet, so this
+            # revalidation round is wholly inconclusive.
+            _live_tick(later_epoch - 5.0, symbol="B"),
+            _live_tick(later_epoch - 5.0, symbol="B"),  # raw snapshot fetch
+            # Second call, same clock reading: since the round above did not
+            # consume the interval, revalidation retries immediately and now
+            # confirms the cached offset from B's freshly established
+            # baseline.
+            _live_tick(later_epoch - 4.0 + _UTC_PLUS_3, symbol="B"),
+            _live_tick(later_epoch - 4.0 + _UTC_PLUS_3, symbol="B"),  # raw snapshot
+        ])
+        normalizer = TickClockNormalizer(client, revalidation_interval_seconds=60.0)
+        first = normalizer.calibrate(["A"])
+        assert first.status == "calibrated"
+
+        mock_dt.now.return_value = later
+        normalizer.get_normalized_tick_snapshot("B")
+        normalizer.get_normalized_tick_snapshot("B")
+
+        assert [
+            call.kwargs["symbol"]
+            for call in client.symbol_info_tick_as_dict.call_args_list
+        ] == ["A", "A", "A", "B", "B", "B", "B"]
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
 
     def test_revalidation_uses_active_configured_symbol_when_one_is_closed(
         self,
@@ -4952,11 +5049,14 @@ class TestTickClockNormalizer:
     ) -> None:
         """invalidate() drops the cache so the next call recalibrates.
 
-        The last live observation from before ``invalidate()`` remains a
-        valid baseline (only the cached *result* is discarded), so every one
-        of the next ``samples_per_symbol`` polls can itself yield a sample,
-        unlike the very first cold-start calibration whose first poll only
-        establishes a baseline.
+        A fresh full calibration must not compare its first poll against the
+        previous attempt's last observation: that prior tick could be
+        arbitrarily stale (the very reason `invalidate()` or a long idle gap
+        forced a fresh attempt), so a changed epoch alone would not prove
+        the current tick is fresh. The first poll after `invalidate()`
+        therefore only establishes a new baseline, just like the very first
+        cold-start calibration, and only the following polls can yield a
+        sample.
         """
         _freeze_clock(mocker)
         event_0 = _CLOCK_NOW_EPOCH - 3
@@ -4983,7 +5083,7 @@ class TestTickClockNormalizer:
         calibration = normalizer.calibrate()
         assert calibration.status == "calibrated"
         _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
-        assert calibration.sample_count == 3
+        assert calibration.sample_count == 2
         assert client.symbol_info_tick_as_dict.call_count == 6
 
     def test_zero_sample_interval_never_sleeps(

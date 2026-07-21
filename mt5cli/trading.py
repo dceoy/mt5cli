@@ -963,6 +963,7 @@ def _numeric_tick_time(value: object) -> float | int | None:
 _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS = 1800.0
 _MAX_PLAUSIBLE_SERVER_CLOCK_OFFSET_SECONDS = 14 * 3600.0
 _OFFSET_RESIDUAL_TOLERANCE_SECONDS = 5.0
+_MAX_TICK_AGE_TOLERANCE_SECONDS = 300.0
 _MAX_FUTURE_SKEW_SECONDS = 120.0
 
 
@@ -1123,7 +1124,14 @@ def _evaluate_advancement(
     Once freshness is established, the *current* sample's own server-labeled
     epoch is compared against the host clock's time when it was received (an
     independent reference this process controls, not another MT5 endpoint)
-    to derive one candidate server clock offset.
+    to derive one candidate server clock offset. A changed epoch only proves
+    the event happened sometime since ``previous`` was observed, not that it
+    happened within the residual tolerance of the current poll, so the
+    tolerance below the nearest 30-minute bucket is widened by the elapsed
+    time since ``previous`` (capped so an implausibly long gap cannot round
+    to the wrong bucket instead of failing closed); above the bucket, only
+    the fixed residual tolerance is allowed since a fresh event cannot be
+    observed before it occurs.
 
     Returns:
         ``None`` when ``current`` is not a fresh, evidentiary event (ordinary
@@ -1138,7 +1146,14 @@ def _evaluate_advancement(
         round(raw_offset / _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS)
         * _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS
     )
-    if abs(raw_offset - rounded) > _OFFSET_RESIDUAL_TOLERANCE_SECONDS:
+    max_tick_age_seconds = min(
+        max(0.0, current.host_epoch - previous.host_epoch),
+        _MAX_TICK_AGE_TOLERANCE_SECONDS,
+    )
+    residual = raw_offset - rounded
+    if residual > _OFFSET_RESIDUAL_TOLERANCE_SECONDS or residual < -(
+        _OFFSET_RESIDUAL_TOLERANCE_SECONDS + max_tick_age_seconds
+    ):
         reason: CalibrationStatus = "unstable_offset"
         offset_seconds = None
     elif abs(rounded) > _MAX_PLAUSIBLE_SERVER_CLOCK_OFFSET_SECONDS:
@@ -1312,6 +1327,16 @@ class TickClockNormalizer:
         if not resolved:
             msg = "At least one symbol is required for tick clock calibration."
             raise ValueError(msg)
+        # A full calibration must never compare against an observation left
+        # over from an earlier attempt (for example one made hours ago,
+        # before `invalidate()` or a `max_calibration_age_seconds` expiry):
+        # such a stale baseline would let this attempt's very first poll be
+        # scored as a fresh event merely because it differs from that old
+        # observation, even though it may itself be an equally stale closing
+        # tick. Dropping any prior baseline forces every symbol's first poll
+        # in this attempt to establish a fresh one instead.
+        for resolved_symbol in resolved:
+            self._last_observations.pop(resolved_symbol, None)
         matched, failures, last_sample = self._collect_offset_samples(resolved)
         calibration = self._build_calibration(matched, failures, last_sample)
         self._calibration = calibration
@@ -1453,12 +1478,19 @@ class TickClockNormalizer:
         symbol is skipped, so it cannot hide fresh evidence from another
         active symbol.
 
+        ``_last_attempt_at`` is only advanced once some candidate actually had
+        a prior observation to compare against. When every candidate has no
+        baseline yet (for example a configured symbol that was never part of
+        the calibration evidence), this round could not learn anything
+        either way, so the next call should retry immediately rather than
+        wait a full ``revalidation_interval_seconds`` for the first real
+        comparison.
+
         Returns:
             A freshly recalibrated :class:`TickClockCalibration` when a fresh
             sample disagreed with ``cached``, or ``None`` when the cached
             calibration should be kept as-is.
         """
-        self._last_attempt_at = now_epoch
         changed_sample: tuple[str, _OffsetSample] | None = None
         for candidate in self._symbols or (symbol,):
             previous = self._last_observations.get(candidate)
@@ -1468,6 +1500,7 @@ class TickClockNormalizer:
             self._last_observations[candidate] = observation
             if previous is None:
                 continue
+            self._last_attempt_at = now_epoch
             sample = _evaluate_advancement(previous, observation)
             if sample is None or sample.offset_seconds is None:
                 continue
