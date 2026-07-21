@@ -1212,14 +1212,21 @@ class TickClockNormalizer:
     A cached calibration is revalidated after ``max_calibration_age_seconds``
     (covering DST transitions on the broker side), immediately when a
     normalized timestamp lands implausibly far in the future (evidence the
-    broker offset grew), and periodically via one confirming sample well
-    before the cache would otherwise expire (evidence the broker offset
-    shrank, which a future-skew check alone cannot catch since it looks like
-    ordinary staleness rather than an anomaly). Failed calibrations are
-    retried at most once per ``failed_calibration_retry_seconds`` rather than
-    on every call. When no offset can be established safely, normalized
-    snapshots fail closed with ``clock_status="uncalibrated"`` and
-    ``time_utc=None`` instead of treating the raw timestamp as UTC.
+    broker offset grew), and periodically through one full revalidation round
+    over every configured symbol well before the cache would otherwise
+    expire (evidence the broker offset shrank, which a future-skew check
+    alone cannot catch since it looks like ordinary staleness rather than an
+    anomaly). The whole round is evaluated before deciding: any advancing
+    sample that refutes the cached offset — a clean disagreement, or an
+    advancing tick whose raw offset is unusable (``unstable_offset`` /
+    ``implausible_offset``) — invalidates the cache and forces full
+    recalibration, while confirming or inconclusive symbols never cancel
+    that evidence. Failed calibrations are retried at most once per
+    ``failed_calibration_retry_seconds`` rather than on every call. When no
+    offset can be established safely, normalized snapshots fail closed with
+    ``clock_status="uncalibrated"`` and ``time_utc=None`` instead of
+    treating the raw timestamp as UTC, and a cached offset that advancing
+    evidence has just refuted is never applied to another tick.
 
     Keep one instance per MT5 connection/account; the calibration is a
     property of the broker server, not of an individual symbol.
@@ -1267,13 +1274,16 @@ class TickClockNormalizer:
                 checks of an otherwise still-fresh cached calibration. Every
                 configured symbol is polled once and the whole round is
                 collected before deciding; any accepted sample that disagrees
-                with the cached offset forces full recalibration, even when
-                another symbol in the same round still confirms the cache
-                (mixed offsets are contradictory evidence for a
-                connection-scoped offset). This catches an offset decrease
-                (for example a UTC+3 to UTC+2 transition) well before
-                ``max_calibration_age_seconds`` would, while a confirming
-                symbol cannot cancel another symbol's fresh disagreement.
+                with the cached offset, and any advancing sample whose offset
+                is unusable (``unstable_offset`` / ``implausible_offset``),
+                invalidates the cache and forces full recalibration, even
+                when another symbol in the same round still confirms the
+                cache (contradictory evidence for a connection-scoped offset
+                must fail closed, not be averaged away). This catches an
+                offset decrease (for example a UTC+3 to UTC+2 transition)
+                well before ``max_calibration_age_seconds`` would, while a
+                confirming or inconclusive symbol cannot cancel another
+                symbol's refuting evidence.
             failed_calibration_retry_seconds: Minimum time between full
                 recalibration attempts after a failed calibration, so a
                 closed or illiquid market does not retry on every call.
@@ -1494,6 +1504,31 @@ class TickClockNormalizer:
         new one, and that contradictory evidence must force recalibration
         rather than let the confirming symbol cancel it.
 
+        A candidate is *inconclusive* — and simply skipped — when its tick
+        fetch is unusable, when it has no prior observation to compare
+        against, or when its tick epoch is unchanged since that observation
+        (ordinary tick age, e.g. a closed or illiquid symbol). Every other
+        advancing sample is evidence the cache must be able to explain:
+
+        * an accepted offset equal to ``cached.offset_seconds`` confirms the
+          cache, but never cancels another candidate's refuting evidence;
+        * an accepted offset that disagrees with the cache refutes it;
+        * an advancing sample with no usable offset (``unstable_offset`` or
+          ``implausible_offset``) also refutes it: a fresh market event whose
+          raw offset cannot be reconciled with any plausible 30-minute bucket
+          is contradictory evidence the cached calibration cannot explain, so
+          the cache must not survive it either.
+
+        Any refuting evidence invalidates the cached calibration and triggers
+        a full recalibration, which either re-establishes a validated offset
+        or fails closed; a raw tick is never normalized with a cached offset
+        that advancing evidence has just refuted. When several candidates
+        refute the cache in one round, the evidence reported is deterministic:
+        ``implausible_offset`` first, then ``unstable_offset``, then a clean
+        offset disagreement (the same severity order as
+        ``_CALIBRATION_FAILURE_PRIORITY``), keeping the first-seen candidate
+        within each kind.
+
         ``_last_attempt_at`` is only advanced once some candidate actually had
         a prior observation to compare against. When every candidate has no
         baseline yet (for example a configured symbol that was never part of
@@ -1503,10 +1538,62 @@ class TickClockNormalizer:
         comparison.
 
         Returns:
-            A freshly recalibrated :class:`TickClockCalibration` when a fresh
-            sample disagreed with ``cached``, or ``None`` when the cached
-            calibration should be kept as-is.
+            A freshly recalibrated :class:`TickClockCalibration` when any
+            advancing sample refuted ``cached``, or ``None`` when the round
+            only confirmed the cache or was wholly inconclusive.
         """
+        refuting = self._collect_refuting_evidence(cached, symbol, now_epoch=now_epoch)
+        if refuting is None:
+            return None
+        candidate, sample = refuting
+        # Invalidate before recalibrating: no snapshot may be normalized with
+        # a cached offset that advancing evidence has just refuted, even if
+        # the recalibration attempt below cannot complete.
+        self._calibration = None
+        if sample.offset_seconds is None:
+            _logger.warning(
+                "MT5 server clock revalidation for %s produced unusable"
+                " advancing evidence (%s, raw offset %.0f seconds) against the"
+                " cached %.0f-second offset; invalidating it and"
+                " recalibrating.",
+                candidate,
+                sample.reason,
+                sample.raw_offset,
+                cached.offset_seconds,
+            )
+        else:
+            _logger.warning(
+                "MT5 server clock offset for %s appears to have changed from"
+                " %.0f to %.0f seconds; recalibrating.",
+                candidate,
+                cached.offset_seconds,
+                sample.offset_seconds,
+            )
+        return self.calibrate(self._symbols or (symbol,))
+
+    def _collect_refuting_evidence(
+        self,
+        cached: TickClockCalibration,
+        symbol: str,
+        *,
+        now_epoch: float,
+    ) -> tuple[str, _OffsetSample] | None:
+        """Poll every configured symbol once and select refuting evidence.
+
+        Each candidate is compared against its last stored observation (and
+        that observation is refreshed). Candidates with an unusable fetch, no
+        prior baseline, or an unchanged tick epoch are inconclusive and
+        skipped; a comparison that actually ran advances ``_last_attempt_at``.
+        Confirming samples (an accepted offset equal to the cached one) are
+        recorded nowhere — they never cancel refuting evidence.
+
+        Returns:
+            The ``(symbol, sample)`` evidence invalidating ``cached``, chosen
+            deterministically — ``implausible_offset`` first, then
+            ``unstable_offset``, then a clean offset disagreement, first-seen
+            within each kind — or ``None`` when the round found none.
+        """
+        unusable: dict[CalibrationStatus, tuple[str, _OffsetSample]] = {}
         changed_sample: tuple[str, _OffsetSample] | None = None
         for candidate in self._symbols or (symbol,):
             previous = self._last_observations.get(candidate)
@@ -1518,23 +1605,19 @@ class TickClockNormalizer:
                 continue
             self._last_attempt_at = now_epoch
             sample = _evaluate_advancement(previous, observation)
-            if sample is None or sample.offset_seconds is None:
+            if sample is None:
+                continue
+            if sample.offset_seconds is None:
+                unusable.setdefault(sample.reason, (candidate, sample))
                 continue
             if sample.offset_seconds == cached.offset_seconds:
                 continue
             if changed_sample is None:
                 changed_sample = (candidate, sample)
-        if changed_sample is None:
-            return None
-        candidate, sample = changed_sample
-        _logger.warning(
-            "MT5 server clock offset for %s appears to have changed from"
-            " %.0f to %.0f seconds; recalibrating.",
-            candidate,
-            cached.offset_seconds,
-            sample.offset_seconds,
-        )
-        return self.calibrate(self._symbols or (symbol,))
+        for reason in _CALIBRATION_FAILURE_PRIORITY:
+            if reason in unusable:
+                return unusable[reason]
+        return changed_sample
 
     def _collect_offset_samples(
         self,

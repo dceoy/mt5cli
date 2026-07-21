@@ -155,6 +155,44 @@ normalized to `None`.
 
 ## Breaking migration
 
+### Migrating to 2.0.0
+
+`TickClockNormalizer` now calibrates the broker server clock offset from live
+`symbol_info_tick()` polls stamped with this process's own clock, and periodic
+revalidation fails closed. Relative to the 1.x line:
+
+- **Removed constructor argument**: `copied_window_seconds` is gone.
+  Calibration never queries `copy_ticks_range()`; neither its query bounds nor
+  its returned historical tick timestamps are treated as a UTC reference.
+- **Changed `CalibrationStatus` values**: `no_copied_ticks` and
+  `no_matching_event` were removed (they described the old copied-tick
+  matching design); `not_advancing` (no configured symbol produced a fresh,
+  changed-epoch tick) and `unstable_offset` (a fresh event's raw offset does
+  not round cleanly to a plausible 30-minute bucket) were added. The full set
+  is now `calibrated`, `no_live_tick`, `not_advancing`, `unstable_offset`,
+  `implausible_offset`, `insufficient_agreement`, and `offset_disagreement`.
+- **Stricter constructor validation**: `samples_per_symbol` and
+  `min_agreeing_samples` must both be at least 2 (`ValueError` otherwise) so
+  repeated-agreement evidence can never be silently impossible.
+- **New diagnostics**: `TickClockCalibration` gained `last_sample_symbol`,
+  `last_sample_raw_time`, `last_sample_host_time`, and
+  `last_sample_raw_offset_seconds` fields describing the most recent sample
+  considered, including in failed attempts.
+- **Behavioral change**: periodic revalidation evaluates one full round over
+  every configured symbol before deciding. Any advancing sample that refutes
+  the cached offset — a clean disagreement, or unusable `unstable_offset` /
+  `implausible_offset` evidence — invalidates the cache and forces full
+  recalibration; a confirming or inconclusive symbol never cancels that
+  evidence, and a raw tick is never normalized with a refuted cached offset.
+  Previously, unusable advancing evidence was silently skipped and the stale
+  cache kept. Snapshots now fail closed (`clock_status="uncalibrated"`,
+  `time_utc=None`) whenever a valid offset cannot be re-established.
+
+No code changes are required for callers that already use
+`TickClockNormalizer(client, symbols)` and handle
+`clock_status == "uncalibrated"`; remove any `copied_window_seconds=` keyword
+and any handling of the removed status values.
+
 `create_trading_client()` and `mt5_trading_session()` are removed from the
 package-root API. Replace either with `with mt5_session(config) as client:` and
 retrieve deal history through `client.history_deals()` or
