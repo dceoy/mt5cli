@@ -204,18 +204,20 @@ provide entry-deal classification, Kelly sizing, or any betting-specific helpers
 
 ## Timestamp sources and broker clock offsets
 
-`symbol_info_tick()`, `copy_ticks_range()`, and `copy_rates_range()` all share
-one server-labeled epoch contract: the numeric timestamps they return, and
-the date bounds `copy_ticks_range()`/`copy_rates_range()` accept, are stamped
-in the broker's own wall-clock label (for example UTC+2/UTC+3 on OANDA-style
-servers), not independently in true UTC. There is no MT5 endpoint that is
-guaranteed to already be UTC without external evidence — treating
+MetaQuotes documents `copy_ticks_range()` and `copy_rates_range()` results,
+and the date bounds they accept, as UTC, and does not document a different
+timezone contract for `symbol_info_tick()`. In production on at least one
+OANDA-style broker/terminal, however, `symbol_info_tick()` returned epochs
+carrying the broker's own wall-clock label (UTC+3), not true UTC: treating
 `copy_ticks_range()` as an independent UTC reference for the live tick clock
 was the direct cause of a production calibration failure (see
-[dceoy/mteor#428](https://github.com/dceoy/mteor/issues/428)): a query window
-built from the host clock missed the live event entirely, off by exactly the
-broker's offset, because both the window and the copied data used the same
-biased server label.
+[dceoy/mteor#428](https://github.com/dceoy/mteor/issues/428)), because a
+query window built from the host clock missed the live event entirely, off
+by exactly the broker's offset. mt5cli does not call `copy_ticks_range()` or
+`copy_rates_range()` to calibrate the live tick clock, and does not
+independently verify their documented UTC contract on any broker or
+terminal — treat copied-history timestamps as broker/terminal-dependent
+absent evidence from your own broker/terminal combination.
 
 `get_tick_snapshot()` preserves the numeric MT5 epoch value in `time`; it does
 not expose pdmt5's timezone-naive `Timestamp` conversion or alter the instant,
@@ -260,10 +262,11 @@ A normalized snapshot keeps the raw/UTC distinction explicit:
 
 ### Calibration evidence
 
-`copy_ticks_range()` cannot supply the independent UTC reference this
-calibration needs, since it shares the very same server-labeled epoch
-contract as `symbol_info_tick()` (see above). Instead, the only independent
-reference available is **this process's own clock**: every calibration poll
+`copy_ticks_range()` is not used for calibration: its documented UTC contract
+is broker/terminal-dependent and not independently verified here (see
+above), so it cannot serve as an out-of-band UTC reference. Instead, the only
+independent reference available is **this process's own clock**: every
+calibration poll
 fetches one live `symbol_info_tick()` value and stamps it with
 `datetime.now(UTC)` at the moment it is received. Comparing that host receipt
 time against the tick's own server-labeled epoch yields one candidate offset,

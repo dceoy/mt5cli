@@ -58,12 +58,14 @@ class _Mt5ClientProtocol(Protocol):
         flags: int | str,
         /,
     ) -> pd.DataFrame:
-        """Return copied ticks for a date range, in server-labeled epoch time.
+        """Return copied ticks for a date range.
 
-        Both the query bounds and the returned ``time``/``time_msc`` values
-        share the same server wall-clock label as ``symbol_info_tick()``, not
-        an independently true UTC scale; see :class:`TickClockNormalizer` for
-        how mt5cli establishes the actual UTC offset.
+        MetaQuotes documents these results (and the query bounds) as UTC, but
+        mt5cli does not independently verify that contract on any broker or
+        terminal and never uses this method as a UTC reference; treat the
+        returned ``time``/``time_msc`` values as broker/terminal-dependent.
+        See :class:`TickClockNormalizer` for how mt5cli establishes an
+        actual UTC offset for live ticks.
         """
         ...
 
@@ -1180,14 +1182,14 @@ class TickClockNormalizer:
 
     ``symbol_info_tick()`` timestamps may carry a broker server wall-clock
     label (for example UTC+2/UTC+3 on OANDA-style servers) instead of true
-    UTC. ``copy_ticks_range()`` cannot supply an independent UTC reference to
-    correct that: its query bounds and its returned ``time``/``time_msc``
-    values share the very same server-labeled epoch contract as
-    ``symbol_info_tick()``, so a window built from the host clock can miss
-    the live event entirely by exactly the broker's offset (this previously
-    caused every calibration sample to fail with ``no_matching_event``, since
-    a +3-hour server label puts the matching copied row three hours outside
-    a host-UTC-centered query window).
+    UTC. MetaQuotes documents ``copy_ticks_range()`` as UTC, but that
+    contract is broker/terminal-dependent and not independently verified
+    here, so this normalizer never relies on it as an out-of-band UTC
+    reference for the live tick clock (a prior design that did so failed
+    every calibration sample with ``no_matching_event``, because a query
+    window built from the host clock could not match copied rows that, on
+    at least one broker, shared the live tick's own non-UTC wall-clock
+    label).
 
     This normalizer instead calibrates the offset from **live ticks alone**,
     using this process's own clock as the independent reference: each poll of
