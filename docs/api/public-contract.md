@@ -155,7 +155,7 @@ normalized to `None`.
 
 ## Breaking migration
 
-### Migrating to 2.0.0
+### Migrating to 1.4.0
 
 `TickClockNormalizer` now calibrates the broker server clock offset from live
 `symbol_info_tick()` polls stamped with this process's own clock, and periodic
