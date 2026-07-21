@@ -204,16 +204,27 @@ provide entry-deal classification, Kelly sizing, or any betting-specific helpers
 
 ## Timestamp sources and broker clock offsets
 
-The MT5 Python documentation describes tick and bar data copied by the
-`copy_ticks_*` and `copy_rates_*` functions as UTC. It does not document a
-different timezone contract for `symbol_info_tick()`, nor should deal epochs
-be assumed to use a broker wall clock without source-specific evidence.
+MetaQuotes documents `copy_ticks_range()` and `copy_rates_range()` results,
+and the date bounds they accept, as UTC, and does not document a different
+timezone contract for `symbol_info_tick()`. In production on at least one
+OANDA-style broker/terminal, however, `symbol_info_tick()` returned epochs
+carrying the broker's own wall-clock label (UTC+3), not true UTC: treating
+`copy_ticks_range()` as an independent UTC reference for the live tick clock
+was the direct cause of a production calibration failure (see
+[dceoy/mteor#428](https://github.com/dceoy/mteor/issues/428)), because a
+query window built from the host clock missed the live event entirely, off
+by exactly the broker's offset. mt5cli does not call `copy_ticks_range()` or
+`copy_rates_range()` to calibrate the live tick clock, and does not
+independently verify their documented UTC contract on any broker or
+terminal — treat copied-history timestamps as broker/terminal-dependent
+absent evidence from your own broker/terminal combination.
 
 `get_tick_snapshot()` preserves the numeric MT5 epoch value in `time`; it does
-not expose pdmt5's timezone-naive `Timestamp` conversion or alter the instant.
-Any broker-specific offset handling therefore requires evidence from the live
-data source in use and must be applied separately. Do not subtract a presumed
-UTC+2 or UTC+3 offset from timestamps that are already UTC.
+not expose pdmt5's timezone-naive `Timestamp` conversion or alter the instant,
+and it never applies any offset correction. Any broker-specific offset
+handling requires independent evidence — see `TickClockNormalizer` below —
+and must be applied separately. Do not subtract a presumed UTC+2 or UTC+3
+offset from a raw timestamp without that evidence.
 
 No offset is applied automatically by history retrieval helpers.
 
@@ -251,47 +262,54 @@ A normalized snapshot keeps the raw/UTC distinction explicit:
 
 ### Calibration evidence
 
-The offset is never inferred from `latest_tick_time - now` alone. Each
-calibration sample fetches the live `symbol_info_tick()` value **and** recent
-UTC-labeled `copy_ticks_range()` data, then searches every recent copied row
-(not just the newest) for one that matches the live tick on its shared
-positive `bid`/`ask`/`last` fields. Volume is not used as event identity
-because latest-tick and copied-tick views can represent OTC quote volume
-differently. The newest matching row sets the resulting offset, which must
-align to a 30-minute increment within the realistic UTC-14..UTC+14 range.
-`time_msc` is preferred over second-resolution `time` on both sides when
-available.
+`copy_ticks_range()` is not used for calibration: its documented UTC contract
+is broker/terminal-dependent and not independently verified here (see
+above), so it cannot serve as an out-of-band UTC reference. Instead, the only
+independent reference available is **this process's own clock**: every
+calibration poll
+fetches one live `symbol_info_tick()` value and stamps it with
+`datetime.now(UTC)` at the moment it is received. Comparing that host receipt
+time against the tick's own server-labeled epoch yields one candidate offset,
+which must align to a 30-minute increment within the realistic UTC-14..UTC+14
+range. `time_msc` is preferred over second-resolution `time` when available.
+
+A single poll is never trusted on its own. A closed, stale, or illiquid
+symbol keeps returning the exact same last-traded tick, so its epoch never
+changes between polls — that ordinary tick age is not calibration evidence.
+Only a poll whose epoch _differs_ from the previous poll (comparison is
+inequality, not "must increase": a genuine broker offset **decrease**, e.g. a
+UTC+3 to UTC+2 DST fallback, relabels the next fresh event with a numerically
+_smaller_ epoch than the last one observed under the old, larger offset)
+proves the broker produced a new event, and only then is its offset computed.
 
 An offset is accepted only after `min_agreeing_samples` (default 2)
-**distinct** matched tick events agree on the same rounded offset — repeated
-observations of one unchanged tick never count twice, so an illiquid symbol
+**distinct** fresh tick events agree on the same rounded offset — repeated
+polls of one unchanged tick never count as evidence, so an illiquid symbol
 cannot self-confirm. Evidence can come from multiple samples of one actively
 updating symbol (paced by `sample_interval_seconds`) or across several
-symbols passed to the constructor. Any two matched samples that disagree
-abort the calibration (`offset_disagreement`).
-
-The `copy_ticks_range()` query backing each sample extends its upper bound
-`_MAX_FUTURE_SKEW_SECONDS` (2 minutes) past the host clock's current time, in
-addition to covering the full trailing `copied_window_seconds`. A live tick's
-true UTC event is not always at or before the host clock — feed/broker clock
-skew can put it a few seconds ahead — and without that tolerance the matching
-copied row would never be queried, so calibration would always report
-`no_matching_event`. The tolerance is bounded, not open-ended: an event
-further ahead than `_MAX_FUTURE_SKEW_SECONDS` is still excluded from the
-query and cannot be matched.
+symbols passed to the constructor; a closed symbol among several configured
+symbols simply contributes no evidence rather than blocking the others. Any
+two fresh events that disagree on the rounded offset abort the calibration
+(`offset_disagreement`) instead of being averaged or resolved by recency.
 
 ### Failure modes and fail-closed behavior
 
-When calibration cannot be established safely — closed market or weekend
-(`no_copied_ticks`), price disagreement or a non-half-hour delta
-(`no_matching_event`), a single matched event only (`insufficient_agreement`),
-missing live data (`no_live_tick`), or an unrealistic delta
-(`implausible_offset`) — snapshots fail closed: `clock_status` is
+When calibration cannot be established safely — no symbol ever produced a
+fresh (changed-epoch) tick, e.g. every configured symbol is closed or
+illiquid (`not_advancing`), a fresh event's raw offset does not round cleanly
+to a plausible bucket (`unstable_offset`), an unrealistic rounded delta
+(`implausible_offset`), too few distinct agreeing events
+(`insufficient_agreement`), disagreeing events (`offset_disagreement`), or
+missing live data (`no_live_tick`) — snapshots fail closed: `clock_status` is
 `"uncalibrated"`, `time_utc` and `server_clock_offset_seconds` are `None`,
 and the raw fields remain available. A raw timestamp is never silently
 treated as UTC. `normalizer.calibration` exposes the full
 `TickClockCalibration` diagnostics: status, offset, distinct sample count,
-evidence symbols, and last calibration time (`to_dict()` for serialization).
+evidence symbols, last calibration time, and (for troubleshooting a failed
+attempt) the most recently considered sample's symbol, raw server-labeled
+time, host observation time, and raw (pre-rounding) offset —
+`to_dict()` for serialization, and all of it is included in the one
+concise warning logged per failed calibration attempt.
 
 ### Caching and revalidation
 
@@ -305,12 +323,14 @@ symbols and calls. A cached offset is recomputed in three cases:
   future — evidence that the broker offset grew, e.g. a UTC+2 to UTC+3
   transition.
 - Periodically, at most once per `revalidation_interval_seconds` (default 5
-  minutes), configured symbols are sampled until one confirms the
-  still-cached offset. Closed or inconclusive symbols are skipped; a detected
-  disagreement forces full recalibration. This is what catches a broker
-  offset _decrease_ (e.g. UTC+3 to UTC+2): the resulting normalized time
-  looks stale rather than future, which a future-skew check alone cannot
-  distinguish from ordinary quiet-market staleness.
+  minutes), each configured symbol is polled once and compared against that
+  symbol's last known observation (from the initial calibration or a prior
+  revalidation) until one confirms the still-cached offset. Closed or
+  inconclusive symbols are skipped; a detected disagreement forces full
+  recalibration. This is what catches a broker offset _decrease_ (e.g. UTC+3
+  to UTC+2): the resulting normalized time looks stale rather than future,
+  which a future-skew check alone cannot distinguish from ordinary
+  quiet-market staleness.
 
 If recalibration still cannot validate the timestamp, the snapshot fails
 closed. Failed calibrations are recorded for diagnostics but never reused;

@@ -102,7 +102,7 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
 | `get_account_snapshot`, `get_symbol_snapshot`, `get_tick_snapshot`, `get_positions_frame`                                      | Normalized account/symbol/tick/position views                     |
 | `extract_tick_price`                                                                                                           | Positive finite bid/ask extraction from tick mappings             |
-| `TickClockNormalizer`                                                                                                          | Connection-scoped, copied-tick-validated UTC tick normalization   |
+| `TickClockNormalizer`                                                                                                          | Connection-scoped, host-clock-validated UTC tick normalization    |
 | `TickClockCalibration`                                                                                                         | Server-clock calibration diagnostics (offset, evidence, status)   |
 | `NormalizedTickSnapshot`                                                                                                       | Typed latest-tick contract with raw vs validated UTC timestamps   |
 | `CalibrationStatus`, `ClockStatus`                                                                                             | Literal status types for clock calibration and normalization      |
