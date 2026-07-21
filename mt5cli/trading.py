@@ -968,6 +968,7 @@ _OFFSET_RESIDUAL_TOLERANCE_SECONDS = 5.0
 _MAX_TICK_AGE_TOLERANCE_SECONDS = 300.0
 _MAX_FUTURE_SKEW_SECONDS = 120.0
 _MIN_SAMPLES_PER_SYMBOL = 2
+_MIN_AGREEING_SAMPLES = 2
 
 
 _CALIBRATION_TICK_FIELDS = (
@@ -1252,7 +1253,10 @@ class TickClockNormalizer:
                 evidence.
             min_agreeing_samples: Distinct fresh (changed-epoch) tick events
                 that must agree on the same rounded offset before it is
-                accepted.
+                accepted. Must be at least 2: a single agreeing event is one
+                delayed or anomalous tick away from selecting the wrong
+                30-minute bucket, which would contradict the repeated-
+                agreement safety this class is meant to provide.
             sample_interval_seconds: Pause between consecutive polls of one
                 symbol so an actively updating symbol can produce distinct
                 tick events.
@@ -1277,8 +1281,8 @@ class TickClockNormalizer:
         if samples_per_symbol < _MIN_SAMPLES_PER_SYMBOL:
             msg = f"samples_per_symbol must be >= {_MIN_SAMPLES_PER_SYMBOL}."
             raise ValueError(msg)
-        if min_agreeing_samples < 1:
-            msg = "min_agreeing_samples must be >= 1."
+        if min_agreeing_samples < _MIN_AGREEING_SAMPLES:
+            msg = f"min_agreeing_samples must be >= {_MIN_AGREEING_SAMPLES}."
             raise ValueError(msg)
         if sample_interval_seconds < 0:
             msg = "sample_interval_seconds must not be negative."
@@ -1478,12 +1482,14 @@ class TickClockNormalizer:
         A future-skew check alone never catches a broker offset *decrease*
         (e.g. a UTC+3 to UTC+2 transition): the resulting normalized time
         looks stale rather than future, and staleness is also the expected
-        symptom of a quiet market. This periodic check polls each configured
-        symbol once and compares it against that symbol's last stored
-        observation (from the initial calibration or a prior revalidation)
-        until one confirms the cached offset. A closed or inconclusive
-        symbol is skipped, so it cannot hide fresh evidence from another
-        active symbol.
+        symptom of a quiet market. This periodic check polls every configured
+        symbol once and compares each against that symbol's last stored
+        observation (from the initial calibration or a prior revalidation).
+        The whole round is collected before deciding: a low-liquidity
+        symbol's late, still-pre-transition tick can round to the cached
+        offset in the same round where an active symbol already shows the
+        new one, and that contradictory evidence must force recalibration
+        rather than let the confirming symbol cancel it.
 
         ``_last_attempt_at`` is only advanced once some candidate actually had
         a prior observation to compare against. When every candidate has no
@@ -1512,7 +1518,7 @@ class TickClockNormalizer:
             if sample is None or sample.offset_seconds is None:
                 continue
             if sample.offset_seconds == cached.offset_seconds:
-                return None
+                continue
             if changed_sample is None:
                 changed_sample = (candidate, sample)
         if changed_sample is None:

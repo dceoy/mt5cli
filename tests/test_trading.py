@@ -4436,6 +4436,7 @@ class TestTickClockNormalizer:
         _freeze_clock(mocker)
         event_0 = _CLOCK_NOW_EPOCH - 2
         event_1 = _CLOCK_NOW_EPOCH - 1
+        event_2 = _CLOCK_NOW_EPOCH
         tick_with_datetime_msc: dict[str, object] = {
             "symbol": "SING30",
             "time_msc": pd.Timestamp(event_0, unit="s", tz=UTC),
@@ -4452,13 +4453,20 @@ class TestTickClockNormalizer:
             "last": 0.0,
             "volume": 5,
         }
-        client = _clock_client([tick_with_datetime_msc, tick_with_time_only])
-        normalizer = TickClockNormalizer(
-            client,
-            ["SING30"],
-            samples_per_symbol=2,
-            min_agreeing_samples=1,
-        )
+        another_tick_with_time_only: dict[str, object] = {
+            "symbol": "SING30",
+            "time": int(event_2),
+            "bid": 1.1,
+            "ask": 1.2,
+            "last": 0.0,
+            "volume": 5,
+        }
+        client = _clock_client([
+            tick_with_datetime_msc,
+            tick_with_time_only,
+            another_tick_with_time_only,
+        ])
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=3)
 
         calibration = normalizer.calibrate()
 
@@ -4473,6 +4481,7 @@ class TestTickClockNormalizer:
         _freeze_clock(mocker)
         event_0 = _CLOCK_NOW_EPOCH - 2
         event_1 = _CLOCK_NOW_EPOCH - 1
+        event_2 = _CLOCK_NOW_EPOCH
 
         def _tick_with_epoch_zero_msc(event: float) -> dict[str, object]:
             return {
@@ -4488,13 +4497,9 @@ class TestTickClockNormalizer:
         client = _clock_client([
             _tick_with_epoch_zero_msc(event_0),
             _tick_with_epoch_zero_msc(event_1),
+            _tick_with_epoch_zero_msc(event_2),
         ])
-        normalizer = TickClockNormalizer(
-            client,
-            ["SING30"],
-            samples_per_symbol=2,
-            min_agreeing_samples=1,
-        )
+        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=3)
 
         calibration = normalizer.calibrate()
 
@@ -4879,6 +4884,59 @@ class TestTickClockNormalizer:
         assert calibration is not None
         _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
 
+    def test_revalidation_confirming_symbol_does_not_cancel_changed_evidence(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A same-round confirming sample must not discard earlier disagreement.
+
+        During a UTC+3 to UTC+2 fallback, an active symbol can already show a
+        credible +2h sample while a low-liquidity symbol's late, still
+        pre-transition tick still rounds to the cached +3h offset. That
+        confirming sample must not cancel the active symbol's already
+        collected change evidence and keep the stale +3h calibration.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        client = _clock_client([
+            # Initial calibration, both symbols agreeing on UTC+3:
+            _live_tick(_CLOCK_NOW_EPOCH - 4 + _UTC_PLUS_3, symbol="ACTIVE"),
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3, symbol="ACTIVE"),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3, symbol="LOWLIQ"),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3, symbol="LOWLIQ"),
+            # Revalidation: ACTIVE is seen first and already shows the new
+            # UTC+2 offset; LOWLIQ is seen second and its late, still
+            # pre-transition tick still rounds to the cached UTC+3 offset.
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2, symbol="ACTIVE"),
+            _live_tick(later_epoch - 30 + _UTC_PLUS_3, symbol="LOWLIQ"),
+            # Recalibration, both symbols now agreeing on UTC+2:
+            _live_tick(later_epoch - 1 + _UTC_PLUS_2, symbol="ACTIVE"),
+            _live_tick(later_epoch + _UTC_PLUS_2, symbol="ACTIVE"),
+            _live_tick(later_epoch + 1 + _UTC_PLUS_2, symbol="LOWLIQ"),
+            _live_tick(later_epoch + 2 + _UTC_PLUS_2, symbol="LOWLIQ"),
+            # Raw snapshot fetch:
+            _live_tick(later_epoch + 3 + _UTC_PLUS_2, symbol="ACTIVE"),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["ACTIVE", "LOWLIQ"],
+            samples_per_symbol=2,
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        assert first.status == "calibrated"
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("ACTIVE")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+
     def test_cached_calibration_is_reused_across_symbols_and_calls(
         self,
         mocker: MockerFixture,
@@ -5151,6 +5209,7 @@ class TestTickClockNormalizer:
             {"samples_per_symbol": 0},
             {"samples_per_symbol": 1},
             {"min_agreeing_samples": 0},
+            {"min_agreeing_samples": 1},
             {"sample_interval_seconds": -0.1},
             {"max_calibration_age_seconds": 0.0},
             {"revalidation_interval_seconds": 0.0},
@@ -5159,7 +5218,8 @@ class TestTickClockNormalizer:
         ids=[
             "samples-zero",
             "samples-one",
-            "min-agreeing",
+            "min-agreeing-zero",
+            "min-agreeing-one",
             "negative-interval",
             "max-age",
             "revalidation-interval",
