@@ -1188,10 +1188,10 @@ class TickClockNormalizer:
     contract is broker/terminal-dependent and not independently verified
     here, so this normalizer never relies on it as an out-of-band UTC
     reference for the live tick clock (a prior design that did so failed
-    every calibration sample with ``no_matching_event``, because a query
-    window built from the host clock could not match copied rows that, on
-    at least one broker, shared the live tick's own non-UTC wall-clock
-    label).
+    every calibration sample with ``no_matching_event`` because a query
+    window built from the host clock could not match the live event, off by
+    roughly the broker's offset; whether copied rows carry the same non-UTC
+    label was never isolated, and calibration no longer depends on it).
 
     This normalizer instead calibrates the offset from **live ticks alone**,
     using this process's own clock as the independent reference: each poll of
@@ -1264,13 +1264,16 @@ class TickClockNormalizer:
                 is recomputed unconditionally (bounds DST-transition
                 staleness).
             revalidation_interval_seconds: Minimum time between opportunistic
-                checks of an otherwise still-fresh cached calibration.
-                Configured symbols are sampled until one confirms the cache;
-                a disagreeing sample forces full recalibration only when none
-                confirms it. This catches an offset decrease (for example a
-                UTC+3 to UTC+2 transition) well before
-                ``max_calibration_age_seconds`` would, while a closed symbol
-                cannot hide fresh evidence from another active symbol.
+                checks of an otherwise still-fresh cached calibration. Every
+                configured symbol is polled once and the whole round is
+                collected before deciding; any accepted sample that disagrees
+                with the cached offset forces full recalibration, even when
+                another symbol in the same round still confirms the cache
+                (mixed offsets are contradictory evidence for a
+                connection-scoped offset). This catches an offset decrease
+                (for example a UTC+3 to UTC+2 transition) well before
+                ``max_calibration_age_seconds`` would, while a confirming
+                symbol cannot cancel another symbol's fresh disagreement.
             failed_calibration_retry_seconds: Minimum time between full
                 recalibration attempts after a failed calibration, so a
                 closed or illiquid market does not retry on every call.

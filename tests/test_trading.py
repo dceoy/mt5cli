@@ -4128,11 +4128,12 @@ def _clock_client(live_ticks: list[dict[str, object]]) -> MagicMock:
 class TestTickClockNormalizer:
     """Tests for TickClockNormalizer host-clock-based calibration.
 
-    ``symbol_info_tick()`` and ``copy_ticks_range()`` share the same
-    server-labeled epoch contract (see dceoy/mteor#428): a query window built
-    from the host clock can miss the live event entirely by exactly the
+    In production (see dceoy/mteor#428) ``symbol_info_tick()`` returned a
+    non-UTC server-labeled epoch, and a ``copy_ticks_range()`` lookup whose
+    window was built from the host clock missed the live event by roughly the
     broker's offset, which is why v1.3.2 still failed calibration with
-    ``no_matching_event``. These tests model the actual contract instead:
+    ``no_matching_event`` (whether copied rows carry the same non-UTC label
+    was never isolated). These tests model the actual contract instead:
     calibration evidence comes only from live ticks, each stamped with this
     process's own ``datetime.now(UTC)`` at receipt time, so
     ``client.copy_ticks_range`` is never configured with data and every test
