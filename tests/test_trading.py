@@ -4362,21 +4362,6 @@ class TestTickClockNormalizer:
         assert calibration.sample_count == 1
         assert calibration.calibrated_at is None
 
-    def test_single_poll_from_cold_start_has_no_baseline(
-        self,
-        mocker: MockerFixture,
-    ) -> None:
-        """A single observation is insufficient: there is no prior tick to compare."""
-        _freeze_clock(mocker)
-        client = _clock_client([_live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3)])
-        normalizer = TickClockNormalizer(client, ["SING30"], samples_per_symbol=1)
-
-        calibration = normalizer.calibrate()
-
-        assert calibration.status == "not_advancing"
-        assert calibration.offset_seconds is None
-        assert calibration.sample_count == 0
-
     def test_no_live_tick_yields_no_live_tick_status(
         self,
         mocker: MockerFixture,
@@ -5164,6 +5149,7 @@ class TestTickClockNormalizer:
         "kwargs",
         [
             {"samples_per_symbol": 0},
+            {"samples_per_symbol": 1},
             {"min_agreeing_samples": 0},
             {"sample_interval_seconds": -0.1},
             {"max_calibration_age_seconds": 0.0},
@@ -5171,7 +5157,8 @@ class TestTickClockNormalizer:
             {"failed_calibration_retry_seconds": 0.0},
         ],
         ids=[
-            "samples",
+            "samples-zero",
+            "samples-one",
             "min-agreeing",
             "negative-interval",
             "max-age",

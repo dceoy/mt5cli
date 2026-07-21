@@ -967,6 +967,7 @@ _MAX_PLAUSIBLE_SERVER_CLOCK_OFFSET_SECONDS = 14 * 3600.0
 _OFFSET_RESIDUAL_TOLERANCE_SECONDS = 5.0
 _MAX_TICK_AGE_TOLERANCE_SECONDS = 300.0
 _MAX_FUTURE_SKEW_SECONDS = 120.0
+_MIN_SAMPLES_PER_SYMBOL = 2
 
 
 _CALIBRATION_TICK_FIELDS = (
@@ -1243,11 +1244,12 @@ class TickClockNormalizer:
                 actively updating symbols; when omitted, calibration uses the
                 symbol passed to :meth:`get_normalized_tick_snapshot`.
             samples_per_symbol: Live polls attempted per symbol during one
-                calibration. The first poll of a symbol with no prior
-                observation only establishes a baseline; each subsequent poll
+                calibration. Every full calibration clears each resolved
+                symbol's prior observation first, so a symbol's first poll in
+                the attempt only establishes a baseline; each subsequent poll
                 whose epoch differs from its predecessor yields one candidate
-                offset, so this must be at least 2 for a symbol with no
-                calibration history yet to produce any evidence at all.
+                offset. Must be at least 2, or no attempt could ever produce
+                evidence.
             min_agreeing_samples: Distinct fresh (changed-epoch) tick events
                 that must agree on the same rounded offset before it is
                 accepted.
@@ -1272,8 +1274,11 @@ class TickClockNormalizer:
         Raises:
             ValueError: If a numeric tuning parameter is not positive.
         """
-        if samples_per_symbol < 1 or min_agreeing_samples < 1:
-            msg = "samples_per_symbol and min_agreeing_samples must be >= 1."
+        if samples_per_symbol < _MIN_SAMPLES_PER_SYMBOL:
+            msg = f"samples_per_symbol must be >= {_MIN_SAMPLES_PER_SYMBOL}."
+            raise ValueError(msg)
+        if min_agreeing_samples < 1:
+            msg = "min_agreeing_samples must be >= 1."
             raise ValueError(msg)
         if sample_interval_seconds < 0:
             msg = "sample_interval_seconds must not be negative."
