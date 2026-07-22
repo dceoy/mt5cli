@@ -11,7 +11,7 @@ required-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-13T15:37:13.721821839Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P1W"
 
 [options.exclude-newer-package]
@@ -506,7 +506,7 @@ wheels = [
 
 [[package]]
 name = "mt5cli"
-version = "2.0.0"
+version = "1.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "pandas" },
