@@ -1751,13 +1751,16 @@ class TickClockNormalizer:
         previous = self._last_observations.get(candidate)
         observation = _fetch_live_observation(self._client, candidate)
         if observation is None:
+            self._pending_disagreement.pop(candidate, None)
             return None
         self._last_observations[candidate] = observation
         if previous is None:
+            self._pending_disagreement.pop(candidate, None)
             return None
         self._last_attempt_at = now_epoch
         sample = _evaluate_advancement(previous, observation)
         if sample is None:
+            self._pending_disagreement.pop(candidate, None)
             return None
         if sample.offset_seconds == cached_offset_seconds or not (
             _is_advancing_sample_compatible_with_cached(

@@ -5494,6 +5494,92 @@ class TestTickClockNormalizer:
         _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
         _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
 
+    def test_inconclusive_round_clears_pending_disagreement(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An interrupted round breaks the pending disagreement sequence.
+
+        The first delayed sample -- a clean, one-bucket-lower 9000 s offset,
+        explained by the cached 10800 s offset given the full 1795 s gap --
+        is forgiven and remembered as pending (as in
+        ``test_repeated_one_bucket_decrease_after_long_gap_invalidates_cache``).
+        A later round where the symbol's tick has not changed at all is
+        wholly inconclusive (``_evaluate_advancement()`` returns ``None``),
+        which must clear that pending entry rather than leave it intact: the
+        very next round therefore cannot inherit an unrelated pending
+        disagreement recorded two rounds earlier. When the same 9000 s
+        bucket then recurs on a third round, it must be treated as a fresh,
+        first-time disagreement -- forgiven and remembered anew -- rather
+        than escalating as if it were the second occurrence in a row. The
+        cache must remain confirmed at the original offset throughout, with
+        no recalibration ever triggered.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        first_gap = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 1795.0, tz=UTC)
+        first_gap_epoch = first_gap.timestamp()
+        second_gap = datetime.fromtimestamp(first_gap_epoch + 1795.0, tz=UTC)
+        second_gap_epoch = second_gap.timestamp()
+        third_gap = datetime.fromtimestamp(second_gap_epoch + 1795.0, tz=UTC)
+        third_gap_epoch = third_gap.timestamp()
+        first_candidate_epoch = first_gap_epoch + (_UTC_PLUS_3 - 1800.0)
+        raw_event = third_gap_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # First revalidation round: a perfectly fresh, one-bucket-lower
+            # event (9000 s) is still explained by the cached offset given
+            # the full 1795 s gap, so it is forgiven and remembered pending.
+            _live_tick(first_candidate_epoch),
+            # Raw snapshot fetch for the first call, still under the cache:
+            _live_tick(first_gap_epoch - 1 + _UTC_PLUS_3),
+            # Second revalidation round: the exact same tick is observed
+            # again (unchanged epoch), so the round is wholly inconclusive
+            # and must clear the pending entry rather than leave it intact.
+            _live_tick(first_candidate_epoch),
+            # Raw snapshot fetch for the second call, still under the cache:
+            _live_tick(second_gap_epoch - 1 + _UTC_PLUS_3),
+            # Third revalidation round: the same 9000 s bucket recurs, but
+            # the interrupted sequence means this must be forgiven again as
+            # a fresh first-time disagreement, not escalated as a repeat.
+            _live_tick(third_gap_epoch + (_UTC_PLUS_3 - 1800.0)),
+            # Raw snapshot fetch for the third call, still under the cache:
+            _live_tick(raw_event + _UTC_PLUS_3),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=1795.0,
+        )
+        _assert_close(normalizer.calibrate().offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = first_gap
+        assert (
+            normalizer.get_normalized_tick_snapshot("SING30")["clock_status"]
+            == "calibrated"
+        )
+
+        mock_dt.now.return_value = second_gap
+        assert (
+            normalizer.get_normalized_tick_snapshot("SING30")["clock_status"]
+            == "calibrated"
+        )
+
+        mock_dt.now.return_value = third_gap
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            third_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert third_snapshot["clock_status"] == "calibrated"
+        _assert_close(third_snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert third_snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        assert "recalibrating" not in caplog.text
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+        _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
+
     def test_inconclusive_symbol_does_not_shield_refuting_evidence(
         self,
         mocker: MockerFixture,
