@@ -4992,10 +4992,21 @@ class TestTickClockNormalizer:
         _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
         _assert_close(calibration.calibrated_at, later_epoch)
 
+    @pytest.mark.parametrize(
+        ("elapsed_seconds", "delay_seconds"),
+        [
+            (310.0, 309.0),
+            (600.0, 590.0),
+            (900.0, 890.0),
+        ],
+        ids=["just-past-old-cap", "mid-range-delay", "near-half-bucket-delay"],
+    )
     def test_delayed_advancing_tick_keeps_valid_cache_confirmed(
         self,
         mocker: MockerFixture,
         caplog: pytest.LogCaptureFixture,
+        elapsed_seconds: float,
+        delay_seconds: float,
     ) -> None:
         """A merely delayed advancing tick must not refute a still-valid cache.
 
@@ -5008,19 +5019,18 @@ class TestTickClockNormalizer:
         misjudged unstable_offset and forcing a needless recalibration.
         """
         mock_dt, _ = _freeze_clock(mocker)
-        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 310.0, tz=UTC)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + elapsed_seconds, tz=UTC)
         later_epoch = later.timestamp()
         raw_event = later_epoch - 1
         client = _clock_client([
             _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
             _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
             _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
-            # Revalidation: a fresh event that occurred just 1 s after the
-            # last calibration poll, but is now 309 s old -- past the 300 s
-            # cap this PR previously used, yet still within the tolerance
-            # once widened by the true 310 s elapsed time -- confirms the
-            # cached offset instead of refuting it.
-            _live_tick(later_epoch - 309.0 + _UTC_PLUS_3),
+            # Revalidation: a fresh event delayed past the 300 s cap this PR
+            # previously used, yet still within the tolerance once widened
+            # by the true elapsed time -- confirms the cached offset instead
+            # of refuting it.
+            _live_tick(later_epoch - delay_seconds + _UTC_PLUS_3),
             # Raw snapshot fetch, still normalized under the confirmed offset:
             _live_tick(raw_event + _UTC_PLUS_3),
         ])
