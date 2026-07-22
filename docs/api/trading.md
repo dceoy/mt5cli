@@ -348,11 +348,23 @@ sample is evidence the cache must be able to explain:
 - an accepted offset equal to the cached one confirms the cache, but never
   cancels another symbol's refuting evidence from the same round;
 - an accepted offset that differs from the cached one refutes the cache (a
-  clean broker offset change);
+  clean broker offset change) — unless the cached offset, widened by the
+  elapsed time since that symbol's prior observation, still explains the
+  disagreeing raw offset. That case is forgiven once per symbol and held as
+  a pending disagreement instead of refuting immediately, since it cannot
+  yet be told apart from a maximally delayed tick under the cached offset.
+  A pending disagreement escalates to a refutation only if that same
+  symbol's next conclusive round rounds to the identical bucket again; any
+  inconclusive, differently-bucketed, or unusable round in between clears
+  it instead of letting unrelated samples accumulate into false
+  corroboration;
 - an advancing sample with no usable offset (`unstable_offset` or
-  `implausible_offset`) also refutes the cache: a fresh market event whose
-  raw offset cannot be reconciled with any plausible 30-minute bucket is
-  contradictory evidence the cached calibration cannot explain.
+  `implausible_offset`) also refutes the cache, subject to the same
+  once-per-symbol forgiveness above — but an unusable sample can never
+  itself be held as, or match, a pending disagreement, since it carries no
+  specific offset to corroborate. A fresh market event whose raw offset is
+  neither reconciled with any plausible 30-minute bucket nor forgiven this
+  way is contradictory evidence the cached calibration cannot explain.
 
 Any refuting evidence invalidates the cached calibration and forces full
 recalibration; when several symbols refute the cache in one round, the
