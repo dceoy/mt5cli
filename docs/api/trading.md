@@ -264,7 +264,9 @@ A normalized snapshot keeps the raw/UTC distinction explicit:
 
 `copy_ticks_range()` is not used for calibration: its documented UTC contract
 is broker/terminal-dependent and not independently verified here (see
-above), so it cannot serve as an out-of-band UTC reference. Instead, the only
+above), so neither the query timestamps nor the returned historical tick
+timestamps can serve as an out-of-band UTC reference, and historical copied
+rows are never used to infer the server offset. Instead, the only
 independent reference available is **this process's own clock**: every
 calibration poll
 fetches one live `symbol_info_tick()` value and stamps it with
@@ -303,7 +305,11 @@ to a plausible bucket (`unstable_offset`), an unrealistic rounded delta
 missing live data (`no_live_tick`) — snapshots fail closed: `clock_status` is
 `"uncalibrated"`, `time_utc` and `server_clock_offset_seconds` are `None`,
 and the raw fields remain available. A raw timestamp is never silently
-treated as UTC. `normalizer.calibration` exposes the full
+treated as UTC. The same fail-closed rule applies after a successful
+calibration: once periodic revalidation invalidates the cached offset (see
+below), subsequent snapshots are normalized only by a successful full
+recalibration — never by the refuted cache. `normalizer.calibration`
+exposes the full
 `TickClockCalibration` diagnostics: status, offset, distinct sample count,
 evidence symbols, last calibration time, and (for troubleshooting a failed
 attempt) the most recently considered sample's symbol, raw server-labeled
@@ -323,14 +329,54 @@ symbols and calls. A cached offset is recomputed in three cases:
   future — evidence that the broker offset grew, e.g. a UTC+2 to UTC+3
   transition.
 - Periodically, at most once per `revalidation_interval_seconds` (default 5
-  minutes), each configured symbol is polled once and compared against that
-  symbol's last known observation (from the initial calibration or a prior
-  revalidation) until one confirms the still-cached offset. Closed or
-  inconclusive symbols are skipped; a detected disagreement forces full
-  recalibration. This is what catches a broker offset _decrease_ (e.g. UTC+3
-  to UTC+2): the resulting normalized time looks stale rather than future,
+  minutes), through one full revalidation round over every configured
+  symbol. This is what catches a broker offset _decrease_ (e.g. UTC+3 to
+  UTC+2): the resulting normalized time looks stale rather than future,
   which a future-skew check alone cannot distinguish from ordinary
   quiet-market staleness.
+
+In a revalidation round each configured symbol is polled once and compared
+against that symbol's last known observation (from the initial calibration
+or a prior revalidation), and the whole round is evaluated before any
+decision is made — revalidation never stops at the first confirming symbol.
+A symbol is inconclusive — skipped, neither confirming nor refuting the
+cache — when its fetch is unusable, when it has no prior observation to
+compare against, or when its tick epoch is unchanged since that observation
+(ordinary tick age, e.g. a closed or illiquid symbol). Every other advancing
+sample is evidence the cache must be able to explain:
+
+- an accepted offset equal to the cached one confirms the cache, but never
+  cancels another symbol's refuting evidence from the same round;
+- an accepted offset that differs from the cached one refutes the cache (a
+  clean broker offset change) — unless the cached offset, widened by the
+  elapsed time since that symbol's prior observation plus that prior
+  observation's own inferred delay under the cached offset, still explains
+  the disagreeing raw offset. That case is forgiven once per symbol and held as
+  a pending disagreement instead of refuting immediately, since it cannot
+  yet be told apart from a maximally delayed tick under the cached offset.
+  A pending disagreement escalates to a refutation only if that same
+  symbol's next conclusive round rounds to the identical bucket again; any
+  inconclusive, differently-bucketed, or unusable round in between clears
+  it instead of letting unrelated samples accumulate into false
+  corroboration;
+- an advancing sample with no usable offset (`unstable_offset` or
+  `implausible_offset`) also refutes the cache, subject to the same
+  once-per-symbol forgiveness above — but an unusable sample can never
+  itself be held as, or match, a pending disagreement, since it carries no
+  specific offset to corroborate. A fresh market event whose raw offset is
+  neither reconciled with any plausible 30-minute bucket nor forgiven this
+  way is contradictory evidence the cached calibration cannot explain.
+
+Any refuting evidence invalidates the cached calibration and forces full
+recalibration; when several symbols refute the cache in one round, the
+reported evidence is deterministic (`implausible_offset` first, then
+`unstable_offset`, then a clean disagreement). The recalibration either
+re-establishes a validated offset or fails closed — a raw tick is never
+normalized with a cached offset that advancing evidence has just refuted. A
+wholly inconclusive round keeps the cache, and a round in which no symbol
+had a comparable baseline does not consume the interval, so the next call
+retries immediately instead of waiting a full
+`revalidation_interval_seconds`.
 
 If recalibration still cannot validate the timestamp, the snapshot fails
 closed. Failed calibrations are recorded for diagnostics but never reused;

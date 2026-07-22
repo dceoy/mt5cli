@@ -4938,6 +4938,919 @@ class TestTickClockNormalizer:
         assert calibration is not None
         _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
 
+    @pytest.mark.parametrize(
+        ("bad_tick_offset_seconds", "expected_substatus"),
+        [
+            # Raw offset (10700 s) sits 100 s below the cached bucket -- past
+            # the 5 s tolerance widened by the 61 s elapsed slack.
+            (_UTC_PLUS_3 - 100.0, "unstable_offset"),
+            # Raw offset (16 h) exceeds the plausible UTC offset range
+            # entirely, regardless of the cached offset.
+            (16 * 3600.0, "implausible_offset"),
+        ],
+        ids=["unstable_offset", "implausible_offset"],
+    )
+    def test_advancing_unusable_sample_invalidates_cache_and_recovers(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+        bad_tick_offset_seconds: float,
+        expected_substatus: str,
+    ) -> None:
+        """An advancing unusable sample invalidates the cached offset.
+
+        A fresh market event whose raw offset cannot be reconciled with any
+        plausible 30-minute bucket (``unstable_offset``) or falls outside the
+        realistic UTC offset range (``implausible_offset``) refutes the
+        cached calibration just as surely as a clean disagreement: the
+        refuted cache must be dropped and a full recalibration must
+        re-establish the offset (here a UTC+3 to UTC+2 broker fallback),
+        never normalize with the refuted offset.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # Revalidation: a fresh event whose raw offset is unusable
+            # advancing evidence, not a confirmation of the cache.
+            _live_tick(later_epoch + bad_tick_offset_seconds),
+            # Full recalibration, now labeled UTC+2:
+            _live_tick(later_epoch - 4 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 3 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2),
+            # Raw snapshot fetch, normalized under the new offset only:
+            _live_tick(raw_event + _UTC_PLUS_2),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        assert f"unusable advancing evidence ({expected_substatus}" in caplog.text
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+        _assert_close(calibration.calibrated_at, later_epoch)
+
+    @pytest.mark.parametrize(
+        ("elapsed_seconds", "delay_seconds"),
+        [
+            (310.0, 309.0),
+            (600.0, 590.0),
+            (900.0, 890.0),
+            (1200.0, 1000.0),
+            (1800.0, 1798.0),
+        ],
+        ids=[
+            "just-past-old-cap",
+            "mid-range-delay",
+            "near-half-bucket-delay",
+            # Raw offset (9800 s) rounds past the half-bucket cap to the
+            # *neighboring* bucket (9000 s); _evaluate_advancement() alone
+            # reports unstable_offset for this one.
+            "wrong-bucket-unstable",
+            # Raw offset (9002 s) rounds cleanly to the neighboring bucket
+            # (9000 s) with only a 2 s residual: a *usable* offset that
+            # still disagrees with the cache, not unstable_offset.
+            "usable-different-bucket",
+        ],
+    )
+    def test_delayed_advancing_tick_keeps_valid_cache_confirmed(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+        elapsed_seconds: float,
+        delay_seconds: float,
+    ) -> None:
+        """A merely delayed advancing tick must not refute a still-valid cache.
+
+        A fresh event that occurred just after the previous poll can already
+        be well past the revalidation interval old by the time the next call
+        happens. The age-based tolerance widening must use that real elapsed
+        time (bounded only by half the 30-minute rounding bucket, not an
+        arbitrary cap tied to the revalidation interval) so this sample is
+        still recognized as explained by the cached offset -- whether its raw
+        offset rounds cleanly back to the cached bucket, rounds to the
+        *neighboring* bucket as unusable ``unstable_offset`` evidence
+        (``wrong-bucket-unstable``), or rounds cleanly to that neighboring
+        bucket as *usable* but different evidence (``usable-different-bucket``)
+        -- instead of forcing a needless recalibration.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + elapsed_seconds, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # Revalidation: a fresh event delayed enough to test the
+            # age-based tolerance widening, yet still explained by the
+            # cached offset once widened by the true elapsed time --
+            # confirms the cached offset instead of refuting it.
+            _live_tick(later_epoch - delay_seconds + _UTC_PLUS_3),
+            # Raw snapshot fetch, still normalized under the confirmed offset:
+            _live_tick(raw_event + _UTC_PLUS_3),
+        ])
+        normalizer = TickClockNormalizer(client, ["SING30"])
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        assert "unusable advancing evidence" not in caplog.text
+        assert "recalibrating" not in caplog.text
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+        _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
+
+    def test_broker_offset_change_after_long_revalidation_interval(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """An offset change surfaced after a long interval still invalidates.
+
+        A genuine broker offset change (UTC+3 to UTC+2) detected after an
+        hour-long gap must still refute a stale cache, even though a merely
+        delayed tick under an *unchanged* cached offset would not (see
+        ``test_delayed_advancing_tick_keeps_valid_cache_confirmed``'s
+        ``usable-different-bucket`` case): this event's raw offset (6890 s)
+        rounds cleanly to the new 7200 s bucket, but that usable offset
+        still disagrees with the cached
+        10800 s one and falls outside the window the cached offset could
+        explain given the real 3700 s elapsed time, so it is a clean offset
+        disagreement that invalidates the cache; full recalibration then
+        recovers the new UTC+2 offset.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 3700.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # Revalidation after a one-hour interval: the broker fell back to
+            # UTC+2 and this fresh event occurred 310 s before it was polled,
+            # so its raw offset (6890 s) rounds cleanly to the new 7200 s
+            # bucket -- a usable offset that disagrees with the cached
+            # 10800 s one and falls outside the window that offset could
+            # still explain given the real 3700 s elapsed time, so it
+            # refutes the cache as a genuine change.
+            _live_tick(later_epoch - 310.0 + _UTC_PLUS_2),
+            # Full recalibration, now labeled UTC+2:
+            _live_tick(later_epoch - 3 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 1 + _UTC_PLUS_2),
+            # Raw snapshot fetch, normalized under the new offset only:
+            _live_tick(raw_event + _UTC_PLUS_2),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=3600.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+        _assert_close(calibration.calibrated_at, later_epoch)
+
+    def test_fresh_transition_after_long_gap_invalidates_cache(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A perfectly fresh post-transition tick must still refute the cache.
+
+        Widening the cached-offset compatibility window by the *entire*
+        elapsed time since the last observation, with no upper bound, would
+        make a fresh event under a genuinely new offset indistinguishable
+        from a maximally delayed event under the cached one: after a 3600 s
+        gap, a fresh (zero-delay) UTC+2 tick has a raw offset of exactly
+        7200 s, two full buckets below the cached 10800 s -- the same value a
+        UTC+3 tick delayed by the entire 3600 s gap would also produce. That
+        ambiguity must be resolved in favor of failing closed: a
+        two-or-more-bucket disagreement is never explained away as delay
+        (see ``_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS``), so this refutes
+        the cache and forces full recalibration.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 3600.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # Revalidation after a one-hour gap: a perfectly fresh event
+            # (zero delay) under the new UTC+2 offset has raw offset 7200 s,
+            # exactly what a UTC+3 tick delayed by the whole 3600 s gap would
+            # also produce -- still two buckets from the cached 10800 s, so
+            # it refutes the cache rather than being explained away.
+            _live_tick(later_epoch + _UTC_PLUS_2),
+            # Full recalibration, now labeled UTC+2:
+            _live_tick(later_epoch - 3 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 1 + _UTC_PLUS_2),
+            # Raw snapshot fetch, normalized under the new offset only:
+            _live_tick(raw_event + _UTC_PLUS_2),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=3600.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+        _assert_close(calibration.calibrated_at, later_epoch)
+
+    @pytest.mark.parametrize(
+        "gap_seconds",
+        [1795.0, 3600.0],
+        ids=["at-cap-boundary", "well-beyond-cap"],
+    )
+    def test_repeated_one_bucket_decrease_after_long_gap_invalidates_cache(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+        gap_seconds: float,
+    ) -> None:
+        """A one-bucket decrease that persists across polls still refutes.
+
+        A single fresh sample cannot, by raw offset and elapsed time alone,
+        be told apart from a maximally delayed tick still under the cached
+        offset: once the polling gap reaches
+        ``_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS`` (1795 s) -- or grows
+        far beyond it, since the widening is capped, not proportional to the
+        gap -- a perfectly fresh event exactly one bucket below the cached
+        offset (9000 s against 10800 s) produces the very same raw offset
+        (9000 s) a maximally stale, unchanged-offset tick would. The first
+        such disagreement is therefore still forgiven as inconclusive (as in
+        ``test_delayed_advancing_tick_keeps_valid_cache_confirmed``'s
+        ``usable-different-bucket`` case), but a genuine transition keeps
+        producing fresh ticks that disagree
+        with the cache on the very next round too, while an isolated
+        delayed tick would not: a second consecutive unexplained
+        disagreement from the same symbol is no longer forgiven and
+        invalidates the cache.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        new_offset = _UTC_PLUS_3 - 1800.0
+        first_gap = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + gap_seconds, tz=UTC)
+        first_gap_epoch = first_gap.timestamp()
+        second_gap = datetime.fromtimestamp(first_gap_epoch + gap_seconds, tz=UTC)
+        second_gap_epoch = second_gap.timestamp()
+        raw_event = second_gap_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # First revalidation round: a perfectly fresh (zero-delay) event
+            # already under the new, one-bucket-lower offset -- exactly what
+            # a maximally-stale tick still under the cached offset would also
+            # produce, so this first disagreement alone is forgiven.
+            _live_tick(first_gap_epoch + new_offset),
+            # Raw snapshot fetch for the first call, still under the cache:
+            _live_tick(first_gap_epoch - 1 + _UTC_PLUS_3),
+            # Second revalidation round: the broker keeps ticking under the
+            # new offset, so the disagreement recurs and is no longer
+            # explained away -- it refutes the cache.
+            _live_tick(second_gap_epoch + new_offset),
+            # Full recalibration, now labeled under the new offset:
+            _live_tick(second_gap_epoch - 4 + new_offset),
+            _live_tick(second_gap_epoch - 3 + new_offset),
+            _live_tick(second_gap_epoch - 2 + new_offset),
+            # Raw snapshot fetch, normalized under the new offset only:
+            _live_tick(raw_event + new_offset),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=1795.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = first_gap
+        first_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert first_snapshot["clock_status"] == "calibrated"
+        _assert_close(first_snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = second_gap
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            second_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert second_snapshot["clock_status"] == "calibrated"
+        _assert_close(second_snapshot["server_clock_offset_seconds"], new_offset)
+        assert second_snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        assert "appears to have changed" in caplog.text
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, new_offset)
+        _assert_close(calibration.calibrated_at, second_gap_epoch)
+
+    def test_mismatched_pending_disagreement_does_not_invalidate_cache(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A second disagreement must repeat the same bucket to escalate.
+
+        The first delayed sample -- a clean, one-bucket-lower 9000 s offset,
+        explained by the cached 10800 s offset given the full 1795 s gap --
+        is forgiven and remembered as pending (as in
+        ``test_repeated_one_bucket_decrease_after_long_gap_invalidates_cache``).
+        A later, unrelated sample must not consume that pending entry just
+        because one already exists: after another 1795 s gap, a fresh event
+        delayed by only 1000 s produces a 9800 s raw offset that is also
+        cached-offset-compatible, but rounds with an 800 s residual to the
+        *same* neighboring bucket as the first sample only by coincidence of
+        rounding -- ``_evaluate_advancement()`` itself cannot place it in any
+        bucket cleanly and reports ``unstable_offset``. Such a sample names
+        no coherent alternate bucket, so it must neither confirm nor extend
+        the pending disagreement; the cache must remain confirmed at the
+        original offset with no recalibration triggered.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        gap_seconds = 1795.0
+        first_gap = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + gap_seconds, tz=UTC)
+        first_gap_epoch = first_gap.timestamp()
+        second_gap = datetime.fromtimestamp(first_gap_epoch + gap_seconds, tz=UTC)
+        second_gap_epoch = second_gap.timestamp()
+        raw_event = second_gap_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # First revalidation round: a perfectly fresh, one-bucket-lower
+            # event (9000 s) is still explained by the cached offset given
+            # the full 1795 s gap, so it is forgiven and remembered pending.
+            _live_tick(first_gap_epoch + _UTC_PLUS_3 - 1800.0),
+            # Raw snapshot fetch for the first call, still under the cache:
+            _live_tick(first_gap_epoch - 1 + _UTC_PLUS_3),
+            # Second revalidation round: an unrelated 1000 s delay produces a
+            # 9800 s raw offset -- cached-offset-compatible, but unusable
+            # (unstable_offset) rather than a clean repeat of the 9000 s
+            # bucket -- so it must not consume the pending entry.
+            _live_tick(second_gap_epoch + _UTC_PLUS_3 - 1000.0),
+            # Raw snapshot fetch for the second call, still under the cache:
+            _live_tick(raw_event + _UTC_PLUS_3),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=gap_seconds,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = first_gap
+        first_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert first_snapshot["clock_status"] == "calibrated"
+        _assert_close(first_snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+
+        mock_dt.now.return_value = second_gap
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            second_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert second_snapshot["clock_status"] == "calibrated"
+        _assert_close(second_snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert second_snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        assert "recalibrating" not in caplog.text
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+        _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
+
+    def test_inconclusive_round_clears_pending_disagreement(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An interrupted round breaks the pending disagreement sequence.
+
+        The first delayed sample -- a clean, one-bucket-lower 9000 s offset,
+        explained by the cached 10800 s offset given the full 1795 s gap --
+        is forgiven and remembered as pending (as in
+        ``test_repeated_one_bucket_decrease_after_long_gap_invalidates_cache``).
+        A later round where the symbol's tick has not changed at all is
+        wholly inconclusive (``_evaluate_advancement()`` returns ``None``),
+        which must clear that pending entry rather than leave it intact: the
+        very next round therefore cannot inherit an unrelated pending
+        disagreement recorded two rounds earlier. When the same 9000 s
+        bucket then recurs on a third round, it must be treated as a fresh,
+        first-time disagreement -- forgiven and remembered anew -- rather
+        than escalating as if it were the second occurrence in a row. The
+        cache must remain confirmed at the original offset throughout, with
+        no recalibration ever triggered.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        first_gap = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 1795.0, tz=UTC)
+        first_gap_epoch = first_gap.timestamp()
+        second_gap = datetime.fromtimestamp(first_gap_epoch + 1795.0, tz=UTC)
+        second_gap_epoch = second_gap.timestamp()
+        third_gap = datetime.fromtimestamp(second_gap_epoch + 1795.0, tz=UTC)
+        third_gap_epoch = third_gap.timestamp()
+        first_candidate_epoch = first_gap_epoch + (_UTC_PLUS_3 - 1800.0)
+        raw_event = third_gap_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # First revalidation round: a perfectly fresh, one-bucket-lower
+            # event (9000 s) is still explained by the cached offset given
+            # the full 1795 s gap, so it is forgiven and remembered pending.
+            _live_tick(first_candidate_epoch),
+            # Raw snapshot fetch for the first call, still under the cache:
+            _live_tick(first_gap_epoch - 1 + _UTC_PLUS_3),
+            # Second revalidation round: the exact same tick is observed
+            # again (unchanged epoch), so the round is wholly inconclusive
+            # and must clear the pending entry rather than leave it intact.
+            _live_tick(first_candidate_epoch),
+            # Raw snapshot fetch for the second call, still under the cache:
+            _live_tick(second_gap_epoch - 1 + _UTC_PLUS_3),
+            # Third revalidation round: the same 9000 s bucket recurs, but
+            # the interrupted sequence means this must be forgiven again as
+            # a fresh first-time disagreement, not escalated as a repeat.
+            _live_tick(third_gap_epoch + (_UTC_PLUS_3 - 1800.0)),
+            # Raw snapshot fetch for the third call, still under the cache:
+            _live_tick(raw_event + _UTC_PLUS_3),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=1795.0,
+        )
+        _assert_close(normalizer.calibrate().offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = first_gap
+        assert (
+            normalizer.get_normalized_tick_snapshot("SING30")["clock_status"]
+            == "calibrated"
+        )
+
+        mock_dt.now.return_value = second_gap
+        assert (
+            normalizer.get_normalized_tick_snapshot("SING30")["clock_status"]
+            == "calibrated"
+        )
+
+        mock_dt.now.return_value = third_gap
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            third_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert third_snapshot["clock_status"] == "calibrated"
+        _assert_close(third_snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert third_snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        assert "recalibrating" not in caplog.text
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+        _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
+
+    def test_second_less_delayed_tick_under_unchanged_offset_keeps_cache_confirmed(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A less-delayed tick following a forgiven delayed one must not refute.
+
+        The first sample -- delayed by 1798 s against a 1800 s poll gap,
+        raw offset 9002 s -- is explained by the cached 10800 s offset given
+        that gap and is forgiven and remembered pending (as in
+        ``test_delayed_advancing_tick_keeps_valid_cache_confirmed``'s
+        ``usable-different-bucket`` case). Checking compatibility using only
+        the elapsed time since that *first*
+        sample would wrongly assume it was current when observed: a second,
+        genuinely newer event only 300 s later, delayed by just 1700 s
+        against the *unchanged* cached offset (raw offset 9100 s), is still
+        perfectly explained by the same offset once the first sample's own
+        1798 s inferred delay is carried forward, but not by the 300 s
+        elapsed time alone. The cache must stay confirmed at 10800 s and no
+        recalibration may trigger.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        first_gap = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 1800.0, tz=UTC)
+        first_gap_epoch = first_gap.timestamp()
+        second_gap = datetime.fromtimestamp(first_gap_epoch + 300.0, tz=UTC)
+        second_gap_epoch = second_gap.timestamp()
+        raw_event_1 = first_gap_epoch - 1.0
+        raw_event_2 = second_gap_epoch - 1.0
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # First revalidation round: delayed 1798 s against the 1800 s
+            # poll gap (raw offset 9002 s) -- explained by the cached offset
+            # given that gap, forgiven and remembered pending.
+            _live_tick(first_gap_epoch - 1798.0 + _UTC_PLUS_3),
+            # Raw snapshot fetch for the first call, still under the cache:
+            _live_tick(raw_event_1 + _UTC_PLUS_3),
+            # Second revalidation round, only 300 s later: delayed just
+            # 1700 s against the unchanged cached offset (raw offset
+            # 9100 s) -- explained only once the first sample's own 1798 s
+            # delay is carried forward, not by the 300 s gap alone.
+            _live_tick(second_gap_epoch - 1700.0 + _UTC_PLUS_3),
+            # Raw snapshot fetch for the second call, still under the cache:
+            _live_tick(raw_event_2 + _UTC_PLUS_3),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=300.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = first_gap
+        first_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert first_snapshot["clock_status"] == "calibrated"
+        _assert_close(first_snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert first_snapshot["time_utc"] == datetime.fromtimestamp(raw_event_1, tz=UTC)
+
+        mock_dt.now.return_value = second_gap
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            second_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert second_snapshot["clock_status"] == "calibrated"
+        _assert_close(second_snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+        assert second_snapshot["time_utc"] == datetime.fromtimestamp(
+            raw_event_2, tz=UTC
+        )
+        assert "recalibrating" not in caplog.text
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_3)
+        _assert_close(calibration.calibrated_at, _CLOCK_NOW_EPOCH)
+
+    def test_genuine_transition_still_invalidates_after_forgiven_delayed_tick(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Carrying a prior delay forward must never mask a real transition.
+
+        The first sample is delayed by 1798 s against a 1800 s poll gap
+        (raw offset 9002 s), forgiven the same way as in
+        ``test_second_less_delayed_tick_under_unchanged_offset_keeps_cache_confirmed``,
+        leaving a large (1798 s) inferred delay to carry forward. The second
+        sample, only 300 s later, is a perfectly fresh (zero-delay) tick
+        under a genuinely new offset two buckets below the cached one
+        (7200 s against 10800 s). Even with the prior sample's delay added
+        to the 300 s elapsed time, the combined allowance is capped at just
+        under one bucket width, so this two-bucket disagreement must still
+        refute the cache and force full recalibration rather than being
+        masked as a merely delayed sample.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        first_gap = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 1800.0, tz=UTC)
+        first_gap_epoch = first_gap.timestamp()
+        second_gap = datetime.fromtimestamp(first_gap_epoch + 300.0, tz=UTC)
+        second_gap_epoch = second_gap.timestamp()
+        raw_event = second_gap_epoch - 1.0
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # First revalidation round: delayed 1798 s against the 1800 s
+            # poll gap (raw offset 9002 s) -- forgiven and remembered
+            # pending, leaving a large inferred delay behind it.
+            _live_tick(first_gap_epoch - 1798.0 + _UTC_PLUS_3),
+            # Raw snapshot fetch for the first call, still under the cache:
+            _live_tick(first_gap_epoch - 1.0 + _UTC_PLUS_3),
+            # Second revalidation round, only 300 s later: a perfectly fresh
+            # event already under a genuinely new offset two buckets below
+            # the cached one -- must refute despite the large delay just
+            # carried forward from the first sample.
+            _live_tick(second_gap_epoch + _UTC_PLUS_2),
+            # Full recalibration, now labeled UTC+2:
+            _live_tick(second_gap_epoch - 4 + _UTC_PLUS_2),
+            _live_tick(second_gap_epoch - 3 + _UTC_PLUS_2),
+            _live_tick(second_gap_epoch - 2 + _UTC_PLUS_2),
+            # Raw snapshot fetch, normalized under the new offset only:
+            _live_tick(raw_event + _UTC_PLUS_2),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=300.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = first_gap
+        first_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+        assert first_snapshot["clock_status"] == "calibrated"
+        _assert_close(first_snapshot["server_clock_offset_seconds"], _UTC_PLUS_3)
+
+        mock_dt.now.return_value = second_gap
+        second_snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert second_snapshot["clock_status"] == "calibrated"
+        _assert_close(second_snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert second_snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+        _assert_close(calibration.calibrated_at, second_gap_epoch)
+
+    def test_inconclusive_symbol_does_not_shield_refuting_evidence(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An inconclusive symbol cannot keep the cache when another refutes it.
+
+        A closed symbol whose tick never changes is inconclusive and is
+        skipped, but it neither confirms the cache nor cancels the active
+        symbol's unstable_offset evidence: the whole round is evaluated, the
+        cache is invalidated, and full recalibration recovers the new offset.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        closed_event = _CLOCK_NOW_EPOCH - 2 * 24 * 3600
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        client = _clock_client([
+            _live_tick(closed_event, symbol="CLOSED"),
+            _live_tick(closed_event, symbol="CLOSED"),
+            _live_tick(closed_event, symbol="CLOSED"),
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3, symbol="ACTIVE"),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3, symbol="ACTIVE"),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3, symbol="ACTIVE"),
+            # Revalidation: CLOSED is unchanged (inconclusive), ACTIVE shows
+            # unusable advancing evidence (unstable_offset).
+            _live_tick(closed_event, symbol="CLOSED"),
+            _live_tick(later_epoch - 100.0 + _UTC_PLUS_3, symbol="ACTIVE"),
+            # Full recalibration, now labeled UTC+2:
+            _live_tick(closed_event, symbol="CLOSED"),
+            _live_tick(closed_event, symbol="CLOSED"),
+            _live_tick(closed_event, symbol="CLOSED"),
+            _live_tick(later_epoch - 4 + _UTC_PLUS_2, symbol="ACTIVE"),
+            _live_tick(later_epoch - 3 + _UTC_PLUS_2, symbol="ACTIVE"),
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2, symbol="ACTIVE"),
+            # Raw snapshot fetch, normalized under the new offset only:
+            _live_tick(raw_event + _UTC_PLUS_2, symbol="ACTIVE"),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["CLOSED", "ACTIVE"],
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            snapshot = normalizer.get_normalized_tick_snapshot("ACTIVE")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        assert "unusable advancing evidence (unstable_offset" in caplog.text
+        assert [
+            call.kwargs["symbol"]
+            for call in client.symbol_info_tick_as_dict.call_args_list
+        ] == [
+            "CLOSED",
+            "CLOSED",
+            "CLOSED",
+            "ACTIVE",
+            "ACTIVE",
+            "ACTIVE",
+            "CLOSED",
+            "ACTIVE",
+            "CLOSED",
+            "CLOSED",
+            "CLOSED",
+            "ACTIVE",
+            "ACTIVE",
+            "ACTIVE",
+            "ACTIVE",
+        ]
+
+    def test_recalibration_failure_after_invalidation_fails_closed(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Regression: a refuted cached offset is never applied to another tick.
+
+        Once advancing unstable_offset evidence invalidates the cached UTC+3
+        offset, a snapshot must never again be normalized with it: when the
+        forced recalibration cannot establish any valid offset (the market
+        has closed), the snapshot fails closed with no UTC time and no
+        offset, and the failure cooldown keeps it closed on the next call.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        stale_event = _CLOCK_NOW_EPOCH - 2 * 24 * 3600
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # Revalidation: unusable advancing evidence (unstable_offset).
+            _live_tick(later_epoch - 100.0 + _UTC_PLUS_3),
+            # Forced recalibration: the market has closed, so no symbol
+            # advances and no valid offset can be established.
+            _live_tick(stale_event + _UTC_PLUS_3),
+            _live_tick(stale_event + _UTC_PLUS_3),
+            _live_tick(stale_event + _UTC_PLUS_3),
+            # Raw snapshot fetches for both calls below:
+            _live_tick(stale_event + _UTC_PLUS_3),
+            _live_tick(stale_event + _UTC_PLUS_3),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "uncalibrated"
+        assert snapshot["time_utc"] is None
+        assert snapshot["server_clock_offset_seconds"] is None
+        assert snapshot["raw_time"] == int(stale_event + _UTC_PLUS_3)
+        assert "unusable advancing evidence (unstable_offset" in caplog.text
+        calibration = normalizer.calibration
+        assert calibration is not None
+        assert not calibration.calibrated
+        assert calibration.status == "not_advancing"
+        assert calibration.offset_seconds is None
+
+        # Within the failure cooldown the next call stays closed without
+        # reattempting a full calibration, and still no stale offset leaks.
+        second = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert second["clock_status"] == "uncalibrated"
+        assert second["time_utc"] is None
+        assert second["server_clock_offset_seconds"] is None
+        assert client.symbol_info_tick_as_dict.call_count == 9
+
+    def test_implausible_evidence_outranks_other_refuting_evidence(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Refuting-evidence precedence: implausible > unstable > disagreement.
+
+        One revalidation round can hold a confirming sample, a clean offset
+        disagreement, an unstable_offset sample, and an implausible_offset
+        sample at once. All configured symbols are still polled (the whole
+        round), the cache is invalidated exactly once, and the reported
+        evidence is deterministic: the implausible sample wins.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        client = _clock_client([
+            # Initial calibration, all four symbols agreeing on UTC+3:
+            _live_tick(_CLOCK_NOW_EPOCH - 8 + _UTC_PLUS_3, symbol="CONF"),
+            _live_tick(_CLOCK_NOW_EPOCH - 7 + _UTC_PLUS_3, symbol="CONF"),
+            _live_tick(_CLOCK_NOW_EPOCH - 6 + _UTC_PLUS_3, symbol="DIS"),
+            _live_tick(_CLOCK_NOW_EPOCH - 5 + _UTC_PLUS_3, symbol="DIS"),
+            _live_tick(_CLOCK_NOW_EPOCH - 4 + _UTC_PLUS_3, symbol="UNST"),
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3, symbol="UNST"),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3, symbol="IMPL"),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3, symbol="IMPL"),
+            # Revalidation round: CONF confirms the cache, DIS cleanly
+            # disagrees (UTC+2), UNST is unstable, IMPL is implausible.
+            _live_tick(later_epoch - 3 + _UTC_PLUS_3, symbol="CONF"),
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2, symbol="DIS"),
+            _live_tick(later_epoch - 100.0 + _UTC_PLUS_3, symbol="UNST"),
+            _live_tick(later_epoch + 16 * 3600.0, symbol="IMPL"),
+            # Full recalibration, all four symbols now agreeing on UTC+2:
+            _live_tick(later_epoch - 8 + _UTC_PLUS_2, symbol="CONF"),
+            _live_tick(later_epoch - 7 + _UTC_PLUS_2, symbol="CONF"),
+            _live_tick(later_epoch - 6 + _UTC_PLUS_2, symbol="DIS"),
+            _live_tick(later_epoch - 5 + _UTC_PLUS_2, symbol="DIS"),
+            _live_tick(later_epoch - 4 + _UTC_PLUS_2, symbol="UNST"),
+            _live_tick(later_epoch - 3 + _UTC_PLUS_2, symbol="UNST"),
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2, symbol="IMPL"),
+            _live_tick(later_epoch - 1 + _UTC_PLUS_2, symbol="IMPL"),
+            # Raw snapshot fetch, normalized under the new offset only:
+            _live_tick(raw_event + _UTC_PLUS_2, symbol="CONF"),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["CONF", "DIS", "UNST", "IMPL"],
+            samples_per_symbol=2,
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            snapshot = normalizer.get_normalized_tick_snapshot("CONF")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert "unusable advancing evidence (implausible_offset" in caplog.text
+        assert "for IMPL" in caplog.text
+        assert "appears to have changed" not in caplog.text
+        # Every configured symbol was polled once before recalibration began.
+        assert [
+            call.kwargs["symbol"]
+            for call in client.symbol_info_tick_as_dict.call_args_list
+        ][8:12] == ["CONF", "DIS", "UNST", "IMPL"]
+
+    def test_unstable_evidence_outranks_clean_disagreement(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Between the two refuting kinds, unstable_offset beats disagreement."""
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 61.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 4 + _UTC_PLUS_3, symbol="DIS"),
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3, symbol="DIS"),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3, symbol="UNST"),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3, symbol="UNST"),
+            # Revalidation round: DIS cleanly disagrees (UTC+2), UNST is
+            # unstable; the unstable evidence is the reported invalidation.
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2, symbol="DIS"),
+            _live_tick(later_epoch - 100.0 + _UTC_PLUS_3, symbol="UNST"),
+            # Full recalibration, both symbols now agreeing on UTC+2:
+            _live_tick(later_epoch - 4 + _UTC_PLUS_2, symbol="DIS"),
+            _live_tick(later_epoch - 3 + _UTC_PLUS_2, symbol="DIS"),
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2, symbol="UNST"),
+            _live_tick(later_epoch - 1 + _UTC_PLUS_2, symbol="UNST"),
+            # Raw snapshot fetch, normalized under the new offset only:
+            _live_tick(raw_event + _UTC_PLUS_2, symbol="DIS"),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["DIS", "UNST"],
+            samples_per_symbol=2,
+            revalidation_interval_seconds=60.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        with caplog.at_level(logging.WARNING, logger="mt5cli.trading"):
+            snapshot = normalizer.get_normalized_tick_snapshot("DIS")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert "unusable advancing evidence (unstable_offset" in caplog.text
+        assert "for UNST" in caplog.text
+        assert "appears to have changed" not in caplog.text
+
     def test_cached_calibration_is_reused_across_symbols_and_calls(
         self,
         mocker: MockerFixture,
