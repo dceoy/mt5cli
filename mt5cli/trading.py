@@ -972,6 +972,17 @@ _OFFSET_RESIDUAL_TOLERANCE_SECONDS = 5.0
 # beyond that interval be misjudged unstable_offset even though its cached
 # offset was still correct.
 _MAX_TICK_AGE_TOLERANCE_SECONDS = _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS / 2
+# A fresh event under a *new* offset one bucket below the cached one is
+# numerically identical to a maximally aged event under the *cached* offset
+# once elapsed time grows past one bucket width -- widening without an upper
+# bound would let an arbitrarily-long gap mask a genuine transition as a
+# merely delayed sample. Capping just below one full bucket keeps every
+# neighboring-bucket disagreement explainable as delay (matching
+# ``_MAX_TICK_AGE_TOLERANCE_SECONDS``'s own bucket-relative reach) while
+# guaranteeing a two-or-more-bucket disagreement can never be suppressed.
+_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS = (
+    _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS - _OFFSET_RESIDUAL_TOLERANCE_SECONDS
+)
 _MAX_FUTURE_SKEW_SECONDS = 120.0
 _MIN_SAMPLES_PER_SYMBOL = 2
 _MIN_AGREEING_SAMPLES = 2
@@ -1202,18 +1213,26 @@ def _is_advancing_sample_compatible_with_cached(
     offset revalidation already has cached. Checking compatibility directly
     against ``cached_offset_seconds`` has a specific known value to test
     rather than an unknown bucket to round to, so it can widen by the real
-    elapsed time since ``previous`` without that risk.
+    elapsed time since ``previous`` -- but only up to
+    ``_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS``: a fresh event under a
+    genuinely new offset one bucket below the cached one produces the exact
+    same raw offset as a maximally aged event under the cached offset once
+    elapsed time exceeds one bucket width, so an uncapped widening could
+    silently mask a real transition as a merely delayed sample after a long
+    enough gap. Capping below one bucket width still forgives any
+    neighboring-bucket disagreement while a disagreement of two or more
+    buckets can never be explained away.
 
     Returns:
         True when ``sample.raw_offset`` falls within ``cached_offset_seconds``
         widened downward by the elapsed time since ``previous`` (an older
-        event yields a smaller raw offset) and by the fixed residual
-        tolerance on both sides.
+        event yields a smaller raw offset), capped at
+        ``_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS``, and by the fixed
+        residual tolerance on both sides.
     """
     elapsed_seconds = max(0.0, sample.host_epoch - previous.host_epoch)
-    lower = cached_offset_seconds - (
-        elapsed_seconds + _OFFSET_RESIDUAL_TOLERANCE_SECONDS
-    )
+    age_tolerance = min(elapsed_seconds, _MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS)
+    lower = cached_offset_seconds - (age_tolerance + _OFFSET_RESIDUAL_TOLERANCE_SECONDS)
     upper = cached_offset_seconds + _OFFSET_RESIDUAL_TOLERANCE_SECONDS
     return lower <= sample.raw_offset <= upper
 

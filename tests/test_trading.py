@@ -5274,6 +5274,64 @@ class TestTickClockNormalizer:
         _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
         _assert_close(calibration.calibrated_at, later_epoch)
 
+    def test_fresh_transition_after_long_gap_invalidates_cache(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """A perfectly fresh post-transition tick must still refute the cache.
+
+        Widening the cached-offset compatibility window by the *entire*
+        elapsed time since the last observation, with no upper bound, would
+        make a fresh event under a genuinely new offset indistinguishable
+        from a maximally delayed event under the cached one: after a 3600 s
+        gap, a fresh (zero-delay) UTC+2 tick has a raw offset of exactly
+        7200 s, two full buckets below the cached 10800 s -- the same value a
+        UTC+3 tick delayed by the entire 3600 s gap would also produce. That
+        ambiguity must be resolved in favor of failing closed: a
+        two-or-more-bucket disagreement is never explained away as delay
+        (see ``_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS``), so this refutes
+        the cache and forces full recalibration.
+        """
+        mock_dt, _ = _freeze_clock(mocker)
+        later = datetime.fromtimestamp(_CLOCK_NOW_EPOCH + 3600.0, tz=UTC)
+        later_epoch = later.timestamp()
+        raw_event = later_epoch - 1
+        client = _clock_client([
+            _live_tick(_CLOCK_NOW_EPOCH - 3 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 2 + _UTC_PLUS_3),
+            _live_tick(_CLOCK_NOW_EPOCH - 1 + _UTC_PLUS_3),
+            # Revalidation after a one-hour gap: a perfectly fresh event
+            # (zero delay) under the new UTC+2 offset has raw offset 7200 s,
+            # exactly what a UTC+3 tick delayed by the whole 3600 s gap would
+            # also produce -- still two buckets from the cached 10800 s, so
+            # it refutes the cache rather than being explained away.
+            _live_tick(later_epoch + _UTC_PLUS_2),
+            # Full recalibration, now labeled UTC+2:
+            _live_tick(later_epoch - 3 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 2 + _UTC_PLUS_2),
+            _live_tick(later_epoch - 1 + _UTC_PLUS_2),
+            # Raw snapshot fetch, normalized under the new offset only:
+            _live_tick(raw_event + _UTC_PLUS_2),
+        ])
+        normalizer = TickClockNormalizer(
+            client,
+            ["SING30"],
+            revalidation_interval_seconds=3600.0,
+        )
+        first = normalizer.calibrate()
+        _assert_close(first.offset_seconds, _UTC_PLUS_3)
+
+        mock_dt.now.return_value = later
+        snapshot = normalizer.get_normalized_tick_snapshot("SING30")
+
+        assert snapshot["clock_status"] == "calibrated"
+        _assert_close(snapshot["server_clock_offset_seconds"], _UTC_PLUS_2)
+        assert snapshot["time_utc"] == datetime.fromtimestamp(raw_event, tz=UTC)
+        calibration = normalizer.calibration
+        assert calibration is not None
+        _assert_close(calibration.offset_seconds, _UTC_PLUS_2)
+        _assert_close(calibration.calibrated_at, later_epoch)
+
     def test_inconclusive_symbol_does_not_shield_refuting_evidence(
         self,
         mocker: MockerFixture,
