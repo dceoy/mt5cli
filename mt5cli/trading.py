@@ -1185,23 +1185,24 @@ def _evaluate_advancement(
     )
 
 
-def _is_unusable_sample_compatible_with_cached(
+def _is_advancing_sample_compatible_with_cached(
     sample: _OffsetSample,
     cached_offset_seconds: float,
     previous: _LiveObservation,
 ) -> bool:
-    """Whether an unusable advancing sample is still explained by a cached offset.
+    """Whether a nonmatching advancing sample is still explained by a cached offset.
 
     ``_evaluate_advancement()`` scores a sample against the bucket nearest to
     its own raw offset, with age slack capped at
     ``_MAX_TICK_AGE_TOLERANCE_SECONDS`` so an unbounded delay cannot round to
     the wrong bucket. A delay longer than that cap can push the raw offset
-    past the midpoint to a neighboring bucket, failing that rounding even
-    though the event is still perfectly explained by the offset revalidation
-    already has cached. Checking compatibility directly against
-    ``cached_offset_seconds`` has a specific known value to test rather than
-    an unknown bucket to round to, so it can widen by the real elapsed time
-    since ``previous`` without that risk.
+    past the midpoint to a neighboring bucket — reported as either an
+    unusable sample (``unstable_offset``) or a *usable* sample carrying the
+    wrong offset — even though the event is still perfectly explained by the
+    offset revalidation already has cached. Checking compatibility directly
+    against ``cached_offset_seconds`` has a specific known value to test
+    rather than an unknown bucket to round to, so it can widen by the real
+    elapsed time since ``previous`` without that risk.
 
     Returns:
         True when ``sample.raw_offset`` falls within ``cached_offset_seconds``
@@ -1554,13 +1555,14 @@ class TickClockNormalizer:
 
         * an accepted offset equal to ``cached.offset_seconds`` confirms the
           cache, but never cancels another candidate's refuting evidence;
-        * an accepted offset that disagrees with the cache refutes it;
-        * an advancing sample with no usable offset (``unstable_offset`` or
-          ``implausible_offset``) also refutes it, unless ``cached.offset_seconds``
-          still explains its raw offset given the real elapsed time since the
-          candidate's prior observation — a merely delayed event that defeated
-          the generic bucket-rounding in ``_evaluate_advancement()`` is
-          inconclusive, not contradictory, evidence.
+        * any other advancing sample — an accepted offset that disagrees with
+          the cache, or one with no usable offset at all (``unstable_offset``
+          or ``implausible_offset``) — refutes it, unless
+          ``cached.offset_seconds`` still explains its raw offset given the
+          real elapsed time since the candidate's prior observation: a merely
+          delayed event that defeated the generic bucket-rounding in
+          ``_evaluate_advancement()``, landing on the wrong bucket or no
+          bucket at all, is inconclusive, not contradictory, evidence.
 
         Any refuting evidence invalidates the cached calibration and triggers
         a full recalibration, which either re-establishes a validated offset
@@ -1628,15 +1630,16 @@ class TickClockNormalizer:
         prior baseline, or an unchanged tick epoch are inconclusive and
         skipped; a comparison that actually ran advances ``_last_attempt_at``.
         Confirming samples (an accepted offset equal to the cached one) are
-        recorded nowhere — they never cancel refuting evidence. An advancing
-        sample whose raw offset defeated the generic bucket-rounding in
-        ``_evaluate_advancement()`` (``unstable_offset`` / ``implausible_
-        offset``) is also inconclusive, not refuting, when
-        ``cached.offset_seconds`` still explains it given the real elapsed
-        time since the candidate's prior observation: unlike the rounding in
-        ``_evaluate_advancement()``, this check has a specific known offset to
-        test against, so widening by the true (uncapped) elapsed time cannot
-        select the wrong bucket.
+        recorded nowhere — they never cancel refuting evidence. Any other
+        advancing sample — one whose raw offset defeated the generic
+        bucket-rounding in ``_evaluate_advancement()`` (``unstable_offset`` /
+        ``implausible_offset``), or one that rounded cleanly to a *different*
+        bucket than the cached offset — is also inconclusive, not refuting,
+        when ``cached.offset_seconds`` still explains it given the real
+        elapsed time since the candidate's prior observation: unlike the
+        rounding in ``_evaluate_advancement()``, this check has a specific
+        known offset to test against, so widening by the true (uncapped)
+        elapsed time cannot select the wrong bucket.
 
         Returns:
             The ``(symbol, sample)`` evidence invalidating ``cached``, chosen
@@ -1677,8 +1680,10 @@ class TickClockNormalizer:
 
         Refreshes ``self._last_observations[candidate]`` and advances
         ``self._last_attempt_at`` whenever a comparison actually ran (the
-        candidate had a prior observation). An unusable advancing sample
-        (``unstable_offset`` / ``implausible_offset``) that
+        candidate had a prior observation). Any advancing sample that
+        disagrees with ``cached_offset_seconds`` — an unusable
+        ``unstable_offset`` / ``implausible_offset`` sample, or a *usable*
+        sample that simply rounded to a different bucket — that
         ``cached_offset_seconds`` still explains, given the real elapsed time
         since the prior observation, is treated as inconclusive rather than
         refuting.
@@ -1687,7 +1692,7 @@ class TickClockNormalizer:
             The candidate's :class:`_OffsetSample` when it is evidence to
             weigh against ``cached_offset_seconds``, or ``None`` when the
             candidate's fetch is unusable, it has no prior observation, its
-            tick epoch is unchanged, or its unusable offset is explained by
+            tick epoch is unchanged, or its nonmatching offset is explained by
             ``cached_offset_seconds``.
         """
         previous = self._last_observations.get(candidate)
@@ -1699,9 +1704,9 @@ class TickClockNormalizer:
             return None
         self._last_attempt_at = now_epoch
         sample = _evaluate_advancement(previous, observation)
-        if sample is None or sample.offset_seconds is not None:
+        if sample is None or sample.offset_seconds == cached_offset_seconds:
             return sample
-        if _is_unusable_sample_compatible_with_cached(
+        if _is_advancing_sample_compatible_with_cached(
             sample, cached_offset_seconds, previous
         ):
             return None
