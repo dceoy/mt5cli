@@ -965,7 +965,13 @@ def _numeric_tick_time(value: object) -> float | int | None:
 _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS = 1800.0
 _MAX_PLAUSIBLE_SERVER_CLOCK_OFFSET_SECONDS = 14 * 3600.0
 _OFFSET_RESIDUAL_TOLERANCE_SECONDS = 5.0
-_MAX_TICK_AGE_TOLERANCE_SECONDS = 300.0
+# Nearest-bucket rounding can never leave a residual larger than half the
+# bucket width, so widening the tolerance any further than that has no
+# effect. Capping below this bound (a prior, smaller cap matched only the
+# default revalidation interval) let an ordinary tick delayed slightly
+# beyond that interval be misjudged unstable_offset even though its cached
+# offset was still correct.
+_MAX_TICK_AGE_TOLERANCE_SECONDS = _SERVER_CLOCK_OFFSET_ROUNDING_SECONDS / 2
 _MAX_FUTURE_SKEW_SECONDS = 120.0
 _MIN_SAMPLES_PER_SYMBOL = 2
 _MIN_AGREEING_SAMPLES = 2
