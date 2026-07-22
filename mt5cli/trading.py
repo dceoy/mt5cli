@@ -1185,6 +1185,38 @@ def _evaluate_advancement(
     )
 
 
+def _is_unusable_sample_compatible_with_cached(
+    sample: _OffsetSample,
+    cached_offset_seconds: float,
+    previous: _LiveObservation,
+) -> bool:
+    """Whether an unusable advancing sample is still explained by a cached offset.
+
+    ``_evaluate_advancement()`` scores a sample against the bucket nearest to
+    its own raw offset, with age slack capped at
+    ``_MAX_TICK_AGE_TOLERANCE_SECONDS`` so an unbounded delay cannot round to
+    the wrong bucket. A delay longer than that cap can push the raw offset
+    past the midpoint to a neighboring bucket, failing that rounding even
+    though the event is still perfectly explained by the offset revalidation
+    already has cached. Checking compatibility directly against
+    ``cached_offset_seconds`` has a specific known value to test rather than
+    an unknown bucket to round to, so it can widen by the real elapsed time
+    since ``previous`` without that risk.
+
+    Returns:
+        True when ``sample.raw_offset`` falls within ``cached_offset_seconds``
+        widened downward by the elapsed time since ``previous`` (an older
+        event yields a smaller raw offset) and by the fixed residual
+        tolerance on both sides.
+    """
+    elapsed_seconds = max(0.0, sample.host_epoch - previous.host_epoch)
+    lower = cached_offset_seconds - (
+        elapsed_seconds + _OFFSET_RESIDUAL_TOLERANCE_SECONDS
+    )
+    upper = cached_offset_seconds + _OFFSET_RESIDUAL_TOLERANCE_SECONDS
+    return lower <= sample.raw_offset <= upper
+
+
 class TickClockNormalizer:
     """Connection-scoped UTC normalization for live MT5 tick timestamps.
 
@@ -1225,10 +1257,12 @@ class TickClockNormalizer:
     anomaly). The whole round is evaluated before deciding: any advancing
     sample that refutes the cached offset — a clean disagreement, or an
     advancing tick whose raw offset is unusable (``unstable_offset`` /
-    ``implausible_offset``) — invalidates the cache and forces full
-    recalibration, while confirming or inconclusive symbols never cancel
-    that evidence. Failed calibrations are retried at most once per
-    ``failed_calibration_retry_seconds`` rather than on every call. When no
+    ``implausible_offset``) and not otherwise explained by the cached offset
+    given the real elapsed time since it was last observed — invalidates the
+    cache and forces full recalibration, while confirming or inconclusive
+    symbols never cancel that evidence. Failed calibrations are retried at
+    most once per ``failed_calibration_retry_seconds`` rather than on every
+    call. When no
     offset can be established safely, normalized snapshots fail closed with
     ``clock_status="uncalibrated"`` and ``time_utc=None`` instead of
     treating the raw timestamp as UTC, and a cached offset that advancing
@@ -1281,7 +1315,9 @@ class TickClockNormalizer:
                 configured symbol is polled once and the whole round is
                 collected before deciding; any accepted sample that disagrees
                 with the cached offset, and any advancing sample whose offset
-                is unusable (``unstable_offset`` / ``implausible_offset``),
+                is unusable (``unstable_offset`` / ``implausible_offset``) and
+                not otherwise explained by the cached offset given the real
+                elapsed time since that symbol's prior observation,
                 invalidates the cache and forces full recalibration, even
                 when another symbol in the same round still confirms the
                 cache (contradictory evidence for a connection-scoped offset
@@ -1520,10 +1556,11 @@ class TickClockNormalizer:
           cache, but never cancels another candidate's refuting evidence;
         * an accepted offset that disagrees with the cache refutes it;
         * an advancing sample with no usable offset (``unstable_offset`` or
-          ``implausible_offset``) also refutes it: a fresh market event whose
-          raw offset cannot be reconciled with any plausible 30-minute bucket
-          is contradictory evidence the cached calibration cannot explain, so
-          the cache must not survive it either.
+          ``implausible_offset``) also refutes it, unless ``cached.offset_seconds``
+          still explains its raw offset given the real elapsed time since the
+          candidate's prior observation — a merely delayed event that defeated
+          the generic bucket-rounding in ``_evaluate_advancement()`` is
+          inconclusive, not contradictory, evidence.
 
         Any refuting evidence invalidates the cached calibration and triggers
         a full recalibration, which either re-establishes a validated offset
@@ -1591,7 +1628,15 @@ class TickClockNormalizer:
         prior baseline, or an unchanged tick epoch are inconclusive and
         skipped; a comparison that actually ran advances ``_last_attempt_at``.
         Confirming samples (an accepted offset equal to the cached one) are
-        recorded nowhere — they never cancel refuting evidence.
+        recorded nowhere — they never cancel refuting evidence. An advancing
+        sample whose raw offset defeated the generic bucket-rounding in
+        ``_evaluate_advancement()`` (``unstable_offset`` / ``implausible_
+        offset``) is also inconclusive, not refuting, when
+        ``cached.offset_seconds`` still explains it given the real elapsed
+        time since the candidate's prior observation: unlike the rounding in
+        ``_evaluate_advancement()``, this check has a specific known offset to
+        test against, so widening by the true (uncapped) elapsed time cannot
+        select the wrong bucket.
 
         Returns:
             The ``(symbol, sample)`` evidence invalidating ``cached``, chosen
@@ -1602,28 +1647,65 @@ class TickClockNormalizer:
         unusable: dict[CalibrationStatus, tuple[str, _OffsetSample]] = {}
         changed_sample: tuple[str, _OffsetSample] | None = None
         for candidate in self._symbols or (symbol,):
-            previous = self._last_observations.get(candidate)
-            observation = _fetch_live_observation(self._client, candidate)
-            if observation is None:
-                continue
-            self._last_observations[candidate] = observation
-            if previous is None:
-                continue
-            self._last_attempt_at = now_epoch
-            sample = _evaluate_advancement(previous, observation)
+            # cached.offset_seconds is only None when status != "calibrated",
+            # and callers only reach revalidation with a calibrated cache.
+            sample = self._poll_candidate_sample(
+                candidate, cast("float", cached.offset_seconds), now_epoch=now_epoch
+            )
             if sample is None:
                 continue
             if sample.offset_seconds is None:
                 unusable.setdefault(sample.reason, (candidate, sample))
-                continue
-            if sample.offset_seconds == cached.offset_seconds:
-                continue
-            if changed_sample is None:
+            elif (
+                sample.offset_seconds != cached.offset_seconds
+                and changed_sample is None
+            ):
                 changed_sample = (candidate, sample)
         for reason in _CALIBRATION_FAILURE_PRIORITY:
             if reason in unusable:
                 return unusable[reason]
         return changed_sample
+
+    def _poll_candidate_sample(
+        self,
+        candidate: str,
+        cached_offset_seconds: float,
+        *,
+        now_epoch: float,
+    ) -> _OffsetSample | None:
+        """Poll one revalidation candidate and score it against ``cached``.
+
+        Refreshes ``self._last_observations[candidate]`` and advances
+        ``self._last_attempt_at`` whenever a comparison actually ran (the
+        candidate had a prior observation). An unusable advancing sample
+        (``unstable_offset`` / ``implausible_offset``) that
+        ``cached_offset_seconds`` still explains, given the real elapsed time
+        since the prior observation, is treated as inconclusive rather than
+        refuting.
+
+        Returns:
+            The candidate's :class:`_OffsetSample` when it is evidence to
+            weigh against ``cached_offset_seconds``, or ``None`` when the
+            candidate's fetch is unusable, it has no prior observation, its
+            tick epoch is unchanged, or its unusable offset is explained by
+            ``cached_offset_seconds``.
+        """
+        previous = self._last_observations.get(candidate)
+        observation = _fetch_live_observation(self._client, candidate)
+        if observation is None:
+            return None
+        self._last_observations[candidate] = observation
+        if previous is None:
+            return None
+        self._last_attempt_at = now_epoch
+        sample = _evaluate_advancement(previous, observation)
+        if sample is None or sample.offset_seconds is not None:
+            return sample
+        if _is_unusable_sample_compatible_with_cached(
+            sample, cached_offset_seconds, previous
+        ):
+            return None
+        return sample
 
     def _collect_offset_samples(
         self,
