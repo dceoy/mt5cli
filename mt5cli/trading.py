@@ -1221,7 +1221,11 @@ def _is_advancing_sample_compatible_with_cached(
     silently mask a real transition as a merely delayed sample after a long
     enough gap. Capping below one bucket width still forgives any
     neighboring-bucket disagreement while a disagreement of two or more
-    buckets can never be explained away.
+    buckets can never be explained away. Within one bucket, a fresh event
+    under a genuinely new offset and a maximally delayed one under the
+    cached offset remain indistinguishable from this check alone — callers
+    resolve that by only forgiving a candidate's disagreement once in a row
+    (see ``_poll_candidate_sample``).
 
     Returns:
         True when ``sample.raw_offset`` falls within ``cached_offset_seconds``
@@ -1345,7 +1349,12 @@ class TickClockNormalizer:
                 offset decrease (for example a UTC+3 to UTC+2 transition)
                 well before ``max_calibration_age_seconds`` would, while a
                 confirming or inconclusive symbol cannot cancel another
-                symbol's refuting evidence.
+                symbol's refuting evidence. A disagreement one bucket away
+                that is only explained by the elapsed time since the last
+                observation is forgiven once per symbol; if it recurs on
+                that symbol's very next round instead of resolving back to
+                the cached offset, it invalidates the cache on that second
+                round instead.
             failed_calibration_retry_seconds: Minimum time between full
                 recalibration attempts after a failed calibration, so a
                 closed or illiquid market does not retry on every call.
@@ -1383,6 +1392,7 @@ class TickClockNormalizer:
         self._calibration: TickClockCalibration | None = None
         self._last_attempt_at: float | None = None
         self._last_observations: dict[str, _LiveObservation] = {}
+        self._pending_disagreement: dict[str, _OffsetSample] = {}
 
     @property
     def calibration(self) -> TickClockCalibration | None:
@@ -1420,9 +1430,12 @@ class TickClockNormalizer:
         # scored as a fresh event merely because it differs from that old
         # observation, even though it may itself be an equally stale closing
         # tick. Dropping any prior baseline forces every symbol's first poll
-        # in this attempt to establish a fresh one instead.
+        # in this attempt to establish a fresh one instead. Any pending,
+        # not-yet-repeated disagreement recorded against the old cached
+        # offset is equally stale once that offset is replaced.
         for resolved_symbol in resolved:
             self._last_observations.pop(resolved_symbol, None)
+            self._pending_disagreement.pop(resolved_symbol, None)
         matched, failures, last_sample = self._collect_offset_samples(resolved)
         calibration = self._build_calibration(matched, failures, last_sample)
         self._calibration = calibration
@@ -1658,7 +1671,10 @@ class TickClockNormalizer:
         elapsed time since the candidate's prior observation: unlike the
         rounding in ``_evaluate_advancement()``, this check has a specific
         known offset to test against, so widening by the true (uncapped)
-        elapsed time cannot select the wrong bucket.
+        elapsed time cannot select the wrong bucket. That forgiveness is only
+        granted once per candidate in a row (see ``_poll_candidate_sample``),
+        because a single sample cannot otherwise be told apart from a fresh
+        event one bucket away under a genuinely new offset.
 
         Returns:
             The ``(symbol, sample)`` evidence invalidating ``cached``, chosen
@@ -1705,14 +1721,25 @@ class TickClockNormalizer:
         sample that simply rounded to a different bucket — that
         ``cached_offset_seconds`` still explains, given the real elapsed time
         since the prior observation, is treated as inconclusive rather than
-        refuting.
+        refuting the *first* time it is seen for ``candidate``.
+
+        A single such sample cannot, by raw offset and elapsed time alone, be
+        told apart from a genuinely new offset one bucket away: a fresh event
+        under that new offset produces exactly the same raw offset as a
+        maximally stale event under the cached one once the polling gap
+        reaches ``_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS``
+        (:func:`_is_advancing_sample_compatible_with_cached`). A real
+        transition keeps producing fresh ticks that disagree with the cache
+        on the following rounds too, while an isolated delayed tick does not,
+        so ``self._pending_disagreement`` remembers the first such sample per
+        candidate and a second one in a row is no longer forgiven.
 
         Returns:
             The candidate's :class:`_OffsetSample` when it is evidence to
             weigh against ``cached_offset_seconds``, or ``None`` when the
             candidate's fetch is unusable, it has no prior observation, its
             tick epoch is unchanged, or its nonmatching offset is explained by
-            ``cached_offset_seconds``.
+            ``cached_offset_seconds`` for the first time.
         """
         previous = self._last_observations.get(candidate)
         observation = _fetch_live_observation(self._client, candidate)
@@ -1723,13 +1750,20 @@ class TickClockNormalizer:
             return None
         self._last_attempt_at = now_epoch
         sample = _evaluate_advancement(previous, observation)
-        if sample is None or sample.offset_seconds == cached_offset_seconds:
-            return sample
-        if _is_advancing_sample_compatible_with_cached(
-            sample, cached_offset_seconds, previous
-        ):
+        if sample is None:
             return None
-        return sample
+        if sample.offset_seconds == cached_offset_seconds or not (
+            _is_advancing_sample_compatible_with_cached(
+                sample, cached_offset_seconds, previous
+            )
+        ):
+            self._pending_disagreement.pop(candidate, None)
+            return sample
+        if candidate in self._pending_disagreement:
+            del self._pending_disagreement[candidate]
+            return sample
+        self._pending_disagreement[candidate] = sample
+        return None
 
     def _collect_offset_samples(
         self,
