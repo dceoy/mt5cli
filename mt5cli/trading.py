@@ -1729,17 +1729,24 @@ class TickClockNormalizer:
         maximally stale event under the cached one once the polling gap
         reaches ``_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS``
         (:func:`_is_advancing_sample_compatible_with_cached`). A real
-        transition keeps producing fresh ticks that disagree with the cache
-        on the following rounds too, while an isolated delayed tick does not,
-        so ``self._pending_disagreement`` remembers the first such sample per
-        candidate and a second one in a row is no longer forgiven.
+        transition keeps producing fresh, *usable* ticks that round to the
+        *same* alternate bucket on the following rounds too, while an
+        isolated delayed tick does not, so ``self._pending_disagreement``
+        remembers the first such sample per candidate and only escalates once
+        a later sample rounds to that identical bucket. An ``unstable_offset``
+        / ``implausible_offset`` sample cannot be told apart from noise near
+        any bucket, so it can neither confirm nor be recorded as a pending
+        disagreement; like a usable sample landing on a *different* bucket
+        than the one already pending, it breaks the run and replaces or
+        clears the stored entry instead of letting an unrelated pair of
+        samples accumulate into false corroboration.
 
         Returns:
             The candidate's :class:`_OffsetSample` when it is evidence to
             weigh against ``cached_offset_seconds``, or ``None`` when the
             candidate's fetch is unusable, it has no prior observation, its
             tick epoch is unchanged, or its nonmatching offset is explained by
-            ``cached_offset_seconds`` for the first time.
+            ``cached_offset_seconds`` without yet repeating the same bucket.
         """
         previous = self._last_observations.get(candidate)
         observation = _fetch_live_observation(self._client, candidate)
@@ -1759,10 +1766,18 @@ class TickClockNormalizer:
         ):
             self._pending_disagreement.pop(candidate, None)
             return sample
-        if candidate in self._pending_disagreement:
+        pending = self._pending_disagreement.get(candidate)
+        if (
+            sample.offset_seconds is not None
+            and pending is not None
+            and pending.offset_seconds == sample.offset_seconds
+        ):
             del self._pending_disagreement[candidate]
             return sample
-        self._pending_disagreement[candidate] = sample
+        if sample.offset_seconds is None:
+            self._pending_disagreement.pop(candidate, None)
+        else:
+            self._pending_disagreement[candidate] = sample
         return None
 
     def _collect_offset_samples(
