@@ -349,8 +349,9 @@ sample is evidence the cache must be able to explain:
   cancels another symbol's refuting evidence from the same round;
 - an accepted offset that differs from the cached one refutes the cache (a
   clean broker offset change) — unless the cached offset, widened by the
-  elapsed time since that symbol's prior observation, still explains the
-  disagreeing raw offset. That case is forgiven once per symbol and held as
+  elapsed time since that symbol's prior observation plus that prior
+  observation's own inferred delay under the cached offset, still explains
+  the disagreeing raw offset. That case is forgiven once per symbol and held as
   a pending disagreement instead of refuting immediately, since it cannot
   yet be told apart from a maximally delayed tick under the cached offset.
   A pending disagreement escalates to a refutation only if that same

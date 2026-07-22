@@ -1227,15 +1227,36 @@ def _is_advancing_sample_compatible_with_cached(
     resolve that by only forgiving a candidate's disagreement once in a row
     (see ``_poll_candidate_sample``).
 
+    ``previous`` itself may already be a delayed tick that was only
+    explained by the cached offset because of the elapsed time *before*
+    it — the elapsed time since ``previous`` alone assumes ``previous`` was
+    current when observed, which understates how old the cached offset can
+    still explain ``sample`` as being. The allowance therefore also carries
+    forward ``previous``'s own inferred age under the cached offset (how
+    much older than ``cached_offset_seconds`` would place it, ``previous``
+    itself already was), so a second, less-delayed sample in the same
+    unchanged-offset chain is not mistaken for refuting evidence merely
+    because little host time elapsed since the last poll. The combined
+    allowance is still capped at ``_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS``,
+    so a genuine transition can never be masked this way regardless of how
+    delayed ``previous`` was.
+
     Returns:
         True when ``sample.raw_offset`` falls within ``cached_offset_seconds``
-        widened downward by the elapsed time since ``previous`` (an older
+        widened downward by the elapsed time since ``previous`` plus
+        ``previous``'s own inferred age under the cached offset (an older
         event yields a smaller raw offset), capped at
         ``_MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS``, and by the fixed
         residual tolerance on both sides.
     """
     elapsed_seconds = max(0.0, sample.host_epoch - previous.host_epoch)
-    age_tolerance = min(elapsed_seconds, _MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS)
+    previous_age_seconds = max(
+        0.0, cached_offset_seconds - (previous.tick_epoch - previous.host_epoch)
+    )
+    age_tolerance = min(
+        elapsed_seconds + previous_age_seconds,
+        _MAX_CACHED_OFFSET_AGE_TOLERANCE_SECONDS,
+    )
     lower = cached_offset_seconds - (age_tolerance + _OFFSET_RESIDUAL_TOLERANCE_SECONDS)
     upper = cached_offset_seconds + _OFFSET_RESIDUAL_TOLERANCE_SECONDS
     return lower <= sample.raw_offset <= upper
@@ -1282,9 +1303,10 @@ class TickClockNormalizer:
     sample that refutes the cached offset — a clean disagreement, or an
     advancing tick whose raw offset is unusable (``unstable_offset`` /
     ``implausible_offset``) and not otherwise explained by the cached offset
-    given the real elapsed time since it was last observed — invalidates the
-    cache and forces full recalibration, while confirming or inconclusive
-    symbols never cancel that evidence. Failed calibrations are retried at
+    given the real elapsed time since it was last observed and that prior
+    observation's own inferred delay — invalidates the cache and forces
+    full recalibration, while confirming or inconclusive symbols never
+    cancel that evidence. Failed calibrations are retried at
     most once per ``failed_calibration_retry_seconds`` rather than on every
     call. When no
     offset can be established safely, normalized snapshots fail closed with
@@ -1341,20 +1363,21 @@ class TickClockNormalizer:
                 with the cached offset, and any advancing sample whose offset
                 is unusable (``unstable_offset`` / ``implausible_offset``) and
                 not otherwise explained by the cached offset given the real
-                elapsed time since that symbol's prior observation,
-                invalidates the cache and forces full recalibration, even
-                when another symbol in the same round still confirms the
-                cache (contradictory evidence for a connection-scoped offset
-                must fail closed, not be averaged away). This catches an
-                offset decrease (for example a UTC+3 to UTC+2 transition)
-                well before ``max_calibration_age_seconds`` would, while a
-                confirming or inconclusive symbol cannot cancel another
-                symbol's refuting evidence. A disagreement one bucket away
-                that is only explained by the elapsed time since the last
-                observation is forgiven once per symbol; if it recurs on
-                that symbol's very next round instead of resolving back to
-                the cached offset, it invalidates the cache on that second
-                round instead.
+                elapsed time since that symbol's prior observation and that
+                observation's own inferred delay, invalidates the cache and
+                forces full recalibration, even when another symbol in the
+                same round still confirms the cache (contradictory evidence
+                for a connection-scoped offset must fail closed, not be
+                averaged away). This catches an offset decrease (for example
+                a UTC+3 to UTC+2 transition) well before
+                ``max_calibration_age_seconds`` would, while a confirming or
+                inconclusive symbol cannot cancel another symbol's refuting
+                evidence. A disagreement one bucket away that is only
+                explained by the elapsed time since the last observation and
+                that observation's own inferred delay is forgiven once per
+                symbol; if it recurs on that symbol's very next round instead
+                of resolving back to the cached offset, it invalidates the
+                cache on that second round instead.
             failed_calibration_retry_seconds: Minimum time between full
                 recalibration attempts after a failed calibration, so a
                 closed or illiquid market does not retry on every call.
@@ -1591,8 +1614,9 @@ class TickClockNormalizer:
           the cache, or one with no usable offset at all (``unstable_offset``
           or ``implausible_offset``) — refutes it, unless
           ``cached.offset_seconds`` still explains its raw offset given the
-          real elapsed time since the candidate's prior observation: a merely
-          delayed event that defeated the generic bucket-rounding in
+          real elapsed time since the candidate's prior observation and that
+          observation's own inferred delay: a merely delayed event that
+          defeated the generic bucket-rounding in
           ``_evaluate_advancement()``, landing on the wrong bucket or no
           bucket at all, is inconclusive, not contradictory, evidence.
 
@@ -1668,10 +1692,11 @@ class TickClockNormalizer:
         ``implausible_offset``), or one that rounded cleanly to a *different*
         bucket than the cached offset — is also inconclusive, not refuting,
         when ``cached.offset_seconds`` still explains it given the real
-        elapsed time since the candidate's prior observation: unlike the
-        rounding in ``_evaluate_advancement()``, this check has a specific
-        known offset to test against, so widening by the true (uncapped)
-        elapsed time cannot select the wrong bucket. That forgiveness is only
+        elapsed time since the candidate's prior observation and that
+        observation's own inferred delay: unlike the rounding in
+        ``_evaluate_advancement()``, this check has a specific known offset
+        to test against, so widening by the true (uncapped) elapsed time
+        cannot select the wrong bucket. That forgiveness is only
         granted once per candidate in a row (see ``_poll_candidate_sample``),
         because a single sample cannot otherwise be told apart from a fresh
         event one bucket away under a genuinely new offset.
