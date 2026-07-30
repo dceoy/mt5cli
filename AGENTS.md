@@ -4,6 +4,8 @@
 
 Use `.agents/skills/local-qa/SKILL.md` for pre-handoff QA. It runs `.agents/skills/local-qa/scripts/qa.sh`, which formats, lints, type-checks, tests, formats Markdown, and checks GitHub workflows.
 
+`bats --verbose-run ./tests/cli/` runs the Windows/MT5-oriented CLI tests against the installed `mt5cli` entry point. These require a Windows environment where `uv sync` can install MetaTrader5; state clearly when they were not run.
+
 `skills/mt5cli/SKILL.md` documents the mt5cli agent skill.
 
 ## Coding Style & Naming Conventions

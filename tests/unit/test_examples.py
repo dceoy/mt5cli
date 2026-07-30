@@ -11,7 +11,7 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-_EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "grafana"
+_EXAMPLES_DIR = Path(__file__).parents[2] / "examples" / "grafana"
 _DASHBOARDS_DIR = _EXAMPLES_DIR / "dashboards"
 
 
