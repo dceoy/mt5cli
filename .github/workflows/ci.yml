@@ -59,7 +59,7 @@ jobs:
       contents: read
     uses: dceoy/gh-actions-for-devops/.github/workflows/bats-test.yml@main  # zizmor: ignore[unpinned-uses]
     with:
-      test-path: ./tests/cli/
+      search-path: ./tests/cli/
       runs-on: windows-latest
   python-docs-deploy:
     if: >
