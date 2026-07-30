@@ -9,18 +9,28 @@ uv run ruff check --fix .
 uv run pyright .
 uv run pytest
 
-# Markdown
+# Markdown and JSON
 npx -y prettier --write './**/*.{md,json}'
+
+# YAML
+git ls-files -z -- '*.yml' \
+  | xargs -0 -t uvx yamllint -d '{"extends": "relaxed", "rules": {"line-length": "disable"}}'
 
 # GitHub Actions
 case "${OSTYPE}" in
-  darwin* | linux* )
+  darwin* | linux*)
+    # Shell scripts
+    git ls-files -z -- '*.sh' '*.bash' '*.bats' \
+      | xargs -0 -t shfmt --write --indent=2 --binary-next-line --case-indent --space-redirects
+    git ls-files -z -- '*.sh' '*.bash' '*.bats' \
+      | xargs -0 -t shellcheck
+
+    # GitHub Actions
     zizmor --fix=safe .github/workflows
     git ls-files -z -- '.github/workflows/*.yml' | xargs -0 -t actionlint
-    git ls-files -z -- '.github/workflows/*.yml' | xargs -0 -t yamllint -d '{"extends": "relaxed", "rules": {"line-length": "disable"}}'
     checkov --framework=all --output=github_failed_only --directory=.
     ;;
-  * )
-    echo "GitHub Actions linting is only supported on Linux and macOS."
+  *)
+    echo 'GitHub Actions and shell script linting is only supported on Linux and macOS.'
     ;;
 esac

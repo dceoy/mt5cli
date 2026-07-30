@@ -17,7 +17,7 @@ teardown_file() {
 
 seed_rate_database() {
   local database="$1"
-  cat > "${BATS_TEST_TMPDIR}/seed_rates.py" <<'PY'
+  cat > "${BATS_TEST_TMPDIR}/seed_rates.py" << 'PY'
 import sqlite3
 import sys
 
