@@ -526,7 +526,7 @@ class TestStableSdkContract:
     def test_documented_contract_identifies_runtime_export_set(self) -> None:
         """The public-contract document points to the same runtime authority."""
         contract_doc = (
-            Path(__file__).parents[1] / "docs" / "api" / "public-contract.md"
+            Path(__file__).parents[2] / "docs" / "api" / "public-contract.md"
         ).read_text(encoding="utf-8")
         assert "`mt5cli.STABLE_SDK_EXPORTS`" in contract_doc
         assert set(mt5cli.__all__) - {"STABLE_SDK_EXPORTS"} == set(STABLE_SDK_EXPORTS)

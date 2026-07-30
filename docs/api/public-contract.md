@@ -367,7 +367,7 @@ their own adapter layer.
 
 ## Contract verification
 
-`tests/test_contracts.py` asserts that every name in `STABLE_SDK_EXPORTS` is
+`tests/unit/test_contracts.py` asserts that every name in `STABLE_SDK_EXPORTS` is
 importable from `mt5cli`, that all package-root exports are covered by the
 stable set, and documents key closed-bar, SQLite loading, account-resolution,
 and trading-session behaviors.
