@@ -215,10 +215,11 @@ execution helpers; no mt5cli public API returns or requires a raw pdmt5 client.<
 in pdmt5 — the name changed, it was not simply moved.</p>
 <p>Downstream packages should import from the package root (<code>from mt5cli import
 ...</code>). The contract set <code>STABLE_SDK_EXPORTS</code> in <code>mt5cli.contract</code> enumerates
-every package-root symbol. Lower-level helpers (schema utilities, export
-functions, parser helpers, low-level MT5 wrappers) are available directly from
-their owning modules (<code>mt5cli.schemas</code>, <code>mt5cli.utils</code>, <code>mt5cli.converters</code>,
-<code>mt5cli.marketdata</code>, etc.) and are not part of the root SDK surface.</p>
+every package-root symbol. Helpers promoted for downstream use, including selected configuration and
+parsing utilities, history timeframe resolution, and Grafana schema setup, are
+part of that root contract. Other low-level
+schema, export, conversion, and implementation helpers remain available only
+from their owning modules.</p>
 <h3 id="module-responsibility-map">Module responsibility map<a class="headerlink" href="#module-responsibility-map" title="Permanent link">&para;</a></h3>
 <p><code>mt5cli.sdk</code> has been removed. Each capability now has exactly one owning
 module:</p>
@@ -288,7 +289,11 @@ telemetry, SQLite orchestration, and CLI-adjacent concerns.</p>
 </tr>
 <tr>
 <td><code>build_config</code></td>
-<td>Build <code>pdmt5.Mt5Config</code> from connection fields; <code>login</code> accepts <code>int \| str \| None</code> — numeric strings are coerced to <code>int</code>, blank strings are treated as unset, and <code>${ENV_VAR}</code> / <code>$ENV_NAME</code> placeholders in string parameters are expanded when <code>allow_whole_dollar_env=True</code></td>
+<td>Build the underlying MT5 connection config from connection fields; <code>login</code> accepts <code>int \| str \| None</code> — numeric strings are coerced to <code>int</code>, blank strings are treated as unset, and <code>${ENV_VAR}</code> / <code>$ENV_NAME</code> placeholders in string parameters are expanded when <code>allow_whole_dollar_env=True</code></td>
+</tr>
+<tr>
+<td><code>substitute_mapping_values</code></td>
+<td>Generic selected-key environment substitution for downstream configuration adapters</td>
 </tr>
 <tr>
 <td><code>mt5_session</code></td>
@@ -379,6 +384,10 @@ timestamp normalization in downstream apps.</p>
 </table>
 <p>See <a href="../history/">History Collection (SQLite)</a> for schema, view naming, and ER
 diagrams.</p>
+<p>Shared package-root helpers used by downstream adapters include <code>Dataset</code>,
+<code>parse_timeframe</code>, and <code>resolve_history_timeframes</code>. These are stable exports;
+downstream applications should not import them from <code>mt5cli.utils</code> or
+<code>mt5cli.history</code>.</p>
 <h3 id="trading-and-sizing-primitives-generic">Trading and sizing primitives (generic)<a class="headerlink" href="#trading-and-sizing-primitives-generic" title="Permanent link">&para;</a></h3>
 <p>These helpers implement broker-facing calculations only. They do not encode
 strategy entries, exits, Kelly sizing, or signal logic.</p>
@@ -423,7 +432,7 @@ strategy entries, exits, Kelly sizing, or signal logic.</p>
 <td>Relative bid-ask spread</td>
 </tr>
 <tr>
-<td><code>calculate_margin_and_volume</code>, <code>calculate_volume_by_margin</code>, <code>calculate_new_position_margin_ratio</code></td>
+<td><code>calculate_margin_and_volume</code>, <code>calculate_volume_by_margin</code>, <code>calculate_account_projected_margin_ratio</code></td>
 <td>Margin budget and volume sizing</td>
 </tr>
 <tr>
@@ -665,8 +674,9 @@ workflows call the facade's canonical data methods (<code>account_info</code>, <
 </tr>
 </tbody>
 </table>
-<p>Lower-level helpers (<code>ensure_grafana_schema</code>, <code>create_grafana_views</code>,
-<code>create_grafana_indexes</code>, <code>create_snapshot_tables</code>, <code>start_snapshot_run</code>,
+<p><code>ensure_grafana_schema</code> is a stable package-root helper for downstream setup.
+Other lower-level helpers (<code>create_grafana_views</code>, <code>create_grafana_indexes</code>,
+<code>create_snapshot_tables</code>, <code>start_snapshot_run</code>,
 <code>insert_account_snapshot</code>, <code>insert_position_snapshots</code>, <code>insert_order_snapshots</code>,
 <code>insert_terminal_snapshot</code>, <code>record_snapshot_run</code>) are available directly from
 <code>mt5cli.grafana</code> and are not part of the package-root stable surface.</p>
