@@ -330,7 +330,6 @@ def load_rate_series_from_sqlite(
         msg = "The canonical rates database could not be opened."
         raise ValueError(msg) from exc
     try:
-        _validate_rate_timestamp_contract(conn)
         return {
             key: _load_canonical_rate_target(conn, target, count=count)
             for key, target in zip(keys, target_list, strict=True)
