@@ -164,93 +164,50 @@ maintain per-series compatibility views.
 
 ### Rate data loading
 
-The canonical normalized rate table is `rates`; compatibility views are named
-with `rate_<symbol>__<timeframe>` for single-timeframe symbols or
-`rate_<symbol>__<granularity>_<timeframe>` when a symbol has multiple stored
-timeframes. `resolve_rate_table_name()` returns `rates`, while
-`resolve_rate_view_name()` returns the per-symbol compatibility view name.
+The canonical managed rate store is the normalized `rates` table. Stable
+symbol/timeframe reads query that table directly; mt5cli does not create,
+discover, resolve, or maintain per-series `rate_*` compatibility views.
 
-Use `load_rate_data()` or `load_rate_series_from_sqlite(..., table=...)` to load
-a single table from a SQLite path. Use
-`load_rate_series_by_granularity()` to load multiple instrument/granularity
-targets without hard-coding view names:
+Use `load_rate_series_from_sqlite()` or
+`load_rate_series_by_granularity()` for canonical managed data:
 
 ```python
 from pathlib import Path
 
 from mt5cli import (
+    build_rate_targets,
     load_rate_series_by_granularity,
     load_rate_series_from_sqlite,
 )
-from mt5cli.history import (
-    load_rate_data,
-    resolve_rate_table_name,
-    resolve_rate_view_name,
-)
 
-view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1", require_existing=True)
-rates = load_rate_data(Path("history.db"), view, count=1000)
-same_rates = load_rate_series_from_sqlite(Path("history.db"), table=view, count=1000)
+path = Path("history.db")
+targets = build_rate_targets(["EURUSD", "GBPUSD"], ["M1", "H1"])
+series = load_rate_series_from_sqlite(path, targets, count=1000)
+eurusd_m1 = series["EURUSD", 1]
 
-table = resolve_rate_table_name("EURUSD", "M1")  # "rates"
-series = load_rate_series_by_granularity(
-    Path("history.db"),
+by_name = load_rate_series_by_granularity(
+    path,
     symbols=["EURUSD", "GBPUSD"],
     granularities=["M1", "H1"],
     count=500,
 )
+eurusd_m1_named = by_name["EURUSD", "M1"]
 ```
 
-`count` returns the latest rows while preserving chronological order. Missing
-tables/views and mismatched `explicit_tables` lengths raise `ValueError` with
-the requested database target in the message.
+Canonical reads apply `count` in SQLite and return the selected rows in
+chronological order. Each returned series uses an ascending `DatetimeIndex`
+named `time`. Timezone-naive MT5 trade-server wall-clock timestamps remain
+naive; explicitly timezone-aware timestamps preserve their instant and are
+normalized to UTC.
 
-The loader accepts close-based OHLC rate data or tick-like bid/ask data. It
-validates that `time` exists, parses timestamps with pandas, and returns a
-DataFrame indexed by ascending `DatetimeIndex` named `time`.
+`explicit_tables` and the single-table `table=` form are reserved for
+intentionally named custom tables. They do not discover or fall back to
+managed per-series views. Explicit table counts must match target counts, and
+duplicate `(symbol, timeframe)` targets are rejected.
 
-### Multi-series rate loading
-
-For loading many rate series at once, build neutral `RateTarget` pairs and load
-them from the canonical `rates` table in one call. Pass `explicit_tables` when
-you need to load named legacy tables:
-
-```python
-from pathlib import Path
-
-from mt5cli import build_rate_targets, load_rate_series_from_sqlite
-
-targets = build_rate_targets(["EURUSD", "GBPUSD"], ["M1", "H1"])
-series = load_rate_series_from_sqlite(Path("history.db"), targets, count=1000)
-frame = series["EURUSD", 1]  # keyed by (symbol, integer timeframe)
-```
-
-- `build_rate_targets()` returns `RateTarget(symbol, timeframe)` pairs in
-  row-major order, normalizing timeframe names such as `"M1"` to their integer
-  values; set `allow_missing_symbol=True` to address series solely by
-  `explicit_tables` (targets carry `symbol=None`).
-- `resolve_rate_tables()` maps targets to table names and validates that
-  any `explicit_tables` count matches the target count. Pass
-  `require_existing=True` to raise `ValueError` instead of returning a
-  best-guess name when the database or managed view is missing. When
-  `explicit_tables` is provided, names are returned as-is and
-  `require_existing` is ignored.
-- `load_rate_series_from_sqlite()` returns a mapping keyed by
-  `(symbol, integer timeframe)`. Normal targets query the canonical `rates`
-  table directly; `explicit_tables` continues to delegate to the legacy table
-  or view loader. Duplicate `(symbol, timeframe)` targets are rejected.
-- `load_rate_series_by_granularity()` is a thin wrapper that builds the targets,
-  loads the series, and rekeys the result by granularity name to avoid
-  converting integer timeframes downstream:
-
-  ```python
-  from mt5cli import load_rate_series_by_granularity
-
-  series = load_rate_series_by_granularity(
-      "history.db", ["EURUSD"], ["M1", "H1"], count=1000
-  )
-  frame = series["EURUSD", "M1"]  # keyed by (symbol | None, granularity_name)
-  ```
+`load_rate_data()` / `load_rate_data_from_connection()` remain available for
+low-level explicit-table reads. These helpers validate that `time` exists and
+return an ascending `DatetimeIndex` named `time`.
 
 ## Throttled incremental history updates
 

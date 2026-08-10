@@ -21,7 +21,7 @@ Built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data han
 - **Comprehensive data access**: Rates, ticks, account info, symbols, orders, positions, and trading history
 - **Flexible timeframes**: Named timeframes (M1, H1, D1, etc.) and numeric values
 - **Connection management**: Optional credentials, server, and timeout configuration
-- **SQLite rate loading**: Load mt5cli-managed rate tables/views for offline workflows
+- **SQLite rate loading**: Load canonical normalized `rates` storage for offline workflows
 
 ## Installation
 
@@ -324,12 +324,10 @@ update_history_with_config(
 ```
 
 - **`collect-history`**: explicit date-range export into SQLite.
-- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. The package-root wrapper uses canonical normalized rates and removes legacy `rate_*` compatibility views.
+- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. Rates are persisted only in the canonical normalized `rates` table.
 - **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
-- **Rate compatibility views**: mt5cli manages all `rate_*` views. Naming is `rate_<symbol>__<timeframe>` when a symbol has one timeframe, otherwise `rate_<symbol>__<granularity>_<timeframe>` (for example `rate_EURUSD__M1_1`). Stale `rate_*` views are dropped and recreated when rates change for offline downstream tools.
-- **Rate view resolution**: use `resolve_rate_view_name()` / `resolve_rate_view_names()` to map symbols and granularities to existing SQLite compatibility views without creating databases. Both accept `None` (or a missing path) and return deterministic default names unless `require_existing=True`.
-- **Rate view loading**: use `load_rate_data()` / `load_rate_data_from_connection()` to load a SQLite rate table or view into a `DatetimeIndex` DataFrame.
-- **Multi-series rate loading**: use `build_rate_targets()` to build neutral `RateTarget(symbol, timeframe)` pairs and `load_rate_series_from_sqlite()` to load canonical `rates` rows into a mapping keyed by `(symbol, integer timeframe)`. Pass `explicit_tables` when loading named legacy tables or views; duplicate `(symbol, timeframe)` targets are rejected.
+- **Explicit table loading**: use `load_rate_data()` / `load_rate_data_from_connection()` for intentionally named custom SQLite rate tables.
+- **Multi-series rate loading**: use `build_rate_targets()` to build neutral `RateTarget(symbol, timeframe)` pairs and `load_rate_series_from_sqlite()` to load canonical `rates` rows into a mapping keyed by `(symbol, integer timeframe)`. Pass `explicit_tables` only for intentionally named custom tables; duplicate `(symbol, timeframe)` targets are rejected.
 - **Multi-account latest rates**: use `collect_latest_rates_for_accounts()` with `AccountSpec` to read the latest bars for several account groups, merged into a `(symbol, integer timeframe)` mapping. For long-running pollers, `collect_latest_rates_for_accounts_with_retries()` adds bounded exponential backoff that retries only recoverable MT5 errors and re-raises once `retry_count` is exhausted.
 - **Latest closed bars**: use `collect_latest_closed_rates_for_accounts()` when downstream logic must exclude the still-forming current bar. It fetches `count + 1` bars at `start_pos=0`, drops the last row with `drop_forming_rate_bar()`, and validates each series is non-empty. `collect_latest_closed_rates_by_granularity()` returns the same data keyed by `(symbol, granularity_name)` such as `("EURUSD", "M1")`.
 

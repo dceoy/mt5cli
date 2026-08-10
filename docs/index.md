@@ -19,7 +19,7 @@ mt5cli provides a stable `MT5Client` Python API, standardized dataset schemas, s
 - **Comprehensive data access**: Rates, ticks, account info, symbols, orders, positions, and trading history
 - **Flexible timeframes**: Named timeframes (M1, H1, D1, etc.) and numeric values
 - **Connection management**: Optional credentials, server, and timeout configuration
-- **SQLite rate loading**: Load mt5cli-managed rate tables/views for offline workflows
+- **SQLite rate loading**: Load canonical normalized `rates` series for offline workflows
 
 ## Installation
 
@@ -47,7 +47,7 @@ from mt5cli import (
     collect_history,
     mt5_session,
 )
-from mt5cli.history import load_rate_data, resolve_rate_view_name
+from mt5cli import build_rate_targets, load_rate_series_from_sqlite
 from mt5cli.marketdata import minimum_margins, recent_ticks
 from mt5cli.schemas import DataKind, normalize_dataframe
 from mt5cli.utils import Dataset, export_dataframe
@@ -69,9 +69,11 @@ closed_rates = normalize_dataframe(
 )
 export_dataframe(closed_rates, Path("rates.csv"), "csv")
 
-# Offline rate loading from mt5cli-managed SQLite history
-view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1", require_existing=True)
-offline_rates = load_rate_data(Path("history.db"), view, count=1000)
+# Offline rate loading from canonical normalized SQLite history
+targets = build_rate_targets(["EURUSD"], ["M1"])
+offline_rates = load_rate_series_from_sqlite(
+    Path("history.db"), targets, count=1000
+)["EURUSD", 1]
 
 # One-off helpers still work without instantiating a client
 ticks = recent_ticks("EURUSD", seconds=300)

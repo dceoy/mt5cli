@@ -90,14 +90,13 @@ timestamp normalization in downstream apps.
 | Symbol                                                            | Role                                                                                         |
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `collect_history`                                                 | One-shot date-range export into SQLite                                                       |
-| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for a rate table or legacy view                    |
+| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for the canonical rates table or an explicit custom table                    |
 | `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors                                                  |
 | `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; optional `update_backend` injection |
 | `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                             |
 | `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load normalized `rates` series or explicit custom tables; reject invalid targets clearly     |
 
-See [History Collection (SQLite)](history.md) for schema, view naming, and ER
-diagrams.
+See [History Collection (SQLite)](history.md) for the canonical schema, loading contract, and ER diagrams.
 
 Shared package-root helpers used by downstream adapters include `Dataset`,
 `parse_timeframe`, and `resolve_history_timeframes`. These are stable exports;
@@ -287,7 +286,6 @@ of the package-root stable surface. Import them directly when needed:
 | Module              | Examples                                                                                                                                                                    |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mt5cli.grafana`    | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`, `insert_account_snapshot`, `record_snapshot_run` |
-| `mt5cli.history`    | `resolve_rate_view_name`, `resolve_rate_tables`, `load_rate_data`, `build_rate_view_name`                                                                                   |
 | `mt5cli.marketdata` | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                                              |
 | `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                                          |
 | `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                                                                    |
