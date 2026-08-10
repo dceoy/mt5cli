@@ -1,4 +1,6 @@
 """Authoritative stable package-root SDK surface for mt5cli."""
+# pyright: reportUnusedImport=false, reportUnsupportedDunderAll=false
+# ruff: noqa: F401, PLE0605
 
 from pdmt5.dataframe import Mt5Config
 
