@@ -30,3 +30,11 @@ def test_rate_docs_do_not_reference_removed_managed_views(
         "managed rate legacy views",
     )
     assert not any(token in text for token in stale_tokens)
+
+
+def test_public_contract_describes_canonical_history_gaps(
+    request: pytest.FixtureRequest,
+) -> None:
+    """The CLI contract names canonical or explicit rate tables only."""
+    text = (request.config.rootpath / "docs/api/public-contract.md").read_text()
+    assert "canonical `rates` table or an explicitly named custom" in text
