@@ -12,7 +12,8 @@ command. Output format is auto-detected from the file extension (`.csv`,
 
 ## Requirements
 
-  MT5 terminal).
+MT5 terminal).
+
 - Install: `pip install -U mt5cli MetaTrader5`.
 - In this repo, run via `uv run mt5cli ...` or `uv run python -m mt5cli ...`.
 
