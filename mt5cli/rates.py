@@ -41,6 +41,109 @@ if TYPE_CHECKING:
 
 SqliteConnOrPath = sqlite3.Connection | Path | str
 
+_RATE_TIMESTAMP_CONTRACT_TABLE = "_mt5cli_metadata"
+_RATE_TIMESTAMP_CONTRACT_KEY = "rates_timestamp_contract"
+_RATE_TIMESTAMP_CONTRACT_VALUE = "pdmt5-wall-clock-v1"
+
+
+def _read_rate_timestamp_contract(conn: sqlite3.Connection) -> str | None:
+    """Return the persisted canonical rate timestamp contract, when present."""
+    metadata_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (_RATE_TIMESTAMP_CONTRACT_TABLE,),
+    ).fetchone()
+    if metadata_table is None:
+        return None
+    row = conn.execute(
+        "SELECT value FROM _mt5cli_metadata WHERE key = ?",
+        (_RATE_TIMESTAMP_CONTRACT_KEY,),
+    ).fetchone()
+    return str(row[0]) if row is not None else None
+
+
+def _rates_contain_aware_timestamp_text(conn: sqlite3.Connection) -> bool:
+    """Return whether canonical rates contain explicit timezone suffixes."""
+    if "time" not in get_table_columns(conn, "rates"):
+        return False
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM rates
+        WHERE typeof(time) = 'text'
+          AND (
+            substr(trim(time), -1) IN ('Z', 'z')
+            OR instr(substr(trim(time), 20), '+') > 0
+            OR instr(substr(trim(time), 20), '-') > 0
+          )
+        LIMIT 1
+        """
+    ).fetchone()
+    return row is not None
+
+
+def _validate_rate_timestamp_contract(conn: sqlite3.Connection) -> None:
+    """Reject legacy or unknown canonical timestamp representations."""
+    if not get_table_columns(conn, "rates"):
+        return
+    contract = _read_rate_timestamp_contract(conn)
+    if contract == _RATE_TIMESTAMP_CONTRACT_VALUE:
+        return
+    if contract is not None:
+        msg = f"Unsupported canonical rates timestamp contract: {contract!r}."
+        raise ValueError(msg)
+    if _rates_contain_aware_timestamp_text(conn):
+        msg = (
+            "The canonical rates table uses an unversioned timezone-aware timestamp "
+            "representation that may have been created by mt5cli <= 1.4.1, which "
+            "silently relabeled pdmt5 trade-server wall-clock values as UTC. "
+            "Recreate or explicitly migrate this history database before loading "
+            "or incrementally updating it."
+        )
+        raise ValueError(msg)
+
+
+def _validate_existing_rate_database(output: Path | str) -> None:
+    """Validate an existing output database before an incremental update."""
+    path = Path(output)
+    if not path.exists():
+        return
+    conn, should_close = _open_existing_sqlite_database(path)
+    try:
+        _validate_rate_timestamp_contract(conn)
+    finally:
+        if should_close:
+            conn.close()
+
+
+def _mark_rate_timestamp_contract(output: Path | str) -> None:
+    """Persist the canonical timestamp contract after a successful rate write."""
+    path = Path(output)
+    if not path.exists():
+        return
+    with sqlite3.connect(path) as conn:
+        if not get_table_columns(conn, "rates"):
+            return
+        existing = _read_rate_timestamp_contract(conn)
+        if existing not in {None, _RATE_TIMESTAMP_CONTRACT_VALUE}:
+            msg = f"Unsupported canonical rates timestamp contract: {existing!r}."
+            raise ValueError(msg)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS _mt5cli_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO _mt5cli_metadata(key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (_RATE_TIMESTAMP_CONTRACT_KEY, _RATE_TIMESTAMP_CONTRACT_VALUE),
+        )
+
 
 def _load_canonical_rate_target(
     conn: sqlite3.Connection,
@@ -227,6 +330,7 @@ def load_rate_series_from_sqlite(
         msg = "The canonical rates database could not be opened."
         raise ValueError(msg) from exc
     try:
+        _validate_rate_timestamp_contract(conn)
         return {
             key: _load_canonical_rate_target(conn, target, count=count)
             for key, target in zip(keys, target_list, strict=True)
@@ -293,6 +397,7 @@ def update_history(
     include_account_events: bool = True,
 ) -> None:
     """Incrementally update canonical SQLite history."""
+    _validate_existing_rate_database(output)
     _legacy_update_history(
         client=client,
         output=output,
@@ -306,6 +411,7 @@ def update_history(
         with_views=with_views,
         include_account_events=include_account_events,
     )
+    _mark_rate_timestamp_contract(output)
 
 
 def update_history_with_config(
@@ -323,6 +429,7 @@ def update_history_with_config(
     include_account_events: bool = True,
 ) -> None:
     """Update canonical history with a managed MT5 session."""
+    _validate_existing_rate_database(output)
     _legacy_update_history_with_config(
         output=output,
         symbols=symbols,
@@ -336,6 +443,7 @@ def update_history_with_config(
         with_views=with_views,
         include_account_events=include_account_events,
     )
+    _mark_rate_timestamp_contract(output)
 
 
 class ThrottledHistoryUpdater(_LegacyThrottledHistoryUpdater):
