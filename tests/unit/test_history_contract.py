@@ -34,8 +34,7 @@ def test_report_rate_gaps_rejects_unknown_timeframe() -> None:
     """Canonical gap inference fails clearly for unsupported timeframes."""
     with sqlite3.connect(":memory:") as conn:
         conn.execute(
-            "CREATE TABLE rates("
-            "symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
+            "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
         )
         conn.executemany(
             "INSERT INTO rates VALUES (?, ?, ?, ?)",
@@ -359,8 +358,7 @@ def test_history_gaps_cli_happy_path(
     db_path = tmp_path / "history.db"
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "CREATE TABLE rates("
-            "symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
+            "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
         )
     export = mocker.patch("mt5cli.cli._execute_export")
     cli.history_gaps(
