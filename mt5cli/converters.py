@@ -67,18 +67,31 @@ def normalize_symbols(symbols: Sequence[str]) -> list[str]:
 
 
 def ensure_utc(value: datetime | str) -> datetime:
-    """Return a timezone-aware UTC datetime.
+    """Return a timezone-aware UTC datetime without guessing a timezone.
+
+    ISO-8601 strings continue to use :func:`parse_datetime`, whose documented
+    input contract treats a missing offset as UTC for CLI/user input. Datetime
+    objects are stricter: a naive object has no timezone information and may be
+    a pdmt5 trade-server wall-clock value, so attaching UTC would silently
+    change its meaning.
 
     Args:
         value: Datetime instance or ISO 8601 string.
 
     Returns:
         UTC-aware datetime.
+
+    Raises:
+        ValueError: If a datetime object is timezone-naive.
     """
     if isinstance(value, str):
-        return parse_datetime(value)
+        return parse_datetime(value).astimezone(UTC)
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
+        msg = (
+            "Cannot convert a timezone-naive datetime to UTC without an explicit "
+            "timezone; pdmt5 timestamps may represent MT5 trade-server wall time."
+        )
+        raise ValueError(msg)
     return value.astimezone(UTC)
 
 
@@ -96,7 +109,8 @@ def parse_date_range(
         Tuple of UTC-aware ``(start, end)`` datetimes.
 
     Raises:
-        ValueError: If ``date_from`` is after ``date_to``.
+        ValueError: If either datetime object is timezone-naive or
+            ``date_from`` is after ``date_to``.
     """
     start = ensure_utc(date_from)
     end = ensure_utc(date_to)
@@ -128,8 +142,8 @@ def recent_window(
         Tuple of UTC-aware ``(start, end)`` datetimes.
 
     Raises:
-        ValueError: If neither or both window lengths are provided, or if a
-            length is not positive.
+        ValueError: If neither or both window lengths are provided, a length is
+            not positive, or ``date_to`` is a timezone-naive datetime object.
     """
     if (hours is None) == (seconds is None):
         msg = "Provide exactly one of hours or seconds."
