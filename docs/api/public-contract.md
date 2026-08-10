@@ -23,7 +23,7 @@ Note: the former `mt5cli` re-export `TICK_FLAG_MAP` corresponds to `COPY_TICKS_M
 in pdmt5 — the name changed, it was not simply moved.
 
 Downstream packages should import from the package root (`from mt5cli import
-...`). The contract set `STABLE_SDK_EXPORTS` in `mt5cli.contract` enumerates
+...`). The authoritative SDK declaration in `mt5cli.sdk` enumerates
 every package-root symbol. Helpers promoted for downstream use, including selected configuration and
 parsing utilities, history timeframe resolution, and Grafana schema setup, are
 part of that root contract. Other low-level
@@ -32,20 +32,23 @@ from their owning modules.
 
 ### Module responsibility map
 
-`mt5cli.sdk` has been removed. Each capability now has exactly one owning
-module:
+`mt5cli.sdk` is the internal source of truth for the stable package-root
+exports. Downstream code should import stable names from `mt5cli`; each
+operational capability still has exactly one owning module:
 
-| Module                 | Owns                                                                                                                                            |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mt5cli.client`        | Connection lifecycle (`build_config`, `mt5_session`, `MT5Client`); the sole session factory                                                     |
-| `mt5cli.marketdata`    | Stateless one-off market-data reads and multi-account rate collection (`AccountSpec`, `collect_latest_rates_for_accounts`, etc.)                |
-| `mt5cli.history`       | History collection, incremental updates, and SQLite storage (`collect_history`, `update_history`, `write_*_dataset`, `ThrottledHistoryUpdater`) |
-| `mt5cli.observability` | Observability snapshot orchestration (`update_observability`, `update_observability_with_config`)                                               |
-| `mt5cli.grafana`       | Grafana schema, views, and snapshot persistence                                                                                                 |
-| `mt5cli.trading`       | Order preparation, broker-facing calculations, and normalized execution receipts                                                                |
-| `mt5cli.contract`      | `STABLE_SDK_EXPORTS` and the internal `HistoryClient` / `ObservabilityClient` protocols                                                         |
-| `mt5cli.cli`           | Typer/Click adapters; no MT5 operational logic of its own                                                                                       |
-| `mt5cli.utils`         | Generic conversion, parsing, and file/SQLite export helpers, independent of the MT5 connection lifecycle                                        |
+| Module                 | Owns                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mt5cli.client`        | Connection lifecycle (`build_config`, `mt5_session`, `MT5Client`); the sole session factory                                                 |
+| `mt5cli.marketdata`    | Stateless one-off market-data reads and multi-account rate collection (`AccountSpec`, `collect_latest_rates_for_accounts`, etc.)            |
+| `mt5cli.history`       | Legacy history collection, incremental updates, and SQLite storage (`collect_history`, `update_history`, `write_*_dataset`)                 |
+| `mt5cli.rates`         | Canonical rate persistence/loading and stable update wrappers (`load_rate_series_from_sqlite`, `update_history`, `ThrottledHistoryUpdater`) |
+| `mt5cli.observability` | Observability snapshot orchestration (`update_observability`, `update_observability_with_config`)                                           |
+| `mt5cli.grafana`       | Grafana schema, views, and snapshot persistence                                                                                             |
+| `mt5cli.trading`       | Order preparation, broker-facing calculations, and normalized execution receipts                                                            |
+| `mt5cli.contract`      | The internal `HistoryClient` / `ObservabilityClient` protocols                                                                              |
+| `mt5cli.sdk`           | Authoritative stable package-root export declaration; no separate connection lifecycle                                                      |
+| `mt5cli.cli`           | Typer/Click adapters; no MT5 operational logic of its own                                                                                   |
+| `mt5cli.utils`         | Generic conversion, parsing, and file/SQLite export helpers, independent of the MT5 connection lifecycle                                    |
 
 No module combines connection lifecycle, history collection, observability,
 telemetry, SQLite orchestration, and CLI-adjacent concerns.
@@ -53,7 +56,7 @@ telemetry, SQLite orchestration, and CLI-adjacent concerns.
 ## Stable downstream SDK API
 
 These names are exported from `mt5cli` and enumerated in
-`mt5cli.STABLE_SDK_EXPORTS` (defined in `mt5cli.contract`).
+`mt5cli.STABLE_SDK_EXPORTS` (defined by `mt5cli.sdk`).
 
 ### Session lifecycle and configuration
 
@@ -63,6 +66,7 @@ These names are exported from `mt5cli` and enumerated in
 | `build_config`                                  | Build the underlying MT5 connection config from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True` |
 | `substitute_mapping_values`                     | Generic selected-key environment substitution for downstream configuration adapters                                                                                                                                                                                                                  |
 | `mt5_session`                                   | Canonical context manager: initialize/login once, yield `MT5Client`, shut down once; a supplied `client=` remains caller-owned.                                                                                                                                                                      |
+| `Mt5Config`                                     | Canonical pdmt5 connection configuration type returned by `build_config` and accepted by managed-session wrappers                                                                                                                                                                                    |
 | `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                                             |
 | `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                                               |
 
@@ -90,7 +94,7 @@ timestamp normalization in downstream apps.
 | `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors                                                  |
 | `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; optional `update_backend` injection |
 | `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                             |
-| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load one or many series; fail clearly when managed views are missing                         |
+| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load normalized `rates` series or explicit custom tables; reject invalid targets clearly     |
 
 See [History Collection (SQLite)](history.md) for schema, view naming, and ER
 diagrams.
@@ -168,17 +172,11 @@ retrieve deal history through `client.history_deals()` or
 `client.recent_history_deals()`. Consume execution receipt attributes instead
 of parsing a raw broker response or assuming requested volume was filled.
 
-`mt5cli.sdk` has been removed entirely, along with its duplicate
-`mt5_session()` context manager (which used to yield a private
-read-only-only client type) and the `Mt5CliClient` name. `from mt5cli import
-MT5Client, mt5_session` remains the only supported way to obtain a connected
-client — there is no alternate public session factory or client type. Code
-that imported market-data or history functions from `mt5cli.sdk` should import
-them from `mt5cli.marketdata` or `mt5cli.history` instead (or, for stable
-names, from the package root). Code that imported `update_observability` /
-`update_observability_with_config` from `mt5cli.sdk` should import them from
-`mt5cli.observability` instead. No compatibility shims are provided for any of
-these removed import paths.
+`mt5cli.sdk` is an internal source-of-truth module for the stable package-root
+exports. It does not provide a second connection lifecycle or alternate public
+client type; `from mt5cli import MT5Client, mt5_session` remains the supported
+way to obtain a connected client. Downstream code should import stable names
+from the package root and capability-specific helpers from their owning modules.
 
 ### Grafana observability (SQLite read model)
 

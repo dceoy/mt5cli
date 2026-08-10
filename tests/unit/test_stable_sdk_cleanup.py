@@ -3,6 +3,7 @@
 from pdmt5.dataframe import Mt5Config
 
 import mt5cli
+from mt5cli import trading
 
 
 def test_stable_sdk_exposes_downstream_adapter_primitives() -> None:
@@ -42,4 +43,4 @@ def test_legacy_margin_helper_is_removed() -> None:
     name = "calculate_new_position_margin_ratio"
     assert name not in mt5cli.STABLE_SDK_EXPORTS
     assert not hasattr(mt5cli, name)
-    assert not hasattr(mt5cli.trading, name)
+    assert not hasattr(trading, name)

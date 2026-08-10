@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 import pandas as pd
 
@@ -164,7 +164,11 @@ def validate_schema(
     *,
     extra_required: Iterable[str] | None = None,
 ) -> None:
-    """Validate that a DataFrame includes required columns for a dataset kind."""
+    """Validate that a DataFrame includes required columns for a dataset kind.
+
+    Raises:
+        Mt5SchemaError: If required columns are missing.
+    """
     if frame.empty and len(frame.columns) == 0:
         return
     required = set(REQUIRED_COLUMNS[kind])
@@ -179,11 +183,52 @@ def validate_schema(
         raise Mt5SchemaError(msg)
 
 
+def _normalize_mt5_timestamp(value: object) -> object:
+    """Normalize one parsed aware timestamp to UTC.
+
+    Returns:
+        UTC-normalized aware timestamp or the original naive value.
+    """
+    if isinstance(value, pd.Timestamp) and value.tzinfo is not None:
+        return value.tz_convert("UTC")
+    return value
+
+
 def _normalize_parsed_mt5_times(series: pd.Series) -> pd.Series:
-    """Normalize aware MT5 times to UTC while preserving naive wall-clock labels."""
+    """Normalize aware MT5 times to UTC while preserving naive wall-clock labels.
+
+    Returns:
+        Series with aware values converted to UTC and naive values unchanged.
+    """
     if isinstance(series.dtype, pd.DatetimeTZDtype):
         return series.dt.tz_convert("UTC")
+    if pd.api.types.is_object_dtype(series.dtype):
+        return series.map(_normalize_mt5_timestamp)
     return series
+
+
+def _parse_mt5_time_value(value: object, *, unit: Literal["s", "ms"]) -> object:
+    """Parse one mixed MT5 time value using the column's epoch unit.
+
+    Returns:
+        Parsed timestamp or ``NaT`` for an invalid value.
+    """
+    if pd.api.types.is_number(value):
+        numeric_value = cast("float | int", value)
+        return pd.to_datetime(numeric_value, unit=unit, errors="coerce")
+    return cast(
+        "pd.Timestamp",
+        pd.to_datetime(cast("Any", value), errors="coerce", format="mixed"),
+    )
+
+
+def _mt5_time_sort_key(series: pd.Series) -> pd.Series:
+    """Build UTC sort keys without changing stored MT5 timestamp values.
+
+    Returns:
+        UTC-aware comparable values for chronological sorting.
+    """
+    return pd.to_datetime(series, errors="coerce", format="mixed", utc=True)
 
 
 def _coerce_mt5_time_column(series: pd.Series, column: str) -> pd.Series:
@@ -202,10 +247,23 @@ def _coerce_mt5_time_column(series: pd.Series, column: str) -> pd.Series:
         return series.dt.tz_convert("UTC")
     if pd.api.types.is_datetime64_any_dtype(series):
         return pd.to_datetime(series, errors="coerce")
+    unit: Literal["s", "ms"] = "ms" if column.endswith("_msc") else "s"
     if pd.api.types.is_numeric_dtype(series):
-        unit = "ms" if column.endswith("_msc") else "s"
         return pd.to_datetime(series, unit=unit, errors="coerce")
-    parsed = pd.to_datetime(series, errors="coerce", format="mixed")
+    if pd.api.types.is_object_dtype(series.dtype):
+        parsed = series.map(
+            lambda value: _parse_mt5_time_value(value, unit=unit),
+        )
+        return _normalize_parsed_mt5_times(parsed)
+    try:
+        parsed = pd.to_datetime(series, errors="coerce", format="mixed")
+    except ValueError:
+        parsed = series.map(
+            lambda value: cast(
+                "pd.Timestamp",
+                pd.to_datetime(value, errors="coerce", format="mixed"),
+            ),
+        )
     return _normalize_parsed_mt5_times(parsed)
 
 
@@ -248,6 +306,9 @@ def normalize_dataframe(
     Preserves timezone-naive trade-server wall-clock timestamps from pdmt5,
     normalizes explicitly aware timestamps to UTC, optionally injects
     ``symbol`` / ``timeframe`` metadata, and sorts chronologically.
+
+    Returns:
+        Normalized DataFrame with canonical columns and ordering.
     """
     if frame.empty and len(frame.columns) == 0:
         return frame.copy()
@@ -267,9 +328,17 @@ def normalize_dataframe(
 
     if sort:
         if "time" in normalized.columns:
-            normalized = normalized.sort_values("time", kind="stable")
+            normalized = normalized.sort_values(
+                "time",
+                key=_mt5_time_sort_key,
+                kind="stable",
+            )
         elif "time_msc" in normalized.columns:
-            normalized = normalized.sort_values("time_msc", kind="stable")
+            normalized = normalized.sort_values(
+                "time_msc",
+                key=_mt5_time_sort_key,
+                kind="stable",
+            )
         normalized = normalized.reset_index(drop=True)
 
     return normalized

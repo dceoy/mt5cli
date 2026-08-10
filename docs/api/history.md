@@ -157,9 +157,11 @@ when required columns are missing.
 
 ### Incremental collection
 
-The `update_history` SDK path uses the same base tables and optional
-`cash_events` / `positions_reconstructed` views. It additionally maintains
-`rate_<symbol>__<timeframe>` compatibility views when `create_rate_views=True`.
+The package-root `mt5cli.update_history` SDK path uses the normalized `rates`
+table and optional `cash_events` / `positions_reconstructed` views. It always
+disables legacy per-series `rate_*` compatibility views and removes stale ones
+after a successful update. The lower-level `mt5cli.history.update_history`
+function retains `create_rate_views` for legacy workflows.
 
 ### Rate view resolution
 
@@ -246,8 +248,8 @@ DataFrame indexed by ascending `DatetimeIndex` named `time`.
 ### Multi-series rate loading
 
 For loading many rate series at once, build neutral `RateTarget` pairs and load
-them from SQLite in one call. View names are resolved via the same
-compatibility-view rules, or you can pass `explicit_tables` to bypass resolution:
+them from the canonical `rates` table in one call. Pass `explicit_tables` when
+you need to load named legacy tables or views:
 
 ```python
 from pathlib import Path
@@ -270,10 +272,9 @@ frame = series["EURUSD", 1]  # keyed by (symbol, integer timeframe)
   `explicit_tables` is provided, names are returned as-is and
   `require_existing` is ignored.
 - `load_rate_series_from_sqlite()` returns a mapping keyed by
-  `(symbol, integer timeframe)`. Unless `explicit_tables` is supplied, it
-  requires existing managed `rate_*__*` compatibility views and raises
-  `ValueError` when they are missing. Duplicate `(symbol, timeframe)` targets
-  are rejected.
+  `(symbol, integer timeframe)`. Normal targets query the canonical `rates`
+  table directly; `explicit_tables` continues to delegate to the legacy table
+  or view loader. Duplicate `(symbol, timeframe)` targets are rejected.
 - `load_rate_series_by_granularity()` is a thin wrapper that builds the targets,
   loads the series, and rekeys the result by granularity name to avoid
   converting integer timeframes downstream:

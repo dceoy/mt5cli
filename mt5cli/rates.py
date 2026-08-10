@@ -1,25 +1,40 @@
 """Canonical normalized-rate persistence and loading APIs."""
-# ruff: noqa: C901, PLR0913, S608
+# ruff: noqa: PLR0913
 
 from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, overload
 
 import pandas as pd
 
 from .history import (
     RateTarget,
-    ThrottledHistoryUpdater as _LegacyThrottledHistoryUpdater,
     drop_rate_compatibility_views,
-    load_rate_series_from_sqlite as _legacy_load_rate_series_from_sqlite,
     resolve_granularity_name,
+)
+from .history import (
+    ThrottledHistoryUpdater as _LegacyThrottledHistoryUpdater,
+)
+from .history import (
+    load_rate_series_from_sqlite as _legacy_load_rate_series_from_sqlite,
+)
+from .history import (
+    open_existing_sqlite_database as _open_existing_sqlite_database,
+)
+from .history import (
     update_history as _legacy_update_history,
+)
+from .history import (
     update_history_with_config as _legacy_update_history_with_config,
 )
-from .schemas import DataKind, normalize_time_columns
+from .schemas import (
+    DataKind,
+    _mt5_time_sort_key,  # type: ignore[reportPrivateUsage]
+    normalize_time_columns,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -28,29 +43,10 @@ if TYPE_CHECKING:
     from pdmt5.dataframe import Mt5Config
 
     from .contract import HistoryClient
+    from .history import UpdateHistoryBackend
     from .utils import Dataset
 
 SqliteConnOrPath = sqlite3.Connection | Path | str
-
-
-def _open_existing_database(
-    conn_or_path: SqliteConnOrPath,
-) -> tuple[sqlite3.Connection, bool]:
-    """Open an existing database without creating a missing path.
-
-    Returns:
-        Connection and whether this function owns and must close it.
-
-    Raises:
-        ValueError: If a supplied database path does not exist.
-    """
-    if isinstance(conn_or_path, sqlite3.Connection):
-        return conn_or_path, False
-    path = Path(conn_or_path)
-    if not path.is_file():
-        msg = f"SQLite database not found: {path}"
-        raise ValueError(msg)
-    return sqlite3.connect(path), True
 
 
 def _load_canonical_rate_target(
@@ -71,15 +67,100 @@ def _load_canonical_rate_target(
         msg = "A symbol is required for canonical normalized rate loading."
         raise ValueError(msg)
     frame = pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
-        "SELECT * FROM rates WHERE symbol = ? AND timeframe = ? "
-        "ORDER BY time DESC LIMIT ?",
+        "SELECT * FROM rates WHERE symbol = ? AND timeframe = ?",
         conn,
-        params=(target.symbol, target.timeframe_int, count),
+        params=(target.symbol, target.timeframe_int),
     )
+    if "time" not in frame.columns:
+        msg = "The canonical rates table is missing the required time column."
+        raise ValueError(msg)
     if frame.empty:
         return frame
     frame = normalize_time_columns(frame, DataKind.rates)
-    return frame.sort_values("time", kind="stable").reset_index(drop=True)
+    return (
+        frame
+        .sort_values(
+            "time",
+            key=_mt5_time_sort_key,
+            kind="stable",
+            na_position="first",
+        )
+        .tail(count)
+        .reset_index(drop=True)
+    )
+
+
+def _load_rate_series_through_legacy(
+    conn_or_path: SqliteConnOrPath,
+    targets: Sequence[RateTarget] | None,
+    count: int | None,
+    explicit_tables: Sequence[str] | None,
+    *,
+    table: str | None,
+) -> dict[tuple[str | None, int], pd.DataFrame] | pd.DataFrame:
+    """Load explicit-table data through the legacy storage implementation.
+
+    Returns:
+        One explicit-table frame or target-keyed legacy rate frames.
+
+    Raises:
+        ValueError: If a target-based explicit-table request omits ``count``.
+    """
+    if table is not None:
+        return _legacy_load_rate_series_from_sqlite(
+            conn_or_path,
+            count=count,
+            table=table,
+        )
+    if targets is None:
+        return _legacy_load_rate_series_from_sqlite(
+            conn_or_path,
+            targets=None,
+            count=count,
+            explicit_tables=explicit_tables,
+        )
+    if count is None:
+        msg = "count must be positive."
+        raise ValueError(msg)
+    return _legacy_load_rate_series_from_sqlite(
+        conn_or_path,
+        targets=targets,
+        count=count,
+        explicit_tables=explicit_tables,
+    )
+
+
+if TYPE_CHECKING:
+
+    @overload
+    def load_rate_series_from_sqlite(
+        conn_or_path: SqliteConnOrPath,
+        targets: None = None,
+        count: int | None = None,
+        explicit_tables: None = None,
+        *,
+        table: str,
+    ) -> pd.DataFrame: ...
+
+    @overload
+    def load_rate_series_from_sqlite(
+        conn_or_path: SqliteConnOrPath,
+        targets: None = None,
+        count: int | None = None,
+        explicit_tables: Sequence[str] | None = None,
+        *,
+        table: None = None,
+    ) -> dict[tuple[str | None, int], pd.DataFrame]: ...
+
+    @overload
+    def load_rate_series_from_sqlite(
+        conn_or_path: SqliteConnOrPath,
+        targets: Sequence[RateTarget],
+        count: int,
+        explicit_tables: Sequence[str] | None = None,
+        *,
+        table: None = None,
+    ) -> dict[tuple[str | None, int], pd.DataFrame]: ...
 
 
 def load_rate_series_from_sqlite(
@@ -100,17 +181,20 @@ def load_rate_series_from_sqlite(
         One explicit-table frame or target-keyed normalized rate frames.
 
     Raises:
-        TypeError: If the requested mode yields an unexpected shape.
         ValueError: If targets/count are invalid or canonical storage is absent.
     """
     if table is not None or explicit_tables is not None:
-        return _legacy_load_rate_series_from_sqlite(
-            conn_or_path,
-            targets,
-            count,
-            explicit_tables,
-            table=table,
-        )
+        try:
+            return _load_rate_series_through_legacy(
+                conn_or_path,
+                targets,
+                count,
+                explicit_tables,
+                table=table,
+            )
+        except (sqlite3.Error, pd.errors.DatabaseError) as exc:
+            msg = "The explicit rate table is unavailable or invalid."
+            raise ValueError(msg) from exc
     if count is None or count <= 0:
         msg = "count must be positive."
         raise ValueError(msg)
@@ -126,13 +210,17 @@ def load_rate_series_from_sqlite(
         msg = "Duplicate rate targets are not allowed."
         raise ValueError(msg)
 
-    conn, should_close = _open_existing_database(conn_or_path)
+    try:
+        conn, should_close = _open_existing_sqlite_database(conn_or_path)
+    except (sqlite3.Error, pd.errors.DatabaseError) as exc:
+        msg = "The canonical rates database could not be opened."
+        raise ValueError(msg) from exc
     try:
         return {
             key: _load_canonical_rate_target(conn, target, count=count)
             for key, target in zip(keys, target_list, strict=True)
         }
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, pd.errors.DatabaseError) as exc:
         msg = "The canonical rates table is unavailable or invalid."
         raise ValueError(msg) from exc
     finally:
@@ -153,6 +241,9 @@ def load_rate_series_by_granularity(
 
     Returns:
         Mapping keyed by ``(symbol, granularity)``.
+
+    Raises:
+        TypeError: If explicit table loading returns a single DataFrame.
     """
     from .history import build_rate_targets  # noqa: PLC0415
 
@@ -256,10 +347,35 @@ def update_history_with_config(
 class ThrottledHistoryUpdater(_LegacyThrottledHistoryUpdater):
     """Throttle canonical history updates without legacy rate views."""
 
-    def __init__(self, **kwargs: Any) -> None:  # noqa: ANN401
+    def __init__(
+        self,
+        *,
+        output: Path | str,
+        datasets: set[Dataset] | None = None,
+        timeframes: Sequence[int | str] | None = None,
+        flags: int | str = "ALL",
+        lookback_hours: float = 24.0,
+        with_views: bool = False,
+        include_account_events: bool = True,
+        interval_seconds: float = 0.0,
+        suppress_errors: bool = False,
+        update_backend: UpdateHistoryBackend | None = None,
+    ) -> None:
         """Initialize with the canonical update backend by default."""
-        kwargs.setdefault("update_backend", update_history)
-        super().__init__(**kwargs)
+        super().__init__(
+            output=output,
+            datasets=datasets,
+            timeframes=timeframes,
+            flags=flags,
+            lookback_hours=lookback_hours,
+            with_views=with_views,
+            include_account_events=include_account_events,
+            interval_seconds=interval_seconds,
+            suppress_errors=suppress_errors,
+            update_backend=(
+                update_history if update_backend is None else update_backend
+            ),
+        )
 
 
 __all__ = [

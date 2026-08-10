@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import inspect
 from datetime import UTC, datetime
-from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
 import pandas as pd
 import pytest
@@ -21,6 +20,7 @@ import mt5cli.client
 import mt5cli.history
 import mt5cli.marketdata
 import mt5cli.observability
+import mt5cli.sdk
 import mt5cli.trading
 import mt5cli.utils
 from mt5cli import (
@@ -276,11 +276,12 @@ def test_normalize_symbol_rejects_empty_value() -> None:
         normalize_symbol("   ")
 
 
-def test_ensure_utc_handles_naive_and_aware_datetimes() -> None:
-    """UTC coercion accepts naive and timezone-aware datetimes."""
+def test_ensure_utc_rejects_naive_and_normalizes_aware_datetimes() -> None:
+    """UTC coercion rejects naive and normalizes timezone-aware datetimes."""
     naive = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
     aware = datetime(2024, 1, 1, tzinfo=UTC)
-    assert ensure_utc(naive).tzinfo == UTC
+    with pytest.raises(ValueError, match="timezone-naive"):
+        ensure_utc(naive)
     assert ensure_utc(aware).tzinfo == UTC
     assert ensure_utc("2024-01-01T00:00:00+00:00").tzinfo == UTC
 
@@ -395,23 +396,50 @@ def test_normalize_time_columns_skips_absent_time_fields() -> None:
 
 
 @pytest.mark.parametrize(
-    ("col", "value", "kind"),
+    ("col", "value", "kind", "expected"),
     [
-        ("time", 1704067200, DataKind.rates),
-        ("time_msc", 1704067200000, DataKind.ticks),
-        ("time", datetime(2024, 1, 1, tzinfo=UTC), DataKind.rates),
-        ("time", "2024-01-01T00:00:00+00:00", DataKind.rates),
+        (
+            "time",
+            1704067200,
+            DataKind.rates,
+            pd.Timestamp("2024-01-01"),
+        ),
+        (
+            "time_msc",
+            1704067200000,
+            DataKind.ticks,
+            pd.Timestamp("2024-01-01"),
+        ),
+        (
+            "time",
+            datetime(2024, 1, 1, tzinfo=UTC),
+            DataKind.rates,
+            pd.Timestamp("2024-01-01T00:00:00+00:00"),
+        ),
+        (
+            "time",
+            "2024-01-01T00:00:00+00:00",
+            DataKind.rates,
+            pd.Timestamp("2024-01-01T00:00:00+00:00"),
+        ),
+        (
+            "time",
+            "2024-01-01T00:00:00",
+            DataKind.rates,
+            pd.Timestamp("2024-01-01"),
+        ),
     ],
 )
 def test_normalize_time_columns_coerces_value(
     col: str,
     value: object,
     kind: DataKind,
+    expected: pd.Timestamp,
 ) -> None:
-    """Time column values are coerced to UTC timestamps regardless of input type."""
+    """Time values preserve naive MT5 labels and normalize aware values to UTC."""
     frame = pd.DataFrame({col: [value]})
     result = normalize_time_columns(frame, kind)
-    assert result.loc[0, col] == pd.Timestamp("2024-01-01T00:00:00+00:00")
+    assert result.loc[0, col] == expected
 
 
 def test_normalize_time_columns_handles_optional_order_times() -> None:
@@ -423,14 +451,47 @@ def test_normalize_time_columns_handles_optional_order_times() -> None:
         "time_done_msc": [1704153600000],
     })
     result = normalize_time_columns(frame, DataKind.orders)
-    assert result.loc[0, "time_setup"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
-    assert result.loc[0, "time_setup_msc"] == pd.Timestamp(
-        "2024-01-01T00:00:00+00:00",
-    )
-    assert result.loc[0, "time_done"] == pd.Timestamp("2024-01-02T00:00:00+00:00")
-    assert result.loc[0, "time_done_msc"] == pd.Timestamp(
-        "2024-01-02T00:00:00+00:00",
-    )
+    assert result.loc[0, "time_setup"] == pd.Timestamp("2024-01-01")
+    assert result.loc[0, "time_setup_msc"] == pd.Timestamp("2024-01-01")
+    assert result.loc[0, "time_done"] == pd.Timestamp("2024-01-02")
+    assert result.loc[0, "time_done_msc"] == pd.Timestamp("2024-01-02")
+
+
+def test_normalize_time_columns_handles_mixed_timezone_values() -> None:
+    """Mixed naive and aware values preserve labels and normalize aware values."""
+    frame = pd.DataFrame({
+        "time": [
+            "2024-01-01T00:00:00",
+            "2024-01-01T00:00:00+09:00",
+            "2024-01-01T00:00:00+00:00",
+        ],
+    })
+
+    result = normalize_time_columns(frame, DataKind.rates)
+
+    assert result.loc[0, "time"] == pd.Timestamp("2024-01-01")
+    assert result.loc[1, "time"] == pd.Timestamp("2023-12-31T15:00:00+00:00")
+    assert result.loc[2, "time"] == pd.Timestamp("2024-01-01T00:00:00+00:00")
+    assert cast("pd.Timestamp", result.loc[1, "time"]).tzinfo == UTC
+    assert cast("pd.Timestamp", result.loc[2, "time"]).tzinfo == UTC
+
+
+def test_normalize_time_columns_handles_mixed_numeric_values() -> None:
+    """Mixed MT5 time columns parse numeric values with their epoch units."""
+    frame = pd.DataFrame({
+        "time": pd.Series([1704067200, "2024-01-02"], dtype="object"),
+        "time_msc": pd.Series(
+            [1704067200000, "2024-01-02"],
+            dtype="object",
+        ),
+    })
+
+    result = normalize_time_columns(frame, DataKind.ticks)
+
+    assert result.loc[0, "time"] == pd.Timestamp("2024-01-01")
+    assert result.loc[0, "time_msc"] == pd.Timestamp("2024-01-01")
+    assert result.loc[1, "time"] == pd.Timestamp("2024-01-02")
+    assert result.loc[1, "time_msc"] == pd.Timestamp("2024-01-02")
 
 
 def test_normalize_dataframe_sorts_ticks_by_time_msc(
@@ -539,7 +600,6 @@ class TestStableSdkContract:
 @pytest.mark.parametrize(
     "name",
     [
-        "Mt5Config",
         "Mt5RuntimeError",
         "Mt5DataClient",
         "TIMEFRAME_MAP",
@@ -564,10 +624,10 @@ def test_pdmt5_pass_through_names_stay_out_of_public_contract(name: str) -> None
 class TestSingleConnectionLifecycleContract:
     """Tests that mt5cli.client is the sole connection-lifecycle owner."""
 
-    def test_sdk_compatibility_module_no_longer_exists(self) -> None:
-        """The removed mt5cli.sdk module cannot be imported."""
-        with pytest.raises(ModuleNotFoundError):
-            import_module("mt5cli.sdk")
+    def test_sdk_module_is_authoritative_stable_surface(self) -> None:
+        """The package root re-exports the SDK source-of-truth declarations."""
+        assert mt5cli.sdk.STABLE_SDK_EXPORTS is STABLE_SDK_EXPORTS
+        assert set(mt5cli.sdk.__all__) == set(STABLE_SDK_EXPORTS)
 
     def test_package_root_mt5_session_is_the_client_module_session(self) -> None:
         """The package-root mt5_session is the same object as mt5cli.client's."""
