@@ -1,4 +1,5 @@
 """Canonical normalized-rate persistence and loading APIs."""
+# ruff: noqa: C901, PLR0913, S608
 
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from .schemas import DataKind, normalize_time_columns
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from pdmt5.dataframe import Mt5Config
 
@@ -34,7 +36,14 @@ SqliteConnOrPath = sqlite3.Connection | Path | str
 def _open_existing_database(
     conn_or_path: SqliteConnOrPath,
 ) -> tuple[sqlite3.Connection, bool]:
-    """Open an existing database without creating a missing path."""
+    """Open an existing database without creating a missing path.
+
+    Returns:
+        Connection and whether this function owns and must close it.
+
+    Raises:
+        ValueError: If a supplied database path does not exist.
+    """
     if isinstance(conn_or_path, sqlite3.Connection):
         return conn_or_path, False
     path = Path(conn_or_path)
@@ -50,7 +59,14 @@ def _load_canonical_rate_target(
     *,
     count: int,
 ) -> pd.DataFrame:
-    """Load one rate series directly from the normalized ``rates`` table."""
+    """Load one rate series directly from the normalized ``rates`` table.
+
+    Returns:
+        Chronological normalized rate frame.
+
+    Raises:
+        ValueError: If the target has no symbol.
+    """
     if target.symbol is None:
         msg = "A symbol is required for canonical normalized rate loading."
         raise ValueError(msg)
@@ -74,10 +90,18 @@ def load_rate_series_from_sqlite(
     *,
     table: str | None = None,
 ) -> dict[tuple[str | None, int], pd.DataFrame] | pd.DataFrame:
-    """Load rate series, using normalized ``rates`` for symbol/timeframe targets.
+    """Load rate series from canonical storage or an explicit custom table.
 
-    Explicit custom table loading remains supported, but normal target loading
-    no longer resolves or depends on per-series compatibility views.
+    Normal symbol/timeframe targets query the normalized ``rates`` table
+    directly. Explicit custom table loading remains supported without restoring
+    per-series compatibility-view discovery.
+
+    Returns:
+        One explicit-table frame or target-keyed normalized rate frames.
+
+    Raises:
+        TypeError: If the requested mode yields an unexpected shape.
+        ValueError: If targets/count are invalid or canonical storage is absent.
     """
     if table is not None or explicit_tables is not None:
         return _legacy_load_rate_series_from_sqlite(
@@ -125,7 +149,11 @@ def load_rate_series_by_granularity(
     explicit_tables: Sequence[str] | None = None,
     allow_missing_symbol: bool = False,
 ) -> dict[tuple[str | None, str], pd.DataFrame]:
-    """Load rate series keyed by symbol and canonical granularity name."""
+    """Load rate series keyed by symbol and canonical granularity name.
+
+    Returns:
+        Mapping keyed by ``(symbol, granularity)``.
+    """
     from .history import build_rate_targets  # noqa: PLC0415
 
     targets = build_rate_targets(
@@ -166,12 +194,16 @@ def update_history(
     timeframes: Sequence[int | str] | None = None,
     flags: int | str = "ALL",
     lookback_hours: float = 24.0,
-    date_to: Any = None,  # noqa: ANN401
+    date_to: datetime | str | None = None,
     deduplicate: bool = True,
     with_views: bool = False,
     include_account_events: bool = True,
 ) -> None:
-    """Incrementally update history without creating rate compatibility views."""
+    """Incrementally update history without creating rate compatibility views.
+
+    The stable wrapper preserves the existing update contract while forcing the
+    canonical normalized-rate model and removing stale compatibility views.
+    """
     _legacy_update_history(
         client=client,
         output=output,
@@ -198,12 +230,12 @@ def update_history_with_config(
     timeframes: Sequence[int | str] | None = None,
     flags: int | str = "ALL",
     lookback_hours: float = 24.0,
-    date_to: Any = None,  # noqa: ANN401
+    date_to: datetime | str | None = None,
     deduplicate: bool = True,
     with_views: bool = False,
     include_account_events: bool = True,
 ) -> None:
-    """Update history with a managed MT5 session and no rate compatibility views."""
+    """Update managed-session history without rate compatibility views."""
     _legacy_update_history_with_config(
         output=output,
         symbols=symbols,
@@ -225,7 +257,7 @@ class ThrottledHistoryUpdater(_LegacyThrottledHistoryUpdater):
     """Throttle canonical history updates without legacy rate views."""
 
     def __init__(self, **kwargs: Any) -> None:  # noqa: ANN401
-        """Initialize with the canonical update backend unless explicitly replaced."""
+        """Initialize with the canonical update backend by default."""
         kwargs.setdefault("update_backend", update_history)
         super().__init__(**kwargs)
 
