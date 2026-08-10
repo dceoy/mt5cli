@@ -154,14 +154,7 @@ DEDUP_KEYS: dict[DataKind, tuple[tuple[str, ...], ...]] = {
 
 
 def schema_columns(kind: DataKind) -> frozenset[str]:
-    """Return required column names for a dataset kind.
-
-    Args:
-        kind: Dataset kind.
-
-    Returns:
-        Required column names for ``kind``.
-    """
+    """Return required column names for a dataset kind."""
     return REQUIRED_COLUMNS[kind]
 
 
@@ -171,17 +164,7 @@ def validate_schema(
     *,
     extra_required: Iterable[str] | None = None,
 ) -> None:
-    """Validate that a DataFrame includes required columns for a dataset kind.
-
-    Args:
-        frame: DataFrame to validate.
-        kind: Expected dataset kind.
-        extra_required: Additional columns that must be present (for example
-            ``symbol`` and ``timeframe`` on stored rate history).
-
-    Raises:
-        Mt5SchemaError: If required columns are missing.
-    """
+    """Validate that a DataFrame includes required columns for a dataset kind."""
     if frame.empty and len(frame.columns) == 0:
         return
     required = set(REQUIRED_COLUMNS[kind])
@@ -196,26 +179,45 @@ def validate_schema(
         raise Mt5SchemaError(msg)
 
 
+def _normalize_parsed_mt5_times(series: pd.Series) -> pd.Series:
+    """Normalize aware MT5 times to UTC while preserving naive wall-clock labels."""
+    if isinstance(series.dtype, pd.DatetimeTZDtype):
+        return series.dt.tz_convert("UTC")
+    return series
+
+
 def _coerce_mt5_time_column(series: pd.Series, column: str) -> pd.Series:
-    """Coerce one MT5 time column to UTC-aware datetimes.
+    """Coerce one MT5 time column without inventing a timezone.
+
+    pdmt5 intentionally represents MT5 trade-server timestamps as
+    timezone-naive wall-clock datetimes. Those values must remain naive because
+    the broker/server UTC offset is not available at this boundary. Explicitly
+    timezone-aware values are normalized to UTC. Numeric MT5 epoch fields are
+    converted to the same naive wall-clock representation used by pdmt5.
 
     Returns:
-        Series with UTC-aware datetime values.
+        Parsed datetime series preserving the pdmt5 timestamp contract.
     """
+    if isinstance(series.dtype, pd.DatetimeTZDtype):
+        return series.dt.tz_convert("UTC")
     if pd.api.types.is_datetime64_any_dtype(series):
-        return pd.to_datetime(series, utc=True, errors="coerce")
+        return pd.to_datetime(series, errors="coerce")
     if pd.api.types.is_numeric_dtype(series):
         unit = "ms" if column.endswith("_msc") else "s"
-        return pd.to_datetime(series, unit=unit, utc=True, errors="coerce")
-    return pd.to_datetime(series, utc=True, errors="coerce")
+        return pd.to_datetime(series, unit=unit, errors="coerce")
+    parsed = pd.to_datetime(series, errors="coerce", format="mixed")
+    return _normalize_parsed_mt5_times(parsed)
 
 
 def normalize_time_columns(frame: pd.DataFrame, kind: DataKind) -> pd.DataFrame:
-    """Coerce dataset time columns to UTC-aware datetimes when present.
+    """Normalize dataset time columns while preserving MT5 server-time semantics.
 
     Any column in :data:`KNOWN_MT5_TIME_COLUMNS` that is present in ``frame``
-    is normalized. Numeric MT5 epoch values use seconds for ``time``,
-    ``time_setup``, and ``time_done``, and milliseconds for ``*_msc`` columns.
+    is parsed. Timezone-naive values remain timezone-naive MT5 trade-server
+    wall-clock labels. Explicitly aware values are normalized to UTC. Numeric
+    fields use seconds for ``time``, ``time_setup``, and ``time_done``, and
+    milliseconds for ``*_msc`` columns, producing naive values consistent with
+    pdmt5's conversion contract.
 
     Args:
         frame: Source DataFrame from MT5 or pdmt5.
@@ -243,19 +245,9 @@ def normalize_dataframe(
 ) -> pd.DataFrame:
     """Normalize MT5 DataFrame columns, timestamps, and storage metadata.
 
-    Ensures UTC timestamps, optionally injects ``symbol`` / ``timeframe`` for
-    storage-oriented datasets, and sorts chronologically when a ``time`` column
-    exists.
-
-    Args:
-        frame: Source DataFrame from MT5 or pdmt5.
-        kind: Dataset kind guiding normalization rules.
-        symbol: Optional symbol to inject when missing.
-        timeframe: Optional timeframe integer or name to inject for rates.
-        sort: Whether to sort by ``time`` or ``time_msc`` when present.
-
-    Returns:
-        Normalized DataFrame copy.
+    Preserves timezone-naive trade-server wall-clock timestamps from pdmt5,
+    normalizes explicitly aware timestamps to UTC, optionally injects
+    ``symbol`` / ``timeframe`` metadata, and sorts chronologically.
     """
     if frame.empty and len(frame.columns) == 0:
         return frame.copy()
@@ -284,14 +276,11 @@ def normalize_dataframe(
 
 
 def ensure_utc_columns(frame: pd.DataFrame, columns: Iterable[str]) -> pd.DataFrame:
-    """Return a copy with selected columns coerced to UTC datetimes.
+    """Return a copy with selected datetime columns normalized safely.
 
-    Args:
-        frame: Source DataFrame.
-        columns: Column names to coerce.
-
-    Returns:
-        DataFrame copy with UTC-aware datetime columns.
+    Known MT5 time columns preserve the pdmt5 server-wall-clock contract rather
+    than being relabeled as UTC. Other columns are interpreted as generic
+    datetimes and coerced to UTC.
     """
     normalized = frame.copy()
     for column in columns:
