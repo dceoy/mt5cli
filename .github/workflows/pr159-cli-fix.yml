@@ -1,0 +1,48 @@
+name: Apply PR 159 CLI cleanup
+
+on:
+  push:
+    branches:
+      - agent/fix-maintenance-issues
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-maintenance-issues
+          fetch-depth: 0
+      - name: Simplify canonical history-gaps export
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("mt5cli/cli.py")
+          text = path.read_text()
+          old = '''    df = (
+              pd.concat(frames, ignore_index=True)
+              if frames
+              else pd.DataFrame(columns=["table"])
+          )
+          _execute_export(ctx, lambda: df)
+          '''
+          new = '''    df = pd.concat(frames, ignore_index=True)
+          _execute_export(ctx, lambda: df)
+          '''
+          if old not in text:
+              raise SystemExit("history-gaps concat block not found")
+          path.write_text(text.replace(old, new, 1))
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          rm .github/workflows/pr159-cli-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Simplify canonical history-gaps export"
+          git push origin HEAD:agent/fix-maintenance-issues
