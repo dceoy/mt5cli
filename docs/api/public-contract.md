@@ -289,7 +289,7 @@ of the package-root stable surface. Import them directly when needed:
 | `mt5cli.marketdata` | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                                              |
 | `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                                          |
 | `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                                                                    |
-| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `parse_date_range`, `granularity_name`                                                                                                    |
+| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `ensure_trade_server_time`, `parse_date_range`, `granularity_name`                                                                        |
 | `mt5cli.exceptions` | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`                                                                                        |
 
 ## CLI commands

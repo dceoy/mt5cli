@@ -14,15 +14,16 @@ import logging
 import os
 import re
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Self, TypeVar, cast
 
 import pandas as pd
 from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
 
+from .converters import ensure_trade_server_time
 from .exceptions import normalize_mt5_exception
 from .utils import coerce_login as _coerce_login
-from .utils import parse_datetime, parse_tick_flags, parse_timeframe
+from .utils import parse_tick_flags, parse_timeframe
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterator, Sequence
@@ -179,15 +180,13 @@ def _plain_mt5_value(value: object) -> object:
 
 
 def _require_datetime(value: datetime | str) -> datetime:
-    if isinstance(value, datetime):
-        return value
-    return parse_datetime(value)
+    return ensure_trade_server_time(value)
 
 
 def _coerce_datetime(value: datetime | str | None) -> datetime | None:
-    if value is None or isinstance(value, datetime):
+    if value is None:
         return value
-    return parse_datetime(value)
+    return ensure_trade_server_time(value)
 
 
 def _require_positive(value: float, name: str) -> None:
@@ -216,12 +215,15 @@ def _mt5_summary_export_value(value: object) -> object:
 
 
 def _coerce_tick_time(value: object) -> datetime:
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        return parse_datetime(value)
-    if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value, tz=UTC)
+    if isinstance(value, datetime | str):
+        return ensure_trade_server_time(value)
+    if isinstance(value, (int, float)) or pd.api.types.is_number(value):
+        numeric_value = cast("int | float", value)
+        parsed = pd.to_datetime(numeric_value, unit="s", errors="coerce")
+        if pd.isna(parsed):
+            msg = f"Unsupported tick time value: {value!r}"
+            raise TypeError(msg)
+        return parsed.to_pydatetime()
     msg = f"Unsupported tick time value: {value!r}"
     raise TypeError(msg)
 
@@ -229,7 +231,7 @@ def _coerce_tick_time(value: object) -> datetime:
 def _filter_ticks_to_end(frame: pd.DataFrame, end: datetime) -> pd.DataFrame:
     if frame.empty or "time" not in frame.columns:
         return frame
-    times = pd.to_datetime(frame["time"], utc=True)
+    times = frame["time"].map(_coerce_tick_time)
     return frame.loc[times <= end].reset_index(drop=True)
 
 
@@ -535,7 +537,7 @@ class _BaseMT5Client:
         date_from: datetime | str,
         count: int,
     ) -> pd.DataFrame:
-        """Return rates starting from a date."""
+        """Return rates starting from a naive trade-server wall-clock date."""
         tf = _coerce_timeframe(timeframe)
         start = _require_datetime(date_from)
         return self._fetch(
@@ -620,7 +622,7 @@ class _BaseMT5Client:
         date_from: datetime | str,
         date_to: datetime | str,
     ) -> pd.DataFrame:
-        """Return rates for a date range."""
+        """Return rates for a naive trade-server wall-clock date range."""
         tf = _coerce_timeframe(timeframe)
         start = _require_datetime(date_from)
         end = _require_datetime(date_to)
@@ -640,7 +642,7 @@ class _BaseMT5Client:
         count: int,
         flags: int | str,
     ) -> pd.DataFrame:
-        """Return ticks starting from a date."""
+        """Return ticks starting from a naive trade-server wall-clock date."""
         start = _require_datetime(date_from)
         tick_flags = _coerce_tick_flags(flags)
         return self._fetch(
@@ -659,7 +661,7 @@ class _BaseMT5Client:
         date_to: datetime | str,
         flags: int | str,
     ) -> pd.DataFrame:
-        """Return ticks for a date range."""
+        """Return ticks for a naive trade-server wall-clock date range."""
         start = _require_datetime(date_from)
         end = _require_datetime(date_to)
         tick_flags = _coerce_tick_flags(flags)
@@ -727,7 +729,7 @@ class _BaseMT5Client:
         ticket: int | None = None,
         position: int | None = None,
     ) -> pd.DataFrame:
-        """Return historical orders."""
+        """Return historical orders for optional naive server-time bounds."""
         start = _coerce_datetime(date_from)
         end = _coerce_datetime(date_to)
         return self._fetch(
@@ -750,7 +752,7 @@ class _BaseMT5Client:
         ticket: int | None = None,
         position: int | None = None,
     ) -> pd.DataFrame:
-        """Return historical deals."""
+        """Return historical deals for optional naive server-time bounds."""
         start = _coerce_datetime(date_from)
         end = _coerce_datetime(date_to)
         return self._fetch(
@@ -771,9 +773,11 @@ class _BaseMT5Client:
         group: str | None = None,
         symbol: str | None = None,
     ) -> pd.DataFrame:
-        """Return historical deals from a recent trailing window."""
+        """Return historical deals from a naive server-time trailing window."""
         _require_positive(hours, "hours")
-        end = _require_datetime(date_to) if date_to is not None else datetime.now(UTC)
+        end = (
+            _require_datetime(date_to) if date_to is not None else datetime.now()  # noqa: DTZ005 - pdmt5 expects server wall-clock time.
+        )
         start = end - timedelta(hours=hours)
         return self.history_deals(
             date_from=start,

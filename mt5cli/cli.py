@@ -14,6 +14,7 @@ import pandas as pd
 import typer
 
 from .client import MT5Client, build_config, mt5_session
+from .converters import ensure_trade_server_time
 from .history import collect_history as _collect_history
 from .history import open_existing_sqlite_database, report_rate_gaps
 from .observability import update_observability_with_config
@@ -25,7 +26,6 @@ from .utils import (
     OutputFormat,
     detect_format,
     export_dataframe,
-    parse_datetime,
     parse_request,
     parse_tick_flags,
     parse_timeframe,
@@ -42,8 +42,16 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_datetime_parameter(value: str) -> datetime:
+    """Parse an offset-free trade-server wall-clock CLI datetime.
+
+    Returns:
+        Parsed timezone-naive datetime.
+
+    Raises:
+        typer.BadParameter: If ``value`` is invalid or timezone-aware.
+    """
     try:
-        return parse_datetime(value)
+        return ensure_trade_server_time(value)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 

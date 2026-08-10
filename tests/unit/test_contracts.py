@@ -33,6 +33,7 @@ from mt5cli import (
 )
 from mt5cli.contract import HistoryClient, ObservabilityClient
 from mt5cli.converters import (
+    ensure_trade_server_time,
     ensure_utc,
     granularity_name,
     normalize_symbol,
@@ -207,10 +208,39 @@ def test_parse_date_range_rejects_inverted_bounds() -> None:
 )
 def test_recent_window_success_cases(kwargs: dict[str, int]) -> None:
     """Recent windows end at the provided timestamp for both duration inputs."""
-    end = datetime(2024, 1, 2, tzinfo=UTC)
+    end = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
     start, resolved_end = recent_window(date_to=end, **kwargs)
     assert resolved_end == end
     assert start < end
+
+
+def test_recent_window_default_uses_naive_server_time() -> None:
+    """Recent windows without an end use naive server wall-clock time."""
+    start, end = recent_window(hours=1)
+    assert start.tzinfo is None
+    assert end.tzinfo is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        datetime(2024, 1, 1, tzinfo=UTC),
+        "2024-01-01T00:00:00+00:00",
+        "2024-01-01T00:00:00Z",
+    ],
+    ids=["aware-datetime", "offset-string", "z-string"],
+)
+def test_trade_server_time_rejects_aware_bounds(value: datetime | str) -> None:
+    """Trade-server query bounds fail closed when timezone-aware."""
+    with pytest.raises(ValueError, match="timezone-aware"):
+        ensure_trade_server_time(value)
+
+
+def test_trade_server_time_parses_offset_free_string() -> None:
+    """Offset-free ISO strings remain naive server wall-clock labels."""
+    result = ensure_trade_server_time("2024-01-01T12:34:56")
+    assert result == datetime(2024, 1, 1, 12, 34, 56, tzinfo=UTC).replace(tzinfo=None)
+    assert result.tzinfo is None
 
 
 def test_granularity_name_maps_timeframe_alias() -> None:
@@ -305,9 +335,11 @@ def test_recent_window_validation_errors(
 
 
 def test_parse_date_range_returns_ordered_bounds() -> None:
-    """Valid date ranges return UTC-aware bounds."""
+    """Valid date ranges return ordered server wall-clock bounds."""
     start, end = parse_date_range("2024-01-01", "2024-02-01")
     assert start < end
+    assert start.tzinfo is None
+    assert end.tzinfo is None
 
 
 def test_granularity_name_falls_back_for_unknown_timeframe(

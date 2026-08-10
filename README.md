@@ -40,7 +40,7 @@ pip install -U "mt5cli[parquet]" MetaTrader5
 Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives.
 
 ```python
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from mt5cli import (
@@ -74,8 +74,8 @@ export_dataframe(closed_rates, Path("rates.csv"), "csv")
 collect_history(
     Path("history.db"),
     symbols=["EURUSD"],
-    date_from=datetime(2024, 1, 1, tzinfo=UTC),
-    date_to=datetime(2024, 2, 1, tzinfo=UTC),
+    date_from=datetime(2024, 1, 1),
+    date_to=datetime(2024, 2, 1),
     datasets={Dataset.rates, Dataset.history_deals},
 )
 
@@ -86,6 +86,11 @@ update_history_with_config(
     config=build_config(login=12345),
 )
 ```
+
+MT5 query bounds are timezone-naive trade-server wall-clock datetimes, as
+required by pdmt5. Offset-bearing strings and timezone-aware `datetime`
+objects are rejected; mt5cli does not infer or strip offsets to perform a
+conversion.
 
 Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Export and storage helpers are in `mt5cli.utils` (`Dataset`, `export_dataframe`) and `mt5cli.history`.
 

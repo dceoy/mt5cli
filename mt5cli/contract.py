@@ -25,7 +25,7 @@ class HistoryClient(Protocol):
         date_from: datetime | str,
         date_to: datetime | str,
     ) -> pd.DataFrame:
-        """Return rates for a date range."""
+        """Return rates for a naive trade-server wall-clock date range."""
         ...
 
     def copy_ticks_range(
@@ -35,7 +35,7 @@ class HistoryClient(Protocol):
         date_to: datetime | str,
         flags: int | str,
     ) -> pd.DataFrame:
-        """Return ticks for a date range."""
+        """Return ticks for a naive trade-server wall-clock date range."""
         ...
 
     def history_orders(
@@ -47,7 +47,7 @@ class HistoryClient(Protocol):
         ticket: int | None = None,
         position: int | None = None,
     ) -> pd.DataFrame:
-        """Return historical orders."""
+        """Return historical orders for optional naive server-time bounds."""
         ...
 
     def history_deals(
@@ -59,7 +59,7 @@ class HistoryClient(Protocol):
         ticket: int | None = None,
         position: int | None = None,
     ) -> pd.DataFrame:
-        """Return historical deals."""
+        """Return historical deals for optional naive server-time bounds."""
         ...
 
     def symbol_info_as_dict(self, symbol: str) -> dict[str, object]:

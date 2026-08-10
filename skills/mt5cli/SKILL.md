@@ -41,8 +41,10 @@ Global options MUST precede the subcommand.
 
 ### Parameter value formats
 
-- **Datetimes** (`--date-from`, `--date-to`): ISO 8601 (`2024-01-01` or
-  `2024-01-01T12:00:00+00:00`). Naive values are treated as UTC.
+- **Datetimes** (`--date-from`, `--date-to`): offset-free ISO 8601 values
+  (`2024-01-01` or `2024-01-01T12:00:00`). MT5 bounds are timezone-naive
+  trade-server wall-clock values; offset-bearing values are rejected and no
+  UTC-to-server-time conversion is inferred.
 - **Timeframe** (`--timeframe`): `M1`, `M2`, `M3`, `M4`, `M5`, `M6`, `M10`,
   `M12`, `M15`, `M20`, `M30`, `H1`, `H2`, `H3`, `H4`, `H6`, `H8`, `H12`,
   `D1`, `W1`, `MN1`, or the raw integer.

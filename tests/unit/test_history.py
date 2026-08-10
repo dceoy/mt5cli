@@ -494,7 +494,7 @@ class TestIncrementalStart:
     ) -> None:
         """Test rates increment is scoped by symbol and timeframe."""
         db_path = tmp_path / "scoped-rates.db"
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(db_path) as conn:
             conn.execute(
                 "CREATE TABLE rates("
@@ -503,9 +503,9 @@ class TestIncrementalStart:
             conn.executemany(
                 "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
                 [
-                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 1.0),
-                    ("EURUSD", 16385, "2024-01-03T00:00:00+00:00", 1.1),
-                    ("GBPUSD", 1, "2024-01-04T00:00:00+00:00", 1.2),
+                    ("EURUSD", 1, "2024-01-02T00:00:00", 1.0),
+                    ("EURUSD", 16385, "2024-01-03T00:00:00", 1.1),
+                    ("GBPUSD", 1, "2024-01-04T00:00:00", 1.2),
                 ],
             )
             assert get_incremental_start_datetime(
@@ -514,20 +514,20 @@ class TestIncrementalStart:
                 symbol="EURUSD",
                 timeframe=1,
                 fallback_start=fallback,
-            ) == datetime(2024, 1, 2, tzinfo=UTC)
+            ) == datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
             assert get_incremental_start_datetime(
                 conn,
                 Dataset.rates,
                 symbol="EURUSD",
                 timeframe=16385,
                 fallback_start=fallback,
-            ) == datetime(2024, 1, 3, tzinfo=UTC)
+            ) == datetime(2024, 1, 3, tzinfo=UTC).replace(tzinfo=None)
 
     def test_load_incremental_start_datetimes_batches_rates(
         self, tmp_path: Path
     ) -> None:
         """Test grouped rates resume query returns all symbol/timeframe pairs."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / "batch-rates.db") as conn:
             conn.execute(
                 "CREATE TABLE rates("
@@ -536,8 +536,8 @@ class TestIncrementalStart:
             conn.executemany(
                 "INSERT INTO rates(symbol, timeframe, time, open) VALUES (?, ?, ?, ?)",
                 [
-                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 1.0),
-                    ("GBPUSD", 1, "2024-01-03T00:00:00+00:00", 1.1),
+                    ("EURUSD", 1, "2024-01-02T00:00:00", 1.0),
+                    ("GBPUSD", 1, "2024-01-03T00:00:00", 1.1),
                 ],
             )
             starts = load_incremental_start_datetimes(
@@ -547,8 +547,12 @@ class TestIncrementalStart:
                 timeframes=[1],
                 fallback_start=fallback,
             )
-        assert starts["EURUSD", 1] == datetime(2024, 1, 2, tzinfo=UTC)
-        assert starts["GBPUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC)
+        assert starts["EURUSD", 1] == datetime(2024, 1, 2, tzinfo=UTC).replace(
+            tzinfo=None
+        )
+        assert starts["GBPUSD", 1] == datetime(2024, 1, 3, tzinfo=UTC).replace(
+            tzinfo=None
+        )
 
     @pytest.mark.parametrize(
         (
@@ -574,15 +578,19 @@ class TestIncrementalStart:
                     " VALUES (?, ?, ?, ?)"
                 ),
                 [
-                    ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.2),
-                    ("EURUSD", 1, "2024-01-02T00:00:00+00:00", 1.1),
-                    ("GBPUSD", 1, "2024-01-04T00:00:00+00:00", 1.3),
+                    ("EURUSD", 1, "2024-01-03T00:00:00", 1.2),
+                    ("EURUSD", 1, "2024-01-02T00:00:00", 1.1),
+                    ("GBPUSD", 1, "2024-01-04T00:00:00", 1.3),
                 ],
                 ["EURUSD", "GBPUSD"],
                 [1],
                 {
-                    ("EURUSD", 1): datetime(2024, 1, 3, tzinfo=UTC),
-                    ("GBPUSD", 1): datetime(2024, 1, 4, tzinfo=UTC),
+                    ("EURUSD", 1): datetime(2024, 1, 3, tzinfo=UTC).replace(
+                        tzinfo=None
+                    ),
+                    ("GBPUSD", 1): datetime(2024, 1, 4, tzinfo=UTC).replace(
+                        tzinfo=None
+                    ),
                 },
                 id="rates-latest-row-per-group",
             ),
@@ -592,15 +600,19 @@ class TestIncrementalStart:
                 "CREATE TABLE ticks(symbol TEXT, time TEXT)",
                 "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
                 [
-                    ("EURUSD", "2024-01-03T00:00:00+00:00"),
-                    ("EURUSD", "2024-01-02T00:00:00+00:00"),
-                    ("GBPUSD", "2024-01-04T00:00:00+00:00"),
+                    ("EURUSD", "2024-01-03T00:00:00"),
+                    ("EURUSD", "2024-01-02T00:00:00"),
+                    ("GBPUSD", "2024-01-04T00:00:00"),
                 ],
                 ["EURUSD", "GBPUSD"],
                 None,
                 {
-                    ("EURUSD", None): datetime(2024, 1, 3, tzinfo=UTC),
-                    ("GBPUSD", None): datetime(2024, 1, 4, tzinfo=UTC),
+                    ("EURUSD", None): datetime(2024, 1, 3, tzinfo=UTC).replace(
+                        tzinfo=None
+                    ),
+                    ("GBPUSD", None): datetime(2024, 1, 4, tzinfo=UTC).replace(
+                        tzinfo=None
+                    ),
                 },
                 id="ticks-latest-row-per-symbol",
             ),
@@ -619,7 +631,7 @@ class TestIncrementalStart:
         expected_starts: dict[tuple[str, int | None], datetime],
     ) -> None:
         """Test incremental resume keeps only the latest row per scoped group."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
             conn.execute(ddl)
             conn.executemany(insert_sql, insert_rows)
@@ -655,7 +667,7 @@ class TestIncrementalStart:
                 ),
                 [
                     ("EURUSD", 1, 1704153600, 1.2),
-                    ("GBPUSD", 1, "2024-01-03T00:00:00+00:00", 1.3),
+                    ("GBPUSD", 1, "2024-01-03T00:00:00", 1.3),
                 ],
                 ["EURUSD", "GBPUSD"],
                 [1],
@@ -663,7 +675,9 @@ class TestIncrementalStart:
                     ("EURUSD", 1): datetime(2024, 1, 2, tzinfo=UTC).replace(
                         tzinfo=None
                     ),
-                    ("GBPUSD", 1): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", 1): datetime(2024, 1, 3, tzinfo=UTC).replace(
+                        tzinfo=None
+                    ),
                 },
                 id="rates-numeric-cursor",
             ),
@@ -674,7 +688,7 @@ class TestIncrementalStart:
                 "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
                 [
                     ("EURUSD", 1704153600),
-                    ("GBPUSD", "2024-01-03T00:00:00+00:00"),
+                    ("GBPUSD", "2024-01-03T00:00:00"),
                 ],
                 ["EURUSD", "GBPUSD"],
                 None,
@@ -682,7 +696,9 @@ class TestIncrementalStart:
                     ("EURUSD", None): datetime(2024, 1, 2, tzinfo=UTC).replace(
                         tzinfo=None
                     ),
-                    ("GBPUSD", None): datetime(2024, 1, 3, tzinfo=UTC),
+                    ("GBPUSD", None): datetime(2024, 1, 3, tzinfo=UTC).replace(
+                        tzinfo=None
+                    ),
                 },
                 id="ticks-numeric-cursor",
             ),
@@ -701,7 +717,7 @@ class TestIncrementalStart:
         expected_starts: dict[tuple[str, int | None], datetime],
     ) -> None:
         """Test incremental resume preserves numeric epoch cursors."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
             conn.execute(ddl)
             conn.executemany(insert_sql, insert_rows)
@@ -730,7 +746,7 @@ class TestIncrementalStart:
         missing_col: str,
     ) -> None:
         """Test rates tables missing a required column fail fast."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / f"rates-no-{missing_col}.db") as conn:
             conn.execute(ddl)
             with pytest.raises(ValueError, match=f"missing: {missing_col}") as exc_info:
@@ -748,7 +764,7 @@ class TestIncrementalStart:
         tmp_path: Path,
     ) -> None:
         """Test rates tables with only unrelated columns fail fast."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / "rates-open-only.db") as conn:
             conn.execute("CREATE TABLE rates(open REAL)")
             with pytest.raises(ValueError, match="missing:") as exc_info:
@@ -819,7 +835,7 @@ class TestIncrementalStart:
         db_name: str,
     ) -> None:
         """Test grouped resume ignores rows whose MAX(time) cannot be parsed."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
             conn.execute(ddl)
             conn.execute(insert_sql, insert_args)
@@ -837,12 +853,12 @@ class TestIncrementalStart:
         tmp_path: Path,
     ) -> None:
         """Test grouped resume uses table-wide MAX(time) without symbol column."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / "batch-no-symbol.db") as conn:
             conn.execute("CREATE TABLE ticks(time TEXT)")
             conn.execute(
                 "INSERT INTO ticks(time) VALUES (?)",
-                ("2024-01-02T00:00:00+00:00",),
+                ("2024-01-02T00:00:00",),
             )
             starts = load_incremental_start_datetimes(
                 conn,
@@ -850,7 +866,7 @@ class TestIncrementalStart:
                 symbols=["EURUSD", "GBPUSD"],
                 fallback_start=fallback,
             )
-        expected = datetime(2024, 1, 2, tzinfo=UTC)
+        expected = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
         assert starts["EURUSD", None] == expected
         assert starts["GBPUSD", None] == expected
 
@@ -877,7 +893,7 @@ class TestIncrementalStart:
                     "INSERT INTO rates(symbol, timeframe, time, open)"
                     " VALUES (?, ?, ?, ?)"
                 ),
-                ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.2),
+                ("EURUSD", 1, "2024-01-03T00:00:00", 1.2),
                 "_load_grouped_rate_start_datetimes",
                 {"symbols": ["EURUSD"], "timeframes": [1]},
                 ("EURUSD", 1),
@@ -888,7 +904,7 @@ class TestIncrementalStart:
                 "CREATE TABLE ticks(symbol TEXT, time TEXT)",
                 "ticks",
                 "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
-                ("EURUSD", "2024-01-03T00:00:00+00:00"),
+                ("EURUSD", "2024-01-03T00:00:00"),
                 "_load_symbol_start_datetimes",
                 {"symbols": ["EURUSD"]},
                 ("EURUSD", None),
@@ -910,7 +926,7 @@ class TestIncrementalStart:
         expected_key: tuple[str, int | None],
     ) -> None:
         """Test incremental starts fall back when a parsed row returns None."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
             conn.execute(ddl)
             conn.execute(insert_sql, insert_args)
@@ -946,10 +962,10 @@ class TestIncrementalStart:
                 ),
                 [
                     ("EURUSD", 1, "2024-01-02 00:00:00", 1.0),
-                    ("EURUSD", 1, "2024-01-03T00:00:00+00:00", 1.1),
+                    ("EURUSD", 1, "2024-01-03T00:00:00", 1.1),
                     ("EURUSD", 1, 1704240000, 1.2),
                     ("GBPUSD", 1, 1704153600, 1.3),
-                    ("GBPUSD", 1, "2024-01-04T00:00:00+00:00", 1.4),
+                    ("GBPUSD", 1, "2024-01-04T00:00:00", 1.4),
                 ],
                 "_load_grouped_rate_start_datetimes",
                 {"symbols": ["EURUSD", "GBPUSD"], "timeframes": [1]},
@@ -957,7 +973,9 @@ class TestIncrementalStart:
                     ("EURUSD", 1): datetime(2024, 1, 3, tzinfo=UTC).replace(
                         tzinfo=None
                     ),
-                    ("GBPUSD", 1): datetime(2024, 1, 4, tzinfo=UTC),
+                    ("GBPUSD", 1): datetime(2024, 1, 4, tzinfo=UTC).replace(
+                        tzinfo=None
+                    ),
                 },
                 id="grouped-rate-mixed-timestamps",
             ),
@@ -968,10 +986,10 @@ class TestIncrementalStart:
                 "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
                 [
                     ("EURUSD", "2024-01-02 00:00:00"),
-                    ("EURUSD", "2024-01-03T00:00:00+00:00"),
+                    ("EURUSD", "2024-01-03T00:00:00"),
                     ("EURUSD", 1704240000),
                     ("GBPUSD", 1704153600),
-                    ("GBPUSD", "2024-01-04T00:00:00+00:00"),
+                    ("GBPUSD", "2024-01-04T00:00:00"),
                 ],
                 "_load_symbol_start_datetimes",
                 {"symbols": ["EURUSD", "GBPUSD"]},
@@ -979,7 +997,9 @@ class TestIncrementalStart:
                     ("EURUSD", None): datetime(2024, 1, 3, tzinfo=UTC).replace(
                         tzinfo=None
                     ),
-                    ("GBPUSD", None): datetime(2024, 1, 4, tzinfo=UTC),
+                    ("GBPUSD", None): datetime(2024, 1, 4, tzinfo=UTC).replace(
+                        tzinfo=None
+                    ),
                 },
                 id="symbol-scoped-mixed-timestamps",
             ),
@@ -998,7 +1018,7 @@ class TestIncrementalStart:
         expected_starts: dict[tuple[str, int | None], datetime],
     ) -> None:
         """Test incremental resume preserves the selected row timestamp semantics."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
             conn.execute(ddl)
             conn.executemany(insert_sql, insert_rows)
@@ -1036,7 +1056,7 @@ class TestIncrementalStart:
                     " VALUES (?, ?, ?, ?)"
                 ),
                 [
-                    ("EURUSD", 1, f"2024-01-01T{hour:02d}:00:00+00:00", float(hour))
+                    ("EURUSD", 1, f"2024-01-01T{hour:02d}:00:00", float(hour))
                     for hour in range(24)
                 ],
                 "_load_grouped_rate_start_datetimes",
@@ -1044,7 +1064,7 @@ class TestIncrementalStart:
                 (
                     "GROUP BY symbol, timeframe",
                     ("EURUSD", 1),
-                    datetime(2024, 1, 1, 23, tzinfo=UTC),
+                    datetime(2024, 1, 1, 23, tzinfo=UTC).replace(tzinfo=None),
                 ),
                 id="grouped-rate-sqlite-aggregation",
             ),
@@ -1053,16 +1073,13 @@ class TestIncrementalStart:
                 "CREATE TABLE ticks(symbol TEXT, time TEXT)",
                 "ticks",
                 "INSERT INTO ticks(symbol, time) VALUES (?, ?)",
-                [
-                    ("EURUSD", f"2024-01-01T{hour:02d}:00:00+00:00")
-                    for hour in range(24)
-                ],
+                [("EURUSD", f"2024-01-01T{hour:02d}:00:00") for hour in range(24)],
                 "_load_symbol_start_datetimes",
                 {"symbols": ["EURUSD"]},
                 (
                     "GROUP BY symbol",
                     ("EURUSD", None),
-                    datetime(2024, 1, 1, 23, tzinfo=UTC),
+                    datetime(2024, 1, 1, 23, tzinfo=UTC).replace(tzinfo=None),
                 ),
                 id="symbol-scoped-sqlite-aggregation",
             ),
@@ -1083,7 +1100,7 @@ class TestIncrementalStart:
     ) -> None:
         """Test incremental resume selects the latest scoped row in SQLite."""
         expected_group_by, expected_key, expected_start = expected
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / f"{db_name}.db") as conn:
             conn.execute(ddl)
             conn.executemany(insert_sql, insert_rows)
@@ -1219,7 +1236,7 @@ class TestDeduplication:
 
     def test_scoped_dedup_preserves_older_rows(self, tmp_path: Path) -> None:
         """Test scoped deduplication only rewrites the appended boundary."""
-        boundary = datetime(2024, 1, 2, tzinfo=UTC)
+        boundary = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / "scoped-dedup.db") as conn:
             conn.execute(
                 "CREATE TABLE rates("
@@ -1257,7 +1274,7 @@ class TestDeduplication:
 
     def test_scoped_dedup_matches_numeric_and_iso_times(self, tmp_path: Path) -> None:
         """Test scoped dedup collapses numeric epoch rows with canonical ISO writes."""
-        boundary = datetime(2024, 1, 2, tzinfo=UTC)
+        boundary = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
         dedup_scopes: dict[Dataset, list[DedupScope]] = {}
         time_expr = history._sqlite_normalized_time_expression(  # type: ignore[reportPrivateUsage]
             "time"
@@ -1297,7 +1314,7 @@ class TestDeduplication:
 
     def test_unusable_scope_falls_back_to_table_dedup(self, tmp_path: Path) -> None:
         """Test scopes with missing columns do not break stable-key dedup."""
-        boundary = datetime(2024, 1, 1, tzinfo=UTC)
+        boundary = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / "orders-without-time.db") as conn:
             conn.execute(
                 "CREATE TABLE history_orders("
@@ -1335,7 +1352,7 @@ class TestDeduplication:
         tmp_path: Path,
     ) -> None:
         """Test mixed scope filtering skips only scopes with missing columns."""
-        boundary = datetime(2024, 1, 2, tzinfo=UTC)
+        boundary = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / "partial-scope-filter.db") as conn:
             conn.execute(
                 "CREATE TABLE rates("
@@ -1456,27 +1473,27 @@ class TestIncrementalHistoryDealsHelpers:
                     " VALUES (?, ?, ?, ?)"
                 ),
                 [
-                    (1, "EURUSD", "2024-01-05T00:00:00+00:00", 0),
-                    (2, "", "2024-01-08T00:00:00+00:00", 2),
+                    (1, "EURUSD", "2024-01-05T00:00:00", 0),
+                    (2, "", "2024-01-08T00:00:00", 2),
                 ],
-                datetime(2024, 1, 8, tzinfo=UTC),
+                datetime(2024, 1, 8, tzinfo=UTC).replace(tzinfo=None),
                 id="uses-type-column",
             ),
             pytest.param(
                 ("CREATE TABLE history_deals( ticket INTEGER, symbol TEXT, time TEXT)"),
                 "INSERT INTO history_deals(ticket, symbol, time) VALUES (?, ?, ?)",
                 [
-                    (1, "EURUSD", "2024-01-05T00:00:00+00:00"),
-                    (2, "", "2024-01-07T00:00:00+00:00"),
+                    (1, "EURUSD", "2024-01-05T00:00:00"),
+                    (2, "", "2024-01-07T00:00:00"),
                 ],
-                datetime(2024, 1, 7, tzinfo=UTC),
+                datetime(2024, 1, 7, tzinfo=UTC).replace(tzinfo=None),
                 id="falls-back-to-empty-symbol",
             ),
             pytest.param(
                 "CREATE TABLE history_deals(ticket INTEGER, time TEXT)",
                 "INSERT INTO history_deals(ticket, time) VALUES (?, ?)",
-                [(1, "2024-01-05T00:00:00+00:00")],
-                datetime(2024, 1, 1, tzinfo=UTC),
+                [(1, "2024-01-05T00:00:00")],
+                datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                 id="without-identifying-columns",
             ),
         ],
@@ -1490,7 +1507,7 @@ class TestIncrementalHistoryDealsHelpers:
         expected: datetime,
     ) -> None:
         """Test account-event start resolution across identifying-column variants."""
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(tmp_path / "account-start.db") as conn:
             conn.execute(ddl)
             conn.executemany(insert_sql, rows)
@@ -1508,25 +1525,43 @@ class TestIncrementalHistoryDealsHelpers:
             "ticket": [1, 2, 3, 4, 5],
             "symbol": ["EURUSD", "EURUSD", "GBPUSD", "OTHER", ""],
             "time": [
-                "2024-01-05T00:00:00+00:00",
-                "2024-01-11T00:00:00+00:00",
-                "2024-01-02T00:00:00+00:00",
-                "2024-01-02T00:00:00+00:00",
-                "2024-01-03T00:00:00+00:00",
+                "2024-01-05T00:00:00",
+                "2024-01-11T00:00:00",
+                "2024-01-02T00:00:00",
+                "2024-01-02T00:00:00",
+                "2024-01-03T00:00:00",
             ],
             "type": [0, 0, 0, 0, 2],
         })
         start_by_symbol = {
-            "EURUSD": datetime(2024, 1, 10, tzinfo=UTC),
-            "GBPUSD": datetime(2024, 1, 1, tzinfo=UTC),
+            "EURUSD": datetime(2024, 1, 10, tzinfo=UTC).replace(tzinfo=None),
+            "GBPUSD": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
         }
         filtered = filter_incremental_history_deals_frame(
             frame,
             ["EURUSD", "GBPUSD"],
             start_by_symbol,
-            datetime(2024, 1, 2, tzinfo=UTC),
+            datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None),
         )
         assert filtered["ticket"].tolist() == [2, 3, 5]
+
+    def test_filter_incremental_history_deals_rejects_aware_frame_times(
+        self,
+    ) -> None:
+        """Incremental deal filtering rejects aware returned timestamps."""
+        frame = pd.DataFrame({
+            "ticket": [1],
+            "symbol": ["EURUSD"],
+            "time": ["2024-01-01T00:00:00+00:00"],
+            "type": [0],
+        })
+        with pytest.raises(ValueError, match="timezone-aware"):
+            filter_incremental_history_deals_frame(
+                frame,
+                ["EURUSD"],
+                {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)},
+                datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            )
 
     @pytest.mark.parametrize(
         ("frame", "start_by_symbol", "account_event_start", "expected_tickets"),
@@ -1535,22 +1570,26 @@ class TestIncrementalHistoryDealsHelpers:
                 pd.DataFrame({
                     "ticket": [1],
                     "symbol": ["EURUSD"],
-                    "time": [datetime(2024, 1, 5, tzinfo=UTC).isoformat()],
+                    "time": [
+                        datetime(2024, 1, 5, tzinfo=UTC)
+                        .replace(tzinfo=None)
+                        .isoformat()
+                    ],
                     "type": [2],
                 }),
-                {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
-                datetime(2024, 1, 10, tzinfo=UTC),
+                {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)},
+                datetime(2024, 1, 10, tzinfo=UTC).replace(tzinfo=None),
                 [],
                 id="excludes-symbolized-account-events-from-trade-cursor",
             ),
             pytest.param(
                 pd.DataFrame({
                     "ticket": [1],
-                    "time": ["2024-01-03T00:00:00+00:00"],
+                    "time": ["2024-01-03T00:00:00"],
                     "type": [2],
                 }),
-                {"EURUSD": datetime(2024, 1, 10, tzinfo=UTC)},
-                datetime(2024, 1, 2, tzinfo=UTC),
+                {"EURUSD": datetime(2024, 1, 10, tzinfo=UTC).replace(tzinfo=None)},
+                datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None),
                 [1],
                 id="keeps-account-events-without-symbol-column",
             ),
@@ -1593,7 +1632,7 @@ class TestIncrementalHistoryDealsHelpers:
             pytest.param(
                 pd.DataFrame({
                     "ticket": [1],
-                    "time": ["2024-01-03T00:00:00+00:00"],
+                    "time": ["2024-01-03T00:00:00"],
                 }),
                 id="trade-rows-without-symbol-column",
             ),
@@ -1615,8 +1654,8 @@ class TestIncrementalHistoryDealsHelpers:
         filtered = filter_incremental_history_deals_frame(
             frame,
             ["EURUSD"],
-            {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC)},
-            datetime(2024, 1, 1, tzinfo=UTC),
+            {"EURUSD": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)},
+            datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
         )
         assert filtered.empty
 
@@ -1632,7 +1671,7 @@ class TestIncrementalIntegration:
         client = MagicMock()
         client.copy_rates_range.return_value = pd.DataFrame()
         client.copy_ticks_range.return_value = pd.DataFrame({
-            "time": ["2024-01-01T00:00:00+00:00"],
+            "time": ["2024-01-01T00:00:00"],
             "bid": [1.0],
         })
         client.history_orders.return_value = pd.DataFrame({
@@ -1653,8 +1692,8 @@ class TestIncrementalIntegration:
             "digits": 5,
         }
         db_path = tmp_path / "collected-integration.db"
-        start = datetime(2024, 1, 1, tzinfo=UTC)
-        end = datetime(2024, 1, 2, tzinfo=UTC)
+        start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+        end = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(db_path) as conn:
             written_tables, _ = write_collected_datasets(
                 conn,
@@ -1676,7 +1715,7 @@ class TestIncrementalIntegration:
             symbols_row = conn.execute(
                 "SELECT symbol, time, point, digits FROM symbols",
             ).fetchone()
-            assert symbols_row == ("EURUSD", "2024-01-02T00:00:00+00:00", 0.00001, 5)
+            assert symbols_row == ("EURUSD", "2024-01-02T00:00:00", 0.00001, 5)
             assert (
                 get_incremental_start_datetime(
                     conn,
@@ -1717,12 +1756,12 @@ class TestIncrementalIntegration:
     ) -> None:
         """Test incremental start ignores missing symbol column filters."""
         db_path = tmp_path / "no-symbol-column.db"
-        fallback = datetime(2024, 1, 1, tzinfo=UTC)
+        fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         with sqlite3.connect(db_path) as conn:
             conn.execute("CREATE TABLE ticks(time TEXT)")
             conn.execute(
                 "INSERT INTO ticks(time) VALUES (?)",
-                ("2024-01-02T00:00:00+00:00",),
+                ("2024-01-02T00:00:00",),
             )
             assert get_incremental_start_datetime(
                 conn,
@@ -1730,7 +1769,7 @@ class TestIncrementalIntegration:
                 symbol="EURUSD",
                 timeframe=None,
                 fallback_start=fallback,
-            ) == datetime(2024, 1, 2, tzinfo=UTC)
+            ) == datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
 
     def test_deduplicate_skips_unsupported_keys(
         self,
@@ -1766,8 +1805,8 @@ class TestIncrementalIntegration:
                 client,
                 ["EURUSD"],
                 1,
-                datetime(2024, 1, 1, tzinfo=UTC),
-                datetime(2024, 1, 2, tzinfo=UTC),
+                datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None),
                 IfExists.APPEND,
                 written_columns,
             )
@@ -1798,7 +1837,7 @@ class TestIncrementalIntegration:
 
         client = MagicMock()
         client.symbol_info_as_dict.side_effect = symbol_info_as_dict
-        snapshot_time = datetime(2024, 1, 1, tzinfo=UTC)
+        snapshot_time = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
         written_columns: dict[Dataset, set[str]] = {}
         with sqlite3.connect(tmp_path / "symbols-snapshot.db") as conn:
             assert write_symbols_dataset(
@@ -1814,8 +1853,8 @@ class TestIncrementalIntegration:
                 " FROM symbols ORDER BY symbol",
             ).fetchall()
         assert rows == [
-            ("EURUSD", "2024-01-01T00:00:00+00:00", 0.00001, 5, "USD"),
-            ("USDJPY", "2024-01-01T00:00:00+00:00", 0.01, 3, "JPY"),
+            ("EURUSD", "2024-01-01T00:00:00", 0.00001, 5, "USD"),
+            ("USDJPY", "2024-01-01T00:00:00", 0.01, 3, "JPY"),
         ]
         assert written_columns[Dataset.symbols] >= {
             "symbol",
@@ -1842,7 +1881,7 @@ class TestIncrementalIntegration:
                 conn,
                 client,
                 ["XAUUSD"],
-                datetime(2024, 1, 1, tzinfo=UTC),
+                datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                 IfExists.APPEND,
                 written_columns,
             )
@@ -1875,7 +1914,7 @@ class TestIncrementalIntegration:
                 conn,
                 client,
                 ["BADSYM"],
-                datetime(2024, 1, 1, tzinfo=UTC),
+                datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                 IfExists.APPEND,
                 written_columns,
             )
@@ -1904,7 +1943,7 @@ class TestIncrementalIntegration:
                 conn,
                 client,
                 ["BADSYM"],
-                datetime(2024, 1, 1, tzinfo=UTC),
+                datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                 IfExists.APPEND,
                 written_columns,
             )
@@ -1945,7 +1984,7 @@ class TestIncrementalIntegration:
                 conn,
                 client,
                 ["XAUUSD", "EURUSD"],
-                datetime(2024, 1, 1, tzinfo=UTC),
+                datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                 IfExists.APPEND,
                 written_columns,
             )
@@ -2001,8 +2040,8 @@ class TestIncrementalHistoryDeals:
             "type": [0, 2],
             "entry": [0, 0],
         })
-        start = datetime(2024, 1, 1, tzinfo=UTC)
-        end = datetime(2024, 1, 2, tzinfo=UTC)
+        start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+        end = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
         written_columns: dict[Dataset, set[str]] = {}
         with sqlite3.connect(tmp_path / "history-dataset-account.db") as conn:
             assert write_history_dataset(
@@ -2043,6 +2082,17 @@ class TestWriteHelpers:
             assert not write_streamed_frame(
                 conn,
                 pd.DataFrame(),
+                Dataset.rates,
+                table_exists=False,
+                if_exists=IfExists.APPEND,
+                written_columns=written_columns,
+            )
+            assert write_streamed_frame(
+                conn,
+                pd.DataFrame({
+                    "time": ["2024-01-01T00:00:00", "not-a-datetime"],
+                    "open": [1.0, 2.0],
+                }),
                 Dataset.rates,
                 table_exists=False,
                 if_exists=IfExists.APPEND,
@@ -2583,9 +2633,11 @@ class TestUpdateHistory:
         tmp_path: Path,
     ) -> None:
         """Test sequential SQLite history updates use existing max timestamps."""
-        date_to = datetime(2024, 1, 2, tzinfo=UTC)
-        first_expected_start = datetime(2024, 1, 1, tzinfo=UTC)
-        second_expected_start = datetime(2024, 1, 1, 12, tzinfo=UTC)
+        date_to = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
+        first_expected_start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+        second_expected_start = datetime(2024, 1, 1, 12, tzinfo=UTC).replace(
+            tzinfo=None
+        )
         rate_starts: list[datetime] = []
         deal_starts: list[datetime] = []
 
@@ -2595,7 +2647,7 @@ class TestUpdateHistory:
             assert kwargs["date_to"] == date_to
             rate_starts.append(kwargs["date_from"])  # type: ignore[arg-type]
             return pd.DataFrame({
-                "time": ["2024-01-01T12:00:00+00:00"],
+                "time": ["2024-01-01T12:00:00"],
                 "open": [1.0 + len(rate_starts) / 10],
             })
 
@@ -2606,7 +2658,7 @@ class TestUpdateHistory:
                 "ticket": [10],
                 "position_id": [100],
                 "symbol": ["EURUSD"],
-                "time": ["2024-01-01T12:00:00+00:00"],
+                "time": ["2024-01-01T12:00:00"],
                 "type": [0],
                 "entry": [0],
                 "volume": [1.0],
@@ -2644,6 +2696,66 @@ class TestUpdateHistory:
             assert conn.execute(
                 "SELECT name FROM sqlite_master WHERE name = 'cash_events'",
             ).fetchone() == ("cash_events",)
+
+    def test_update_history_deals_mixes_existing_and_new_symbol_cursors(
+        self,
+        connected_client: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Deal updates use one naive query window for mixed cursor sources."""
+        output = tmp_path / "mixed-deal-cursors.db"
+        with sqlite3.connect(output) as conn:
+            conn.execute(
+                "CREATE TABLE history_deals("
+                "ticket INTEGER, position_id INTEGER, symbol TEXT, time TEXT, "
+                "type INTEGER, entry INTEGER, volume REAL, price REAL, profit REAL)"
+            )
+            conn.execute(
+                "INSERT INTO history_deals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (1, 100, "EURUSD", "2024-01-03T00:00:00", 0, 0, 1.0, 1.1, 0.0),
+            )
+
+        connected_client.history_deals.return_value = pd.DataFrame({
+            "ticket": [1, 2, 3, 4],
+            "position_id": [100, 101, 200, 0],
+            "symbol": ["EURUSD", "EURUSD", "GBPUSD", ""],
+            "time": [
+                "2024-01-03T00:00:00",
+                "2024-01-04T00:00:00",
+                "2024-01-04T00:00:00",
+                "2024-01-03T00:00:00",
+            ],
+            "type": [0, 0, 0, 2],
+            "entry": [0, 1, 0, 0],
+            "volume": [1.0, 1.0, 1.0, 0.0],
+            "price": [1.1, 1.2, 1.3, 0.0],
+            "profit": [0.0, 0.0, 0.0, 5.0],
+        })
+
+        update_history(
+            client=connected_client,
+            output=output,
+            symbols=["EURUSD", "GBPUSD"],
+            datasets={Dataset.history_deals},
+            lookback_hours=24,
+            date_to=datetime(2024, 1, 5, tzinfo=UTC).replace(tzinfo=None),
+        )
+
+        call_kwargs = connected_client.history_deals.call_args.kwargs
+        assert call_kwargs["date_from"] == datetime(2024, 1, 3, tzinfo=UTC).replace(
+            tzinfo=None
+        )
+        assert call_kwargs["date_to"] == datetime(2024, 1, 5, tzinfo=UTC).replace(
+            tzinfo=None
+        )
+        assert call_kwargs["date_from"].tzinfo is None
+        assert call_kwargs["date_to"].tzinfo is None
+        with sqlite3.connect(output) as conn:
+            symbols = {
+                row[0]
+                for row in conn.execute("SELECT DISTINCT symbol FROM history_deals")
+            }
+        assert symbols == {"EURUSD", "GBPUSD"}
 
     @pytest.mark.parametrize(
         ("kwargs", "match"),
@@ -2740,7 +2852,7 @@ class TestUpdateHistory:
             datasets={Dataset.rates},
             timeframes=timeframes,
             lookback_hours=1,
-            date_to=datetime(2024, 1, 1, tzinfo=UTC),
+            date_to=datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
         )
         assert timeframes_written == expected
 
@@ -2750,8 +2862,8 @@ class TestUpdateHistory:
         tmp_path: Path,
     ) -> None:
         """Test incremental update writes selected ticks and orders datasets."""
-        date_to = datetime(2024, 1, 2, tzinfo=UTC)
-        expected_start = datetime(2024, 1, 1, tzinfo=UTC)
+        date_to = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
+        expected_start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
 
         def make_ticks(**kwargs: object) -> pd.DataFrame:
             assert kwargs["symbol"] == "EURUSD"
@@ -2759,7 +2871,7 @@ class TestUpdateHistory:
             assert kwargs["date_to"] == date_to
             assert kwargs["flags"] == -1
             return pd.DataFrame({
-                "time": ["2024-01-01T12:00:00+00:00"],
+                "time": ["2024-01-01T12:00:00"],
                 "time_msc": [1_704_110_400_000],
                 "bid": [1.1],
             })
@@ -2771,7 +2883,7 @@ class TestUpdateHistory:
             return pd.DataFrame({
                 "ticket": [1],
                 "symbol": ["EURUSD"],
-                "time": ["2024-01-01T12:00:00+00:00"],
+                "time": ["2024-01-01T12:00:00"],
                 "type": [0],
             })
 
@@ -2798,9 +2910,9 @@ class TestUpdateHistory:
         tmp_path: Path,
     ) -> None:
         """Test rates and symbols metadata can be synced in the same update."""
-        date_to = datetime(2024, 1, 2, tzinfo=UTC)
+        date_to = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
         connected_client.copy_rates_range.return_value = pd.DataFrame({
-            "time": ["2024-01-01T12:00:00+00:00"],
+            "time": ["2024-01-01T12:00:00"],
             "open": [1.1],
         })
         connected_client.symbol_info_as_dict.return_value = {
@@ -2872,7 +2984,7 @@ class TestUpdateHistory:
         mocker: MockerFixture,
         tmp_path: Path,
     ) -> None:
-        """Test update_history uses current UTC time when date_to is omitted."""
+        """Test update_history uses naive server time when date_to is omitted."""
         captured: dict[str, datetime] = {}
 
         def capture(
@@ -2883,7 +2995,7 @@ class TestUpdateHistory:
             return set(), {}
 
         mocker.patch("mt5cli.history.write_incremental_datasets", side_effect=capture)
-        before = datetime.now(UTC)
+        before = datetime.now()  # noqa: DTZ005 - default is naive host wall-clock time.
         update_history(
             client=connected_client,
             output=tmp_path / "now-default.db",
@@ -2892,8 +3004,9 @@ class TestUpdateHistory:
             timeframes=["M1"],
             lookback_hours=12,
         )
-        after = datetime.now(UTC)
+        after = datetime.now()  # noqa: DTZ005 - default is naive host wall-clock time.
         assert before <= captured["end"] <= after
+        assert captured["end"].tzinfo is None
 
     def test_update_history_default_datasets_exclude_ticks(
         self,
@@ -2919,7 +3032,7 @@ class TestUpdateHistory:
             datasets=None,
             timeframes=["M1"],
             lookback_hours=1,
-            date_to=datetime(2024, 1, 1, tzinfo=UTC),
+            date_to=datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
         )
         assert len(datasets_written) == 1
         assert Dataset.ticks not in datasets_written[0]
@@ -3300,7 +3413,7 @@ def test_sqlite_round_trip_normalizes_explicit_offset_to_utc() -> None:
 
 def test_incremental_rate_cursor_preserves_naive_wall_clock() -> None:
     """Incremental cursors return the stored naive server clock label unchanged."""
-    fallback = datetime(2023, 12, 31, tzinfo=UTC)
+    fallback = datetime(2023, 12, 31, tzinfo=UTC).replace(tzinfo=None)
     with sqlite3.connect(":memory:") as conn:
         conn.execute(
             "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
@@ -3319,3 +3432,23 @@ def test_incremental_rate_cursor_preserves_naive_wall_clock() -> None:
     cursor = starts["EURUSD", 1]
     assert cursor == datetime(2024, 1, 1, 9, 30, tzinfo=UTC).replace(tzinfo=None)
     assert cursor.tzinfo is None
+
+
+def test_incremental_cursor_rejects_aware_persisted_timestamp() -> None:
+    """Managed incremental cursors reject explicit timezone-aware rows."""
+    with sqlite3.connect(":memory:") as conn:
+        conn.execute(
+            "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
+        )
+        conn.execute(
+            "INSERT INTO rates VALUES (?, ?, ?, ?)",
+            ("EURUSD", 1, "2024-01-01T09:30:00+00:00", 1.0),
+        )
+        with pytest.raises(ValueError, match="timezone-aware"):
+            load_incremental_start_datetimes(
+                conn,
+                Dataset.rates,
+                symbols=["EURUSD"],
+                timeframes=[1],
+                fallback_start=datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            )

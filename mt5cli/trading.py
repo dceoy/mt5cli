@@ -60,12 +60,12 @@ class _Mt5ClientProtocol(Protocol):
     ) -> pd.DataFrame:
         """Return copied ticks for a date range.
 
-        MetaQuotes documents these results (and the query bounds) as UTC, but
-        mt5cli does not independently verify that contract on any broker or
-        terminal and never uses this method as a UTC reference; treat the
-        returned ``time``/``time_msc`` values as broker/terminal-dependent.
-        See :class:`TickClockNormalizer` for how mt5cli establishes an
-        actual UTC offset for live ticks.
+        pdmt5 requires timezone-naive trade-server wall-clock query bounds.
+        mt5cli rejects timezone-aware bounds and never infers or strips an
+        offset to simulate a broker-time conversion. Treat returned
+        ``time``/``time_msc`` values as broker/terminal-dependent; see
+        :class:`TickClockNormalizer` for how mt5cli establishes an actual UTC
+        offset for live ticks.
         """
         ...
 

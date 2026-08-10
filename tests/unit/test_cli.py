@@ -169,7 +169,7 @@ class TestCommands:
                 {
                     "symbol": "EURUSD",
                     "timeframe": 1,
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                     "count": 100,
                 },
             ),
@@ -229,8 +229,8 @@ class TestCommands:
                 {
                     "symbol": "USDJPY",
                     "timeframe": 16408,
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
-                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
                 },
             ),
             (
@@ -248,7 +248,7 @@ class TestCommands:
                 "copy_ticks_from_as_df",
                 {
                     "symbol": "EURUSD",
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                     "count": 100,
                     "flags": -1,
                 },
@@ -268,8 +268,8 @@ class TestCommands:
                 "copy_ticks_range_as_df",
                 {
                     "symbol": "EURUSD",
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
-                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
                     "flags": 1,
                 },
             ),
@@ -325,7 +325,8 @@ class TestCommands:
         assert result.exit_code == 0, result.output
         mock_client.copy_ticks_from_as_df.assert_called_once_with(
             symbol="EURUSD",
-            date_from=datetime(2024, 1, 2, tzinfo=UTC) - timedelta(seconds=120),
+            date_from=datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
+            - timedelta(seconds=120),
             count=500,
             flags=-1,
         )
@@ -410,8 +411,8 @@ class TestCommands:
         )
         assert result.exit_code == 0, result.output
         mock_client.history_deals_get_as_df.assert_called_once_with(
-            date_from=datetime(2024, 1, 1, 18, tzinfo=UTC),
-            date_to=datetime(2024, 1, 2, tzinfo=UTC),
+            date_from=datetime(2024, 1, 1, 18, tzinfo=UTC).replace(tzinfo=None),
+            date_to=datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None),
             group=None,
             symbol="EURUSD",
             ticket=None,
@@ -1361,8 +1362,8 @@ class TestCollectHistory:
         if verify_ticks_call:
             history_client.copy_ticks_range_as_df.assert_called_once_with(
                 symbol="EURUSD",
-                date_from=datetime(2024, 1, 1, tzinfo=UTC),
-                date_to=datetime(2024, 2, 1, tzinfo=UTC),
+                date_from=datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                date_to=datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
                 flags=-1,
             )
         with sqlite3.connect(output) as conn:
@@ -1402,16 +1403,16 @@ class TestCollectHistory:
         assert history_client.history_orders_get_as_df.call_count == 2
         assert history_client.history_deals_get_as_df.call_count == 2
         history_client.history_orders_get_as_df.assert_any_call(
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
+            date_from=datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            date_to=datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
             group=None,
             symbol="EURUSD",
             ticket=None,
             position=None,
         )
         history_client.history_deals_get_as_df.assert_any_call(
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
+            date_from=datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            date_to=datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
             group=None,
             symbol="GBPUSD",
             ticket=None,
@@ -1514,7 +1515,7 @@ class TestCollectHistory:
             ).fetchone()
         assert row == (
             "EURUSD",
-            "2024-02-01T00:00:00+00:00",
+            "2024-02-01T00:00:00",
             0.00001,
             5,
             100000.0,
@@ -2089,6 +2090,11 @@ class TestTyperParameterParsers:
         """Test that invalid datetimes raise a Typer BadParameter."""
         with pytest.raises(Exception, match="Invalid datetime"):
             _parse_datetime_parameter("bad")
+
+    def test_datetime_parser_rejects_timezone_aware_value(self) -> None:
+        """Test that CLI datetimes reject timezone-aware query bounds."""
+        with pytest.raises(Exception, match="timezone-aware"):
+            _parse_datetime_parameter("2024-01-01T00:00:00+00:00")
 
     def test_timeframe_parser_invalid(self) -> None:
         """Test that invalid timeframes raise a Typer BadParameter."""

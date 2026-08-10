@@ -17,6 +17,7 @@ from pdmt5 import Mt5Config, Mt5RuntimeError
 from pdmt5.constants import get_timeframe_name as _get_timeframe_name
 
 from .client import mt5_session
+from .converters import ensure_trade_server_time
 from .exceptions import Mt5ConnectionError
 from .schemas import DEDUP_KEYS, REQUIRED_COLUMNS, DataKind, ensure_utc_columns
 from .telemetry import get_metrics
@@ -24,7 +25,6 @@ from .utils import (
     TIMEFRAME_NAMES,
     Dataset,
     IfExists,
-    parse_datetime,
     parse_tick_flags,
     parse_timeframe,
 )
@@ -641,8 +641,7 @@ def _require_serialized_sqlite_timestamp(value: object) -> str:
     if parsed is None:
         msg = f"Invalid SQLite timestamp boundary: {value!r}"
         raise ValueError(msg)
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    parsed = ensure_trade_server_time(parsed)
     timespec = "microseconds" if parsed.microsecond else "seconds"
     return parsed.isoformat(timespec=timespec)
 
@@ -701,6 +700,7 @@ def get_history_deals_account_event_start_datetime(
     fallback_start: datetime,
 ) -> datetime:
     """Return the next update start for account-level history_deals rows."""
+    fallback_start = ensure_trade_server_time(fallback_start)
     table = Dataset.history_deals.table_name
     columns = get_table_columns(conn, table)
     if "time" not in columns:
@@ -716,7 +716,7 @@ def get_history_deals_account_event_start_datetime(
         table,
         where_clause=where_clause,
     )
-    return parsed if parsed is not None else fallback_start
+    return ensure_trade_server_time(parsed) if parsed is not None else fallback_start
 
 
 _REQUIRED_RATE_COLUMNS = frozenset({"symbol", "timeframe", "time"})
@@ -751,6 +751,7 @@ def _load_grouped_rate_start_datetimes(
     Returns:
         Start datetime keyed by ``(symbol, timeframe)``.
     """
+    fallback_start = ensure_trade_server_time(fallback_start)
     result: dict[tuple[str, int | None], datetime] = {}
     for symbol in symbols:
         for timeframe in timeframes:
@@ -760,7 +761,11 @@ def _load_grouped_rate_start_datetimes(
                 where_clause="symbol = ? AND timeframe = ?",
                 params=(symbol, timeframe),
             )
-            result[symbol, timeframe] = parsed if parsed is not None else fallback_start
+            result[symbol, timeframe] = (
+                ensure_trade_server_time(parsed)
+                if parsed is not None
+                else fallback_start
+            )
     return result
 
 
@@ -776,6 +781,7 @@ def _load_symbol_start_datetimes(
     Returns:
         Start datetime keyed by ``(symbol, None)``.
     """
+    fallback_start = ensure_trade_server_time(fallback_start)
     result: dict[tuple[str, int | None], datetime] = {}
     for symbol in symbols:
         parsed = _load_latest_parseable_time(
@@ -784,7 +790,9 @@ def _load_symbol_start_datetimes(
             where_clause="symbol = ?",
             params=(symbol,),
         )
-        result[symbol, None] = parsed if parsed is not None else fallback_start
+        result[symbol, None] = (
+            ensure_trade_server_time(parsed) if parsed is not None else fallback_start
+        )
     return result
 
 
@@ -797,6 +805,7 @@ def load_incremental_start_datetimes(
     fallback_start: datetime,
 ) -> dict[tuple[str, int | None], datetime]:
     """Return next update start datetimes keyed by symbol and optional timeframe."""
+    fallback_start = ensure_trade_server_time(fallback_start)
     table = dataset.table_name
     columns = get_table_columns(conn, table)
     if dataset is Dataset.rates and columns:
@@ -833,7 +842,9 @@ def load_incremental_start_datetimes(
         )
 
     parsed = _load_latest_parseable_time(conn, table)
-    shared_start = parsed if parsed is not None else fallback_start
+    shared_start = (
+        ensure_trade_server_time(parsed) if parsed is not None else fallback_start
+    )
     return {(symbol, None): shared_start for symbol in symbols}
 
 
@@ -937,6 +948,11 @@ def write_streamed_frame(
     Returns:
         True if the dataset table exists after this write attempt.
     """
+    for column in sorted(_SQLITE_TEXT_TIME_COLUMNS & set(frame.columns)):
+        for value in frame[column]:
+            parsed = parse_sqlite_timestamp(value)
+            if parsed is not None:
+                ensure_trade_server_time(parsed)
     write_mode = IfExists.APPEND if table_exists else if_exists
     if append_dataframe(
         conn,
@@ -1104,7 +1120,12 @@ def _history_deals_account_event_mask(frame: pd.DataFrame) -> pd.Series:
 def _frame_parsed_times(frame: pd.DataFrame) -> pd.Series:
     if "time" not in frame.columns:
         return pd.Series([pd.NaT] * len(frame), index=frame.index, dtype="object")
-    return frame["time"].map(parse_sqlite_timestamp)
+
+    def _parse_trade_server_time(value: object) -> datetime | None:
+        parsed = parse_sqlite_timestamp(value)
+        return ensure_trade_server_time(parsed) if parsed is not None else None
+
+    return frame["time"].map(_parse_trade_server_time)
 
 
 def filter_incremental_history_deals_frame(
@@ -1121,6 +1142,11 @@ def filter_incremental_history_deals_frame(
     """
     if frame.empty:
         return frame.copy()
+    start_by_symbol = {
+        symbol: ensure_trade_server_time(start)
+        for symbol, start in start_by_symbol.items()
+    }
+    account_event_start = ensure_trade_server_time(account_event_start)
     parsed_times = _frame_parsed_times(frame)
     time_valid = parsed_times.notna()
     account_event_mask = _history_deals_account_event_mask(frame)
@@ -1295,6 +1321,8 @@ def write_rates_dataset(
     Returns:
         True if the rates table was written.
     """
+    date_from = ensure_trade_server_time(date_from)
+    date_to = ensure_trade_server_time(date_to)
 
     def _fetch_rates_frame(sym: str) -> pd.DataFrame:
         frame = client.copy_rates_range(
@@ -1333,6 +1361,8 @@ def write_ticks_dataset(
     Returns:
         True if the ticks table was written.
     """
+    date_from = ensure_trade_server_time(date_from)
+    date_to = ensure_trade_server_time(date_to)
 
     def _fetch_ticks_frame(sym: str) -> pd.DataFrame:
         frame = client.copy_ticks_range(
@@ -1374,6 +1404,7 @@ def write_symbols_dataset(
     Returns:
         True if the symbols table was written.
     """
+    snapshot_time = ensure_trade_server_time(snapshot_time)
 
     def _fetch_symbol_frame(sym: str) -> pd.DataFrame:
         try:
@@ -1431,6 +1462,8 @@ def write_history_dataset(
     Returns:
         True if the target table was written.
     """
+    date_from = ensure_trade_server_time(date_from)
+    date_to = ensure_trade_server_time(date_to)
     table_exists = False
     if include_account_events:
         frame = filter_trade_history_frame(
@@ -1757,6 +1790,8 @@ def write_incremental_datasets(  # noqa: PLR0913
     Returns:
         Written datasets and their columns.
     """
+    fallback_start = ensure_trade_server_time(fallback_start)
+    end_date = ensure_trade_server_time(end_date)
     written_columns: dict[Dataset, set[str]] = {}
     written_tables: set[Dataset] = set()
     dedup_scopes: dict[Dataset, list[DedupScope]] = {}
@@ -1844,6 +1879,8 @@ def write_collected_datasets(
     Returns:
         Written datasets and their columns.
     """
+    date_from = ensure_trade_server_time(date_from)
+    date_to = ensure_trade_server_time(date_to)
     written_columns: dict[Dataset, set[str]] = {}
     written_tables: set[Dataset] = set()
     if Dataset.rates in datasets and write_rates_dataset(
@@ -1990,10 +2027,9 @@ def _resolve_update_history_request(
         msg = "At least one symbol is required."
         raise ValueError(msg)
 
-    if date_to is not None:
-        end = parse_datetime(date_to) if isinstance(date_to, str) else date_to
-    else:
-        end = datetime.now(UTC)
+    end = (
+        ensure_trade_server_time(date_to) if date_to is not None else datetime.now()  # noqa: DTZ005 - pdmt5 expects server wall-clock time.
+    )
     fallback_start = end - timedelta(hours=lookback_hours)
     resolved_timeframes, resolved_tick_flags = _resolve_incremental_settings(
         selected,
@@ -2045,7 +2081,8 @@ def update_history(  # noqa: PLR0913
             timeframes when None).
         flags: Tick copy flags as integer or name (e.g. ``ALL``).
         lookback_hours: First-run lookback when a table has no prior rows.
-        date_to: Optional update end datetime. Defaults to now (UTC).
+        date_to: Optional naive trade-server end datetime. Defaults to the
+            host's naive wall-clock time.
         deduplicate: Remove duplicate rows after append, keeping latest ROWID.
         with_views: Create ``cash_events`` and ``positions_reconstructed`` views.
         include_account_events: Include account-level cash events in
@@ -2289,8 +2326,8 @@ def collect_history(
     Args:
         output: SQLite database path.
         symbols: Symbols to collect.
-        date_from: Start date.
-        date_to: End date.
+        date_from: Naive trade-server wall-clock start date.
+        date_to: Naive trade-server wall-clock end date.
         datasets: Datasets to include (defaults to rates, history-orders,
             history-deals; pass ``{Dataset.ticks}`` to opt in to ticks,
             or ``{Dataset.symbols}`` to opt in to symbol metadata
@@ -2301,8 +2338,8 @@ def collect_history(
         with_views: Create ``cash_events`` and ``positions_reconstructed`` views.
         config: MT5 connection configuration.
     """
-    start = date_from if isinstance(date_from, datetime) else parse_datetime(date_from)
-    end = date_to if isinstance(date_to, datetime) else parse_datetime(date_to)
+    start = ensure_trade_server_time(date_from)
+    end = ensure_trade_server_time(date_to)
     selected = resolve_history_datasets(datasets)
     tf = parse_timeframe(timeframe)
     tick_flags = parse_tick_flags(flags)

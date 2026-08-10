@@ -56,9 +56,8 @@ def test_sqlite_timestamp_edge_contracts() -> None:
 
     aware = datetime.fromisoformat("2024-01-01T09:00:00+09:00")
     naive = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
-    assert history._require_serialized_sqlite_timestamp(aware) == (
-        "2024-01-01T00:00:00"
-    )
+    with pytest.raises(ValueError, match="timezone-aware"):
+        history._require_serialized_sqlite_timestamp(aware)
     assert history._require_serialized_sqlite_timestamp(naive) == (
         "2024-01-01T00:00:00"
     )
@@ -98,8 +97,8 @@ def test_write_ticks_dataset_preserves_empty_frames(
             client,
             ["EURUSD"],
             0,
-            datetime(2024, 1, 1, tzinfo=UTC),
-            datetime(2024, 1, 2, tzinfo=UTC),
+            datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None),
             IfExists.APPEND,
             {},
         )
@@ -111,7 +110,7 @@ def test_incremental_tick_branches(
     written: bool,
 ) -> None:
     """Incremental tick updates cover written and empty responses."""
-    start = datetime(2024, 1, 1, tzinfo=UTC)
+    start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
     mocker.patch(
         "mt5cli.history.load_incremental_start_datetimes",
         return_value={("EURUSD", None): start},
@@ -146,7 +145,7 @@ def test_incremental_symbol_branches(
             conn,
             mocker.MagicMock(),
             ["EURUSD"],
-            datetime(2024, 1, 1, tzinfo=UTC),
+            datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
             {},
             written_tables,
         )
@@ -159,7 +158,7 @@ def test_incremental_order_branches(
     written: bool,
 ) -> None:
     """Incremental order updates cover written and empty responses."""
-    start = datetime(2024, 1, 1, tzinfo=UTC)
+    start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
     mocker.patch(
         "mt5cli.history.load_incremental_start_datetimes",
         return_value={("EURUSD", None): start},
@@ -186,7 +185,7 @@ def _patch_account_event_dependencies(
     written: bool,
     columns: set[str],
 ) -> tuple[datetime, Mock]:
-    start = datetime(2024, 1, 1, tzinfo=UTC)
+    start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
     mocker.patch(
         "mt5cli.history.load_incremental_start_datetimes",
         return_value={("EURUSD", None): start},
@@ -272,7 +271,7 @@ def test_incremental_trade_deal_branches(
     written: bool,
 ) -> None:
     """Symbol-only deal updates cover written and empty responses."""
-    start = datetime(2024, 1, 1, tzinfo=UTC)
+    start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
     mocker.patch(
         "mt5cli.history.load_incremental_start_datetimes",
         return_value={("EURUSD", None): start},

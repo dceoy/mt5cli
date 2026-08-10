@@ -20,6 +20,11 @@ append using dataset-specific keys (for example `ticket` on history tables, or
 Optional views are created when `--with-views` is set and the `history-deals` dataset
 was written.
 
+All MT5 history query bounds are timezone-naive trade-server wall-clock
+datetimes, matching pdmt5. Offset-bearing strings and timezone-aware
+`datetime` values are rejected; incremental cursors and returned history
+frames use the same naive contract, and no broker-time conversion is inferred.
+
 `ticks` and `symbols` are opt-in datasets (pass `--dataset ticks` /
 `--dataset symbols`); they are excluded from the default `rates`,
 `history-orders`, `history-deals` selection. Unlike the other datasets,
