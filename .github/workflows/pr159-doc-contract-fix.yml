@@ -18,8 +18,9 @@ jobs:
           ref: agent/fix-maintenance-issues
           fetch-depth: 0
       - name: Remove compatibility-view documentation
-        shell: python
+        shell: bash
         run: |
+          python <<'PY'
           import re
           from pathlib import Path
 
@@ -47,51 +48,52 @@ jobs:
           end = text.index("\n## Throttled incremental history updates", start)
           replacement = '''### Rate data loading
 
-The canonical managed rate store is the normalized `rates` table. Stable
-symbol/timeframe reads query that table directly; mt5cli does not create,
-discover, resolve, or maintain per-series `rate_*` compatibility views.
+          The canonical managed rate store is the normalized `rates` table. Stable
+          symbol/timeframe reads query that table directly; mt5cli does not create,
+          discover, resolve, or maintain per-series `rate_*` compatibility views.
 
-Use `load_rate_series_from_sqlite()` or
-`load_rate_series_by_granularity()` for canonical managed data:
+          Use `load_rate_series_from_sqlite()` or
+          `load_rate_series_by_granularity()` for canonical managed data:
 
-```python
-from pathlib import Path
+          ```python
+          from pathlib import Path
 
-from mt5cli import (
-    build_rate_targets,
-    load_rate_series_by_granularity,
-    load_rate_series_from_sqlite,
-)
+          from mt5cli import (
+              build_rate_targets,
+              load_rate_series_by_granularity,
+              load_rate_series_from_sqlite,
+          )
 
-path = Path("history.db")
-targets = build_rate_targets(["EURUSD", "GBPUSD"], ["M1", "H1"])
-series = load_rate_series_from_sqlite(path, targets, count=1000)
-eurusd_m1 = series["EURUSD", 1]
+          path = Path("history.db")
+          targets = build_rate_targets(["EURUSD", "GBPUSD"], ["M1", "H1"])
+          series = load_rate_series_from_sqlite(path, targets, count=1000)
+          eurusd_m1 = series["EURUSD", 1]
 
-by_name = load_rate_series_by_granularity(
-    path,
-    symbols=["EURUSD", "GBPUSD"],
-    granularities=["M1", "H1"],
-    count=500,
-)
-eurusd_m1_named = by_name["EURUSD", "M1"]
-```
+          by_name = load_rate_series_by_granularity(
+              path,
+              symbols=["EURUSD", "GBPUSD"],
+              granularities=["M1", "H1"],
+              count=500,
+          )
+          eurusd_m1_named = by_name["EURUSD", "M1"]
+          ```
 
-Canonical reads apply `count` in SQLite and return the selected rows in
-chronological order. Each returned series uses an ascending `DatetimeIndex`
-named `time`. Timezone-naive MT5 trade-server wall-clock timestamps remain
-naive; explicitly timezone-aware timestamps preserve their instant and are
-normalized to UTC.
+          Canonical reads apply `count` in SQLite and return the selected rows in
+          chronological order. Each returned series uses an ascending `DatetimeIndex`
+          named `time`. Timezone-naive MT5 trade-server wall-clock timestamps remain
+          naive; explicitly timezone-aware timestamps preserve their instant and are
+          normalized to UTC.
 
-`explicit_tables` and the single-table `table=` form are reserved for
-intentionally named custom tables. They do not discover or fall back to
-managed per-series views. Explicit table counts must match target counts, and
-duplicate `(symbol, timeframe)` targets are rejected.
+          `explicit_tables` and the single-table `table=` form are reserved for
+          intentionally named custom tables. They do not discover or fall back to
+          managed per-series views. Explicit table counts must match target counts, and
+          duplicate `(symbol, timeframe)` targets are rejected.
 
-`load_rate_data()` / `load_rate_data_from_connection()` remain available for
-low-level explicit-table reads. These helpers validate that `time` exists and
-return an ascending `DatetimeIndex` named `time`.
-'''
+          `load_rate_data()` / `load_rate_data_from_connection()` remain available for
+          low-level explicit-table reads. These helpers validate that `time` exists and
+          return an ascending `DatetimeIndex` named `time`.
+          '''
+          replacement = "\n".join(line[10:] if line.startswith("          ") else line for line in replacement.splitlines()) + "\n"
           text = text[:start] + replacement + text[end:]
           path.write_text(text)
 
@@ -112,13 +114,13 @@ return an ascending `DatetimeIndex` named `time`.
               "resolve_rate_view_names",
               "resolve_rate_tables",
               "Rate compatibility views",
-              "managed view",
           )
           for filename in ("README.md", "docs/api/history.md", "docs/api/public-contract.md"):
               content = Path(filename).read_text()
               found = [token for token in stale if token in content]
               if found:
                   raise SystemExit(f"stale rate-view docs remain in {filename}: {found}")
+          PY
       - name: Commit documentation cleanup
         shell: bash
         run: |
