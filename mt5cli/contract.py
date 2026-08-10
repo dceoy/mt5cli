@@ -103,6 +103,7 @@ class ObservabilityClient(Protocol):
 STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
     "AccountSpec",
     "MT5Client",
+    "Mt5Config",
     "Mt5CliError",
     "Mt5ConnectionError",
     "Mt5OperationError",
