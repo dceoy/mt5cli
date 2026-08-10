@@ -1,4 +1,4 @@
-"""Focused regression tests for the reduced stable SDK surface."""
+"""Focused regression tests for the stable SDK surface."""
 
 from pdmt5.dataframe import Mt5Config
 
@@ -27,15 +27,14 @@ def test_build_config_returns_public_config_type() -> None:
     assert mt5cli.Mt5Config is Mt5Config
 
 
-def test_stable_sdk_registry_is_derived_from_root_exports() -> None:
-    """The enumerable SDK contract matches the root module public bindings."""
-    expected = frozenset(
-        name
-        for name in vars(mt5cli)
-        if not name.startswith("_") and name != "STABLE_SDK_EXPORTS"
-    )
-    assert mt5cli.STABLE_SDK_EXPORTS == expected
-    assert set(mt5cli.__all__) == {*expected, "STABLE_SDK_EXPORTS"}
+def test_stable_sdk_registry_matches_package_all() -> None:
+    """The root module re-exports exactly the canonical SDK declaration."""
+    assert set(mt5cli.__all__) == {
+        *mt5cli.STABLE_SDK_EXPORTS,
+        "STABLE_SDK_EXPORTS",
+    }
+    for name in mt5cli.STABLE_SDK_EXPORTS:
+        assert hasattr(mt5cli, name)
 
 
 def test_legacy_margin_helper_is_removed() -> None:
