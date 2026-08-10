@@ -595,7 +595,7 @@ wheels = [
 
 [[package]]
 name = "mt5cli"
-version = "1.4.0"
+version = "1.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "pandas" },
