@@ -32,7 +32,6 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    import sqlite3
     from collections.abc import Callable
 
     from pdmt5 import Mt5Config
@@ -112,8 +111,6 @@ _CLI_ENV_DEFAULTS: dict[str, str] = {
 
 def _get_export_context(ctx: typer.Context) -> _ExportContext:
     return cast("_ExportContext", ctx.obj)
-
-
 
 
 def _execute_export(
@@ -841,7 +838,11 @@ def history_gaps(
         typer.Option(help="Minimum missing-bar count required to emit a gap row."),
     ] = 1,
 ) -> None:
-    """Export SQLite rate gaps without connecting to MT5."""
+    """Export SQLite rate gaps without connecting to MT5.
+
+    Raises:
+        typer.BadParameter: If the database, table, or granularity is invalid.
+    """
     try:
         conn, _ = open_existing_sqlite_database(sqlite3_path)
     except ValueError as exc:
@@ -870,7 +871,6 @@ def history_gaps(
         else pd.DataFrame(columns=["table"])
     )
     _execute_export(ctx, lambda: df)
-
 
 
 @app.command(rich_help_panel="Collection")

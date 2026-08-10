@@ -30,10 +30,6 @@ from mt5cli.cli import (
     app,
     main,
 )
-from mt5cli.history import (
-    infer_rate_table_granularity_seconds,
-    timeframe_interval_seconds,
-)
 
 runner = CliRunner()
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -1088,7 +1084,6 @@ class TestCallback:
         for env_name in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_PATH"):
             assert env_name in normalized
 
-
     @pytest.mark.parametrize(
         ("args", "env", "exit_code", "match"),
         [
@@ -1868,7 +1863,6 @@ class TestCollectHistory:
 class TestHistoryGapsCommand:
     """Tests for the history-gaps CLI command."""
 
-
     def test_history_gaps_rejects_missing_database_without_creating_it(
         self,
         tmp_path: Path,
@@ -1885,7 +1879,6 @@ class TestHistoryGapsCommand:
         assert result.exit_code != 0
         assert "SQLite database not found" in result.output
         assert not database.exists()
-
 
     def test_history_gaps_requires_granularity_for_custom_tables(
         self,

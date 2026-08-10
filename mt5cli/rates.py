@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING, overload
 
 import pandas as pd
 
-from .history import RateTarget, load_rate_data, resolve_granularity_name
+from .history import (
+    RateTarget,
+    get_table_columns,
+    load_rate_data,
+    resolve_granularity_name,
+)
 from .history import (
     ThrottledHistoryUpdater as _LegacyThrottledHistoryUpdater,
 )
@@ -43,9 +48,23 @@ def _load_canonical_rate_target(
     *,
     count: int,
 ) -> pd.DataFrame:
-    """Load one rate series from canonical normalized storage."""
+    """Load one rate series from canonical normalized storage.
+
+    Returns:
+        Ascending rate frame indexed by ``time``.
+
+    Raises:
+        ValueError: If the target or canonical table schema is invalid.
+    """
     if target.symbol is None:
         msg = "A symbol is required for canonical normalized rate loading."
+        raise ValueError(msg)
+    columns = get_table_columns(conn, "rates")
+    if not columns:
+        msg = "The canonical rates table is unavailable or invalid."
+        raise ValueError(msg)
+    if "time" not in columns:
+        msg = "The canonical rates table is missing the required time column."
         raise ValueError(msg)
     frame = pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
         "SELECT * FROM rates WHERE symbol = ? AND timeframe = ? "
@@ -88,7 +107,14 @@ def _load_explicit_rate_series(
     *,
     table: str | None,
 ) -> dict[tuple[str | None, int], pd.DataFrame] | pd.DataFrame:
-    """Load intentionally named custom tables without managed-view discovery."""
+    """Load intentionally named custom tables without managed-view discovery.
+
+    Returns:
+        A single explicit-table frame or target-keyed frames.
+
+    Raises:
+        ValueError: If explicit table inputs are inconsistent.
+    """
     if table is not None:
         return load_rate_data(conn_or_path, table, count=count)
     if targets is None:

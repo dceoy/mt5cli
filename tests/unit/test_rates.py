@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
@@ -16,7 +15,6 @@ if TYPE_CHECKING:
 
 from mt5cli import rates
 from mt5cli.history import RateTarget
-from mt5cli.utils import Dataset
 
 
 def _create_canonical_database(
@@ -65,8 +63,6 @@ def test_canonical_loader_keeps_caller_connection_open_and_sorts_rows(
         )
         assert list(result["EURUSD", 1]["close"]) == [1.0, 1.1]
         conn.execute("SELECT 1")
-
-
 
 
 def test_canonical_loader_applies_count_after_timestamp_normalization(
@@ -214,8 +210,6 @@ def test_explicit_table_loading_delegates_to_legacy_loader(tmp_path: Path) -> No
     assert list(frame["close"]) == [1.0]
 
 
-
-
 def test_explicit_tables_without_targets_use_legacy_validation(tmp_path: Path) -> None:
     """Explicit table lists still require target descriptors."""
     db_path = tmp_path / "custom-without-targets.db"
@@ -297,12 +291,6 @@ def test_load_by_granularity_rejects_single_frame(
             ["M1"],
             count=1,
         )
-
-
-
-
-
-
 
 
 def test_throttled_updater_uses_canonical_backend_and_preserves_custom_backend(

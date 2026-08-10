@@ -175,8 +175,6 @@ def timeframe_interval_seconds(timeframe: int) -> int | None:
     return None
 
 
-
-
 def drop_forming_rate_bar(df_rate: pd.DataFrame) -> pd.DataFrame:
     """Return closed bars from chronologically ordered MT5 rate data.
 
@@ -192,8 +190,6 @@ def drop_forming_rate_bar(df_rate: pd.DataFrame) -> pd.DataFrame:
         preserved. The input frame is not modified.
     """
     return df_rate.iloc[:-1].copy()
-
-
 
 
 def resolve_rate_table_name(symbol: str, granularity: str) -> str:
@@ -212,7 +208,6 @@ def resolve_rate_table_name(symbol: str, granularity: str) -> str:
     return Dataset.rates.table_name
 
 
-
 SqliteConnOrPath = sqlite3.Connection | Path | str
 
 
@@ -222,8 +217,6 @@ def _require_non_empty_identifier(identifier: str, kind: str) -> str:
         msg = f"SQLite {kind} name must not be empty."
         raise ValueError(msg)
     return value
-
-
 
 
 def open_existing_sqlite_database(
@@ -271,7 +264,11 @@ def _coerce_optional_int(value: object) -> int | None:
 
 
 def _rate_gap_metadata(table: str, frame: pd.DataFrame) -> dict[str, object]:
-    """Return canonical series metadata from rate-table columns."""
+    """Return canonical series metadata from rate-table columns.
+
+    Returns:
+        Stable metadata for the represented rate series.
+    """
     symbol: str | None = None
     timeframe: int | None = None
     granularity: str | None = None
@@ -299,7 +296,6 @@ def _rate_gap_metadata(table: str, frame: pd.DataFrame) -> dict[str, object]:
     }
 
 
-
 def _iter_rate_gap_groups(frame: pd.DataFrame) -> list[pd.DataFrame]:
     series_columns = [
         column for column in ("symbol", "timeframe") if column in frame.columns
@@ -311,7 +307,7 @@ def _iter_rate_gap_groups(frame: pd.DataFrame) -> list[pd.DataFrame]:
     ]
 
 
-def report_rate_gaps(
+def report_rate_gaps(  # noqa: C901, PLR0914
     conn: sqlite3.Connection,
     table: str,
     *,
@@ -388,8 +384,7 @@ def report_rate_gaps(
         for index, delta in enumerate(deltas, start=1):
             delta_seconds = int(delta.total_seconds())
             missing_intervals = max(
-                ((delta_seconds + (interval_seconds - 1)) // interval_seconds)
-                - 1,
+                ((delta_seconds + (interval_seconds - 1)) // interval_seconds) - 1,
                 0,
             )
             if missing_intervals < min_gap_intervals:
@@ -404,7 +399,6 @@ def report_rate_gaps(
                 "missing_intervals": missing_intervals,
             })
     return pd.DataFrame(rows, columns=_RATE_GAP_COLUMNS)
-
 
 
 def _validate_rate_load_request(table: str, count: int | None) -> str:
@@ -510,18 +504,6 @@ def load_rate_data(
             conn.close()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 @dataclass(frozen=True)
 class RateTarget:
     """A single rate series identified by symbol and timeframe.
@@ -583,14 +565,6 @@ def build_rate_targets(
     ]
 
 
-
-
-
-
-
-
-
-
 def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     """Return existing SQLite columns for a table."""
     quoted_table = quote_sqlite_identifier(table)
@@ -599,17 +573,20 @@ def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def _parse_string_sqlite_timestamp(value: str) -> datetime | None:
-    """Parse a stored timestamp without assigning a missing timezone."""
+    """Parse a stored timestamp without assigning a missing timezone.
+
+    Returns:
+        Parsed datetime preserving naive wall-clock semantics, or ``None``.
+    """
     parsed = pd.to_datetime(value, errors="coerce", format="mixed")
     if pd.isna(parsed):
         logger.warning("Ignoring unparseable history timestamp: %s", value)
         return None
-    timestamp = cast("pd.Timestamp", parsed)
+    timestamp = parsed
     result = timestamp.to_pydatetime()
     if result.tzinfo is not None:
         return result.astimezone(UTC)
     return result
-
 
 
 def parse_sqlite_timestamp(value: object) -> datetime | None:
@@ -618,6 +595,9 @@ def parse_sqlite_timestamp(value: object) -> datetime | None:
     Naive values remain MT5 trade-server wall-clock labels. Explicitly
     aware values are normalized to UTC while preserving their instant.
     Numeric epoch values follow pdmt5's naive wall-clock representation.
+
+    Returns:
+        Parsed datetime preserving timestamp semantics, or ``None``.
     """
     if value is None:
         return None
@@ -627,16 +607,19 @@ def parse_sqlite_timestamp(value: object) -> datetime | None:
         parsed = pd.to_datetime(value, unit="s", errors="coerce")
         if pd.isna(parsed):
             return None
-        return cast("pd.Timestamp", parsed).to_pydatetime()
+        return parsed.to_pydatetime()
     if isinstance(value, str):
         return _parse_string_sqlite_timestamp(value)
     logger.warning("Ignoring unsupported history timestamp type: %s", type(value))
     return None
 
 
-
 def _serialize_sqlite_timestamp(value: object) -> str | None:
-    """Serialize without relabeling naive MT5 wall-clock timestamps."""
+    """Serialize without relabeling naive MT5 wall-clock timestamps.
+
+    Returns:
+        ISO timestamp text preserving naive or explicit-aware semantics, or ``None``.
+    """
     parsed = parse_sqlite_timestamp(value)
     if parsed is None:
         return None
@@ -645,9 +628,15 @@ def _serialize_sqlite_timestamp(value: object) -> str | None:
     return normalized.isoformat(timespec=timespec)
 
 
-
 def _require_serialized_sqlite_timestamp(value: object) -> str:
-    """Return a timezone-neutral SQLite comparison key for a timestamp."""
+    """Return a timezone-neutral SQLite comparison key for a timestamp.
+
+    Returns:
+        Comparable ISO timestamp text.
+
+    Raises:
+        ValueError: If ``value`` cannot be parsed as a timestamp.
+    """
     parsed = parse_sqlite_timestamp(value)
     if parsed is None:
         msg = f"Invalid SQLite timestamp boundary: {value!r}"
@@ -656,7 +645,6 @@ def _require_serialized_sqlite_timestamp(value: object) -> str:
         parsed = parsed.astimezone(UTC).replace(tzinfo=None)
     timespec = "microseconds" if parsed.microsecond else "seconds"
     return parsed.isoformat(timespec=timespec)
-
 
 
 def _canonicalize_sqlite_time_columns(frame: pd.DataFrame) -> pd.DataFrame:
@@ -688,7 +676,6 @@ def _sqlite_normalized_time_expression(column: str) -> str:
         f"strftime('{_SQLITE_CANONICAL_TIME_FORMAT}', {quoted}, 'unixepoch')"
         ")"
     )
-
 
 
 def _load_latest_parseable_time(
@@ -759,7 +746,11 @@ def _load_grouped_rate_start_datetimes(
     timeframes: Sequence[int],
     fallback_start: datetime,
 ) -> dict[tuple[str, int | None], datetime]:
-    """Load per-series cursors while preserving raw timestamp semantics."""
+    """Load per-series cursors while preserving raw timestamp semantics.
+
+    Returns:
+        Start datetime keyed by ``(symbol, timeframe)``.
+    """
     result: dict[tuple[str, int | None], datetime] = {}
     for symbol in symbols:
         for timeframe in timeframes:
@@ -769,11 +760,8 @@ def _load_grouped_rate_start_datetimes(
                 where_clause="symbol = ? AND timeframe = ?",
                 params=(symbol, timeframe),
             )
-            result[symbol, timeframe] = (
-                parsed if parsed is not None else fallback_start
-            )
+            result[symbol, timeframe] = parsed if parsed is not None else fallback_start
     return result
-
 
 
 def _load_symbol_start_datetimes(
@@ -783,7 +771,11 @@ def _load_symbol_start_datetimes(
     symbols: Sequence[str],
     fallback_start: datetime,
 ) -> dict[tuple[str, int | None], datetime]:
-    """Load per-symbol cursors while preserving raw timestamp semantics."""
+    """Load per-symbol cursors while preserving raw timestamp semantics.
+
+    Returns:
+        Start datetime keyed by ``(symbol, None)``.
+    """
     result: dict[tuple[str, int | None], datetime] = {}
     for symbol in symbols:
         parsed = _load_latest_parseable_time(
@@ -794,7 +786,6 @@ def _load_symbol_start_datetimes(
         )
         result[symbol, None] = parsed if parsed is not None else fallback_start
     return result
-
 
 
 def load_incremental_start_datetimes(
@@ -1233,10 +1224,6 @@ def create_positions_reconstructed_view(
         " HAVING SUM(CASE WHEN entry IN (1, 2, 3) THEN 1 ELSE 0 END) > 0",
     )
     return True
-
-
-
-
 
 
 def _stream_symbol_frames(
@@ -2097,7 +2084,7 @@ def update_history(  # noqa: PLR0913
                 request.fallback_start,
                 request.end,
                 deduplicate=deduplicate,
-                        with_views=with_views,
+                with_views=with_views,
                 include_account_events=include_account_events,
             )
             m.add_history_rows(conn.total_changes - before, dataset="history")
@@ -2143,7 +2130,7 @@ def update_history_with_config(  # noqa: PLR0913
             lookback_hours=lookback_hours,
             date_to=date_to,
             deduplicate=deduplicate,
-                with_views=with_views,
+            with_views=with_views,
             include_account_events=include_account_events,
         )
 
