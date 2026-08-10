@@ -47,13 +47,12 @@ def _load_canonical_rate_target(
     if target.symbol is None:
         msg = "A symbol is required for canonical normalized rate loading."
         raise ValueError(msg)
-    time_expr = (
-        "COALESCE(strftime('%Y-%m-%dT%H:%M:%f', time), "
-        "strftime('%Y-%m-%dT%H:%M:%f', time, 'unixepoch'))"
-    )
     frame = pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
         "SELECT * FROM rates WHERE symbol = ? AND timeframe = ? "
-        f"ORDER BY {time_expr} DESC, ROWID DESC LIMIT ?",
+        "ORDER BY COALESCE("
+        "strftime('%Y-%m-%dT%H:%M:%f', time), "
+        "strftime('%Y-%m-%dT%H:%M:%f', time, 'unixepoch')"
+        ") DESC, ROWID DESC LIMIT ?",
         conn,
         params=(target.symbol, target.timeframe_int, count),
     )
