@@ -158,45 +158,9 @@ when required columns are missing.
 ### Incremental collection
 
 The package-root `mt5cli.update_history` SDK path uses the normalized `rates`
-table and optional `cash_events` / `positions_reconstructed` views. It always
-disables legacy per-series `rate_*` compatibility views and removes stale ones
-after a successful update. The lower-level `mt5cli.history.update_history`
-function retains `create_rate_views` for legacy workflows.
+table and optional `cash_events` / `positions_reconstructed` views. It writes the canonical normalized `rates` table directly and does not
+maintain per-series compatibility views.
 
-### Rate view resolution
-
-Downstream tools can resolve mt5cli-managed compatibility view names from an
-existing SQLite history database without creating files or guessing naming
-schemes:
-
-```python
-from pathlib import Path
-
-from mt5cli.history import resolve_rate_view_name, resolve_rate_view_names
-
-# Single symbol and granularity
-view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1")
-
-# Batch resolution in row-major order
-views = resolve_rate_view_names(
-    Path("history.db"),
-    ["EURUSD", "GBPUSD"],
-    ["M1", "H1"],
-)
-```
-
-Resolution rules:
-
-- Returns `rate_<symbol>__<timeframe>` when a symbol stores one timeframe.
-- Returns `rate_<symbol>__<granularity>_<timeframe>` when multiple timeframes
-  are stored for the same symbol.
-- When multiple naming candidates apply, prefers an existing managed
-  `rate_*__*` view from the candidate list.
-- Falls back to single-timeframe naming when the database path is missing or
-  `rates` metadata is unavailable.
-- Pass `require_existing=True` to raise `ValueError` instead of returning a
-  best-guess name when the database or view is missing.
-- Accepts either a SQLite path or an open `sqlite3.Connection`.
 
 ### Rate data loading
 
@@ -207,7 +171,7 @@ timeframes. `resolve_rate_table_name()` returns `rates`, while
 `resolve_rate_view_name()` returns the per-symbol compatibility view name.
 
 Use `load_rate_data()` or `load_rate_series_from_sqlite(..., table=...)` to load
-a single table or view from a SQLite path. Use
+a single table from a SQLite path. Use
 `load_rate_series_by_granularity()` to load multiple instrument/granularity
 targets without hard-coding view names:
 
@@ -249,7 +213,7 @@ DataFrame indexed by ascending `DatetimeIndex` named `time`.
 
 For loading many rate series at once, build neutral `RateTarget` pairs and load
 them from the canonical `rates` table in one call. Pass `explicit_tables` when
-you need to load named legacy tables or views:
+you need to load named legacy tables:
 
 ```python
 from pathlib import Path
@@ -265,7 +229,7 @@ frame = series["EURUSD", 1]  # keyed by (symbol, integer timeframe)
   row-major order, normalizing timeframe names such as `"M1"` to their integer
   values; set `allow_missing_symbol=True` to address series solely by
   `explicit_tables` (targets carry `symbol=None`).
-- `resolve_rate_tables()` maps targets to table or view names and validates that
+- `resolve_rate_tables()` maps targets to table names and validates that
   any `explicit_tables` count matches the target count. Pass
   `require_existing=True` to raise `ValueError` instead of returning a
   best-guess name when the database or managed view is missing. When

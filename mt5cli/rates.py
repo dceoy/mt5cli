@@ -4,22 +4,14 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING, overload
 
 import pandas as pd
 
-from .history import (
-    RateTarget,
-    drop_rate_compatibility_views,
-    resolve_granularity_name,
-)
+from .history import RateTarget, load_rate_data, resolve_granularity_name
 from .history import (
     ThrottledHistoryUpdater as _LegacyThrottledHistoryUpdater,
-)
-from .history import (
-    load_rate_series_from_sqlite as _legacy_load_rate_series_from_sqlite,
 )
 from .history import (
     open_existing_sqlite_database as _open_existing_sqlite_database,
@@ -32,7 +24,6 @@ from .history import (
 )
 from .schemas import (
     DataKind,
-    _mt5_time_sort_key,  # type: ignore[reportPrivateUsage]
     normalize_time_columns,
 )
 
@@ -55,42 +46,46 @@ def _load_canonical_rate_target(
     *,
     count: int,
 ) -> pd.DataFrame:
-    """Load one rate series directly from the normalized ``rates`` table.
-
-    Returns:
-        Chronological normalized rate frame.
-
-    Raises:
-        ValueError: If the target has no symbol.
-    """
+    """Load one rate series from canonical normalized storage."""
     if target.symbol is None:
         msg = "A symbol is required for canonical normalized rate loading."
         raise ValueError(msg)
+    time_expr = (
+        "COALESCE(strftime('%Y-%m-%dT%H:%M:%f', time), "
+        "strftime('%Y-%m-%dT%H:%M:%f', time, 'unixepoch'))"
+    )
     frame = pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
-        "SELECT * FROM rates WHERE symbol = ? AND timeframe = ?",
+        "SELECT * FROM rates WHERE symbol = ? AND timeframe = ? "
+        f"ORDER BY {time_expr} DESC, ROWID DESC LIMIT ?",
         conn,
-        params=(target.symbol, target.timeframe_int),
+        params=(target.symbol, target.timeframe_int, count),
     )
     if "time" not in frame.columns:
         msg = "The canonical rates table is missing the required time column."
         raise ValueError(msg)
     if frame.empty:
-        return frame
+        result = frame.drop(columns=["time"])
+        result.index = pd.DatetimeIndex([], name="time")
+        return result
+
     frame = normalize_time_columns(frame, DataKind.rates)
-    return (
-        frame
-        .sort_values(
-            "time",
-            key=_mt5_time_sort_key,
-            kind="stable",
-            na_position="first",
+    awareness = [
+        isinstance(value, pd.Timestamp) and value.tzinfo is not None
+        for value in frame["time"]
+    ]
+    if any(awareness) and not all(awareness):
+        msg = (
+            "A canonical rate series cannot mix timezone-naive MT5 wall-clock "
+            "timestamps with timezone-aware instants."
         )
-        .tail(count)
-        .reset_index(drop=True)
-    )
+        raise ValueError(msg)
+    result = frame.drop(columns=["time"])
+    result.index = pd.DatetimeIndex(frame["time"], name="time")
+    return result.sort_index(kind="stable")
 
 
-def _load_rate_series_through_legacy(
+
+def _load_explicit_rate_series(
     conn_or_path: SqliteConnOrPath,
     targets: Sequence[RateTarget] | None,
     count: int | None,
@@ -98,36 +93,32 @@ def _load_rate_series_through_legacy(
     *,
     table: str | None,
 ) -> dict[tuple[str | None, int], pd.DataFrame] | pd.DataFrame:
-    """Load explicit-table data through the legacy storage implementation.
-
-    Returns:
-        One explicit-table frame or target-keyed legacy rate frames.
-
-    Raises:
-        ValueError: If a target-based explicit-table request omits ``count``.
-    """
+    """Load intentionally named custom tables without managed-view discovery."""
     if table is not None:
-        return _legacy_load_rate_series_from_sqlite(
-            conn_or_path,
-            count=count,
-            table=table,
-        )
+        return load_rate_data(conn_or_path, table, count=count)
     if targets is None:
-        return _legacy_load_rate_series_from_sqlite(
-            conn_or_path,
-            targets=None,
-            count=count,
-            explicit_tables=explicit_tables,
-        )
-    if count is None:
+        msg = "targets are required when explicit_tables is provided."
+        raise ValueError(msg)
+    if count is None or count <= 0:
         msg = "count must be positive."
         raise ValueError(msg)
-    return _legacy_load_rate_series_from_sqlite(
-        conn_or_path,
-        targets=targets,
-        count=count,
-        explicit_tables=explicit_tables,
-    )
+    target_list = list(targets)
+    tables = list(explicit_tables or ())
+    if len(tables) != len(target_list):
+        msg = (
+            f"Expected {len(target_list)} explicit table(s) to match the "
+            f"targets, got {len(tables)}."
+        )
+        raise ValueError(msg)
+    keys = [(target.symbol, target.timeframe_int) for target in target_list]
+    if len(set(keys)) != len(keys):
+        msg = "Duplicate rate targets are not allowed."
+        raise ValueError(msg)
+    return {
+        key: load_rate_data(conn_or_path, table_name, count=count)
+        for key, table_name in zip(keys, tables, strict=True)
+    }
+
 
 
 if TYPE_CHECKING:
@@ -185,7 +176,7 @@ def load_rate_series_from_sqlite(
     """
     if table is not None or explicit_tables is not None:
         try:
-            return _load_rate_series_through_legacy(
+            return _load_explicit_rate_series(
                 conn_or_path,
                 targets,
                 count,
@@ -267,13 +258,6 @@ def load_rate_series_by_granularity(
     }
 
 
-def _remove_rate_compatibility_views(output: Path | str) -> None:
-    """Drop legacy rate views after a canonical history update."""
-    path = Path(output)
-    if not path.is_file():
-        return
-    with closing(sqlite3.connect(path)) as conn, conn:
-        drop_rate_compatibility_views(conn)
 
 
 def update_history(
@@ -305,11 +289,9 @@ def update_history(
         lookback_hours=lookback_hours,
         date_to=date_to,
         deduplicate=deduplicate,
-        create_rate_views=False,
         with_views=with_views,
         include_account_events=include_account_events,
     )
-    _remove_rate_compatibility_views(output)
 
 
 def update_history_with_config(
@@ -337,11 +319,9 @@ def update_history_with_config(
         lookback_hours=lookback_hours,
         date_to=date_to,
         deduplicate=deduplicate,
-        create_rate_views=False,
         with_views=with_views,
         include_account_events=include_account_events,
     )
-    _remove_rate_compatibility_views(output)
 
 
 class ThrottledHistoryUpdater(_LegacyThrottledHistoryUpdater):

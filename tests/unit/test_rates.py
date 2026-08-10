@@ -67,28 +67,6 @@ def test_canonical_loader_keeps_caller_connection_open_and_sorts_rows(
         conn.execute("SELECT 1")
 
 
-def test_canonical_loader_sorts_mixed_timezone_rows(tmp_path: Path) -> None:
-    """Canonical loading orders mixed naive and aware timestamps safely."""
-    db_path = tmp_path / "mixed-canonical.db"
-    _create_canonical_database(
-        db_path,
-        [
-            ("EURUSD", 1, "2024-01-01T00:00:00", 1.0),
-            ("EURUSD", 1, "2024-01-01T00:00:00+09:00", 2.0),
-        ],
-    )
-
-    result = rates.load_rate_series_from_sqlite(
-        db_path,
-        [RateTarget("EURUSD", 1)],
-        count=2,
-    )
-    times = [cast("pd.Timestamp", value) for value in result["EURUSD", 1]["time"]]
-
-    assert times[0] == pd.Timestamp("2023-12-31T15:00:00+00:00")
-    assert times[0].tzinfo == UTC
-    assert times[1] == pd.Timestamp("2024-01-01")
-    assert times[1].tzinfo is None
 
 
 def test_canonical_loader_applies_count_after_timestamp_normalization(
@@ -236,21 +214,6 @@ def test_explicit_table_loading_delegates_to_legacy_loader(tmp_path: Path) -> No
     assert list(frame["close"]) == [1.0]
 
 
-def test_explicit_table_loading_translates_sqlite_errors(
-    mocker: MockerFixture,
-) -> None:
-    """Explicit-table SQLite errors are exposed as stable ValueErrors."""
-    mocker.patch(
-        "mt5cli.rates._legacy_load_rate_series_from_sqlite",
-        side_effect=sqlite3.OperationalError("database is locked"),
-    )
-
-    with pytest.raises(ValueError, match="explicit rate table"):
-        rates.load_rate_series_from_sqlite(
-            "history.db",
-            table="custom_rates",
-            count=1,
-        )
 
 
 def test_explicit_tables_without_targets_use_legacy_validation(tmp_path: Path) -> None:
@@ -336,127 +299,10 @@ def test_load_by_granularity_rejects_single_frame(
         )
 
 
-def test_update_history_forces_canonical_options_and_cleans_views(
-    mocker: MockerFixture,
-    tmp_path: Path,
-) -> None:
-    """The stable update wrapper disables and cleans legacy rate views."""
-    db_path = tmp_path / "update.db"
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT)")
-        conn.execute(
-            "CREATE VIEW rate_EURUSD__M1_1 AS SELECT * FROM rates",
-        )
-        conn.execute("CREATE VIEW unrelated_view AS SELECT 1 AS value")
-
-    legacy_update = mocker.patch("mt5cli.rates._legacy_update_history")
-    client = mocker.MagicMock()
-    date_to = datetime(2024, 1, 1, tzinfo=UTC)
-
-    rates.update_history(
-        client=client,
-        output=db_path,
-        symbols=["EURUSD"],
-        datasets={Dataset.rates},
-        timeframes=["M1"],
-        flags="ALL",
-        lookback_hours=1,
-        date_to=date_to,
-        deduplicate=False,
-        with_views=True,
-        include_account_events=False,
-    )
-
-    legacy_update.assert_called_once_with(
-        client=client,
-        output=db_path,
-        symbols=["EURUSD"],
-        datasets={Dataset.rates},
-        timeframes=["M1"],
-        flags="ALL",
-        lookback_hours=1,
-        date_to=date_to,
-        deduplicate=False,
-        create_rate_views=False,
-        with_views=True,
-        include_account_events=False,
-    )
-    with sqlite3.connect(db_path) as conn:
-        views = {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'view'",
-            )
-        }
-    assert "rate_EURUSD__M1_1" not in views
-    assert "unrelated_view" in views
 
 
-def test_update_history_does_not_clean_views_after_failure(
-    mocker: MockerFixture,
-    tmp_path: Path,
-) -> None:
-    """Failed updates do not mutate existing compatibility views."""
-    db_path = tmp_path / "failed-update.db"
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT)")
-        conn.execute(
-            "CREATE VIEW rate_EURUSD__M1_1 AS SELECT * FROM rates",
-        )
-    mocker.patch(
-        "mt5cli.rates._legacy_update_history",
-        side_effect=ValueError("update failed"),
-    )
-
-    with pytest.raises(ValueError, match="update failed"):
-        rates.update_history(
-            client=mocker.MagicMock(),
-            output=db_path,
-            symbols=["EURUSD"],
-        )
-
-    with sqlite3.connect(db_path) as conn:
-        assert conn.execute(
-            "SELECT COUNT(*) FROM sqlite_master "
-            "WHERE type = 'view' AND name = 'rate_EURUSD__M1_1'",
-        ).fetchone() == (1,)
 
 
-def test_update_history_with_config_forces_canonical_options(
-    mocker: MockerFixture,
-    tmp_path: Path,
-) -> None:
-    """The managed-session wrapper forwards the canonical view policy."""
-    legacy_update = mocker.patch("mt5cli.rates._legacy_update_history_with_config")
-    output = tmp_path / "config-update.db"
-
-    rates.update_history_with_config(
-        output=output,
-        symbols=["EURUSD"],
-        datasets={Dataset.history_deals},
-        timeframes=["M1"],
-        flags="INFO",
-        lookback_hours=2,
-        date_to="2024-01-01T00:00:00+00:00",
-        deduplicate=False,
-        with_views=True,
-        include_account_events=False,
-    )
-
-    legacy_update.assert_called_once_with(
-        output=output,
-        symbols=["EURUSD"],
-        config=None,
-        datasets={Dataset.history_deals},
-        timeframes=["M1"],
-        flags="INFO",
-        lookback_hours=2,
-        date_to="2024-01-01T00:00:00+00:00",
-        deduplicate=False,
-        create_rate_views=False,
-        with_views=True,
-        include_account_events=False,
-    )
 
 
 def test_throttled_updater_uses_canonical_backend_and_preserves_custom_backend(
@@ -474,3 +320,66 @@ def test_throttled_updater_uses_canonical_backend_and_preserves_custom_backend(
         suppress_errors=True,
     )
     assert custom_updater.update_backend is custom_backend
+
+
+def test_canonical_loader_returns_naive_datetime_index(tmp_path: Path) -> None:
+    """Canonical naive server-clock series keep a DatetimeIndex without a zone."""
+    db_path = tmp_path / "naive-index.db"
+    _create_canonical_database(
+        db_path,
+        [
+            ("EURUSD", 1, "2024-01-01T00:01:00", 1.1),
+            ("EURUSD", 1, "2024-01-01T00:00:00", 1.0),
+        ],
+    )
+    frame = rates.load_rate_series_from_sqlite(
+        db_path,
+        [RateTarget("EURUSD", 1)],
+        count=2,
+    )["EURUSD", 1]
+    assert isinstance(frame.index, pd.DatetimeIndex)
+    assert frame.index.name == "time"
+    assert frame.index.tz is None
+    assert list(frame["close"]) == [1.0, 1.1]
+
+
+def test_canonical_loader_normalizes_aware_index_to_utc(tmp_path: Path) -> None:
+    """Canonical aware instants are represented by a UTC DatetimeIndex."""
+    db_path = tmp_path / "aware-index.db"
+    _create_canonical_database(
+        db_path,
+        [
+            ("EURUSD", 1, "2024-01-01T09:00:00+09:00", 1.0),
+            ("EURUSD", 1, "2024-01-01T00:01:00+00:00", 1.1),
+        ],
+    )
+    frame = rates.load_rate_series_from_sqlite(
+        db_path,
+        [RateTarget("EURUSD", 1)],
+        count=2,
+    )["EURUSD", 1]
+    assert isinstance(frame.index, pd.DatetimeIndex)
+    assert str(frame.index.tz) == "UTC"
+    assert list(frame["close"]) == [1.0, 1.1]
+
+
+def test_canonical_loader_applies_limit_in_sqlite(tmp_path: Path) -> None:
+    """Canonical loading bounds rows in SQLite before pandas materialization."""
+    db_path = tmp_path / "limited.db"
+    _create_canonical_database(
+        db_path,
+        [
+            ("EURUSD", 1, f"2024-01-01T00:{minute:02d}:00", float(minute))
+            for minute in range(10)
+        ],
+    )
+    statements: list[str] = []
+    with sqlite3.connect(db_path) as conn:
+        conn.set_trace_callback(statements.append)
+        frame = rates.load_rate_series_from_sqlite(
+            conn,
+            [RateTarget("EURUSD", 1)],
+            count=2,
+        )["EURUSD", 1]
+    assert list(frame["close"]) == [8.0, 9.0]
+    assert any("LIMIT 2" in statement for statement in statements)

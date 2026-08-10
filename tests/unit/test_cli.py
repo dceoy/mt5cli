@@ -1088,10 +1088,6 @@ class TestCallback:
         for env_name in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_PATH"):
             assert env_name in normalized
 
-    def test_gap_granularity_helpers_cover_unknown_cases(self) -> None:
-        """Gap-table granularity helpers should fail cleanly for unknown inputs."""
-        assert timeframe_interval_seconds(49153) is None
-        assert infer_rate_table_granularity_seconds("custom_rates") is None
 
     @pytest.mark.parametrize(
         ("args", "env", "exit_code", "match"),
@@ -1872,72 +1868,6 @@ class TestCollectHistory:
 class TestHistoryGapsCommand:
     """Tests for the history-gaps CLI command."""
 
-    @pytest.mark.parametrize(
-        ("extra_args", "expected_tables", "expected_rows"),
-        [
-            pytest.param([], {"rate_EURUSD__M1_1", "rate_GBPUSD__M1_1"}, 2, id="all"),
-            pytest.param(
-                ["--table", "rate_EURUSD__M1_1"],
-                {"rate_EURUSD__M1_1"},
-                1,
-                id="explicit-table",
-            ),
-        ],
-    )
-    def test_history_gaps_exports_sqlite_report_without_mt5(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-        extra_args: list[str],
-        expected_tables: set[str],
-        expected_rows: int,
-    ) -> None:
-        """history-gaps reads SQLite only and exports one row per gap."""
-        database = tmp_path / "history.db"
-        output = tmp_path / "gaps.json"
-        with sqlite3.connect(database) as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                "symbol TEXT, timeframe INTEGER, time TEXT, close REAL"
-                ")",
-            )
-            conn.executemany(
-                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
-                [
-                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
-                    ("EURUSD", 1, "2024-01-01T00:02:00+00:00", 1.1),
-                    ("GBPUSD", 1, "2024-01-01T00:00:00+00:00", 1.2),
-                    ("GBPUSD", 1, "2024-01-01T00:02:00+00:00", 1.3),
-                ],
-            )
-            conn.execute(
-                'CREATE VIEW "rate_EURUSD__M1_1" AS '
-                "SELECT time, close FROM rates "
-                "WHERE symbol = 'EURUSD' AND timeframe = 1",
-            )
-            conn.execute(
-                'CREATE VIEW "rate_GBPUSD__M1_1" AS '
-                "SELECT time, close FROM rates "
-                "WHERE symbol = 'GBPUSD' AND timeframe = 1",
-            )
-
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "history-gaps",
-                "--sqlite3",
-                str(database),
-                *extra_args,
-            ],
-        )
-
-        assert result.exit_code == 0, result.output
-        data = json.loads(output.read_text())
-        assert len(data) == expected_rows
-        assert {row["table"] for row in data} == expected_tables
-        mock_client.initialize_and_login_mt5.assert_not_called()
 
     def test_history_gaps_rejects_missing_database_without_creating_it(
         self,
@@ -1956,23 +1886,6 @@ class TestHistoryGapsCommand:
         assert "SQLite database not found" in result.output
         assert not database.exists()
 
-    def test_history_gaps_requires_compatible_default_views(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Without --table, history-gaps should reject DBs with no managed views."""
-        database = tmp_path / "empty.db"
-        output = tmp_path / "gaps.json"
-        with sqlite3.connect(database):
-            pass
-
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "history-gaps", "--sqlite3", str(database)],
-        )
-
-        assert result.exit_code != 0
-        assert "No managed rate compatibility views found" in result.output
 
     def test_history_gaps_requires_granularity_for_custom_tables(
         self,

@@ -15,11 +15,7 @@ import typer
 
 from .client import MT5Client, build_config, mt5_session
 from .history import collect_history as _collect_history
-from .history import (
-    infer_rate_table_granularity_seconds,
-    open_existing_sqlite_database,
-    report_rate_gaps,
-)
+from .history import open_existing_sqlite_database, report_rate_gaps
 from .observability import update_observability_with_config
 from .trading import OrderExecutionResult, close_open_positions
 from .utils import (
@@ -118,13 +114,6 @@ def _get_export_context(ctx: typer.Context) -> _ExportContext:
     return cast("_ExportContext", ctx.obj)
 
 
-def _default_gap_tables(conn: sqlite3.Connection) -> list[str]:
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master"
-        " WHERE type IN ('table', 'view') AND name GLOB 'rate_*__*'"
-        " ORDER BY name",
-    ).fetchall()
-    return [str(row[0]) for row in rows]
 
 
 def _execute_export(
@@ -832,62 +821,56 @@ def history_gaps(
         list[str] | None,
         typer.Option(
             "--table",
-            help="Rate table or compatibility view to inspect (repeat for multiple).",
+            help=(
+                "Rate table to inspect (repeat for multiple); defaults to "
+                "the canonical rates table."
+            ),
         ),
     ] = None,
     granularity_seconds: Annotated[
         int | None,
-        typer.Option(help="Explicit bar interval in seconds for custom tables/views."),
+        typer.Option(
+            help=(
+                "Explicit bar interval in seconds for custom tables without "
+                "timeframe metadata."
+            ),
+        ),
     ] = None,
     min_gap_intervals: Annotated[
         int,
         typer.Option(help="Minimum missing-bar count required to emit a gap row."),
     ] = 1,
 ) -> None:
-    """Export SQLite rate gaps without connecting to MT5.
-
-    Raises:
-        typer.BadParameter: If the source database does not exist, if no
-            compatible rate view is available and no explicit table is
-            provided, or if granularity inference fails.
-    """
+    """Export SQLite rate gaps without connecting to MT5."""
     try:
         conn, _ = open_existing_sqlite_database(sqlite3_path)
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="--sqlite3") from exc
     with closing(conn):
-        tables = list(table) if table else _default_gap_tables(conn)
-        if not tables:
-            msg = (
-                "No managed rate compatibility views found; pass --table for a rate "
-                "table or view."
-            )
-            raise typer.BadParameter(msg, param_hint="--table")
+        tables = list(table) if table else [Dataset.rates.table_name]
         frames: list[pd.DataFrame] = []
         for table_name in tables:
-            interval_seconds = (
-                granularity_seconds or infer_rate_table_granularity_seconds(table_name)
-            )
-            if interval_seconds is None:
-                msg = (
-                    f"Could not infer granularity for {table_name!r}; pass "
-                    "--granularity-seconds."
+            try:
+                frames.append(
+                    report_rate_gaps(
+                        conn,
+                        table_name,
+                        granularity_seconds=granularity_seconds,
+                        min_gap_intervals=min_gap_intervals,
+                    )
                 )
-                raise typer.BadParameter(msg, param_hint="--granularity-seconds")
-            frames.append(
-                report_rate_gaps(
-                    conn,
-                    table_name,
-                    granularity_seconds=interval_seconds,
-                    min_gap_intervals=min_gap_intervals,
-                )
-            )
+            except ValueError as exc:
+                raise typer.BadParameter(
+                    str(exc),
+                    param_hint="--granularity-seconds",
+                ) from exc
     df = (
         pd.concat(frames, ignore_index=True)
         if frames
         else pd.DataFrame(columns=["table"])
     )
     _execute_export(ctx, lambda: df)
+
 
 
 @app.command(rich_help_panel="Collection")

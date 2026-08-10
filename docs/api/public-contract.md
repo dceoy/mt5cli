@@ -90,7 +90,7 @@ timestamp normalization in downstream apps.
 | Symbol                                                            | Role                                                                                         |
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `collect_history`                                                 | One-shot date-range export into SQLite                                                       |
-| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for a rate table or compatibility view                    |
+| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for a rate table or legacy view                    |
 | `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors                                                  |
 | `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; optional `update_backend` injection |
 | `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                             |
@@ -331,7 +331,7 @@ resolved per symbol with `resolve_broker_filling_mode()` so closes are not
 rejected on brokers whose symbols do not support IOC.
 
 `history-gaps` reads an existing SQLite history database and exports one row
-per detected gap from managed rate compatibility views. It never initializes
+per detected gap from managed rate legacy views. It never initializes
 MT5. Pass `--granularity-seconds` for custom tables or views whose bar spacing
 cannot be inferred from the name.
 

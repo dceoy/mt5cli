@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 import time
 from collections.abc import Mapping
@@ -11,7 +10,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, SupportsInt, cast, overload
+from typing import TYPE_CHECKING, Literal, SupportsInt, cast
 
 import pandas as pd
 from pdmt5 import Mt5Config, Mt5RuntimeError
@@ -43,7 +42,7 @@ _SQLITE_TEXT_TIME_COLUMNS: frozenset[str] = frozenset({
     "time_setup",
     "time_done",
 })
-_SQLITE_CANONICAL_TIME_FORMAT = "%Y-%m-%dT%H:%M:%f+00:00"
+_SQLITE_CANONICAL_TIME_FORMAT = "%Y-%m-%dT%H:%M:%f"
 
 DEFAULT_HISTORY_TIMEFRAMES: tuple[str, ...] = TIMEFRAME_NAMES
 DEFAULT_HISTORY_DATASETS: frozenset[Dataset] = frozenset({
@@ -95,9 +94,6 @@ _RATE_GAP_COLUMNS: tuple[str, ...] = (
     "gap_start",
     "gap_end",
     "missing_intervals",
-)
-_RATE_VIEW_NAME_RE = re.compile(
-    r"^rate_(?P<symbol>.+)__(?:(?P<granularity>[A-Z0-9]+)_)?(?P<timeframe>\d+)$",
 )
 _MIN_TIMESTAMPS_FOR_GAPS = 2
 
@@ -179,17 +175,6 @@ def timeframe_interval_seconds(timeframe: int) -> int | None:
     return None
 
 
-def infer_rate_table_granularity_seconds(table: str) -> int | None:
-    """Infer the bar interval in seconds from a managed rate table/view name.
-
-    Returns:
-        Interval seconds when ``table`` matches the managed
-        ``rate_<symbol>__[<granularity>_]<timeframe>`` naming convention and
-        the timeframe is known, otherwise ``None``.
-    """
-    if (match := _RATE_VIEW_NAME_RE.fullmatch(table)) is None:
-        return None
-    return timeframe_interval_seconds(int(match.group("timeframe")))
 
 
 def drop_forming_rate_bar(df_rate: pd.DataFrame) -> pd.DataFrame:
@@ -209,30 +194,10 @@ def drop_forming_rate_bar(df_rate: pd.DataFrame) -> pd.DataFrame:
     return df_rate.iloc[:-1].copy()
 
 
-def build_rate_view_name(
-    *,
-    symbol: str,
-    granularity: str,
-    granularity_count: int,
-    timeframe: int,
-) -> str:
-    """Return a collision-free offline optimize view name.
-
-    View names always include the timeframe integer after a ``__`` separator so
-    a symbol such as ``EURUSD_M1`` cannot collide with ``EURUSD`` at timeframe
-    ``M1``.
-    """
-    if granularity_count == 1:
-        return f"rate_{symbol}__{timeframe}"
-    return f"rate_{symbol}__{granularity}_{timeframe}"
 
 
 def resolve_rate_table_name(symbol: str, granularity: str) -> str:
     """Return the canonical normalized SQLite rate table name.
-
-    The normalized history table stores all symbols and timeframes in
-    ``rates``; use :func:`resolve_rate_view_name` for per-symbol compatibility
-    view names.
 
     Returns:
         Canonical normalized rates table name.
@@ -247,6 +212,7 @@ def resolve_rate_table_name(symbol: str, granularity: str) -> str:
     return Dataset.rates.table_name
 
 
+
 SqliteConnOrPath = sqlite3.Connection | Path | str
 
 
@@ -258,25 +224,6 @@ def _require_non_empty_identifier(identifier: str, kind: str) -> str:
     return value
 
 
-def _open_history_connection(
-    conn_or_path: SqliteConnOrPath | None,
-) -> tuple[sqlite3.Connection | None, bool]:
-    """Open a read-only SQLite connection when given a path.
-
-    Returns:
-        A connection and whether the caller should close it. When ``conn_or_path``
-        is None or the path does not exist, returns ``(None, False)`` without
-        creating a database file.
-    """
-    if conn_or_path is None:
-        return None, False
-    if isinstance(conn_or_path, sqlite3.Connection):
-        return conn_or_path, False
-    path = Path(conn_or_path)
-    if not path.exists():
-        return None, False
-    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
-    return conn, True
 
 
 def open_existing_sqlite_database(
@@ -323,12 +270,8 @@ def _coerce_optional_int(value: object) -> int | None:
         return None
 
 
-def _rate_gap_metadata(
-    table: str,
-    frame: pd.DataFrame,
-    *,
-    granularity_seconds: int,
-) -> dict[str, object]:
+def _rate_gap_metadata(table: str, frame: pd.DataFrame) -> dict[str, object]:
+    """Return canonical series metadata from rate-table columns."""
     symbol: str | None = None
     timeframe: int | None = None
     granularity: str | None = None
@@ -345,13 +288,7 @@ def _rate_gap_metadata(
         }
         if len(timeframes) == 1:
             timeframe = next(iter(timeframes))
-
-    if timeframe is None and (match := _RATE_VIEW_NAME_RE.fullmatch(table)) is not None:
-        symbol = symbol or match.group("symbol")
-        timeframe = int(match.group("timeframe"))
-        granularity = match.group("granularity") or resolve_granularity_name(timeframe)
-
-    if timeframe is not None and granularity is None:
+    if timeframe is not None:
         granularity = resolve_granularity_name(timeframe)
 
     return {
@@ -359,8 +296,8 @@ def _rate_gap_metadata(
         "symbol": symbol,
         "timeframe": timeframe,
         "granularity": granularity,
-        "granularity_seconds": granularity_seconds,
     }
+
 
 
 def _iter_rate_gap_groups(frame: pd.DataFrame) -> list[pd.DataFrame]:
@@ -378,17 +315,20 @@ def report_rate_gaps(
     conn: sqlite3.Connection,
     table: str,
     *,
-    granularity_seconds: int,
+    granularity_seconds: int | None = None,
     min_gap_intervals: int = 1,
 ) -> pd.DataFrame:
-    """Return one row per detected gap from a SQLite rate table or view.
+    """Return one row per detected gap from a SQLite rate table.
+
+    The canonical ``rates`` table infers each series interval from its
+    ``timeframe`` column. Custom tables without timeframe metadata must
+    provide ``granularity_seconds`` explicitly.
 
     Raises:
-        ValueError: If the table name, schema, timestamps, or gap parameters
-            are invalid.
+        ValueError: If the table/schema/timestamps or gap parameters are invalid.
     """
     table_name = _validate_rate_load_request(table, count=None)
-    if granularity_seconds <= 0:
+    if granularity_seconds is not None and granularity_seconds <= 0:
         msg = "granularity_seconds must be positive."
         raise ValueError(msg)
     if min_gap_intervals <= 0:
@@ -410,46 +350,61 @@ def report_rate_gaps(
 
     parsed_times = frame["time"].map(parse_sqlite_timestamp)
     if parsed_times.isna().any():
-        msg = f"SQLite table or view {table_name!r} contains unparsable time values."
+        msg = f"SQLite table {table_name!r} contains unparsable time values."
         raise ValueError(msg)
 
     series_frame = frame.copy()
     series_frame["time"] = parsed_times
     rows: list[dict[str, object]] = []
     for group in _iter_rate_gap_groups(series_frame):
-        unique_times = group["time"].drop_duplicates().sort_values(ignore_index=True)
-        if len(unique_times) < _MIN_TIMESTAMPS_FOR_GAPS:
-            continue
+        metadata = _rate_gap_metadata(table_name, group)
+        interval_seconds = granularity_seconds
+        if interval_seconds is None:
+            timeframe = metadata["timeframe"]
+            if not isinstance(timeframe, int):
+                msg = (
+                    f"Could not infer granularity for {table_name!r}; "
+                    "pass granularity_seconds for a custom table."
+                )
+                raise ValueError(msg)
+            interval_seconds = timeframe_interval_seconds(timeframe)
+            if interval_seconds is None:
+                msg = f"Unsupported rate timeframe: {timeframe}."
+                raise ValueError(msg)
 
-        metadata = _rate_gap_metadata(
-            table_name,
-            group,
-            granularity_seconds=granularity_seconds,
+        unique_times = group["time"].drop_duplicates()
+        sort_keys = pd.to_datetime(
+            unique_times,
+            errors="coerce",
+            format="mixed",
+            utc=True,
         )
-        deltas = unique_times.diff().dropna()
+        order = sort_keys.argsort()
+        ordered_times = unique_times.iloc[order].reset_index(drop=True)
+        ordered_keys = pd.Series(sort_keys.iloc[order]).reset_index(drop=True)
+        if len(ordered_times) < _MIN_TIMESTAMPS_FOR_GAPS:
+            continue
+        deltas = ordered_keys.diff().dropna()
         for index, delta in enumerate(deltas, start=1):
             delta_seconds = int(delta.total_seconds())
             missing_intervals = max(
-                ((delta_seconds + (granularity_seconds - 1)) // granularity_seconds)
+                ((delta_seconds + (interval_seconds - 1)) // interval_seconds)
                 - 1,
                 0,
             )
             if missing_intervals < min_gap_intervals:
                 continue
-            previous_time = unique_times.iloc[index - 1]
-            next_time = unique_times.iloc[index]
+            previous_time = ordered_times.iloc[index - 1]
+            next_time = ordered_times.iloc[index]
             rows.append({
                 **metadata,
-                "gap_start": (
-                    previous_time.to_pydatetime()
-                    + timedelta(seconds=granularity_seconds)
-                ),
-                "gap_end": (
-                    next_time.to_pydatetime() - timedelta(seconds=granularity_seconds)
-                ),
+                "granularity_seconds": interval_seconds,
+                "gap_start": previous_time + timedelta(seconds=interval_seconds),
+                "gap_end": next_time - timedelta(seconds=interval_seconds),
                 "missing_intervals": missing_intervals,
             })
     return pd.DataFrame(rows, columns=_RATE_GAP_COLUMNS)
+
 
 
 def _validate_rate_load_request(table: str, count: int | None) -> str:
@@ -555,211 +510,16 @@ def load_rate_data(
             conn.close()
 
 
-def _load_rates_timeframe_counts(conn: sqlite3.Connection) -> dict[str, int] | None:
-    """Return distinct timeframe counts per symbol from the normalized rates table."""
-    columns = get_table_columns(conn, Dataset.rates.table_name)
-    if not {"symbol", "timeframe"}.issubset(columns):
-        return None
-    rows = conn.execute(
-        "SELECT symbol, COUNT(DISTINCT timeframe) FROM rates GROUP BY symbol",
-    ).fetchall()
-    return {str(symbol): int(count) for symbol, count in rows}
 
 
-def _load_existing_rate_views(conn: sqlite3.Connection) -> set[str]:
-    """Return mt5cli-managed ``rate_*__*`` compatibility view names."""
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'view' AND name GLOB 'rate_*__*'",
-    ).fetchall()
-    return {str(row[0]) for row in rows}
 
 
-def _rate_view_name_candidates(
-    *,
-    symbol: str,
-    granularity: str,
-    granularity_count: int,
-    timeframe: int,
-) -> list[str]:
-    """Return candidate view names in preference order."""
-    single = build_rate_view_name(
-        symbol=symbol,
-        granularity=granularity,
-        granularity_count=1,
-        timeframe=timeframe,
-    )
-    if granularity_count <= 1:
-        return [single]
-    multi = build_rate_view_name(
-        symbol=symbol,
-        granularity=granularity,
-        granularity_count=granularity_count,
-        timeframe=timeframe,
-    )
-    return [multi, single]
 
 
-def _resolve_rate_view_name_from_context(
-    *,
-    symbol: str,
-    timeframe: int,
-    granularity_name: str,
-    timeframe_counts: dict[str, int] | None,
-    existing_views: set[str],
-    require_existing: bool = False,
-) -> str:
-    """Resolve one rate view name using preloaded SQLite metadata.
-
-    Returns:
-        Preferred mt5cli-managed rate compatibility view name.
-
-    Raises:
-        ValueError: If ``require_existing`` is True and no managed view exists.
-    """
-    if timeframe_counts is None or symbol not in timeframe_counts:
-        candidates = [
-            build_rate_view_name(
-                symbol=symbol,
-                granularity=granularity_name,
-                granularity_count=1,
-                timeframe=timeframe,
-            ),
-            build_rate_view_name(
-                symbol=symbol,
-                granularity=granularity_name,
-                granularity_count=2,
-                timeframe=timeframe,
-            ),
-        ]
-    else:
-        candidates = _rate_view_name_candidates(
-            symbol=symbol,
-            granularity=granularity_name,
-            granularity_count=timeframe_counts[symbol],
-            timeframe=timeframe,
-        )
-    for candidate in candidates:
-        if candidate in existing_views:
-            return candidate
-    if require_existing:
-        msg = (
-            f"No rate compatibility view exists for symbol {symbol!r} "
-            f"and granularity {granularity_name!r}; "
-            f"candidates: {', '.join(candidates)}."
-        )
-        raise ValueError(msg)
-    return candidates[0]
 
 
-def resolve_rate_view_name(
-    conn_or_path: SqliteConnOrPath | None,
-    symbol: str,
-    granularity: str,
-    *,
-    require_existing: bool = False,
-) -> str:
-    """Resolve the mt5cli-managed rate compatibility view name.
-
-    Args:
-        conn_or_path: SQLite database path or open connection. When None or a
-            non-existing path and ``require_existing`` is False, the deterministic
-            default view name is returned without creating a database file.
-        symbol: Symbol stored in the normalized ``rates`` table.
-        granularity: Timeframe name (for example ``M1``) or integer string.
-        require_existing: When True, require the database and a managed view to exist.
-
-    Returns:
-        View name such as ``rate_EURUSD__1`` or ``rate_EURUSD__M1_1``.
-
-    Raises:
-        ValueError: If ``require_existing`` is True and the database or view is missing.
-    """
-    timeframe = parse_timeframe(granularity)
-    granularity_name = resolve_granularity_name(timeframe)
-    conn, should_close = _open_history_connection(conn_or_path)
-    try:
-        if conn is None:
-            if require_existing:
-                path = (
-                    conn_or_path
-                    if isinstance(conn_or_path, (Path, str))
-                    else "database"
-                )
-                msg = f"SQLite database not found: {path}"
-                raise ValueError(msg)
-            return build_rate_view_name(
-                symbol=symbol,
-                granularity=granularity_name,
-                granularity_count=1,
-                timeframe=timeframe,
-            )
-        return _resolve_rate_view_name_from_context(
-            symbol=symbol,
-            timeframe=timeframe,
-            granularity_name=granularity_name,
-            timeframe_counts=_load_rates_timeframe_counts(conn),
-            existing_views=_load_existing_rate_views(conn),
-            require_existing=require_existing,
-        )
-    finally:
-        if should_close and conn is not None:
-            conn.close()
 
 
-def resolve_rate_view_names(
-    conn_or_path: SqliteConnOrPath | None,
-    symbols: Sequence[str],
-    granularities: Sequence[str],
-    *,
-    require_existing: bool = False,
-) -> list[str]:
-    """Resolve rate compatibility view names for symbol and granularity pairs.
-
-    Args:
-        conn_or_path: SQLite database path or open connection. When None or a
-            non-existing path and ``require_existing`` is False, deterministic
-            default view names are returned without creating a database file.
-        symbols: Symbols stored in the normalized ``rates`` table.
-        granularities: Timeframe names (for example ``M1``) or integer strings.
-        require_existing: When True, require the database and managed views to exist.
-
-    Returns:
-        View names in row-major order: every ``granularity`` for the first
-        symbol, then every granularity for the next symbol, and so on.
-    """
-    conn, should_close = _open_history_connection(conn_or_path)
-    try:
-        if conn is None:
-            return [
-                resolve_rate_view_name(
-                    conn_or_path,
-                    symbol,
-                    granularity,
-                    require_existing=require_existing,
-                )
-                for symbol in symbols
-                for granularity in granularities
-            ]
-        timeframe_counts = _load_rates_timeframe_counts(conn)
-        existing_views = _load_existing_rate_views(conn)
-        resolved: list[str] = []
-        for symbol in symbols:
-            for granularity in granularities:
-                timeframe = parse_timeframe(granularity)
-                resolved.append(
-                    _resolve_rate_view_name_from_context(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        granularity_name=resolve_granularity_name(timeframe),
-                        timeframe_counts=timeframe_counts,
-                        existing_views=existing_views,
-                        require_existing=require_existing,
-                    ),
-                )
-        return resolved
-    finally:
-        if should_close and conn is not None:
-            conn.close()
 
 
 @dataclass(frozen=True)
@@ -823,250 +583,12 @@ def build_rate_targets(
     ]
 
 
-def resolve_rate_tables(
-    conn_or_path: SqliteConnOrPath | None,
-    targets: Sequence[RateTarget],
-    explicit_tables: Sequence[str] | None = None,
-    *,
-    require_existing: bool = False,
-) -> list[str]:
-    """Resolve SQLite table or view names for rate targets.
-
-    Args:
-        conn_or_path: SQLite database path or open connection. May be None when
-            ``explicit_tables`` is provided, or when ``require_existing`` is
-            False and deterministic default view names are sufficient.
-        targets: Rate targets to resolve.
-        explicit_tables: Optional explicit table or view names. When provided,
-            they are used as-is and must match the number of targets.
-        require_existing: When True, require the database and managed views to
-            exist for each symbol target. Ignored when ``explicit_tables`` is
-            provided.
-
-    Returns:
-        Table or view names aligned with ``targets``.
-
-    Raises:
-        ValueError: If ``targets`` is empty, ``explicit_tables`` length does not
-            match the target count, a target without a symbol is resolved
-            without an explicit table, or ``require_existing`` is True and the
-            database or a managed view is missing.
-    """
-    target_list = list(targets)
-    if not target_list:
-        msg = "At least one rate target is required."
-        raise ValueError(msg)
-    if explicit_tables is not None:
-        tables = list(explicit_tables)
-        if len(tables) != len(target_list):
-            msg = (
-                f"Expected {len(target_list)} explicit table(s) "
-                f"to match the targets, got {len(tables)}."
-            )
-            raise ValueError(msg)
-        return tables
-    if any(target.symbol is None for target in target_list):
-        msg = (
-            "Cannot resolve a rate table for a target without a symbol; "
-            "provide explicit_tables."
-        )
-        raise ValueError(msg)
-    conn, should_close = _open_history_connection(conn_or_path)
-    try:
-        if conn is None:
-            if require_existing:
-                path = (
-                    conn_or_path
-                    if isinstance(conn_or_path, (Path, str))
-                    else "database"
-                )
-                msg = f"SQLite database not found: {path}"
-                raise ValueError(msg)
-            timeframe_counts = None
-            existing_views: set[str] = set()
-        else:
-            timeframe_counts = _load_rates_timeframe_counts(conn)
-            existing_views = _load_existing_rate_views(conn)
-        resolved: list[str] = []
-        for target in target_list:
-            symbol = cast("str", target.symbol)
-            timeframe = target.timeframe_int
-            resolved.append(
-                _resolve_rate_view_name_from_context(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    granularity_name=resolve_granularity_name(timeframe),
-                    timeframe_counts=timeframe_counts,
-                    existing_views=existing_views,
-                    require_existing=require_existing,
-                ),
-            )
-        return resolved
-    finally:
-        if should_close and conn is not None:
-            conn.close()
 
 
-if TYPE_CHECKING:
-
-    @overload
-    def load_rate_series_from_sqlite(
-        conn_or_path: SqliteConnOrPath,
-        targets: None = None,
-        count: int | None = None,
-        explicit_tables: None = None,
-        *,
-        table: str,
-    ) -> pd.DataFrame: ...
-
-    @overload
-    def load_rate_series_from_sqlite(
-        conn_or_path: SqliteConnOrPath,
-        targets: None = None,
-        count: int | None = None,
-        explicit_tables: Sequence[str] | None = None,
-        *,
-        table: None = None,
-    ) -> dict[tuple[str | None, int], pd.DataFrame]: ...
-
-    @overload
-    def load_rate_series_from_sqlite(
-        conn_or_path: SqliteConnOrPath,
-        targets: Sequence[RateTarget],
-        count: int,
-        explicit_tables: Sequence[str] | None = None,
-        *,
-        table: None = None,
-    ) -> dict[tuple[str | None, int], pd.DataFrame]: ...
 
 
-def load_rate_series_from_sqlite(
-    conn_or_path: SqliteConnOrPath,
-    targets: Sequence[RateTarget] | None = None,
-    count: int | None = None,
-    explicit_tables: Sequence[str] | None = None,
-    *,
-    table: str | None = None,
-) -> dict[tuple[str | None, int], pd.DataFrame] | pd.DataFrame:
-    """Load one table/view or multiple rate series from a SQLite database.
-
-    Args:
-        conn_or_path: SQLite database path or open connection.
-        targets: Rate targets to load. Each ``(symbol, timeframe_int)`` pair must
-            be unique. Omit when loading a single explicit ``table``.
-        count: Optional number of most recent rows to load per series.
-        explicit_tables: Optional explicit table or view names matching targets.
-            When omitted, managed ``rate_*__*`` compatibility views must
-            already exist in the database.
-        table: Optional single table or view name to load directly.
-
-    Returns:
-        A DataFrame when ``table`` is provided, otherwise a mapping keyed by
-        ``(symbol, timeframe_int)`` to each rate DataFrame.
-
-    Raises:
-        ValueError: If ``count`` is not positive, targets are empty, duplicate
-            ``(symbol, timeframe_int)`` pairs are present, or table resolution
-            fails.
-    """
-    if table is not None:
-        return load_rate_data(conn_or_path, table, count=count)
-    if count is None or count <= 0:
-        msg = "count must be positive."
-        raise ValueError(msg)
-    if targets is None:
-        msg = "targets are required when table is not provided."
-        raise ValueError(msg)
-    target_list = list(targets)
-    if not target_list:
-        msg = "At least one rate target is required."
-        raise ValueError(msg)
-    if explicit_tables is None and any(target.symbol is None for target in target_list):
-        msg = (
-            "Cannot resolve a rate table for a target without a symbol; "
-            "provide explicit_tables."
-        )
-        raise ValueError(msg)
-    seen_keys: set[tuple[str | None, int]] = set()
-    for target in target_list:
-        key = (target.symbol, target.timeframe_int)
-        if key in seen_keys:
-            symbol_repr = repr(target.symbol)
-            msg = f"Duplicate rate target: ({symbol_repr}, {target.timeframe_int})"
-            raise ValueError(msg)
-        seen_keys.add(key)
-    tables = (
-        resolve_rate_tables(None, target_list, explicit_tables)
-        if explicit_tables is not None
-        else None
-    )
-    conn, should_close = open_existing_sqlite_database(conn_or_path)
-    try:
-        resolved_tables = tables or resolve_rate_tables(
-            conn,
-            target_list,
-            require_existing=True,
-        )
-        return {
-            (target.symbol, target.timeframe_int): load_rate_data_from_connection(
-                conn,
-                table,
-                count=count,
-            )
-            for target, table in zip(target_list, resolved_tables, strict=True)
-        }
-    finally:
-        if should_close:
-            conn.close()
 
 
-def load_rate_series_by_granularity(
-    conn_or_path: SqliteConnOrPath,
-    symbols: Sequence[str],
-    granularities: Sequence[int | str],
-    count: int,
-    *,
-    explicit_tables: Sequence[str] | None = None,
-    allow_missing_symbol: bool = False,
-) -> dict[tuple[str | None, str], pd.DataFrame]:
-    """Load rate series keyed by symbol and string granularity name.
-
-    Builds targets with :func:`build_rate_targets` and loads them with
-    :func:`load_rate_series_from_sqlite`, then rekeys the result by granularity
-    name (for example ``M1``) instead of the integer timeframe to reduce
-    downstream boilerplate.
-
-    Args:
-        conn_or_path: SQLite database path or open connection.
-        symbols: MT5 symbol names. May be empty when ``allow_missing_symbol``.
-        granularities: MT5 timeframes as integers or names (for example ``M1``).
-        count: Number of most recent rows to load per series.
-        explicit_tables: Optional explicit table or view names matching the
-            built targets in row-major order. Required when symbols are omitted.
-        allow_missing_symbol: When True and ``symbols`` is empty, build targets
-            with ``symbol=None`` for each granularity instead of raising.
-
-    Returns:
-        Mapping keyed by ``(symbol | None, granularity_name)`` to each rate
-        DataFrame. Propagates ``ValueError`` (via :func:`build_rate_targets` and
-        :func:`load_rate_series_from_sqlite`) when inputs are empty or invalid,
-        table resolution fails, or duplicate targets are present.
-    """
-    targets = build_rate_targets(
-        symbols,
-        granularities,
-        allow_missing_symbol=allow_missing_symbol,
-    )
-    series = load_rate_series_from_sqlite(
-        conn_or_path,
-        targets,
-        count,
-        explicit_tables=explicit_tables,
-    )
-    return {
-        (symbol, resolve_granularity_name(timeframe)): frame
-        for (symbol, timeframe), frame in series.items()
-    }
 
 
 def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -1077,50 +599,64 @@ def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def _parse_string_sqlite_timestamp(value: str) -> datetime | None:
-    try:
-        return parse_datetime(value)
-    except ValueError:
-        parsed_ts = pd.to_datetime(value, utc=True, errors="coerce")
-        if pd.isna(parsed_ts):
-            logger.warning("Ignoring unparseable history timestamp: %s", value)
-            return None
-        return parsed_ts.to_pydatetime()
+    """Parse a stored timestamp without assigning a missing timezone."""
+    parsed = pd.to_datetime(value, errors="coerce", format="mixed")
+    if pd.isna(parsed):
+        logger.warning("Ignoring unparseable history timestamp: %s", value)
+        return None
+    timestamp = cast("pd.Timestamp", parsed)
+    result = timestamp.to_pydatetime()
+    if result.tzinfo is not None:
+        return result.astimezone(UTC)
+    return result
+
 
 
 def parse_sqlite_timestamp(value: object) -> datetime | None:
-    """Parse a SQLite history timestamp value.
+    """Parse a SQLite history timestamp without inventing a timezone.
 
-    Returns:
-        Parsed timezone-aware datetime, or None when parsing fails.
+    Naive values remain MT5 trade-server wall-clock labels. Explicitly
+    aware values are normalized to UTC while preserving their instant.
+    Numeric epoch values follow pdmt5's naive wall-clock representation.
     """
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return value.astimezone(UTC) if value.tzinfo is not None else value
     if isinstance(value, int | float):
-        return datetime.fromtimestamp(float(value), tz=UTC)
+        parsed = pd.to_datetime(value, unit="s", errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return cast("pd.Timestamp", parsed).to_pydatetime()
     if isinstance(value, str):
         return _parse_string_sqlite_timestamp(value)
     logger.warning("Ignoring unsupported history timestamp type: %s", type(value))
     return None
 
 
+
 def _serialize_sqlite_timestamp(value: object) -> str | None:
+    """Serialize without relabeling naive MT5 wall-clock timestamps."""
     parsed = parse_sqlite_timestamp(value)
     if parsed is None:
         return None
-    utc_value = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
-    utc_value = utc_value.astimezone(UTC)
-    timespec = "microseconds" if utc_value.microsecond else "seconds"
-    return utc_value.isoformat(timespec=timespec)
+    normalized = parsed.astimezone(UTC) if parsed.tzinfo is not None else parsed
+    timespec = "microseconds" if normalized.microsecond else "seconds"
+    return normalized.isoformat(timespec=timespec)
+
 
 
 def _require_serialized_sqlite_timestamp(value: object) -> str:
-    serialized = _serialize_sqlite_timestamp(value)
-    if serialized is None:
+    """Return a timezone-neutral SQLite comparison key for a timestamp."""
+    parsed = parse_sqlite_timestamp(value)
+    if parsed is None:
         msg = f"Invalid SQLite timestamp boundary: {value!r}"
         raise ValueError(msg)
-    return serialized
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    timespec = "microseconds" if parsed.microsecond else "seconds"
+    return parsed.isoformat(timespec=timespec)
+
 
 
 def _canonicalize_sqlite_time_columns(frame: pd.DataFrame) -> pd.DataFrame:
@@ -1144,7 +680,7 @@ def _sqlite_dedup_key_expression(column: str) -> str:
 
 
 def _sqlite_normalized_time_expression(column: str) -> str:
-    """Return a canonical UTC timestamp expression for mixed SQLite time values."""
+    """Return a sortable clock expression without assigning a timezone."""
     quoted = quote_sqlite_identifier(column)
     return (
         "COALESCE("
@@ -1152,6 +688,7 @@ def _sqlite_normalized_time_expression(column: str) -> str:
         f"strftime('{_SQLITE_CANONICAL_TIME_FORMAT}', {quoted}, 'unixepoch')"
         ")"
     )
+
 
 
 def _load_latest_parseable_time(
@@ -1222,29 +759,21 @@ def _load_grouped_rate_start_datetimes(
     timeframes: Sequence[int],
     fallback_start: datetime,
 ) -> dict[tuple[str, int | None], datetime]:
-    symbol_placeholders = ", ".join("?" for _ in symbols)
-    timeframe_placeholders = ", ".join("?" for _ in timeframes)
-    time_expr = _sqlite_normalized_time_expression("time")
-    rows = conn.execute(
-        "SELECT symbol, timeframe, MAX("  # noqa: S608
-        f"{time_expr}) FROM "
-        f"{quote_sqlite_identifier(table)}"
-        f" WHERE symbol IN ({symbol_placeholders})"
-        f" AND timeframe IN ({timeframe_placeholders})"
-        f" AND {time_expr} IS NOT NULL"
-        f" GROUP BY symbol, timeframe",
-        [*symbols, *timeframes],
-    ).fetchall()
-    parsed_by_key: dict[tuple[str, int | None], datetime] = {}
-    for row_symbol, row_timeframe, max_time in rows:
-        parsed = parse_sqlite_timestamp(max_time)
-        if parsed is not None:
-            parsed_by_key[str(row_symbol), int(row_timeframe)] = parsed
-    return {
-        (symbol, timeframe): parsed_by_key.get((symbol, timeframe), fallback_start)
-        for symbol in symbols
-        for timeframe in timeframes
-    }
+    """Load per-series cursors while preserving raw timestamp semantics."""
+    result: dict[tuple[str, int | None], datetime] = {}
+    for symbol in symbols:
+        for timeframe in timeframes:
+            parsed = _load_latest_parseable_time(
+                conn,
+                table,
+                where_clause="symbol = ? AND timeframe = ?",
+                params=(symbol, timeframe),
+            )
+            result[symbol, timeframe] = (
+                parsed if parsed is not None else fallback_start
+            )
+    return result
+
 
 
 def _load_symbol_start_datetimes(
@@ -1254,26 +783,18 @@ def _load_symbol_start_datetimes(
     symbols: Sequence[str],
     fallback_start: datetime,
 ) -> dict[tuple[str, int | None], datetime]:
-    symbol_placeholders = ", ".join("?" for _ in symbols)
-    time_expr = _sqlite_normalized_time_expression("time")
-    rows = conn.execute(
-        "SELECT symbol, MAX("  # noqa: S608
-        f"{time_expr}) FROM "
-        f"{quote_sqlite_identifier(table)}"
-        f" WHERE symbol IN ({symbol_placeholders})"
-        f" AND {time_expr} IS NOT NULL"
-        f" GROUP BY symbol",
-        list(symbols),
-    ).fetchall()
-    parsed_by_key: dict[tuple[str, int | None], datetime] = {}
-    for row_symbol, max_time in rows:
-        parsed = parse_sqlite_timestamp(max_time)
-        if parsed is not None:
-            parsed_by_key[str(row_symbol), None] = parsed
-    return {
-        (symbol, None): parsed_by_key.get((symbol, None), fallback_start)
-        for symbol in symbols
-    }
+    """Load per-symbol cursors while preserving raw timestamp semantics."""
+    result: dict[tuple[str, int | None], datetime] = {}
+    for symbol in symbols:
+        parsed = _load_latest_parseable_time(
+            conn,
+            table,
+            where_clause="symbol = ?",
+            params=(symbol,),
+        )
+        result[symbol, None] = parsed if parsed is not None else fallback_start
+    return result
+
 
 
 def load_incremental_start_datetimes(
@@ -1714,47 +1235,8 @@ def create_positions_reconstructed_view(
     return True
 
 
-def drop_rate_compatibility_views(conn: sqlite3.Connection) -> None:
-    """Drop all mt5cli-managed ``rate_*__*`` compatibility views."""
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'view' AND name GLOB 'rate_*__*'",
-    ).fetchall()
-    for (view_name,) in rows:
-        quoted_view_name = quote_sqlite_identifier(str(view_name))
-        conn.execute(f"DROP VIEW IF EXISTS {quoted_view_name}")
 
 
-def create_rate_compatibility_views(conn: sqlite3.Connection) -> None:
-    """Create rate compatibility views from the normalized rates table."""
-    columns = get_table_columns(conn, Dataset.rates.table_name)
-    if not {"symbol", "timeframe", "time"}.issubset(columns):
-        return
-    drop_rate_compatibility_views(conn)
-    select_columns = sorted(columns - {"symbol", "timeframe"})
-    quoted_columns = ", ".join(f'"{column}"' for column in select_columns)
-    rows = conn.execute(
-        "SELECT DISTINCT symbol, timeframe FROM rates ORDER BY symbol, timeframe",
-    ).fetchall()
-    timeframes_by_symbol: dict[str, list[int]] = {}
-    for symbol, timeframe in rows:
-        timeframes_by_symbol.setdefault(str(symbol), []).append(int(timeframe))
-    for symbol, timeframes in timeframes_by_symbol.items():
-        for timeframe in timeframes:
-            granularity = resolve_granularity_name(timeframe)
-            view_name = build_rate_view_name(
-                symbol=symbol,
-                granularity=granularity,
-                granularity_count=len(timeframes),
-                timeframe=timeframe,
-            )
-            quoted_view_name = quote_sqlite_identifier(view_name)
-            escaped_symbol = symbol.replace("'", "''")
-            conn.execute(
-                f"CREATE VIEW {quoted_view_name} AS"  # noqa: S608
-                f" SELECT {quoted_columns} FROM rates"
-                f" WHERE symbol = '{escaped_symbol}'"
-                f" AND timeframe = {timeframe}",
-            )
 
 
 def _stream_symbol_frames(
@@ -2244,7 +1726,6 @@ def _finalize_incremental_writes(
     dedup_scopes: dict[Dataset, list[DedupScope]],
     *,
     deduplicate: bool,
-    create_rate_views: bool,
     with_views: bool,
 ) -> None:
     augment_written_columns_from_sqlite(conn, selected_datasets, written_columns)
@@ -2256,8 +1737,6 @@ def _finalize_incremental_writes(
             written_tables,
             dedup_scopes,
         )
-    if create_rate_views and Dataset.rates in written_tables:
-        create_rate_compatibility_views(conn)
     if with_views and Dataset.history_deals in selected_datasets:
         if Dataset.history_deals in written_columns:
             deal_columns = written_columns[Dataset.history_deals]
@@ -2283,7 +1762,6 @@ def write_incremental_datasets(  # noqa: PLR0913
     end_date: datetime,
     *,
     deduplicate: bool,
-    create_rate_views: bool,
     with_views: bool,
     include_account_events: bool,
 ) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
@@ -2358,7 +1836,6 @@ def write_incremental_datasets(  # noqa: PLR0913
         written_tables,
         dedup_scopes,
         deduplicate=deduplicate,
-        create_rate_views=create_rate_views,
         with_views=with_views,
     )
     return written_tables, written_columns
@@ -2557,7 +2034,6 @@ def update_history(  # noqa: PLR0913
     lookback_hours: float = 24.0,
     date_to: datetime | str | None = None,
     deduplicate: bool = True,
-    create_rate_views: bool = True,
     with_views: bool = False,
     include_account_events: bool = True,
 ) -> None:
@@ -2584,7 +2060,6 @@ def update_history(  # noqa: PLR0913
         lookback_hours: First-run lookback when a table has no prior rows.
         date_to: Optional update end datetime. Defaults to now (UTC).
         deduplicate: Remove duplicate rows after append, keeping latest ROWID.
-        create_rate_views: Create ``rate_<symbol>__<timeframe>`` views.
         with_views: Create ``cash_events`` and ``positions_reconstructed`` views.
         include_account_events: Include account-level cash events in
             ``history_deals`` when True.
@@ -2622,8 +2097,7 @@ def update_history(  # noqa: PLR0913
                 request.fallback_start,
                 request.end,
                 deduplicate=deduplicate,
-                create_rate_views=create_rate_views,
-                with_views=with_views,
+                        with_views=with_views,
                 include_account_events=include_account_events,
             )
             m.add_history_rows(conn.total_changes - before, dataset="history")
@@ -2640,7 +2114,6 @@ def update_history_with_config(  # noqa: PLR0913
     lookback_hours: float = 24.0,
     date_to: datetime | str | None = None,
     deduplicate: bool = True,
-    create_rate_views: bool = True,
     with_views: bool = False,
     include_account_events: bool = True,
 ) -> None:
@@ -2670,8 +2143,7 @@ def update_history_with_config(  # noqa: PLR0913
             lookback_hours=lookback_hours,
             date_to=date_to,
             deduplicate=deduplicate,
-            create_rate_views=create_rate_views,
-            with_views=with_views,
+                with_views=with_views,
             include_account_events=include_account_events,
         )
 
