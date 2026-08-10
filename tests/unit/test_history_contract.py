@@ -16,6 +16,7 @@ from mt5cli.utils import Dataset, IfExists
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from unittest.mock import Mock
 
     from pytest_mock import MockerFixture
 
@@ -182,7 +183,7 @@ def _patch_account_event_dependencies(
     *,
     written: bool,
     columns: set[str],
-) -> tuple[datetime, object]:
+) -> tuple[datetime, Mock]:
     start = datetime(2024, 1, 1, tzinfo=UTC)
     mocker.patch(
         "mt5cli.history.load_incremental_start_datetimes",
