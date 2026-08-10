@@ -22,10 +22,7 @@ from .history import (
 from .history import (
     update_history_with_config as _legacy_update_history_with_config,
 )
-from .schemas import (
-    DataKind,
-    normalize_time_columns,
-)
+from .schemas import DataKind, normalize_time_columns
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -84,7 +81,6 @@ def _load_canonical_rate_target(
     return result.sort_index(kind="stable")
 
 
-
 def _load_explicit_rate_series(
     conn_or_path: SqliteConnOrPath,
     targets: Sequence[RateTarget] | None,
@@ -118,7 +114,6 @@ def _load_explicit_rate_series(
         key: load_rate_data(conn_or_path, table_name, count=count)
         for key, table_name in zip(keys, tables, strict=True)
     }
-
 
 
 if TYPE_CHECKING:
@@ -165,8 +160,8 @@ def load_rate_series_from_sqlite(
     """Load rate series from canonical storage or an explicit custom table.
 
     Normal symbol/timeframe targets query the normalized ``rates`` table
-    directly. Explicit custom table loading remains supported without restoring
-    per-series compatibility-view discovery.
+    directly. Explicit custom table loading remains supported without managed
+    per-series table discovery.
 
     Returns:
         One explicit-table frame or target-keyed normalized rate frames.
@@ -258,8 +253,6 @@ def load_rate_series_by_granularity(
     }
 
 
-
-
 def update_history(
     *,
     client: HistoryClient,
@@ -274,11 +267,7 @@ def update_history(
     with_views: bool = False,
     include_account_events: bool = True,
 ) -> None:
-    """Incrementally update history without creating rate compatibility views.
-
-    The stable wrapper preserves the existing update contract while forcing the
-    canonical normalized-rate model and removing stale compatibility views.
-    """
+    """Incrementally update canonical SQLite history."""
     _legacy_update_history(
         client=client,
         output=output,
@@ -308,7 +297,7 @@ def update_history_with_config(
     with_views: bool = False,
     include_account_events: bool = True,
 ) -> None:
-    """Update managed-session history without rate compatibility views."""
+    """Update canonical history with a managed MT5 session."""
     _legacy_update_history_with_config(
         output=output,
         symbols=symbols,
@@ -325,7 +314,7 @@ def update_history_with_config(
 
 
 class ThrottledHistoryUpdater(_LegacyThrottledHistoryUpdater):
-    """Throttle canonical history updates without legacy rate views."""
+    """Throttle canonical history updates."""
 
     def __init__(
         self,
