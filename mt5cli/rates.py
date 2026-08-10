@@ -82,7 +82,12 @@ def _rates_contain_aware_timestamp_text(conn: sqlite3.Connection) -> bool:
 
 
 def _validate_rate_timestamp_contract(conn: sqlite3.Connection) -> None:
-    """Reject legacy or unknown canonical timestamp representations."""
+    """Reject legacy or unknown canonical timestamp representations.
+
+    Raises:
+        ValueError: If persisted metadata is unsupported or an unversioned rates
+            table contains timezone-aware timestamp text with ambiguous semantics.
+    """
     if not get_table_columns(conn, "rates"):
         return
     contract = _read_rate_timestamp_contract(conn)
@@ -96,8 +101,8 @@ def _validate_rate_timestamp_contract(conn: sqlite3.Connection) -> None:
             "The canonical rates table uses an unversioned timezone-aware timestamp "
             "representation that may have been created by mt5cli <= 1.4.1, which "
             "silently relabeled pdmt5 trade-server wall-clock values as UTC. "
-            "Recreate or explicitly migrate this history database before loading "
-            "or incrementally updating it."
+            "Recreate or explicitly migrate this history database before "
+            "incrementally updating it."
         )
         raise ValueError(msg)
 
@@ -107,16 +112,19 @@ def _validate_existing_rate_database(output: Path | str) -> None:
     path = Path(output)
     if not path.exists():
         return
-    conn, should_close = _open_existing_sqlite_database(path)
+    conn, _ = _open_existing_sqlite_database(path)
     try:
         _validate_rate_timestamp_contract(conn)
     finally:
-        if should_close:
-            conn.close()
+        conn.close()
 
 
 def _mark_rate_timestamp_contract(output: Path | str) -> None:
-    """Persist the canonical timestamp contract after a successful rate write."""
+    """Persist the canonical timestamp contract after a successful rate write.
+
+    Raises:
+        ValueError: If the database already declares an unsupported contract.
+    """
     path = Path(output)
     if not path.exists():
         return
