@@ -24,10 +24,11 @@ in pdmt5 — the name changed, it was not simply moved.
 
 Downstream packages should import from the package root (`from mt5cli import
 ...`). The contract set `STABLE_SDK_EXPORTS` in `mt5cli.contract` enumerates
-every package-root symbol. Lower-level helpers (schema utilities, export
-functions, parser helpers, low-level MT5 wrappers) are available directly from
-their owning modules (`mt5cli.schemas`, `mt5cli.utils`, `mt5cli.converters`,
-`mt5cli.marketdata`, etc.) and are not part of the root SDK surface.
+every package-root symbol. Helpers promoted for downstream use, including
+configuration types, selected parsing utilities, history timeframe resolution,
+and Grafana schema setup, are part of that root contract. Other low-level
+schema, export, conversion, and implementation helpers remain available only
+from their owning modules.
 
 ### Module responsibility map
 
@@ -59,7 +60,9 @@ These names are exported from `mt5cli` and enumerated in
 | Symbol                                          | Role                                                                                                                                                                                                                                                                              |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MT5Client`                                     | The single connected client for data, history, calculations, order checking, and order sending                                                                                                                                                                                    |
-| `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True` |
+| `Mt5Config`                                     | Stable connection-configuration type re-exported by mt5cli so downstream applications do not import pdmt5 directly                                                                                                                                                               |
+| `build_config`                                  | Build `Mt5Config` from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True`        |
+| `substitute_mapping_values`                     | Generic selected-key environment substitution for downstream configuration adapters                                                                                                                                                                                               |
 | `mt5_session`                                   | Canonical context manager: initialize/login once, yield `MT5Client`, shut down once; a supplied `client=` remains caller-owned.                                                                                                                                                   |
 | `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                          |
 | `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                            |
@@ -92,6 +95,11 @@ timestamp normalization in downstream apps.
 
 See [History Collection (SQLite)](history.md) for schema, view naming, and ER
 diagrams.
+
+Shared package-root helpers used by downstream adapters include `Dataset`,
+`parse_timeframe`, and `resolve_history_timeframes`. These are stable exports;
+downstream applications should not import them from `mt5cli.utils` or
+`mt5cli.history`.
 
 ### Trading and sizing primitives (generic)
 
@@ -230,8 +238,9 @@ workflows call the facade's canonical data methods (`account_info`, `positions`,
 | `grafana_realized_pnl` | Cumulative realized PnL per symbol    |
 | `grafana_trade_stats`  | Win/loss counts and profit per symbol |
 
-Lower-level helpers (`ensure_grafana_schema`, `create_grafana_views`,
-`create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`,
+`ensure_grafana_schema` is a stable package-root helper for downstream setup.
+Other lower-level helpers (`create_grafana_views`, `create_grafana_indexes`,
+`create_snapshot_tables`, `start_snapshot_run`,
 `insert_account_snapshot`, `insert_position_snapshots`, `insert_order_snapshots`,
 `insert_terminal_snapshot`, `record_snapshot_run`) are available directly from
 `mt5cli.grafana` and are not part of the package-root stable surface.
