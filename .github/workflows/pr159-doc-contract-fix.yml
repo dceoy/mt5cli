@@ -21,26 +21,23 @@ jobs:
         shell: bash
         run: |
           python <<'PY'
-          import re
           from pathlib import Path
 
           path = Path("README.md")
           text = path.read_text()
-          text = text.replace(
-              "- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. The package-root wrapper uses canonical normalized rates and removes legacy `rate_*` compatibility views.\n",
-              "- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. Rates are persisted only in the canonical normalized `rates` table.\n",
-          )
-          text = re.sub(r"^- \*\*Rate compatibility views:\*\*.*\n", "", text, flags=re.MULTILINE)
-          text = re.sub(r"^- \*\*Rate view resolution:\*\*.*\n", "", text, flags=re.MULTILINE)
-          text = text.replace(
-              "- **Rate view loading**: use `load_rate_data()` / `load_rate_data_from_connection()` to load a SQLite rate table or view into a `DatetimeIndex` DataFrame.\n",
-              "- **Explicit table loading**: use `load_rate_data()` / `load_rate_data_from_connection()` to load an intentionally named custom SQLite rate table into a `DatetimeIndex` DataFrame.\n",
-          )
-          text = text.replace(
-              "Pass `explicit_tables` when loading named legacy tables or views; duplicate `(symbol, timeframe)` targets are rejected.",
-              "Pass `explicit_tables` only when loading intentionally named custom tables; duplicate `(symbol, timeframe)` targets are rejected.",
-          )
-          path.write_text(text)
+          start = text.index("- **`collect-history`**:")
+          end = text.index("- **Multi-account latest rates**:", start)
+          replacement = '''- **`collect-history`**: explicit date-range export into SQLite.
+          - **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. Rates are persisted only in the canonical normalized `rates` table.
+          - **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
+          - **Explicit table loading**: use `load_rate_data()` / `load_rate_data_from_connection()` for intentionally named custom SQLite rate tables.
+          - **Multi-series rate loading**: use `build_rate_targets()` to build neutral `RateTarget(symbol, timeframe)` pairs and `load_rate_series_from_sqlite()` to load canonical `rates` rows into a mapping keyed by `(symbol, integer timeframe)`. Pass `explicit_tables` only for intentionally named custom tables; duplicate `(symbol, timeframe)` targets are rejected.
+          '''
+          replacement = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in replacement.splitlines()
+          ) + "\n"
+          path.write_text(text[:start] + replacement + text[end:])
 
           path = Path("docs/api/history.md")
           text = path.read_text()
@@ -93,15 +90,49 @@ jobs:
           low-level explicit-table reads. These helpers validate that `time` exists and
           return an ascending `DatetimeIndex` named `time`.
           '''
-          replacement = "\n".join(line[10:] if line.startswith("          ") else line for line in replacement.splitlines()) + "\n"
-          text = text[:start] + replacement + text[end:]
-          path.write_text(text)
+          replacement = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in replacement.splitlines()
+          ) + "\n"
+          path.write_text(text[:start] + replacement + text[end:])
+
+          path = Path("docs/index.md")
+          text = path.read_text()
+          text = text.replace(
+              "- **SQLite rate loading**: Load mt5cli-managed rate tables/views for offline workflows",
+              "- **SQLite rate loading**: Load canonical normalized `rates` series for offline workflows",
+          )
+          text = text.replace(
+              "from mt5cli.history import load_rate_data, resolve_rate_view_name",
+              "from mt5cli import build_rate_targets, load_rate_series_from_sqlite",
+          )
+          old = '''# Offline rate loading from mt5cli-managed SQLite history
+          view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1", require_existing=True)
+          offline_rates = load_rate_data(Path("history.db"), view, count=1000)
+          '''
+          old = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in old.splitlines()
+          ) + "\n"
+          new = '''# Offline rate loading from canonical normalized SQLite history
+          targets = build_rate_targets(["EURUSD"], ["M1"])
+          offline_rates = load_rate_series_from_sqlite(
+              Path("history.db"), targets, count=1000
+          )["EURUSD", 1]
+          '''
+          new = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in new.splitlines()
+          ) + "\n"
+          if old not in text:
+              raise SystemExit("docs/index.md offline-rate example not found")
+          path.write_text(text.replace(old, new, 1))
 
           path = Path("docs/api/public-contract.md")
           text = path.read_text()
           text = text.replace(
-              "| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for a rate table or legacy view                    |",
-              "| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for the canonical rates table or an explicit custom table |",
+              "SQLite-only one-row-per-gap report for a rate table or legacy view",
+              "SQLite-only one-row-per-gap report for the canonical rates table or an explicit custom table",
           )
           text = text.replace(
               "See [History Collection (SQLite)](history.md) for schema, view naming, and ER\ndiagrams.",
@@ -114,8 +145,14 @@ jobs:
               "resolve_rate_view_names",
               "resolve_rate_tables",
               "Rate compatibility views",
+              "mt5cli-managed rate tables/views",
           )
-          for filename in ("README.md", "docs/api/history.md", "docs/api/public-contract.md"):
+          for filename in (
+              "README.md",
+              "docs/api/history.md",
+              "docs/api/public-contract.md",
+              "docs/index.md",
+          ):
               content = Path(filename).read_text()
               found = [token for token in stale if token in content]
               if found:
