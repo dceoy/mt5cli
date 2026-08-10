@@ -539,6 +539,7 @@ class TestStableSdkContract:
 @pytest.mark.parametrize(
     "name",
     [
+        "Mt5Config",
         "Mt5RuntimeError",
         "Mt5DataClient",
         "TIMEFRAME_MAP",

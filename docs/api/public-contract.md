@@ -24,9 +24,9 @@ in pdmt5 — the name changed, it was not simply moved.
 
 Downstream packages should import from the package root (`from mt5cli import
 ...`). The contract set `STABLE_SDK_EXPORTS` in `mt5cli.contract` enumerates
-every package-root symbol. Helpers promoted for downstream use, including
-configuration types, selected parsing utilities, history timeframe resolution,
-and Grafana schema setup, are part of that root contract. Other low-level
+every package-root symbol. Helpers promoted for downstream use, including selected configuration and
+parsing utilities, history timeframe resolution, and Grafana schema setup, are
+part of that root contract. Other low-level
 schema, export, conversion, and implementation helpers remain available only
 from their owning modules.
 
@@ -60,8 +60,7 @@ These names are exported from `mt5cli` and enumerated in
 | Symbol                                          | Role                                                                                                                                                                                                                                                                              |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MT5Client`                                     | The single connected client for data, history, calculations, order checking, and order sending                                                                                                                                                                                    |
-| `Mt5Config`                                     | Stable connection-configuration type re-exported by mt5cli so downstream applications do not import pdmt5 directly                                                                                                                                                               |
-| `build_config`                                  | Build `Mt5Config` from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True`        |
+| `build_config`                                  | Build the underlying MT5 connection config from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True`        |
 | `substitute_mapping_values`                     | Generic selected-key environment substitution for downstream configuration adapters                                                                                                                                                                                               |
 | `mt5_session`                                   | Canonical context manager: initialize/login once, yield `MT5Client`, shut down once; a supplied `client=` remains caller-owned.                                                                                                                                                   |
 | `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                          |
