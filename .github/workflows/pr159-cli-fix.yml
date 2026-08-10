@@ -17,26 +17,52 @@ jobs:
         with:
           ref: agent/fix-maintenance-issues
           fetch-depth: 0
-      - name: Simplify canonical history-gaps export
+      - name: Simplify canonical CLI contracts
         shell: python
         run: |
+          import re
           from pathlib import Path
 
           path = Path("mt5cli/cli.py")
           text = path.read_text()
-          old = '''    df = (
-              pd.concat(frames, ignore_index=True)
-              if frames
-              else pd.DataFrame(columns=["table"])
+          pattern = re.compile(
+              r'    df = \(\n'
+              r'        pd\.concat\(frames, ignore_index=True\)\n'
+              r'        if frames\n'
+              r'        else pd\.DataFrame\(columns=\["table"\]\)\n'
+              r'    \)\n'
+              r'    _execute_export\(ctx, lambda: df\)'
           )
-          _execute_export(ctx, lambda: df)
-          '''
-          new = '''    df = pd.concat(frames, ignore_index=True)
-          _execute_export(ctx, lambda: df)
-          '''
-          if old not in text:
+          text, count = pattern.subn(
+              '    df = pd.concat(frames, ignore_index=True)\n'
+              '    _execute_export(ctx, lambda: df)',
+              text,
+              count=1,
+          )
+          if count != 1:
               raise SystemExit("history-gaps concat block not found")
-          path.write_text(text.replace(old, new, 1))
+          path.write_text(text)
+
+          bats = Path("tests/cli/test_cli.bats")
+          text = bats.read_text()
+          old = '''    conn.execute('CREATE TABLE "rate_EURUSD__M1_1"(time TEXT, close REAL)')
+              conn.executemany(
+                  'INSERT INTO "rate_EURUSD__M1_1"(time, close) VALUES (?, ?)',
+                  [("2024-01-01T00:00:00+00:00", 1.0), ("2024-01-01T00:02:00+00:00", 1.1)],
+              )'''
+          new = '''    conn.execute(
+                  'CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)'
+              )
+              conn.executemany(
+                  'INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)',
+                  [
+                      ("EURUSD", 1, "2024-01-01T00:00:00", 1.0),
+                      ("EURUSD", 1, "2024-01-01T00:02:00", 1.1),
+                  ],
+              )'''
+          if old not in text:
+              raise SystemExit("legacy Bats seed block not found")
+          bats.write_text(text.replace(old, new, 1))
       - name: Commit cleanup
         shell: bash
         run: |
@@ -44,5 +70,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Simplify canonical history-gaps export"
+          git commit -m "Align canonical history-gaps CLI"
           git push origin HEAD:agent/fix-maintenance-issues
