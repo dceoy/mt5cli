@@ -37,7 +37,6 @@ from mt5cli.trading import (
     _snapshot_from_value,  # type: ignore[reportPrivateUsage]
     calculate_account_projected_margin_ratio,
     calculate_margin_and_volume,
-    calculate_new_position_margin_ratio,
     calculate_positions_margin,
     calculate_positions_margin_by_symbol,
     calculate_positions_margin_safe,
