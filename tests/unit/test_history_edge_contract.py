@@ -51,6 +51,25 @@ def test_gap_report_uses_explicit_interval_for_custom_table() -> None:
     assert list(report["missing_intervals"]) == [1]
 
 
+def test_gap_report_infers_supported_canonical_timeframe() -> None:
+    """Canonical rate rows infer a supported timeframe and continue normally."""
+    with sqlite3.connect(":memory:") as conn:
+        conn.execute(
+            "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
+        )
+        conn.executemany(
+            "INSERT INTO rates VALUES (?, ?, ?, ?)",
+            [
+                ("EURUSD", 1, "2024-01-01T00:00:00", 1.0),
+                ("EURUSD", 1, "2024-01-01T00:02:00", 1.1),
+            ],
+        )
+        report = history.report_rate_gaps(conn, "rates")
+
+    assert list(report["granularity_seconds"]) == [60]
+    assert list(report["missing_intervals"]) == [1]
+
+
 def test_managed_update_returns_when_request_resolves_to_none(
     mocker: MockerFixture,
     tmp_path: Path,
