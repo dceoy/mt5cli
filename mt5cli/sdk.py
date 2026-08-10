@@ -5,7 +5,6 @@
 from pdmt5.dataframe import Mt5Config
 
 from .client import MT5Client, build_config, mt5_session, substitute_mapping_values
-from .contract import ObservabilityClient
 from .exceptions import (
     Mt5CliError,
     Mt5ConnectionError,
