@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -15,6 +14,7 @@ from mt5cli import cli, history
 from mt5cli.utils import Dataset, IfExists
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
     from pathlib import Path
     from unittest.mock import Mock
 
@@ -65,7 +65,10 @@ def test_sqlite_timestamp_edge_contracts() -> None:
     )
 
     frame = pd.DataFrame({"close": [1.0]})
-    pd.testing.assert_frame_equal(history._canonicalize_sqlite_time_columns(frame), frame)
+    pd.testing.assert_frame_equal(
+        history._canonicalize_sqlite_time_columns(frame),
+        frame,
+    )
 
 
 def test_write_ticks_dataset_preserves_empty_frames(
