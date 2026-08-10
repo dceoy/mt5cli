@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
+    from mt5cli.contract import HistoryClient
+
 
 def _create_rates_table(path: Path, *times: str) -> None:
     """Create a minimal canonical rates table with the requested timestamps."""
@@ -157,7 +159,7 @@ def test_update_history_fails_before_touching_legacy_database(
 
     with pytest.raises(ValueError, match="Recreate or explicitly migrate"):
         rates.update_history(
-            client=cast("object", object()),  # type: ignore[arg-type]
+            client=cast("HistoryClient", object()),
             output=path,
             symbols=["EURUSD"],
         )
@@ -177,7 +179,7 @@ def test_update_history_marks_successful_new_database(
 
     mocker.patch("mt5cli.rates._legacy_update_history", side_effect=write_rates)
     rates.update_history(
-        client=cast("object", object()),  # type: ignore[arg-type]
+        client=cast("HistoryClient", object()),
         output=path,
         symbols=["EURUSD"],
     )
