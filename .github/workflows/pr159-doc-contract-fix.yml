@@ -1,0 +1,130 @@
+name: Align PR 159 canonical rate docs
+
+on:
+  push:
+    branches:
+      - agent/fix-maintenance-issues
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-maintenance-issues
+          fetch-depth: 0
+      - name: Remove compatibility-view documentation
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+
+          path = Path("README.md")
+          text = path.read_text()
+          text = text.replace(
+              "- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. The package-root wrapper uses canonical normalized rates and removes legacy `rate_*` compatibility views.\n",
+              "- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. Rates are persisted only in the canonical normalized `rates` table.\n",
+          )
+          text = re.sub(r"^- \*\*Rate compatibility views:\*\*.*\n", "", text, flags=re.MULTILINE)
+          text = re.sub(r"^- \*\*Rate view resolution:\*\*.*\n", "", text, flags=re.MULTILINE)
+          text = text.replace(
+              "- **Rate view loading**: use `load_rate_data()` / `load_rate_data_from_connection()` to load a SQLite rate table or view into a `DatetimeIndex` DataFrame.\n",
+              "- **Explicit table loading**: use `load_rate_data()` / `load_rate_data_from_connection()` to load an intentionally named custom SQLite rate table into a `DatetimeIndex` DataFrame.\n",
+          )
+          text = text.replace(
+              "Pass `explicit_tables` when loading named legacy tables or views; duplicate `(symbol, timeframe)` targets are rejected.",
+              "Pass `explicit_tables` only when loading intentionally named custom tables; duplicate `(symbol, timeframe)` targets are rejected.",
+          )
+          path.write_text(text)
+
+          path = Path("docs/api/history.md")
+          text = path.read_text()
+          start = text.index("### Rate data loading\n")
+          end = text.index("\n## Throttled incremental history updates", start)
+          replacement = '''### Rate data loading
+
+The canonical managed rate store is the normalized `rates` table. Stable
+symbol/timeframe reads query that table directly; mt5cli does not create,
+discover, resolve, or maintain per-series `rate_*` compatibility views.
+
+Use `load_rate_series_from_sqlite()` or
+`load_rate_series_by_granularity()` for canonical managed data:
+
+```python
+from pathlib import Path
+
+from mt5cli import (
+    build_rate_targets,
+    load_rate_series_by_granularity,
+    load_rate_series_from_sqlite,
+)
+
+path = Path("history.db")
+targets = build_rate_targets(["EURUSD", "GBPUSD"], ["M1", "H1"])
+series = load_rate_series_from_sqlite(path, targets, count=1000)
+eurusd_m1 = series["EURUSD", 1]
+
+by_name = load_rate_series_by_granularity(
+    path,
+    symbols=["EURUSD", "GBPUSD"],
+    granularities=["M1", "H1"],
+    count=500,
+)
+eurusd_m1_named = by_name["EURUSD", "M1"]
+```
+
+Canonical reads apply `count` in SQLite and return the selected rows in
+chronological order. Each returned series uses an ascending `DatetimeIndex`
+named `time`. Timezone-naive MT5 trade-server wall-clock timestamps remain
+naive; explicitly timezone-aware timestamps preserve their instant and are
+normalized to UTC.
+
+`explicit_tables` and the single-table `table=` form are reserved for
+intentionally named custom tables. They do not discover or fall back to
+managed per-series views. Explicit table counts must match target counts, and
+duplicate `(symbol, timeframe)` targets are rejected.
+
+`load_rate_data()` / `load_rate_data_from_connection()` remain available for
+low-level explicit-table reads. These helpers validate that `time` exists and
+return an ascending `DatetimeIndex` named `time`.
+'''
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text)
+
+          path = Path("docs/api/public-contract.md")
+          text = path.read_text()
+          text = text.replace(
+              "| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for a rate table or legacy view                    |",
+              "| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for the canonical rates table or an explicit custom table |",
+          )
+          text = text.replace(
+              "See [History Collection (SQLite)](history.md) for schema, view naming, and ER\ndiagrams.",
+              "See [History Collection (SQLite)](history.md) for the canonical schema, loading contract, and ER diagrams.",
+          )
+          path.write_text(text)
+
+          stale = (
+              "resolve_rate_view_name",
+              "resolve_rate_view_names",
+              "resolve_rate_tables",
+              "Rate compatibility views",
+              "managed view",
+          )
+          for filename in ("README.md", "docs/api/history.md", "docs/api/public-contract.md"):
+              content = Path(filename).read_text()
+              found = [token for token in stale if token in content]
+              if found:
+                  raise SystemExit(f"stale rate-view docs remain in {filename}: {found}")
+      - name: Commit documentation cleanup
+        shell: bash
+        run: |
+          rm .github/workflows/pr159-doc-contract-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Align canonical rate documentation"
+          git push origin HEAD:agent/fix-maintenance-issues
