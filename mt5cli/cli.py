@@ -865,11 +865,7 @@ def history_gaps(
                     str(exc),
                     param_hint="--granularity-seconds",
                 ) from exc
-    df = (
-        pd.concat(frames, ignore_index=True)
-        if frames
-        else pd.DataFrame(columns=["table"])
-    )
+    df = pd.concat(frames, ignore_index=True)
     _execute_export(ctx, lambda: df)
 
 
