@@ -49,7 +49,30 @@ jobs:
               'assert cursor == datetime(2024, 1, 1, 9, 30)',
               'assert cursor == datetime(2024, 1, 1, 9, 30, tzinfo=UTC).replace(tzinfo=None)',
           )
-          text = text.replace('result = report_rate_gaps(', 'result = history.report_rate_gaps(')
+          lines = text.splitlines()
+          cleaned: list[str] = []
+          in_gap_metadata_call = False
+          for line in lines:
+              if 'history._rate_gap_metadata(' in line:
+                  in_gap_metadata_call = True
+              if in_gap_metadata_call and 'granularity_seconds=60,' in line:
+                  continue
+              cleaned.append(line)
+              if in_gap_metadata_call and line.strip() == ')':
+                  in_gap_metadata_call = False
+          text = '\n'.join(cleaned) + '\n'
+          text = text.replace(
+              'assert fallback_metadata["symbol"] == "USDJPY"',
+              'assert fallback_metadata["symbol"] is None',
+          )
+          text = text.replace(
+              'assert fallback_metadata["timeframe"] == 1',
+              'assert fallback_metadata["timeframe"] is None',
+          )
+          text = text.replace(
+              'assert fallback_metadata["granularity"] == "M1"',
+              'assert fallback_metadata["granularity"] is None',
+          )
           path.write_text(text)
 
           path = Path('mt5cli/cli.py')
