@@ -9,6 +9,8 @@ strategy responsibilities.
 
 from importlib.metadata import version
 
+from pdmt5 import Mt5Config
+
 from .client import MT5Client, build_config, mt5_session, substitute_mapping_values
 from .contract import STABLE_SDK_EXPORTS
 from .exceptions import (
