@@ -9,7 +9,7 @@ strategy responsibilities.
 
 from importlib.metadata import version as _package_version
 
-from pdmt5 import Mt5Config
+from pdmt5.dataframe import Mt5Config
 
 from .client import MT5Client, build_config, mt5_session, substitute_mapping_values
 from .exceptions import (
@@ -21,16 +21,11 @@ from .exceptions import (
 from .grafana import ensure_grafana_schema
 from .history import (
     RateTarget,
-    ThrottledHistoryUpdater,
     build_rate_targets,
     collect_history,
     drop_forming_rate_bar,
-    load_rate_series_by_granularity,
-    load_rate_series_from_sqlite,
     report_rate_gaps,
     resolve_history_timeframes,
-    update_history,
-    update_history_with_config,
 )
 from .marketdata import (
     AccountSpec,
@@ -42,6 +37,13 @@ from .marketdata import (
     resolve_account_specs,
 )
 from .observability import update_observability, update_observability_with_config
+from .rates import (
+    ThrottledHistoryUpdater,
+    load_rate_series_by_granularity,
+    load_rate_series_from_sqlite,
+    update_history,
+    update_history_with_config,
+)
 from .trading import (
     CalibrationStatus,
     ClockStatus,
