@@ -71,9 +71,9 @@ export_dataframe(closed_rates, Path("rates.csv"), "csv")
 
 # Offline rate loading from canonical normalized SQLite history
 targets = build_rate_targets(["EURUSD"], ["M1"])
-offline_rates = load_rate_series_from_sqlite(
-    Path("history.db"), targets, count=1000
-)["EURUSD", 1]
+offline_rates = load_rate_series_from_sqlite(Path("history.db"), targets, count=1000)[
+    "EURUSD", 1
+]
 
 # One-off helpers still work without instantiating a client
 ticks = recent_ticks("EURUSD", seconds=300)
@@ -183,7 +183,7 @@ applications should prefer dedicated closing helpers or their own risk controls.
 | Command           | Description                                                                                                                                                                                                                |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `collect-history` | Collect rates, history-orders, and history-deals (ticks and symbol metadata opt-in via `--dataset ticks` / `--dataset symbols`) for one or more symbols into a single SQLite database (optional cash-event/position views) |
-| `history-gaps`    | Export a SQLite-only one-row-per-gap report from managed rate legacy views without connecting to MT5                                                                                                                |
+| `history-gaps`    | Export a SQLite-only one-row-per-gap report from the canonical `rates` table or an explicit custom table without connecting to MT5                                                                                                                |
 
 ```bash
 mt5cli -o history.db collect-history \
