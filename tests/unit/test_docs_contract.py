@@ -27,5 +27,6 @@ def test_rate_docs_do_not_reference_removed_managed_views(
         "resolve_rate_tables",
         "Rate compatibility views",
         "mt5cli-managed rate tables/views",
+        "managed rate legacy views",
     )
     assert not any(token in text for token in stale_tokens)
