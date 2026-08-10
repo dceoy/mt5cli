@@ -90,7 +90,7 @@ def test_explicit_tables_reject_duplicate_target_keys() -> None:
 
 
 def test_explicit_table_sql_errors_are_translated(mocker: MockerFixture) -> None:
-    """SQLite errors from explicit custom tables use the stable ValueError surface."""
+    """SQLite errors from explicit tables use the stable ValueError surface."""
     mocker.patch(
         "mt5cli.rates._load_explicit_rate_series",
         side_effect=sqlite3.OperationalError("locked"),
@@ -104,7 +104,7 @@ def test_explicit_table_sql_errors_are_translated(mocker: MockerFixture) -> None
 
 
 def test_canonical_query_sql_errors_are_translated(mocker: MockerFixture) -> None:
-    """SQLite errors after opening canonical storage use the stable ValueError surface."""
+    """Canonical SQLite errors use the stable ValueError surface."""
     with sqlite3.connect(":memory:") as conn:
         mocker.patch(
             "mt5cli.rates._load_canonical_rate_target",
