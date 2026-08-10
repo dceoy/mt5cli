@@ -62,6 +62,7 @@ from mt5cli.history import (
 )
 from mt5cli.utils import Dataset, IfExists, parse_timeframe
 
+_TEST_DATE_TO = datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
 _DEALS_FIXTURE: dict[str, list[object]] = {
     "ticket": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
     "position_id": [100, 100, 100, 0, 200, 200, 300, 400, 400, 500, 500, 600, 600, 600],
@@ -2770,6 +2771,7 @@ class TestUpdateHistory:
                     "symbols": ["EURUSD"],
                     "datasets": {Dataset.rates},
                     "timeframes": ["BAD"],
+                    "date_to": _TEST_DATE_TO,
                 },
                 "Invalid timeframe",
             ),
@@ -2778,6 +2780,7 @@ class TestUpdateHistory:
                     "symbols": ["EURUSD"],
                     "datasets": {Dataset.ticks},
                     "flags": "BAD",
+                    "date_to": _TEST_DATE_TO,
                 },
                 "Invalid tick flags",
             ),
@@ -2978,35 +2981,21 @@ class TestUpdateHistory:
         mock_client.shutdown.assert_not_called()
         updater.assert_not_called()
 
-    def test_update_history_defaults_date_to_now(
+    def test_update_history_requires_explicit_server_time(
         self,
         connected_client: MagicMock,
-        mocker: MockerFixture,
         tmp_path: Path,
     ) -> None:
-        """Test update_history uses naive server time when date_to is omitted."""
-        captured: dict[str, datetime] = {}
-
-        def capture(
-            *args: object,
-            **_kwargs: object,
-        ) -> tuple[set[Dataset], dict[Dataset, set[str]]]:
-            captured["end"] = args[7]  # type: ignore[assignment]
-            return set(), {}
-
-        mocker.patch("mt5cli.history.write_incremental_datasets", side_effect=capture)
-        before = datetime.now()  # noqa: DTZ005 - default is naive host wall-clock time.
-        update_history(
-            client=connected_client,
-            output=tmp_path / "now-default.db",
-            symbols=["EURUSD"],
-            datasets={Dataset.rates},
-            timeframes=["M1"],
-            lookback_hours=12,
-        )
-        after = datetime.now()  # noqa: DTZ005 - default is naive host wall-clock time.
-        assert before <= captured["end"] <= after
-        assert captured["end"].tzinfo is None
+        """Test update_history rejects an unknown server-time end."""
+        with pytest.raises(ValueError, match="date_to is required"):
+            update_history(
+                client=connected_client,
+                output=tmp_path / "missing-date-to.db",
+                symbols=["EURUSD"],
+                datasets={Dataset.rates},
+                timeframes=["M1"],
+                lookback_hours=12,
+            )
 
     def test_update_history_default_datasets_exclude_ticks(
         self,
@@ -3055,8 +3044,8 @@ class TestThrottledHistoryUpdater:
         client = MagicMock()
         updater = ThrottledHistoryUpdater(output="history.db", interval_seconds=0)
 
-        assert updater.update(client, ["EURUSD"]) is True
-        assert updater.update(client, ["EURUSD"]) is True
+        assert updater.update(client, ["EURUSD"], date_to=_TEST_DATE_TO) is True
+        assert updater.update(client, ["EURUSD"], date_to=_TEST_DATE_TO) is True
         assert update.call_count == 2
 
     def test_throttles_within_interval(self, mocker: MockerFixture) -> None:
@@ -3068,9 +3057,15 @@ class TestThrottledHistoryUpdater:
         client = MagicMock()
         updater = ThrottledHistoryUpdater(output="history.db", interval_seconds=60)
 
-        assert updater.update(client, ["EURUSD"]) is True  # first update at t=100
-        assert updater.update(client, ["EURUSD"]) is False  # t=105, throttled
-        assert updater.update(client, ["EURUSD"]) is True  # t=200, elapsed
+        assert (
+            updater.update(client, ["EURUSD"], date_to=_TEST_DATE_TO) is True
+        )  # first update at t=100
+        assert (
+            updater.update(client, ["EURUSD"], date_to=_TEST_DATE_TO) is False
+        )  # t=105, throttled
+        assert (
+            updater.update(client, ["EURUSD"], date_to=_TEST_DATE_TO) is True
+        )  # t=200, elapsed
         assert update.call_count == 2
 
     def test_update_passes_expected_arguments(
@@ -3090,7 +3085,7 @@ class TestThrottledHistoryUpdater:
             include_account_events=False,
         )
 
-        updater.update(client, ["EURUSD", "GBPUSD"])
+        updater.update(client, ["EURUSD", "GBPUSD"], date_to=_TEST_DATE_TO)
 
         update.assert_called_once_with(
             client=client,
@@ -3100,6 +3095,7 @@ class TestThrottledHistoryUpdater:
             timeframes=["M1", "H1"],
             flags="INFO",
             lookback_hours=12.0,
+            date_to=_TEST_DATE_TO,
             with_views=True,
             include_account_events=False,
         )
@@ -3113,7 +3109,7 @@ class TestThrottledHistoryUpdater:
         updater = ThrottledHistoryUpdater(output="history.db")
 
         with pytest.raises(Mt5RuntimeError, match="boom"):
-            updater.update(MagicMock(), ["EURUSD"])
+            updater.update(MagicMock(), ["EURUSD"], date_to=_TEST_DATE_TO)
 
         assert updater.last_update_monotonic is None
 
@@ -3142,7 +3138,7 @@ class TestThrottledHistoryUpdater:
             suppress_errors=True,
         )
 
-        assert updater.update(MagicMock(), ["EURUSD"]) is False
+        assert updater.update(MagicMock(), ["EURUSD"], date_to=_TEST_DATE_TO) is False
         assert updater.last_update_monotonic is None
 
     @pytest.mark.parametrize(
@@ -3168,7 +3164,7 @@ class TestThrottledHistoryUpdater:
         )
 
         with pytest.raises(type(error)):
-            updater.update(MagicMock(), ["EURUSD"])
+            updater.update(MagicMock(), ["EURUSD"], date_to=_TEST_DATE_TO)
 
         assert updater.last_update_monotonic is None
 
@@ -3184,6 +3180,20 @@ class TestThrottledHistoryUpdater:
         )
 
         assert updater.update(MagicMock(), []) is False
+        update.assert_not_called()
+        assert updater.last_update_monotonic is None
+
+    def test_requires_explicit_server_time_before_backend(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test throttled updates reject an unknown server-time end."""
+        update = mocker.patch("mt5cli.history.update_history")
+        updater = ThrottledHistoryUpdater(output="history.db")
+
+        with pytest.raises(ValueError, match="date_to is required"):
+            updater.update(MagicMock(), ["EURUSD"])
+
         update.assert_not_called()
         assert updater.last_update_monotonic is None
 
@@ -3217,7 +3227,7 @@ class TestThrottledHistoryUpdater:
 
         assert updater.update_backend is falsy_backend
         client = MagicMock()
-        assert updater.update(client, ["EURUSD"]) is True
+        assert updater.update(client, ["EURUSD"], date_to=_TEST_DATE_TO) is True
         assert len(falsy_backend.calls) == 1
         assert falsy_backend.calls[0]["client"] is client
         assert falsy_backend.calls[0]["symbols"] == ["EURUSD"]
@@ -3241,7 +3251,7 @@ class TestThrottledHistoryUpdater:
             update_backend=backend,
         )
 
-        updater.update(client, ["EURUSD", "GBPUSD"])
+        updater.update(client, ["EURUSD", "GBPUSD"], date_to=_TEST_DATE_TO)
 
         backend.assert_called_once_with(
             client=client,
@@ -3251,6 +3261,7 @@ class TestThrottledHistoryUpdater:
             timeframes=["M1", "H1"],
             flags="INFO",
             lookback_hours=12.0,
+            date_to=_TEST_DATE_TO,
             with_views=True,
             include_account_events=False,
         )
@@ -3270,9 +3281,9 @@ class TestThrottledHistoryUpdater:
             update_backend=backend,
         )
 
-        assert updater.update(client, ["EURUSD"]) is True
-        assert updater.update(client, ["EURUSD"]) is False
-        assert updater.update(client, ["EURUSD"]) is True
+        assert updater.update(client, ["EURUSD"], date_to=_TEST_DATE_TO) is True
+        assert updater.update(client, ["EURUSD"], date_to=_TEST_DATE_TO) is False
+        assert updater.update(client, ["EURUSD"], date_to=_TEST_DATE_TO) is True
         assert backend.call_count == 2
 
     def test_successful_custom_backend_advances_throttle(
@@ -3287,7 +3298,14 @@ class TestThrottledHistoryUpdater:
             update_backend=backend,
         )
 
-        assert updater.update(MagicMock(), ["EURUSD"]) is True
+        assert (
+            updater.update(
+                MagicMock(),
+                ["EURUSD"],
+                date_to=_TEST_DATE_TO,
+            )
+            is True
+        )
         assert updater.last_update_monotonic is monotonic.return_value
         monotonic.assert_called_once()
 
@@ -3303,7 +3321,11 @@ class TestThrottledHistoryUpdater:
         )
 
         with pytest.raises(Mt5RuntimeError, match="boom"):
-            updater.update(MagicMock(), ["EURUSD"])
+            updater.update(
+                MagicMock(),
+                ["EURUSD"],
+                date_to=_TEST_DATE_TO,
+            )
 
         assert updater.last_update_monotonic is None
 
@@ -3329,10 +3351,21 @@ class TestThrottledHistoryUpdater:
             update_backend=backend,
         )
         if raises is None:
-            assert updater.update(MagicMock(), ["EURUSD"]) is False
+            assert (
+                updater.update(
+                    MagicMock(),
+                    ["EURUSD"],
+                    date_to=_TEST_DATE_TO,
+                )
+                is False
+            )
         else:
             with pytest.raises(raises, match="boom"):
-                updater.update(MagicMock(), ["EURUSD"])
+                updater.update(
+                    MagicMock(),
+                    ["EURUSD"],
+                    date_to=_TEST_DATE_TO,
+                )
         assert updater.last_update_monotonic is None
 
 
@@ -3359,6 +3392,7 @@ class TestUpdateHistoryTelemetry:
             client=mock_client,
             output=tmp_path / "hist.db",
             symbols=["EURUSD"],
+            date_to=_TEST_DATE_TO,
         )
         mock_metrics.record_history_update.assert_called_once_with(dataset="history")
 
@@ -3382,6 +3416,7 @@ class TestUpdateHistoryTelemetry:
             client=mock_client,
             output=tmp_path / "hist.db",
             symbols=["EURUSD"],
+            date_to=_TEST_DATE_TO,
         )
         mock_metrics.add_history_rows.assert_called_once_with(0, dataset="history")
 

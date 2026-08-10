@@ -87,14 +87,14 @@ timestamp normalization in downstream apps.
 
 ### SQLite history collection and rate loading
 
-| Symbol                                                            | Role                                                                                         |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `collect_history`                                                 | One-shot date-range export into SQLite                                                       |
-| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for the canonical rates table or an explicit custom table |
-| `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors                                                  |
-| `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; optional `update_backend` injection |
-| `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                             |
-| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load normalized `rates` series or explicit custom tables; reject invalid targets clearly     |
+| Symbol                                                            | Role                                                                                                             |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `collect_history`                                                 | One-shot date-range export into SQLite                                                                           |
+| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for the canonical rates table or an explicit custom table                     |
+| `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors; explicit naive trade-server `date_to` required                      |
+| `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; explicit `date_to`; optional `update_backend` injection |
+| `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                                                 |
+| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load normalized `rates` series or explicit custom tables; reject invalid targets clearly                         |
 
 See [History Collection (SQLite)](history.md) for the canonical schema, loading contract, and ER diagrams.
 

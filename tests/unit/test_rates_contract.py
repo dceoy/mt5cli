@@ -169,7 +169,12 @@ def test_update_history_forwards_canonical_arguments(
     client = mocker.MagicMock()
     output = tmp_path / "history.db"
 
-    rates.update_history(client=client, output=output, symbols=["EURUSD"])
+    rates.update_history(
+        client=client,
+        output=output,
+        symbols=["EURUSD"],
+        date_to="2024-01-02",
+    )
 
     backend.assert_called_once_with(
         client=client,
@@ -179,7 +184,7 @@ def test_update_history_forwards_canonical_arguments(
         timeframes=None,
         flags="ALL",
         lookback_hours=24.0,
-        date_to=None,
+        date_to="2024-01-02",
         deduplicate=True,
         with_views=False,
         include_account_events=True,
@@ -194,7 +199,11 @@ def test_update_history_with_config_forwards_canonical_arguments(
     backend = mocker.patch("mt5cli.rates._legacy_update_history_with_config")
     output = tmp_path / "history.db"
 
-    rates.update_history_with_config(output=output, symbols=["EURUSD"])
+    rates.update_history_with_config(
+        output=output,
+        symbols=["EURUSD"],
+        date_to="2024-01-02",
+    )
 
     backend.assert_called_once_with(
         output=output,
@@ -204,7 +213,7 @@ def test_update_history_with_config_forwards_canonical_arguments(
         timeframes=None,
         flags="ALL",
         lookback_hours=24.0,
-        date_to=None,
+        date_to="2024-01-02",
         deduplicate=True,
         with_views=False,
         include_account_events=True,

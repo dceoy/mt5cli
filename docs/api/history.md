@@ -24,6 +24,8 @@ All MT5 history query bounds are timezone-naive trade-server wall-clock
 datetimes, matching pdmt5. Offset-bearing strings and timezone-aware
 `datetime` values are rejected; incremental cursors and returned history
 frames use the same naive contract, and no broker-time conversion is inferred.
+Incremental updates require an explicit `date_to` because mt5cli cannot
+determine the current MT5 trade-server time.
 
 `ticks` and `symbols` are opt-in datasets (pass `--dataset ticks` /
 `--dataset symbols`); they are excluded from the default `rates`,
@@ -220,6 +222,8 @@ between successful runs (using a monotonic clock), so an application loop can
 call it every iteration without over-fetching.
 
 ```python
+from datetime import datetime
+
 from pdmt5 import Mt5Config
 
 from mt5cli import ThrottledHistoryUpdater, mt5_session
@@ -234,7 +238,11 @@ updater = ThrottledHistoryUpdater(
 
 with mt5_session(Mt5Config(login=12345)) as client:
     while True:
-        updater.update(client, ["EURUSD", "GBPUSD"])  # no-op until 60s elapse
+        updater.update(
+            client,
+            ["EURUSD", "GBPUSD"],
+            date_to=datetime(2024, 2, 1),
+        )  # no-op until 60s elapse
         # ... do other work; break when shutting down ...
 ```
 
@@ -242,7 +250,7 @@ Pass `update_backend` to substitute the default `update_history` implementation
 without monkey-patching `mt5cli.history.update_history`. The callable receives the
 same keyword arguments as `update_history` (`client`, `output`, `symbols`,
 `datasets`, `timeframes`, `flags`, `lookback_hours`, `with_views`,
-`include_account_events`). The resolved backend is stored on
+`date_to`, `include_account_events`). The resolved backend is stored on
 `updater.update_backend` for inspection or subclassing.
 
 ```python

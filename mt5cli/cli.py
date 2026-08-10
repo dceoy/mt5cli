@@ -587,9 +587,9 @@ def recent_history_deals(
     ctx: typer.Context,
     hours: Annotated[float, typer.Option(help="Lookback window in hours.")],
     date_to: Annotated[
-        datetime | None,
+        datetime,
         typer.Option(parser=_parse_datetime_parameter, help="Window end date."),
-    ] = None,
+    ],
     group: Annotated[str | None, typer.Option(help="Group filter.")] = None,
     symbol: Annotated[str | None, typer.Option(help="Symbol filter.")] = None,
 ) -> None:

@@ -171,14 +171,15 @@ def recent_window(
     Args:
         hours: Trailing window length in hours.
         seconds: Trailing window length in seconds.
-        date_to: Window end. Defaults to the host's naive wall-clock time.
+        date_to: Required naive MT5 trade-server window end.
 
     Returns:
         Tuple of timezone-naive ``(start, end)`` datetimes.
 
     Raises:
         ValueError: If neither or both window lengths are provided, a length is
-            not positive or ``date_to`` is timezone-aware.
+            not positive, ``date_to`` is omitted, or ``date_to`` is
+            timezone-aware.
     """
     if (hours is None) == (seconds is None):
         msg = "Provide exactly one of hours or seconds."
@@ -190,9 +191,13 @@ def recent_window(
     if length.total_seconds() <= 0:
         msg = "Window length must be positive."
         raise ValueError(msg)
-    end = (
-        ensure_trade_server_time(date_to) if date_to is not None else datetime.now()  # noqa: DTZ005 - pdmt5 expects server wall-clock time.
-    )
+    if date_to is None:
+        msg = (
+            "date_to is required because mt5cli cannot determine the current "
+            "MT5 trade-server time."
+        )
+        raise ValueError(msg)
+    end = ensure_trade_server_time(date_to)
     return end - length, end
 
 

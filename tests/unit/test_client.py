@@ -791,17 +791,10 @@ class TestMT5ClientMethods:
             position=None,
         )
 
-    def test_recent_history_deals_defaults_date_to_now(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test recent_history_deals uses naive server time by default."""
-        before = datetime.now()  # noqa: DTZ005 - default is naive host wall-clock time.
-        recent_history_deals(1.0)
-        after = datetime.now()  # noqa: DTZ005 - default is naive host wall-clock time.
-        call_kwargs = mock_client.history_deals_get_as_df.call_args.kwargs
-        assert before <= call_kwargs["date_to"] <= after
-        assert call_kwargs["date_from"] == call_kwargs["date_to"] - timedelta(hours=1)
+    def test_recent_history_deals_requires_explicit_server_time(self) -> None:
+        """Test recent_history_deals rejects an unknown server-time end."""
+        with pytest.raises(ValueError, match="date_to is required"):
+            MT5Client().recent_history_deals(1.0)
 
     def test_recent_history_deals_rejects_non_positive_hours(self) -> None:
         """Test recent_history_deals validates hours."""

@@ -193,14 +193,19 @@ and betting semantics belong in downstream applications.
 from mt5cli import mt5_session
 
 with mt5_session() as client:
-    deals_df = client.recent_history_deals(symbol="JP225", hours=24)
+    deals_df = client.recent_history_deals(
+        symbol="JP225",
+        hours=24,
+        date_to="2024-02-01",
+    )
 ```
 
-`hours` must be positive; `date_to` defaults to the host's naive wall-clock
-time. MT5 query bounds must be timezone-naive trade-server wall-clock values;
-offset-bearing strings and aware `datetime` objects are rejected because
-mt5cli has no validated UTC-to-server-time converter. An empty or `None` result
-from the underlying client is normalized to an empty DataFrame.
+`hours` must be positive and `date_to` must be an explicit naive MT5
+trade-server wall-clock end time. mt5cli cannot determine the current server
+time, so omitted `date_to` values are rejected. Offset-bearing strings and
+aware `datetime` objects are rejected because mt5cli has no validated
+UTC-to-server-time converter. An empty or `None` result from the underlying
+client is normalized to an empty DataFrame.
 
 Downstream packages own all strategy-specific transformations. mt5cli does not
 provide entry-deal classification, Kelly sizing, or any betting-specific helpers.

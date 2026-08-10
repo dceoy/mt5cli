@@ -224,6 +224,7 @@ def test_update_history_fails_before_touching_legacy_database(
             client=cast("HistoryClient", object()),
             output=path,
             symbols=["EURUSD"],
+            date_to="2024-01-02",
         )
 
     backend.assert_not_called()
@@ -248,6 +249,7 @@ def test_update_history_rejects_legacy_non_rates_database(
             client=cast("HistoryClient", object()),
             output=path,
             symbols=["EURUSD"],
+            date_to="2024-01-02",
         )
 
     backend.assert_not_called()
@@ -268,6 +270,7 @@ def test_update_history_marks_successful_new_database(
         client=cast("HistoryClient", object()),
         output=path,
         symbols=["EURUSD"],
+        date_to="2024-01-02",
     )
 
     with sqlite3.connect(path) as conn:

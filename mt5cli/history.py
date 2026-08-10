@@ -2027,9 +2027,13 @@ def _resolve_update_history_request(
         msg = "At least one symbol is required."
         raise ValueError(msg)
 
-    end = (
-        ensure_trade_server_time(date_to) if date_to is not None else datetime.now()  # noqa: DTZ005 - pdmt5 expects server wall-clock time.
-    )
+    if date_to is None:
+        msg = (
+            "date_to is required because mt5cli cannot determine the current "
+            "MT5 trade-server time."
+        )
+        raise ValueError(msg)
+    end = ensure_trade_server_time(date_to)
     fallback_start = end - timedelta(hours=lookback_hours)
     resolved_timeframes, resolved_tick_flags = _resolve_incremental_settings(
         selected,
@@ -2081,8 +2085,9 @@ def update_history(  # noqa: PLR0913
             timeframes when None).
         flags: Tick copy flags as integer or name (e.g. ``ALL``).
         lookback_hours: First-run lookback when a table has no prior rows.
-        date_to: Optional naive trade-server end datetime. Defaults to the
-            host's naive wall-clock time.
+        date_to: Optional naive trade-server end datetime. Required when any
+            datasets are selected because mt5cli cannot determine the current
+            MT5 trade-server time.
         deduplicate: Remove duplicate rows after append, keeping latest ROWID.
         with_views: Create ``cash_events`` and ``positions_reconstructed`` views.
         include_account_events: Include account-level cash events in
@@ -2228,7 +2233,8 @@ class ThrottledHistoryUpdater:
                 when :meth:`update` runs. Receives the same keyword arguments as
                 :func:`update_history` (``client``, ``output``, ``symbols``,
                 ``datasets``, ``timeframes``, ``flags``, ``lookback_hours``,
-                ``with_views``, ``include_account_events``). Defaults to
+                ``date_to``, ``with_views``, ``include_account_events``).
+                Defaults to
                 :func:`update_history`.
         """
         self.output = output
@@ -2262,12 +2268,21 @@ class ThrottledHistoryUpdater:
             return True
         return (time.monotonic() - self._last_update_monotonic) >= self.interval_seconds
 
-    def update(self, client: HistoryClient, symbols: Sequence[str]) -> bool:
+    def update(
+        self,
+        client: HistoryClient,
+        symbols: Sequence[str],
+        *,
+        date_to: datetime | str | None = None,
+    ) -> bool:
         """Run a throttled incremental history update.
 
         Args:
             client: Connected MT5 data client.
             symbols: Symbols to update.
+            date_to: Explicit naive MT5 trade-server end datetime. Required
+                when datasets are selected; mt5cli cannot determine the
+                current server time.
 
         Returns:
             True if an update ran successfully, False if it was throttled or
@@ -2286,7 +2301,7 @@ class ThrottledHistoryUpdater:
                 timeframes=self.timeframes,
                 flags=self.flags,
                 lookback_hours=self.lookback_hours,
-                date_to=None,
+                date_to=date_to,
             )
             self.update_backend(
                 client=client,
@@ -2296,6 +2311,7 @@ class ThrottledHistoryUpdater:
                 timeframes=self.timeframes,
                 flags=self.flags,
                 lookback_hours=self.lookback_hours,
+                date_to=date_to,
                 with_views=self.with_views,
                 include_account_events=self.include_account_events,
             )

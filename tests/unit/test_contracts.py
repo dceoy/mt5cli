@@ -214,11 +214,10 @@ def test_recent_window_success_cases(kwargs: dict[str, int]) -> None:
     assert start < end
 
 
-def test_recent_window_default_uses_naive_server_time() -> None:
-    """Recent windows without an end use naive server wall-clock time."""
-    start, end = recent_window(hours=1)
-    assert start.tzinfo is None
-    assert end.tzinfo is None
+def test_recent_window_requires_explicit_server_time() -> None:
+    """Recent windows reject an end that mt5cli cannot validate."""
+    with pytest.raises(ValueError, match="date_to is required"):
+        recent_window(hours=1)
 
 
 @pytest.mark.parametrize(

@@ -84,13 +84,15 @@ update_history_with_config(
     output="history.db",
     symbols=["EURUSD"],
     config=build_config(login=12345),
+    date_to=datetime(2024, 2, 1),
 )
 ```
 
 MT5 query bounds are timezone-naive trade-server wall-clock datetimes, as
-required by pdmt5. Offset-bearing strings and timezone-aware `datetime`
-objects are rejected; mt5cli does not infer or strip offsets to perform a
-conversion.
+required by pdmt5. Incremental history updates require an explicit `date_to`
+because mt5cli cannot determine the current trade-server time. Offset-bearing
+strings and timezone-aware `datetime` objects are rejected; mt5cli does not
+infer or strip offsets to perform a conversion.
 
 Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Export and storage helpers are in `mt5cli.utils` (`Dataset`, `export_dataframe`) and `mt5cli.history`.
 
@@ -311,6 +313,8 @@ OpenTelemetry metrics are documented in [`docs/api/telemetry.md`](docs/api/telem
 For automated pipelines, use the importable incremental API instead of re-fetching fixed date ranges:
 
 ```python
+from datetime import datetime
+
 from pdmt5 import Mt5Config
 from mt5cli import update_history_with_config
 from mt5cli.utils import Dataset
@@ -323,13 +327,14 @@ update_history_with_config(
     datasets={Dataset.rates, Dataset.history_deals},
     timeframes=["M1", "H1"],  # default: all fixed MT5 timeframes
     lookback_hours=24,
+    date_to=datetime(2024, 2, 1),
     with_views=True,
     include_account_events=True,
 )
 ```
 
 - **`collect-history`**: explicit date-range export into SQLite.
-- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. Rates are persisted only in the canonical normalized `rates` table.
+- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. Pass an explicit naive trade-server `date_to`; mt5cli cannot determine the current server time. Rates are persisted only in the canonical normalized `rates` table.
 - **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
 - **Explicit table loading**: use `load_rate_data()` / `load_rate_data_from_connection()` for intentionally named custom SQLite rate tables.
 - **Multi-series rate loading**: use `build_rate_targets()` to build neutral `RateTarget(symbol, timeframe)` pairs and `load_rate_series_from_sqlite()` to load canonical `rates` rows into a mapping keyed by `(symbol, integer timeframe)`. Pass `explicit_tables` only for intentionally named custom tables; duplicate `(symbol, timeframe)` targets are rejected.
@@ -349,7 +354,7 @@ eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 ```
 
 - **Credential resolution**: use `resolve_account_spec()` / `resolve_account_specs()` to merge explicit override values over `AccountSpec` fields and expand `${ENV_VAR}` placeholders (via `substitute_env_placeholders()`), raising `ValueError` for missing variables. This keeps secrets out of plan/config files without coupling to any strategy code. For config dicts or nested structures loaded from YAML/TOML, use `substitute_mapping_values(data, keys={"login", "password"})` to expand placeholders only for caller-specified keys — key names are never hard-coded in mt5cli.
-- **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, and `OSError` without advancing the throttle (`AttributeError` / `TypeError` always propagate, since the client passed to `update()` must implement the canonical `HistoryClient` method names). Pass `update_backend` to inject a custom history update callable (same keyword arguments as `update_history`) instead of monkey-patching `mt5cli.history.update_history`.
+- **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols, date_to=...)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, and `OSError` without advancing the throttle (`AttributeError` / `TypeError` always propagate, since the client passed to `update()` must implement the canonical `HistoryClient` method names). Pass `update_backend` to inject a custom history update callable (same keyword arguments as `update_history`) instead of monkey-patching `mt5cli.history.update_history`.
 - **Trading helpers**: use `mt5_session()` for both market data and generic execution helpers. It owns initialization and shutdown for sessions it creates; caller-supplied clients remain caller-owned.
 - **Granularity-keyed rate loading**: `load_rate_series_by_granularity()` builds targets with `build_rate_targets()`, loads them with `load_rate_series_from_sqlite()`, and returns a mapping keyed by `(symbol | None, granularity_name)` such as `("EURUSD", "M1")` to reduce downstream boilerplate.
 - **MT5 session helper**: use the `mt5_session()` context manager to attach to (or, when `Mt5Config.path` is set, launch) an MT5 terminal, log in, and yield a connected `MT5Client` that shuts down on exit.
@@ -407,7 +412,7 @@ updater = ThrottledHistoryUpdater(
     output="history.db", interval_seconds=60, suppress_errors=True
 )
 with mt5_session(Mt5Config(login=login)) as client:
-    updater.update(client, ["EURUSD"])
+    updater.update(client, ["EURUSD"], date_to="2024-02-01")
 ```
 
 Read-only collectors can keep using `mt5_session()` and `MT5Client`.

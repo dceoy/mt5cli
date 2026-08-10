@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeVar, cast
 import pandas as pd
 from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
 
-from .converters import ensure_trade_server_time
+from .converters import ensure_trade_server_time, recent_window
 from .exceptions import normalize_mt5_exception
 from .utils import coerce_login as _coerce_login
 from .utils import parse_tick_flags, parse_timeframe
@@ -773,12 +773,9 @@ class _BaseMT5Client:
         group: str | None = None,
         symbol: str | None = None,
     ) -> pd.DataFrame:
-        """Return historical deals from a naive server-time trailing window."""
+        """Return deals from a trailing window ending at explicit server time."""
         _require_positive(hours, "hours")
-        end = (
-            _require_datetime(date_to) if date_to is not None else datetime.now()  # noqa: DTZ005 - pdmt5 expects server wall-clock time.
-        )
-        start = end - timedelta(hours=hours)
+        start, end = recent_window(hours=hours, date_to=date_to)
         return self.history_deals(
             date_from=start,
             date_to=end,

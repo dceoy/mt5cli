@@ -419,6 +419,21 @@ class TestCommands:
             position=None,
         )
 
+    def test_recent_history_deals_requires_date_to(self, tmp_path: Path) -> None:
+        """Test recent-history-deals requires an explicit server-time end."""
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(tmp_path / "out.csv"),
+                "recent-history-deals",
+                "--hours",
+                "6",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "date-to" in normalize_cli_output(result.output)
+
     @pytest.mark.parametrize(
         ("filename", "reader"),
         [
