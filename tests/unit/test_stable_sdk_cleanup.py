@@ -17,7 +17,9 @@ def test_stable_sdk_exposes_downstream_adapter_primitives() -> None:
         assert hasattr(mt5cli, name)
 
 
-def test_legacy_margin_helper_is_not_stable() -> None:
-    """The retired account-margin helper is absent from the stable root API."""
-    assert "calculate_new_position_margin_ratio" not in mt5cli.STABLE_SDK_EXPORTS
-    assert not hasattr(mt5cli, "calculate_new_position_margin_ratio")
+def test_legacy_margin_helper_is_removed() -> None:
+    """The retired account-margin helper is absent from the public implementation."""
+    name = "calculate_new_position_margin_ratio"
+    assert name not in mt5cli.STABLE_SDK_EXPORTS
+    assert not hasattr(mt5cli, name)
+    assert not hasattr(mt5cli.trading, name)
