@@ -1,0 +1,38 @@
+name: Remove stale branch test import
+
+on:
+  push:
+    branches:
+      - agent/cleanup-and-python-314
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove retired helper import
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git clone --quiet "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" repo
+          cd repo
+          git checkout --quiet "${BRANCH}"
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/unit/test_trading.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace("    calculate_new_position_margin_ratio,\n", "")
+          path.write_text(text, encoding="utf-8")
+          PY
+          rm -f .github/workflows/agent-remove-stale-test-import.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove stale legacy test import"
+          git push origin "HEAD:${BRANCH}"
