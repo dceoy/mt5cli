@@ -9,7 +9,7 @@ strategy responsibilities.
 
 from importlib.metadata import version
 
-from .client import MT5Client, build_config, mt5_session
+from .client import MT5Client, build_config, mt5_session, substitute_mapping_values
 from .contract import STABLE_SDK_EXPORTS
 from .exceptions import (
     Mt5CliError,
@@ -17,6 +17,7 @@ from .exceptions import (
     Mt5OperationError,
     Mt5SchemaError,
 )
+from .grafana import ensure_grafana_schema
 from .history import (
     RateTarget,
     ThrottledHistoryUpdater,
@@ -26,6 +27,7 @@ from .history import (
     load_rate_series_by_granularity,
     load_rate_series_from_sqlite,
     report_rate_gaps,
+    resolve_history_timeframes,
     update_history,
     update_history_with_config,
 )
@@ -56,7 +58,6 @@ from .trading import (
     TickClockNormalizer,
     calculate_account_projected_margin_ratio,
     calculate_margin_and_volume,
-    calculate_new_position_margin_ratio,
     calculate_positions_margin,
     calculate_positions_margin_by_symbol,
     calculate_positions_margin_safe,
@@ -82,6 +83,7 @@ from .trading import (
     update_sltp_for_open_positions,
     update_trailing_stop_loss_for_open_positions,
 )
+from .utils import Dataset, parse_timeframe
 
 __version__ = version(__package__) if __package__ else None
 
