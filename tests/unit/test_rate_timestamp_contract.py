@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
-from pytest_mock import MockerFixture
 
 from mt5cli import rates, sdk
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pytest_mock import MockerFixture
 
 
 def _create_rates_table(path: Path, *times: str) -> None:
@@ -94,15 +97,19 @@ def test_validate_rate_timestamp_contract_states(tmp_path: Path) -> None:
     unknown = tmp_path / "unknown.db"
     _create_rates_table(unknown, "2024-01-01T09:30:00")
     _set_contract(unknown, "future-contract")
-    with sqlite3.connect(unknown) as conn:
-        with pytest.raises(ValueError, match="Unsupported canonical"):
-            rates._validate_rate_timestamp_contract(conn)
+    with (
+        sqlite3.connect(unknown) as conn,
+        pytest.raises(ValueError, match="Unsupported canonical"),
+    ):
+        rates._validate_rate_timestamp_contract(conn)
 
     legacy = tmp_path / "legacy.db"
     _create_rates_table(legacy, "2024-01-01T00:30:00+00:00")
-    with sqlite3.connect(legacy) as conn:
-        with pytest.raises(ValueError, match="mt5cli <= 1.4.1"):
-            rates._validate_rate_timestamp_contract(conn)
+    with (
+        sqlite3.connect(legacy) as conn,
+        pytest.raises(ValueError, match=r"mt5cli <= 1\.4\.1"),
+    ):
+        rates._validate_rate_timestamp_contract(conn)
 
 
 def test_validate_existing_rate_database(tmp_path: Path) -> None:
@@ -150,7 +157,7 @@ def test_update_history_fails_before_touching_legacy_database(
 
     with pytest.raises(ValueError, match="Recreate or explicitly migrate"):
         rates.update_history(
-            client=cast("Any", object()),
+            client=cast("object", object()),  # type: ignore[arg-type]
             output=path,
             symbols=["EURUSD"],
         )
@@ -170,7 +177,7 @@ def test_update_history_marks_successful_new_database(
 
     mocker.patch("mt5cli.rates._legacy_update_history", side_effect=write_rates)
     rates.update_history(
-        client=cast("Any", object()),
+        client=cast("object", object()),  # type: ignore[arg-type]
         output=path,
         symbols=["EURUSD"],
     )
@@ -190,4 +197,4 @@ def test_sdk_exports_are_derived_from_public_imports() -> None:
         if not name.startswith("_") and name != "STABLE_SDK_EXPORTS"
     }
     assert set(sdk.__all__) == public_imports
-    assert sdk.STABLE_SDK_EXPORTS == frozenset(public_imports)
+    assert frozenset(public_imports) == sdk.STABLE_SDK_EXPORTS
