@@ -329,9 +329,9 @@ resolved per symbol with `resolve_broker_filling_mode()` so closes are not
 rejected on brokers whose symbols do not support IOC.
 
 `history-gaps` reads an existing SQLite history database and exports one row
-per detected gap from managed rate legacy views. It never initializes
-MT5. Pass `--granularity-seconds` for custom tables or views whose bar spacing
-cannot be inferred from the name.
+per detected gap from the canonical `rates` table or an explicitly named custom
+table. It never initializes MT5. Pass `--granularity-seconds` for custom tables
+whose bar spacing cannot be inferred from timeframe metadata.
 
 ## Internal helpers (not stable)
 
