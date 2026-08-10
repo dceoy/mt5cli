@@ -183,7 +183,7 @@ applications should prefer dedicated closing helpers or their own risk controls.
 | Command           | Description                                                                                                                                                                                                                |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `collect-history` | Collect rates, history-orders, and history-deals (ticks and symbol metadata opt-in via `--dataset ticks` / `--dataset symbols`) for one or more symbols into a single SQLite database (optional cash-event/position views) |
-| `history-gaps`    | Export a SQLite-only one-row-per-gap report from the canonical `rates` table or an explicit custom table without connecting to MT5                                                                                                                |
+| `history-gaps`    | Export a SQLite-only one-row-per-gap report from the canonical `rates` table or an explicit custom table without connecting to MT5                                                                                         |
 
 ```bash
 mt5cli -o history.db collect-history \

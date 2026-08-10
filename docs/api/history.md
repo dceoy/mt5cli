@@ -161,7 +161,6 @@ The package-root `mt5cli.update_history` SDK path uses the normalized `rates`
 table and optional `cash_events` / `positions_reconstructed` views. It writes the canonical normalized `rates` table directly and does not
 maintain per-series compatibility views.
 
-
 ### Rate data loading
 
 The canonical managed rate store is the normalized `rates` table. Stable
