@@ -24,10 +24,11 @@ in pdmt5 — the name changed, it was not simply moved.
 
 Downstream packages should import from the package root (`from mt5cli import
 ...`). The contract set `STABLE_SDK_EXPORTS` in `mt5cli.contract` enumerates
-every package-root symbol. Lower-level helpers (schema utilities, export
-functions, parser helpers, low-level MT5 wrappers) are available directly from
-their owning modules (`mt5cli.schemas`, `mt5cli.utils`, `mt5cli.converters`,
-`mt5cli.marketdata`, etc.) and are not part of the root SDK surface.
+every package-root symbol. Helpers promoted for downstream use, including selected configuration and
+parsing utilities, history timeframe resolution, and Grafana schema setup, are
+part of that root contract. Other low-level
+schema, export, conversion, and implementation helpers remain available only
+from their owning modules.
 
 ### Module responsibility map
 
@@ -56,13 +57,14 @@ These names are exported from `mt5cli` and enumerated in
 
 ### Session lifecycle and configuration
 
-| Symbol                                          | Role                                                                                                                                                                                                                                                                              |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MT5Client`                                     | The single connected client for data, history, calculations, order checking, and order sending                                                                                                                                                                                    |
-| `build_config`                                  | Build `pdmt5.Mt5Config` from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True` |
-| `mt5_session`                                   | Canonical context manager: initialize/login once, yield `MT5Client`, shut down once; a supplied `client=` remains caller-owned.                                                                                                                                                   |
-| `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                          |
-| `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                            |
+| Symbol                                          | Role                                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MT5Client`                                     | The single connected client for data, history, calculations, order checking, and order sending                                                                                                                                                                                                       |
+| `build_config`                                  | Build the underlying MT5 connection config from connection fields; `login` accepts `int \| str \| None` — numeric strings are coerced to `int`, blank strings are treated as unset, and `${ENV_VAR}` / `$ENV_NAME` placeholders in string parameters are expanded when `allow_whole_dollar_env=True` |
+| `substitute_mapping_values`                     | Generic selected-key environment substitution for downstream configuration adapters                                                                                                                                                                                                                  |
+| `mt5_session`                                   | Canonical context manager: initialize/login once, yield `MT5Client`, shut down once; a supplied `client=` remains caller-owned.                                                                                                                                                                      |
+| `AccountSpec`                                   | Generic account group: symbols plus optional credentials                                                                                                                                                                                                                                             |
+| `resolve_account_spec`, `resolve_account_specs` | Merge overrides and expand `${ENV_VAR}` placeholders; opt-in `allow_whole_dollar_env` for bare `$NAME`                                                                                                                                                                                               |
 
 ### Closed-bar rate helpers
 
@@ -93,6 +95,11 @@ timestamp normalization in downstream apps.
 See [History Collection (SQLite)](history.md) for schema, view naming, and ER
 diagrams.
 
+Shared package-root helpers used by downstream adapters include `Dataset`,
+`parse_timeframe`, and `resolve_history_timeframes`. These are stable exports;
+downstream applications should not import them from `mt5cli.utils` or
+`mt5cli.history`.
+
 ### Trading and sizing primitives (generic)
 
 These helpers implement broker-facing calculations only. They do not encode
@@ -108,7 +115,7 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `CalibrationStatus`, `ClockStatus`                                                                                             | Literal status types for clock calibration and normalization      |
 | `detect_position_side`                                                                                                         | Net long / short / flat from open positions                       |
 | `calculate_spread_ratio`                                                                                                       | Relative bid-ask spread                                           |
-| `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio`                             | Margin budget and volume sizing                                   |
+| `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_account_projected_margin_ratio`                        | Margin budget and volume sizing                                   |
 | `normalize_order_volume`, `estimate_order_margin`, `calculate_positions_margin`                                                | Broker volume normalization and margin totals                     |
 | `calculate_positions_margin_by_symbol`                                                                                         | Per-symbol margin map (resilient, first-seen order)               |
 | `calculate_positions_margin_safe`                                                                                              | Summed total margin across symbols (failed symbols skipped)       |
@@ -230,8 +237,9 @@ workflows call the facade's canonical data methods (`account_info`, `positions`,
 | `grafana_realized_pnl` | Cumulative realized PnL per symbol    |
 | `grafana_trade_stats`  | Win/loss counts and profit per symbol |
 
-Lower-level helpers (`ensure_grafana_schema`, `create_grafana_views`,
-`create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`,
+`ensure_grafana_schema` is a stable package-root helper for downstream setup.
+Other lower-level helpers (`create_grafana_views`, `create_grafana_indexes`,
+`create_snapshot_tables`, `start_snapshot_run`,
 `insert_account_snapshot`, `insert_position_snapshots`, `insert_order_snapshots`,
 `insert_terminal_snapshot`, `record_snapshot_run`) are available directly from
 `mt5cli.grafana` and are not part of the package-root stable surface.

@@ -1,13 +1,13 @@
 [project]
 name = "mt5cli"
-version = "1.4.0"
+version = "1.4.1"
 description = "Generic MT5 data and execution infrastructure for Python applications"
 authors = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
 maintainers = [{name = "dceoy", email = "dceoy@users.noreply.github.com"}]
 license = "MIT"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">= 3.11, < 3.14"
+requires-python = ">= 3.11, < 3.15"
 dependencies = [
   "pdmt5 >= 1.2.0",
   "pandas >= 2.2.2",

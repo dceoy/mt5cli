@@ -310,7 +310,6 @@ __all__ = [
     "TickClockNormalizer",
     "calculate_account_projected_margin_ratio",
     "calculate_margin_and_volume",
-    "calculate_new_position_margin_ratio",
     "calculate_positions_margin",
     "calculate_positions_margin_by_symbol",
     "calculate_positions_margin_safe",
@@ -2267,43 +2266,6 @@ def calculate_spread_ratio(client: _Mt5ClientProtocol, symbol: str) -> float:
         msg = f"Tick bid/ask is unavailable for {symbol!r}."
         raise Mt5OperationError(msg)
     return (ask - bid) / ((ask + bid) / 2.0)
-
-
-def calculate_new_position_margin_ratio(
-    client: _Mt5ClientProtocol,
-    *,
-    symbol: str,
-    new_position_side: OrderSide | None = None,
-    new_position_volume: float = 0.0,
-) -> float:
-    """Return total margin/equity ratio after an optional hypothetical position.
-
-    Missing or falsy account ``equity``/``margin`` values are normalized to
-    ``0.0``, and the hypothetical order margin from ``order_calc_margin()`` is
-    accepted as-is without a positivity check.
-
-    Raises:
-        Mt5OperationError: If equity or required tick data is invalid.
-    """
-    account = get_account_snapshot(client)
-    equity = float(account.get("equity") or 0.0)
-    if equity <= 0:
-        msg = "Account equity must be positive to calculate margin ratio."
-        raise Mt5OperationError(msg)
-    margin = float(account.get("margin") or 0.0)
-    if new_position_side is not None and new_position_volume > 0:
-        side = _normalize_order_side(new_position_side)
-        price = extract_tick_price(
-            get_tick_snapshot(client, symbol), "ask" if side == "BUY" else "bid"
-        )
-        price = _require_tick_price(price, symbol)
-        order_type = (
-            client.mt5.ORDER_TYPE_BUY if side == "BUY" else client.mt5.ORDER_TYPE_SELL
-        )
-        margin += float(
-            client.order_calc_margin(order_type, symbol, new_position_volume, price),
-        )
-    return margin / equity
 
 
 def _account_equity(client: _Mt5ClientProtocol) -> float:

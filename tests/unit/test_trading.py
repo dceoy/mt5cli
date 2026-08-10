@@ -37,7 +37,6 @@ from mt5cli.trading import (
     _snapshot_from_value,  # type: ignore[reportPrivateUsage]
     calculate_account_projected_margin_ratio,
     calculate_margin_and_volume,
-    calculate_new_position_margin_ratio,
     calculate_positions_margin,
     calculate_positions_margin_by_symbol,
     calculate_positions_margin_safe,
@@ -1567,91 +1566,6 @@ class TestVolumeAndExecution:
                 "EURUSD",
                 unit_margin_ratio=0.5,
                 preserved_margin_ratio=0.2,
-            )
-
-    def test_new_position_margin_ratio_adds_hypothetical_margin(self) -> None:
-        """Test hypothetical order margin is added to account margin."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0, "margin": 50.0}
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.order_calc_margin.return_value = 25.0
-
-        result = calculate_new_position_margin_ratio(
-            client,
-            symbol="EURUSD",
-            new_position_side="BUY",
-            new_position_volume=0.1,
-        )
-        _assert_close(result, 0.075)
-
-    def test_new_position_margin_ratio_without_new_position(self) -> None:
-        """Test current margin ratio can be calculated without a new order."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0, "margin": 50.0}
-
-        _assert_close(
-            calculate_new_position_margin_ratio(
-                client,
-                symbol="EURUSD",
-            ),
-            0.05,
-        )
-        client.order_calc_margin.assert_not_called()
-
-    def test_new_position_margin_ratio_rejects_invalid_equity(self) -> None:
-        """Test non-positive equity raises a trading error."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 0.0, "margin": 50.0}
-
-        with pytest.raises(Mt5OperationError):
-            calculate_new_position_margin_ratio(client, symbol="EURUSD")
-
-    @pytest.mark.parametrize(
-        "account",
-        [{"equity": 1000.0}, {"equity": 1000.0, "margin": None}],
-        ids=["absent", "none"],
-    )
-    def test_new_position_margin_ratio_defaults_missing_margin_to_zero(
-        self, account: dict[str, float | None]
-    ) -> None:
-        """Test absent or None account margin is normalized to zero."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = account
-
-        _assert_close(
-            calculate_new_position_margin_ratio(client, symbol="EURUSD"),
-            0.0,
-        )
-
-    def test_new_position_margin_ratio_accepts_non_positive_order_margin(self) -> None:
-        """Test non-positive hypothetical order margin is accepted as-is."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0, "margin": 50.0}
-        client.symbol_info_tick_as_dict.return_value = {"ask": 100.0, "bid": 99.0}
-        client.order_calc_margin.return_value = 0.0
-
-        _assert_close(
-            calculate_new_position_margin_ratio(
-                client,
-                symbol="EURUSD",
-                new_position_side="BUY",
-                new_position_volume=0.1,
-            ),
-            0.05,
-        )
-
-    def test_new_position_margin_ratio_rejects_bad_tick(self) -> None:
-        """Test missing hypothetical order price raises a trading error."""
-        client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"equity": 1000.0, "margin": 50.0}
-        client.symbol_info_tick_as_dict.return_value = {"ask": None, "bid": 1.0}
-
-        with pytest.raises(Mt5OperationError):
-            calculate_new_position_margin_ratio(
-                client,
-                symbol="EURUSD",
-                new_position_side="BUY",
-                new_position_volume=0.1,
             )
 
     def test_projected_margin_ratio_empty_positions(self) -> None:

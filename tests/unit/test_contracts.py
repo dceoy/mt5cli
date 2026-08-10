@@ -548,7 +548,7 @@ class TestStableSdkContract:
     ],
 )
 def test_pdmt5_pass_through_names_stay_out_of_public_contract(name: str) -> None:
-    """Downstream code must import pdmt5 types/constants directly from pdmt5.
+    """Low-level pdmt5 types/constants stay out of the stable package root.
 
     docs/api/public-contract.md documents that mt5cli is not a pass-through
     compatibility namespace for pdmt5; these names must never reappear on the

@@ -356,7 +356,6 @@ eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 
 ## Requirements
 
-- Python 3.11+
 - Windows OS (MetaTrader 5 requirement)
 - MetaTrader 5 platform installed
 
