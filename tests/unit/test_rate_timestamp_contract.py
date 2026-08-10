@@ -1,4 +1,5 @@
 """Regression tests for the canonical SQLite rate timestamp contract."""
+# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 
