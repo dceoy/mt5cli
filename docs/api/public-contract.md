@@ -108,7 +108,7 @@ strategy entries, exits, Kelly sizing, or signal logic.
 | `CalibrationStatus`, `ClockStatus`                                                                                             | Literal status types for clock calibration and normalization      |
 | `detect_position_side`                                                                                                         | Net long / short / flat from open positions                       |
 | `calculate_spread_ratio`                                                                                                       | Relative bid-ask spread                                           |
-| `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_new_position_margin_ratio`                             | Margin budget and volume sizing                                   |
+| `calculate_margin_and_volume`, `calculate_volume_by_margin`, `calculate_account_projected_margin_ratio`                             | Margin budget and volume sizing                                   |
 | `normalize_order_volume`, `estimate_order_margin`, `calculate_positions_margin`                                                | Broker volume normalization and margin totals                     |
 | `calculate_positions_margin_by_symbol`                                                                                         | Per-symbol margin map (resilient, first-seen order)               |
 | `calculate_positions_margin_safe`                                                                                              | Summed total margin across symbols (failed symbols skipped)       |

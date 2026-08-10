@@ -224,7 +224,6 @@ See the [History schema diagram](api/history.md#entity-relationship-diagram) for
 
 ## Requirements
 
-- Python 3.11+
 - Windows OS (MetaTrader 5 requirement)
 - MetaTrader 5 platform
 
