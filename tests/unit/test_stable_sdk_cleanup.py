@@ -1,6 +1,7 @@
 """Focused regression tests for the reduced stable SDK surface."""
 
 import mt5cli
+from pdmt5 import Mt5Config as Pdmt5Config
 
 
 def test_stable_sdk_exposes_downstream_adapter_primitives() -> None:
@@ -15,6 +16,11 @@ def test_stable_sdk_exposes_downstream_adapter_primitives() -> None:
     ):
         assert name in mt5cli.STABLE_SDK_EXPORTS
         assert hasattr(mt5cli, name)
+
+
+def test_mt5_config_is_the_stable_connection_type() -> None:
+    """The root config export is the canonical pdmt5 connection type."""
+    assert mt5cli.Mt5Config is Pdmt5Config
 
 
 def test_legacy_margin_helper_is_removed() -> None:
