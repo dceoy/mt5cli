@@ -7,10 +7,11 @@ strategy responsibilities.
 """
 # pyright: reportUnusedImport=false, reportUnsupportedDunderAll=false
 
-from importlib.metadata import version
+from importlib.metadata import version as _package_version
+
+from pdmt5 import Mt5Config
 
 from .client import MT5Client, build_config, mt5_session, substitute_mapping_values
-from .contract import STABLE_SDK_EXPORTS
 from .exceptions import (
     Mt5CliError,
     Mt5ConnectionError,
@@ -85,9 +86,12 @@ from .trading import (
 )
 from .utils import Dataset, parse_timeframe
 
-__version__ = version(__package__) if __package__ else None
+__version__ = _package_version(__package__) if __package__ else None
 
-__all__ = [  # noqa: PLE0604
-    "STABLE_SDK_EXPORTS",
-    *sorted(STABLE_SDK_EXPORTS),
-]
+# The explicit imports above are the sole declaration of the stable package-root
+# SDK. Derive the enumerable contract from those bound public names so a public
+# symbol cannot drift between a second registry and ``mt5cli.__init__``.
+STABLE_SDK_EXPORTS: frozenset[str] = frozenset(
+    name for name in globals() if not name.startswith("_")
+)
+__all__ = [*sorted(STABLE_SDK_EXPORTS), "STABLE_SDK_EXPORTS"]
