@@ -16,7 +16,7 @@ dependencies = [
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
-  "License :: OSI Approved :: MIT",
+  "License :: OSI Approved :: MIT License",
   "Operating System :: Microsoft :: Windows",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
@@ -125,9 +125,9 @@ select = [
   "ERA",      # eradicate (ERA)
   "PGH",      # pygrep-hooks (PGH)
   "TRY",      # tryceratops (TRY)
-  "FAST",      # FastAPI (FAST)
-  "AIR",       # Airflow (AIR)
-  "DOC",       # pydoclint (DOC)
+  "FAST",     # FastAPI (FAST)
+  "AIR",      # Airflow (AIR)
+  "DOC",      # pydoclint (DOC)
 ]
 ignore = [
   "COM812",   # missing-trailing-comma
