@@ -30,6 +30,13 @@ def _create_canonical_database(
             "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
             rows,
         )
+        conn.execute(
+            "CREATE TABLE _mt5cli_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        )
+        conn.execute(
+            "INSERT INTO _mt5cli_metadata(key, value) VALUES (?, ?)",
+            ("rates_timestamp_contract", "pdmt5-wall-clock-v1"),
+        )
 
 
 def _create_custom_database(path: Path) -> None:

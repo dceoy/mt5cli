@@ -1,5 +1,6 @@
 """Canonical normalized-rate persistence and loading APIs."""
 # ruff: noqa: PLR0913
+# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 
@@ -10,9 +11,11 @@ from typing import TYPE_CHECKING, overload
 import pandas as pd
 
 from .history import (
+    _SQLITE_TEXT_TIME_COLUMNS,
     RateTarget,
     get_table_columns,
     load_rate_data,
+    quote_sqlite_identifier,
     resolve_granularity_name,
 )
 from .history import (
@@ -27,7 +30,7 @@ from .history import (
 from .history import (
     update_history_with_config as _legacy_update_history_with_config,
 )
-from .schemas import DataKind, normalize_time_columns
+from .schemas import TIME_COLUMNS, DataKind, normalize_time_columns
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -44,6 +47,13 @@ SqliteConnOrPath = sqlite3.Connection | Path | str
 _RATE_TIMESTAMP_CONTRACT_TABLE = "_mt5cli_metadata"
 _RATE_TIMESTAMP_CONTRACT_KEY = "rates_timestamp_contract"
 _RATE_TIMESTAMP_CONTRACT_VALUE = "pdmt5-wall-clock-v1"
+_MANAGED_TIMESTAMP_DATA_KINDS: tuple[DataKind, ...] = (
+    DataKind.rates,
+    DataKind.ticks,
+    DataKind.history_orders,
+    DataKind.history_deals,
+    DataKind.symbols,
+)
 
 
 def _read_rate_timestamp_contract(conn: sqlite3.Connection) -> str | None:
@@ -61,44 +71,75 @@ def _read_rate_timestamp_contract(conn: sqlite3.Connection) -> str | None:
     return str(row[0]) if row is not None else None
 
 
-def _rates_contain_aware_timestamp_text(conn: sqlite3.Connection) -> bool:
-    """Return whether canonical rates contain explicit timezone suffixes."""
-    if "time" not in get_table_columns(conn, "rates"):
-        return False
-    row = conn.execute(
-        """
-        SELECT 1
-        FROM rates
-        WHERE typeof(time) = 'text'
-          AND (
-            substr(trim(time), -1) IN ('Z', 'z')
-            OR instr(substr(trim(time), 20), '+') > 0
-            OR instr(substr(trim(time), 20), '-') > 0
-          )
-        LIMIT 1
-        """
-    ).fetchone()
-    return row is not None
+def _existing_managed_timestamp_tables(
+    conn: sqlite3.Connection,
+) -> tuple[tuple[DataKind, set[str]], ...]:
+    """Return managed history tables that exist in the connection."""
+    tables: list[tuple[DataKind, set[str]]] = []
+    for kind in _MANAGED_TIMESTAMP_DATA_KINDS:
+        columns = get_table_columns(conn, kind.value)
+        if columns:
+            tables.append((kind, columns))
+    return tuple(tables)
+
+
+def _table_contains_aware_timestamp_text(
+    conn: sqlite3.Connection,
+    kind: DataKind,
+    columns: set[str],
+) -> bool:
+    """Return whether a managed table has an explicit timezone suffix."""
+    table = quote_sqlite_identifier(kind.value)
+    time_columns = TIME_COLUMNS[kind] & _SQLITE_TEXT_TIME_COLUMNS & columns
+    for column in sorted(time_columns):
+        quoted_column = quote_sqlite_identifier(column)
+        row = conn.execute(
+            f"""
+            SELECT 1
+            FROM {table}
+            WHERE typeof({quoted_column}) = 'text'
+              AND (
+                substr(trim({quoted_column}), -1) IN ('Z', 'z')
+                OR upper(substr(trim({quoted_column}), -3)) IN ('UTC', 'GMT')
+                OR instr(substr(trim({quoted_column}), 20), '+') > 0
+                OR instr(substr(trim({quoted_column}), 20), '-') > 0
+              )
+            LIMIT 1
+            """  # noqa: S608
+        ).fetchone()
+        if row is not None:
+            return True
+    return False
+
+
+def _managed_history_contains_aware_timestamp_text(
+    conn: sqlite3.Connection,
+) -> bool:
+    """Return whether managed history has explicit timezone suffixes."""
+    return any(
+        _table_contains_aware_timestamp_text(conn, kind, columns)
+        for kind, columns in _existing_managed_timestamp_tables(conn)
+    )
 
 
 def _validate_rate_timestamp_contract(conn: sqlite3.Connection) -> None:
-    """Reject legacy or unknown canonical timestamp representations.
+    """Reject legacy or unknown managed history timestamp representations.
 
     Raises:
-        ValueError: If persisted metadata is unsupported or an unversioned rates
+        ValueError: If persisted metadata is unsupported or an unversioned managed
             table contains timezone-aware timestamp text with ambiguous semantics.
     """
-    if not get_table_columns(conn, "rates"):
+    if not _existing_managed_timestamp_tables(conn):
         return
     contract = _read_rate_timestamp_contract(conn)
     if contract == _RATE_TIMESTAMP_CONTRACT_VALUE:
         return
     if contract is not None:
-        msg = f"Unsupported canonical rates timestamp contract: {contract!r}."
+        msg = f"Unsupported managed history timestamp contract: {contract!r}."
         raise ValueError(msg)
-    if _rates_contain_aware_timestamp_text(conn):
+    if _managed_history_contains_aware_timestamp_text(conn):
         msg = (
-            "The canonical rates table uses an unversioned timezone-aware timestamp "
+            "The managed history database uses an unversioned timezone-aware timestamp "
             "representation that may have been created by mt5cli <= 1.4.1, which "
             "silently relabeled pdmt5 trade-server wall-clock values as UTC. "
             "Recreate or explicitly migrate this history database before "
@@ -120,7 +161,7 @@ def _validate_existing_rate_database(output: Path | str) -> None:
 
 
 def _mark_rate_timestamp_contract(output: Path | str) -> None:
-    """Persist the canonical timestamp contract after a successful rate write.
+    """Persist the managed history timestamp contract after a successful write.
 
     Raises:
         ValueError: If the database already declares an unsupported contract.
@@ -129,11 +170,11 @@ def _mark_rate_timestamp_contract(output: Path | str) -> None:
     if not path.exists():
         return
     with sqlite3.connect(path) as conn:
-        if not get_table_columns(conn, "rates"):
+        if not _existing_managed_timestamp_tables(conn):
             return
         existing = _read_rate_timestamp_contract(conn)
         if existing not in {None, _RATE_TIMESTAMP_CONTRACT_VALUE}:
-            msg = f"Unsupported canonical rates timestamp contract: {existing!r}."
+            msg = f"Unsupported managed history timestamp contract: {existing!r}."
             raise ValueError(msg)
         conn.execute(
             """
@@ -338,6 +379,7 @@ def load_rate_series_from_sqlite(
         msg = "The canonical rates database could not be opened."
         raise ValueError(msg) from exc
     try:
+        _validate_rate_timestamp_contract(conn)
         return {
             key: _load_canonical_rate_target(conn, target, count=count)
             for key, target in zip(keys, target_list, strict=True)

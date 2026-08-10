@@ -17,12 +17,24 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-def _canonical_db(path: Path) -> None:
+def _canonical_db(path: Path, *, mark_contract: bool = True) -> None:
     """Create the minimal canonical rate schema."""
     with sqlite3.connect(path) as conn:
         conn.execute(
             "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
         )
+        if mark_contract:
+            conn.execute(
+                "CREATE TABLE _mt5cli_metadata ("
+                "key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            )
+            conn.execute(
+                "INSERT INTO _mt5cli_metadata VALUES (?, ?)",
+                (
+                    "rates_timestamp_contract",
+                    "pdmt5-wall-clock-v1",
+                ),
+            )
 
 
 def test_canonical_loader_rejects_mixed_timestamp_awareness(tmp_path: Path) -> None:
@@ -43,6 +55,36 @@ def test_canonical_loader_rejects_mixed_timestamp_awareness(tmp_path: Path) -> N
             db_path,
             [RateTarget("EURUSD", 1)],
             count=2,
+        )
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        "2024-01-01T00:00:00+00:00",
+        "2024-01-01T00:00:00 UTC",
+        "2024-01-01T00:00:00 GMT",
+    ],
+    ids=["numeric-offset", "utc-name", "gmt-name"],
+)
+def test_canonical_loader_rejects_unversioned_aware_timestamps(
+    tmp_path: Path,
+    timestamp: str,
+) -> None:
+    """Managed reads reject aware data without the current timestamp marker."""
+    db_path = tmp_path / "unversioned.db"
+    _canonical_db(db_path, mark_contract=False)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO rates VALUES (?, ?, ?, ?)",
+            ("EURUSD", 1, timestamp, 1.0),
+        )
+
+    with pytest.raises(ValueError, match=r"unversioned timezone-aware"):
+        rates.load_rate_series_from_sqlite(
+            db_path,
+            [RateTarget("EURUSD", 1)],
+            count=1,
         )
 
 

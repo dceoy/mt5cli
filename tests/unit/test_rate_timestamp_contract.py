@@ -66,18 +66,69 @@ def test_read_rate_timestamp_contract_states(tmp_path: Path) -> None:
         )
 
 
-def test_aware_timestamp_detection(tmp_path: Path) -> None:
-    """Legacy detection is limited to explicit timezone suffixes in rates."""
-    path = tmp_path / "awareness.db"
+@pytest.mark.parametrize(
+    ("table", "column", "create_sql", "insert_sql"),
+    [
+        (
+            "rates",
+            "time",
+            'CREATE TABLE "rates" ("time" TEXT)',
+            'INSERT INTO "rates" ("time") VALUES (?)',
+        ),
+        (
+            "ticks",
+            "time",
+            'CREATE TABLE "ticks" ("time" TEXT)',
+            'INSERT INTO "ticks" ("time") VALUES (?)',
+        ),
+        (
+            "history_orders",
+            "time_setup",
+            'CREATE TABLE "history_orders" ("time_setup" TEXT)',
+            'INSERT INTO "history_orders" ("time_setup") VALUES (?)',
+        ),
+        (
+            "history_orders",
+            "time_done",
+            'CREATE TABLE "history_orders" ("time_done" TEXT)',
+            'INSERT INTO "history_orders" ("time_done") VALUES (?)',
+        ),
+        (
+            "history_deals",
+            "time",
+            'CREATE TABLE "history_deals" ("time" TEXT)',
+            'INSERT INTO "history_deals" ("time") VALUES (?)',
+        ),
+        (
+            "symbols",
+            "time",
+            'CREATE TABLE "symbols" ("time" TEXT)',
+            'INSERT INTO "symbols" ("time") VALUES (?)',
+        ),
+    ],
+)
+def test_aware_timestamp_detection(
+    tmp_path: Path,
+    table: str,
+    column: str,
+    create_sql: str,
+    insert_sql: str,
+) -> None:
+    """Managed timestamp detection covers every persisted text time column."""
+    path = tmp_path / f"awareness-{table}-{column}.db"
     with sqlite3.connect(path) as conn:
-        conn.execute("CREATE TABLE rates(symbol TEXT)")
-        assert not rates._rates_contain_aware_timestamp_text(conn)
-        conn.execute("DROP TABLE rates")
-        conn.execute("CREATE TABLE rates(time TEXT)")
-        conn.execute("INSERT INTO rates VALUES ('2024-01-01T09:30:00')")
-        assert not rates._rates_contain_aware_timestamp_text(conn)
-        conn.execute("INSERT INTO rates VALUES ('2024-01-01T00:30:00+00:00')")
-        assert rates._rates_contain_aware_timestamp_text(conn)
+        conn.execute(create_sql)
+        assert not rates._managed_history_contains_aware_timestamp_text(conn)
+        conn.execute(
+            insert_sql,
+            ("2024-01-01T09:30:00",),
+        )
+        assert not rates._managed_history_contains_aware_timestamp_text(conn)
+        conn.execute(
+            insert_sql,
+            ("2024-01-01T00:30:00+00:00",),
+        )
+        assert rates._managed_history_contains_aware_timestamp_text(conn)
 
 
 def test_validate_rate_timestamp_contract_states(tmp_path: Path) -> None:
@@ -102,7 +153,7 @@ def test_validate_rate_timestamp_contract_states(tmp_path: Path) -> None:
     _set_contract(unknown, "future-contract")
     with (
         sqlite3.connect(unknown) as conn,
-        pytest.raises(ValueError, match="Unsupported canonical"),
+        pytest.raises(ValueError, match=r"Unsupported .*timestamp contract"),
     ):
         rates._validate_rate_timestamp_contract(conn)
 
@@ -124,7 +175,7 @@ def test_validate_existing_rate_database(tmp_path: Path) -> None:
 
 
 def test_mark_rate_timestamp_contract_states(tmp_path: Path) -> None:
-    """Successful writes mark rates without masking an unknown contract."""
+    """Successful writes mark managed history without masking unknown contracts."""
     rates._mark_rate_timestamp_contract(tmp_path / "missing.db")
 
     no_rates = tmp_path / "no-rates.db"
@@ -142,10 +193,20 @@ def test_mark_rate_timestamp_contract_states(tmp_path: Path) -> None:
             == rates._RATE_TIMESTAMP_CONTRACT_VALUE
         )
 
+    non_rates = tmp_path / "non-rates.db"
+    with sqlite3.connect(non_rates) as conn:
+        conn.execute("CREATE TABLE history_deals(time TEXT)")
+    rates._mark_rate_timestamp_contract(non_rates)
+    with sqlite3.connect(non_rates) as conn:
+        assert (
+            rates._read_rate_timestamp_contract(conn)
+            == rates._RATE_TIMESTAMP_CONTRACT_VALUE
+        )
+
     unknown = tmp_path / "unknown.db"
     _create_rates_table(unknown, "2024-01-01T09:30:00")
     _set_contract(unknown, "future-contract")
-    with pytest.raises(ValueError, match="Unsupported canonical"):
+    with pytest.raises(ValueError, match=r"Unsupported .*timestamp contract"):
         rates._mark_rate_timestamp_contract(unknown)
 
 
@@ -159,6 +220,30 @@ def test_update_history_fails_before_touching_legacy_database(
     backend = mocker.patch("mt5cli.rates._legacy_update_history")
 
     with pytest.raises(ValueError, match="Recreate or explicitly migrate"):
+        rates.update_history(
+            client=cast("HistoryClient", object()),
+            output=path,
+            symbols=["EURUSD"],
+        )
+
+    backend.assert_not_called()
+
+
+def test_update_history_rejects_legacy_non_rates_database(
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """Incremental updates reject legacy aware timestamps without rates."""
+    path = tmp_path / "legacy-deals.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE history_deals(time TEXT)")
+        conn.execute(
+            "INSERT INTO history_deals VALUES (?)",
+            ("2024-01-01T00:30:00+00:00",),
+        )
+    backend = mocker.patch("mt5cli.rates._legacy_update_history")
+
+    with pytest.raises(ValueError, match=r"unversioned timezone-aware"):
         rates.update_history(
             client=cast("HistoryClient", object()),
             output=path,
