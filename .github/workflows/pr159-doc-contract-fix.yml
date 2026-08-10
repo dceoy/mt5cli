@@ -143,12 +143,19 @@ jobs:
               "See [History Collection (SQLite)](history.md) for schema, view naming, and ER\ndiagrams.",
               "See [History Collection (SQLite)](history.md) for the canonical schema, loading contract, and ER diagrams.",
           )
-          path.write_text(text)
-
-          stale = (
+          stale_resolvers = (
               "resolve_rate_view_name",
               "resolve_rate_view_names",
               "resolve_rate_tables",
+          )
+          text = "\n".join(
+              line for line in text.splitlines()
+              if not any(token in line for token in stale_resolvers)
+          ) + "\n"
+          path.write_text(text)
+
+          stale = (
+              *stale_resolvers,
               "Rate compatibility views",
               "mt5cli-managed rate tables/views",
           )
