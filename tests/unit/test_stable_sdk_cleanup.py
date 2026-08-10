@@ -38,6 +38,12 @@ def test_stable_sdk_registry_matches_package_all() -> None:
         assert hasattr(mt5cli, name)
 
 
+def test_internal_protocols_stay_out_of_stable_sdk() -> None:
+    """Internal structural protocols must not become package-root API by discovery."""
+    assert "ObservabilityClient" not in mt5cli.STABLE_SDK_EXPORTS
+    assert not hasattr(mt5cli, "ObservabilityClient")
+
+
 def test_legacy_margin_helper_is_removed() -> None:
     """The retired account-margin helper is absent from the public implementation."""
     name = "calculate_new_position_margin_ratio"
