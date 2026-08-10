@@ -37,7 +37,12 @@ jobs:
               line[10:] if line.startswith("          ") else line
               for line in replacement.splitlines()
           ) + "\n"
-          path.write_text(text[:start] + replacement + text[end:])
+          text = text[:start] + replacement + text[end:]
+          text = text.replace(
+              "mt5cli-managed rate tables/views",
+              "canonical normalized `rates` storage",
+          )
+          path.write_text(text)
 
           path = Path("docs/api/history.md")
           text = path.read_text()
