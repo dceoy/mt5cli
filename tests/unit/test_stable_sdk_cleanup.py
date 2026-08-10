@@ -7,6 +7,7 @@ def test_stable_sdk_exposes_downstream_adapter_primitives() -> None:
     """Required downstream primitives are available from the package root."""
     for name in (
         "Dataset",
+        "build_config",
         "ensure_grafana_schema",
         "parse_timeframe",
         "resolve_history_timeframes",
