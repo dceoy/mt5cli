@@ -369,11 +369,21 @@ def report_rate_gaps(  # noqa: C901, PLR0914
                 raise ValueError(msg)
 
         unique_times = group["time"].drop_duplicates()
+        awareness = [
+            isinstance(value, datetime) and value.tzinfo is not None
+            for value in unique_times
+        ]
+        if any(awareness) and not all(awareness):
+            msg = (
+                "A rate gap series cannot mix timezone-naive MT5 wall-clock "
+                "timestamps with timezone-aware instants."
+            )
+            raise ValueError(msg)
         sort_keys = pd.to_datetime(
             unique_times,
             errors="coerce",
             format="mixed",
-            utc=True,
+            utc=all(awareness),
         )
         order = sort_keys.argsort()
         ordered_times = unique_times.iloc[order].reset_index(drop=True)

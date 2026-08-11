@@ -2397,6 +2397,28 @@ class TestRateSourceHelpers:
                     granularity_seconds=60,
                 )
 
+    def test_report_rate_gaps_rejects_mixed_timestamp_awareness(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Gap reporting must not relabel naive values in a mixed series."""
+        db_path = tmp_path / "mixed-times.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE custom_rates(time TEXT, close REAL)")
+            conn.executemany(
+                "INSERT INTO custom_rates(time, close) VALUES (?, ?)",
+                [
+                    ("2024-01-01T00:00:00", 1.0),
+                    ("2024-01-01T00:02:00+00:00", 1.1),
+                ],
+            )
+            with pytest.raises(ValueError, match="cannot mix timezone-naive"):
+                report_rate_gaps(
+                    conn,
+                    "custom_rates",
+                    granularity_seconds=60,
+                )
+
     def test_report_rate_gaps_empty_and_single_row_sources_return_empty(
         self,
         tmp_path: Path,
