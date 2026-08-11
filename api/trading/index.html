@@ -7530,27 +7530,32 @@ and betting semantics belong in downstream applications.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli</span><span class="w"> </span><span class="kn">import</span> <span class="n">mt5_session</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">with</span> <span class="n">mt5_session</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">deals_df</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">recent_history_deals</span><span class="p">(</span><span class="n">symbol</span><span class="o">=</span><span class="s2">&quot;JP225&quot;</span><span class="p">,</span> <span class="n">hours</span><span class="o">=</span><span class="mi">24</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">deals_df</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">recent_history_deals</span><span class="p">(</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>        <span class="n">symbol</span><span class="o">=</span><span class="s2">&quot;JP225&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>        <span class="n">hours</span><span class="o">=</span><span class="mi">24</span><span class="p">,</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>        <span class="n">date_to</span><span class="o">=</span><span class="s2">&quot;2024-02-01&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="p">)</span>
 </code></pre></div>
-<p><code>hours</code> must be positive; <code>date_to</code> defaults to <code>datetime.now(UTC)</code>. An empty
-or <code>None</code> result from the underlying client is normalized to an empty DataFrame.</p>
+<p><code>hours</code> must be positive and <code>date_to</code> must be an explicit naive MT5
+trade-server wall-clock end time. mt5cli cannot determine the current server
+time, so omitted <code>date_to</code> values are rejected. Offset-bearing strings and
+aware <code>datetime</code> objects are rejected because mt5cli has no validated
+UTC-to-server-time converter. An empty or <code>None</code> result from the underlying
+client is normalized to an empty DataFrame.</p>
 <p>Downstream packages own all strategy-specific transformations. mt5cli does not
 provide entry-deal classification, Kelly sizing, or any betting-specific helpers.</p>
 <h2 id="timestamp-sources-and-broker-clock-offsets">Timestamp sources and broker clock offsets<a class="headerlink" href="#timestamp-sources-and-broker-clock-offsets" title="Permanent link">&para;</a></h2>
-<p>MetaQuotes documents <code>copy_ticks_range()</code> and <code>copy_rates_range()</code> results,
-and the date bounds they accept, as UTC, and does not document a different
-timezone contract for <code>symbol_info_tick()</code>. In production on at least one
-OANDA-style broker/terminal, however, <code>symbol_info_tick()</code> returned epochs
-carrying the broker's own wall-clock label (UTC+3), not true UTC: treating
-<code>copy_ticks_range()</code> as an independent UTC reference for the live tick clock
-was the direct cause of a production calibration failure (see
-<a href="https://github.com/dceoy/mteor/issues/428">dceoy/mteor#428</a>), because a
-query window built from the host clock missed the live event entirely, off
-by exactly the broker's offset. mt5cli does not call <code>copy_ticks_range()</code> or
-<code>copy_rates_range()</code> to calibrate the live tick clock, and does not
-independently verify their documented UTC contract on any broker or
-terminal — treat copied-history timestamps as broker/terminal-dependent
-absent evidence from your own broker/terminal combination.</p>
+<p>pdmt5's copied-history APIs accept timezone-naive trade-server wall-clock
+query bounds. mt5cli rejects offset-bearing strings and timezone-aware
+<code>datetime</code> objects at that boundary; it does not infer a broker offset or
+strip <code>tzinfo</code> to simulate a conversion. Copied-history timestamps remain
+broker/terminal-dependent for downstream interpretation.</p>
+<p>mt5cli does not call <code>copy_ticks_range()</code> or <code>copy_rates_range()</code> to calibrate
+the live tick clock. In production on at least one OANDA-style
+broker/terminal, <code>symbol_info_tick()</code> returned epochs carrying the broker's
+own wall-clock label (UTC+3), not true UTC; treating copied history as an
+independent UTC reference was the direct cause of a production calibration
+failure (see <a href="https://github.com/dceoy/mteor/issues/428">dceoy/mteor#428</a>).</p>
 <p><code>get_tick_snapshot()</code> preserves the numeric MT5 epoch value in <code>time</code>; it does
 not expose pdmt5's timezone-naive <code>Timestamp</code> conversion or alter the instant,
 and it never applies any offset correction. Any broker-specific offset

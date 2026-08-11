@@ -2851,7 +2851,7 @@ attempt <code>n</code> (1-indexed) is <code>backoff_base ** n</code> seconds.</p
 
     <div class="doc doc-contents ">
 
-        <p>Return historical deals from a recent trailing window.</p>
+        <p>Return deals from a trailing window ending at explicit server time.</p>
 
 
             <details class="mkdocstrings-source">
@@ -2878,7 +2878,7 @@ attempt <code>n</code> (1-indexed) is <code>backoff_base ** n</code> seconds.</p
 <a id="__codelineno-0-740" name="__codelineno-0-740"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-741" name="__codelineno-0-741"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Mt5Config</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-742" name="__codelineno-0-742"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
-<a id="__codelineno-0-743" name="__codelineno-0-743"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return historical deals from a recent trailing window.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-743" name="__codelineno-0-743"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return deals from a trailing window ending at explicit server time.&quot;&quot;&quot;</span>
 <a id="__codelineno-0-744" name="__codelineno-0-744"></a>    <span class="k">return</span> <span class="n">_make_client</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">recent_history_deals</span><span class="p">(</span>
 <a id="__codelineno-0-745" name="__codelineno-0-745"></a>        <span class="n">hours</span><span class="p">,</span>
 <a id="__codelineno-0-746" name="__codelineno-0-746"></a>        <span class="n">date_to</span><span class="o">=</span><span class="n">date_to</span><span class="p">,</span>

@@ -214,15 +214,16 @@ execution helpers; no mt5cli public API returns or requires a raw pdmt5 client.<
 <p>Note: the former <code>mt5cli</code> re-export <code>TICK_FLAG_MAP</code> corresponds to <code>COPY_TICKS_MAP</code>
 in pdmt5 — the name changed, it was not simply moved.</p>
 <p>Downstream packages should import from the package root (<code>from mt5cli import
-...</code>). The contract set <code>STABLE_SDK_EXPORTS</code> in <code>mt5cli.contract</code> enumerates
+...</code>). The authoritative SDK declaration in <code>mt5cli.sdk</code> enumerates
 every package-root symbol. Helpers promoted for downstream use, including selected configuration and
 parsing utilities, history timeframe resolution, and Grafana schema setup, are
 part of that root contract. Other low-level
 schema, export, conversion, and implementation helpers remain available only
 from their owning modules.</p>
 <h3 id="module-responsibility-map">Module responsibility map<a class="headerlink" href="#module-responsibility-map" title="Permanent link">&para;</a></h3>
-<p><code>mt5cli.sdk</code> has been removed. Each capability now has exactly one owning
-module:</p>
+<p><code>mt5cli.sdk</code> is the internal source of truth for the stable package-root
+exports. Downstream code should import stable names from <code>mt5cli</code>; each
+operational capability still has exactly one owning module:</p>
 <table>
 <thead>
 <tr>
@@ -241,7 +242,11 @@ module:</p>
 </tr>
 <tr>
 <td><code>mt5cli.history</code></td>
-<td>History collection, incremental updates, and SQLite storage (<code>collect_history</code>, <code>update_history</code>, <code>write_*_dataset</code>, <code>ThrottledHistoryUpdater</code>)</td>
+<td>Legacy history collection, incremental updates, and SQLite storage (<code>collect_history</code>, <code>update_history</code>, <code>write_*_dataset</code>)</td>
+</tr>
+<tr>
+<td><code>mt5cli.rates</code></td>
+<td>Canonical rate persistence/loading and stable update wrappers (<code>load_rate_series_from_sqlite</code>, <code>update_history</code>, <code>ThrottledHistoryUpdater</code>)</td>
 </tr>
 <tr>
 <td><code>mt5cli.observability</code></td>
@@ -257,7 +262,11 @@ module:</p>
 </tr>
 <tr>
 <td><code>mt5cli.contract</code></td>
-<td><code>STABLE_SDK_EXPORTS</code> and the internal <code>HistoryClient</code> / <code>ObservabilityClient</code> protocols</td>
+<td>The internal <code>HistoryClient</code> / <code>ObservabilityClient</code> protocols</td>
+</tr>
+<tr>
+<td><code>mt5cli.sdk</code></td>
+<td>Authoritative stable package-root export declaration; no separate connection lifecycle</td>
 </tr>
 <tr>
 <td><code>mt5cli.cli</code></td>
@@ -273,7 +282,7 @@ module:</p>
 telemetry, SQLite orchestration, and CLI-adjacent concerns.</p>
 <h2 id="stable-downstream-sdk-api">Stable downstream SDK API<a class="headerlink" href="#stable-downstream-sdk-api" title="Permanent link">&para;</a></h2>
 <p>These names are exported from <code>mt5cli</code> and enumerated in
-<code>mt5cli.STABLE_SDK_EXPORTS</code> (defined in <code>mt5cli.contract</code>).</p>
+<code>mt5cli.STABLE_SDK_EXPORTS</code> (defined by <code>mt5cli.sdk</code>).</p>
 <h3 id="session-lifecycle-and-configuration">Session lifecycle and configuration<a class="headerlink" href="#session-lifecycle-and-configuration" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -298,6 +307,10 @@ telemetry, SQLite orchestration, and CLI-adjacent concerns.</p>
 <tr>
 <td><code>mt5_session</code></td>
 <td>Canonical context manager: initialize/login once, yield <code>MT5Client</code>, shut down once; a supplied <code>client=</code> remains caller-owned.</td>
+</tr>
+<tr>
+<td><code>Mt5Config</code></td>
+<td>Canonical pdmt5 connection configuration type returned by <code>build_config</code> and accepted by managed-session wrappers</td>
 </tr>
 <tr>
 <td><code>AccountSpec</code></td>
@@ -362,15 +375,15 @@ timestamp normalization in downstream apps.</p>
 </tr>
 <tr>
 <td><code>report_rate_gaps</code></td>
-<td>SQLite-only one-row-per-gap report for a rate table or compatibility view</td>
+<td>SQLite-only one-row-per-gap report for the canonical rates table or an explicit custom table</td>
 </tr>
 <tr>
 <td><code>update_history</code>, <code>update_history_with_config</code></td>
-<td>Incremental append from <code>MAX(time)</code> cursors</td>
+<td>Incremental append from <code>MAX(time)</code> cursors; explicit naive trade-server <code>date_to</code> required</td>
 </tr>
 <tr>
 <td><code>ThrottledHistoryUpdater</code></td>
-<td>Minimum interval between successful incremental updates; optional <code>update_backend</code> injection</td>
+<td>Minimum interval between successful incremental updates; explicit <code>date_to</code>; optional <code>update_backend</code> injection</td>
 </tr>
 <tr>
 <td><code>RateTarget</code>, <code>build_rate_targets</code></td>
@@ -378,12 +391,11 @@ timestamp normalization in downstream apps.</p>
 </tr>
 <tr>
 <td><code>load_rate_series_from_sqlite</code>, <code>load_rate_series_by_granularity</code></td>
-<td>Load one or many series; fail clearly when managed views are missing</td>
+<td>Load normalized <code>rates</code> series or explicit custom tables; reject invalid targets clearly</td>
 </tr>
 </tbody>
 </table>
-<p>See <a href="../history/">History Collection (SQLite)</a> for schema, view naming, and ER
-diagrams.</p>
+<p>See <a href="../history/">History Collection (SQLite)</a> for the canonical schema, loading contract, and ER diagrams.</p>
 <p>Shared package-root helpers used by downstream adapters include <code>Dataset</code>,
 <code>parse_timeframe</code>, and <code>resolve_history_timeframes</code>. These are stable exports;
 downstream applications should not import them from <code>mt5cli.utils</code> or
@@ -525,17 +537,11 @@ package-root API. Replace either with <code>with mt5_session(config) as client:<
 retrieve deal history through <code>client.history_deals()</code> or
 <code>client.recent_history_deals()</code>. Consume execution receipt attributes instead
 of parsing a raw broker response or assuming requested volume was filled.</p>
-<p><code>mt5cli.sdk</code> has been removed entirely, along with its duplicate
-<code>mt5_session()</code> context manager (which used to yield a private
-read-only-only client type) and the <code>Mt5CliClient</code> name. <code>from mt5cli import
-MT5Client, mt5_session</code> remains the only supported way to obtain a connected
-client — there is no alternate public session factory or client type. Code
-that imported market-data or history functions from <code>mt5cli.sdk</code> should import
-them from <code>mt5cli.marketdata</code> or <code>mt5cli.history</code> instead (or, for stable
-names, from the package root). Code that imported <code>update_observability</code> /
-<code>update_observability_with_config</code> from <code>mt5cli.sdk</code> should import them from
-<code>mt5cli.observability</code> instead. No compatibility shims are provided for any of
-these removed import paths.</p>
+<p><code>mt5cli.sdk</code> is an internal source-of-truth module for the stable package-root
+exports. It does not provide a second connection lifecycle or alternate public
+client type; <code>from mt5cli import MT5Client, mt5_session</code> remains the supported
+way to obtain a connected client. Downstream code should import stable names
+from the package root and capability-specific helpers from their owning modules.</p>
 <h3 id="grafana-observability-sqlite-read-model">Grafana observability (SQLite read model)<a class="headerlink" href="#grafana-observability-sqlite-read-model" title="Permanent link">&para;</a></h3>
 <p>These helpers prepare a SQLite database as a Grafana datasource. All DDL is
 idempotent (<code>CREATE TABLE IF NOT EXISTS</code>, <code>DROP VIEW IF EXISTS</code> + <code>CREATE
@@ -739,10 +745,6 @@ of the package-root stable surface. Import them directly when needed:</p>
 <td><code>ensure_grafana_schema</code>, <code>create_grafana_views</code>, <code>create_grafana_indexes</code>, <code>create_snapshot_tables</code>, <code>start_snapshot_run</code>, <code>insert_account_snapshot</code>, <code>record_snapshot_run</code></td>
 </tr>
 <tr>
-<td><code>mt5cli.history</code></td>
-<td><code>resolve_rate_view_name</code>, <code>resolve_rate_tables</code>, <code>load_rate_data</code>, <code>build_rate_view_name</code></td>
-</tr>
-<tr>
 <td><code>mt5cli.marketdata</code></td>
 <td><code>copy_rates_from</code>, <code>copy_ticks_from</code>, <code>account_info</code>, <code>symbols</code>, <code>mt5_summary</code>, <code>latest_rates</code></td>
 </tr>
@@ -756,7 +758,7 @@ of the package-root stable surface. Import them directly when needed:</p>
 </tr>
 <tr>
 <td><code>mt5cli.converters</code></td>
-<td><code>normalize_symbol</code>, <code>ensure_utc</code>, <code>parse_date_range</code>, <code>granularity_name</code></td>
+<td><code>normalize_symbol</code>, <code>ensure_utc</code>, <code>ensure_trade_server_time</code>, <code>parse_date_range</code>, <code>granularity_name</code></td>
 </tr>
 <tr>
 <td><code>mt5cli.exceptions</code></td>
@@ -797,9 +799,9 @@ parameter of <code>close_open_positions()</code>) is omitted, the filling mode i
 resolved per symbol with <code>resolve_broker_filling_mode()</code> so closes are not
 rejected on brokers whose symbols do not support IOC.</p>
 <p><code>history-gaps</code> reads an existing SQLite history database and exports one row
-per detected gap from managed rate compatibility views. It never initializes
-MT5. Pass <code>--granularity-seconds</code> for custom tables or views whose bar spacing
-cannot be inferred from the name.</p>
+per detected gap from the canonical <code>rates</code> table or an explicitly named custom
+table. It never initializes MT5. Pass <code>--granularity-seconds</code> for custom tables
+whose bar spacing cannot be inferred from timeframe metadata.</p>
 <h2 id="internal-helpers-not-stable">Internal helpers (not stable)<a class="headerlink" href="#internal-helpers-not-stable" title="Permanent link">&para;</a></h2>
 <p>Do not import these for downstream contracts; they may change without a semver
 notice:</p>
