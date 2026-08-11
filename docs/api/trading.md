@@ -193,31 +193,37 @@ and betting semantics belong in downstream applications.
 from mt5cli import mt5_session
 
 with mt5_session() as client:
-    deals_df = client.recent_history_deals(symbol="JP225", hours=24)
+    deals_df = client.recent_history_deals(
+        symbol="JP225",
+        hours=24,
+        date_to="2024-02-01",
+    )
 ```
 
-`hours` must be positive; `date_to` defaults to `datetime.now(UTC)`. An empty
-or `None` result from the underlying client is normalized to an empty DataFrame.
+`hours` must be positive and `date_to` must be an explicit naive MT5
+trade-server wall-clock end time. mt5cli cannot determine the current server
+time, so omitted `date_to` values are rejected. Offset-bearing strings and
+aware `datetime` objects are rejected because mt5cli has no validated
+UTC-to-server-time converter. An empty or `None` result from the underlying
+client is normalized to an empty DataFrame.
 
 Downstream packages own all strategy-specific transformations. mt5cli does not
 provide entry-deal classification, Kelly sizing, or any betting-specific helpers.
 
 ## Timestamp sources and broker clock offsets
 
-MetaQuotes documents `copy_ticks_range()` and `copy_rates_range()` results,
-and the date bounds they accept, as UTC, and does not document a different
-timezone contract for `symbol_info_tick()`. In production on at least one
-OANDA-style broker/terminal, however, `symbol_info_tick()` returned epochs
-carrying the broker's own wall-clock label (UTC+3), not true UTC: treating
-`copy_ticks_range()` as an independent UTC reference for the live tick clock
-was the direct cause of a production calibration failure (see
-[dceoy/mteor#428](https://github.com/dceoy/mteor/issues/428)), because a
-query window built from the host clock missed the live event entirely, off
-by exactly the broker's offset. mt5cli does not call `copy_ticks_range()` or
-`copy_rates_range()` to calibrate the live tick clock, and does not
-independently verify their documented UTC contract on any broker or
-terminal — treat copied-history timestamps as broker/terminal-dependent
-absent evidence from your own broker/terminal combination.
+pdmt5's copied-history APIs accept timezone-naive trade-server wall-clock
+query bounds. mt5cli rejects offset-bearing strings and timezone-aware
+`datetime` objects at that boundary; it does not infer a broker offset or
+strip `tzinfo` to simulate a conversion. Copied-history timestamps remain
+broker/terminal-dependent for downstream interpretation.
+
+mt5cli does not call `copy_ticks_range()` or `copy_rates_range()` to calibrate
+the live tick clock. In production on at least one OANDA-style
+broker/terminal, `symbol_info_tick()` returned epochs carrying the broker's
+own wall-clock label (UTC+3), not true UTC; treating copied history as an
+independent UTC reference was the direct cause of a production calibration
+failure (see [dceoy/mteor#428](https://github.com/dceoy/mteor/issues/428)).
 
 `get_tick_snapshot()` preserves the numeric MT5 epoch value in `time`; it does
 not expose pdmt5's timezone-naive `Timestamp` conversion or alter the instant,

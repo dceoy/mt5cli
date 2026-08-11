@@ -740,7 +740,7 @@ def recent_history_deals(
     *,
     config: Mt5Config | None = None,
 ) -> pd.DataFrame:
-    """Return historical deals from a recent trailing window."""
+    """Return deals from a trailing window ending at explicit server time."""
     return _make_client(config=config).recent_history_deals(
         hours,
         date_to=date_to,

@@ -1,4 +1,4 @@
-"""Downstream SDK export tier for mt5cli."""
+"""Structural contracts used internally by mt5cli."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class HistoryClient(Protocol):
         date_from: datetime | str,
         date_to: datetime | str,
     ) -> pd.DataFrame:
-        """Return rates for a date range."""
+        """Return rates for a naive trade-server wall-clock date range."""
         ...
 
     def copy_ticks_range(
@@ -35,7 +35,7 @@ class HistoryClient(Protocol):
         date_to: datetime | str,
         flags: int | str,
     ) -> pd.DataFrame:
-        """Return ticks for a date range."""
+        """Return ticks for a naive trade-server wall-clock date range."""
         ...
 
     def history_orders(
@@ -47,7 +47,7 @@ class HistoryClient(Protocol):
         ticket: int | None = None,
         position: int | None = None,
     ) -> pd.DataFrame:
-        """Return historical orders."""
+        """Return historical orders for optional naive server-time bounds."""
         ...
 
     def history_deals(
@@ -59,7 +59,7 @@ class HistoryClient(Protocol):
         ticket: int | None = None,
         position: int | None = None,
     ) -> pd.DataFrame:
-        """Return historical deals."""
+        """Return historical deals for optional naive server-time bounds."""
         ...
 
     def symbol_info_as_dict(self, symbol: str) -> dict[str, object]:
@@ -100,78 +100,4 @@ class ObservabilityClient(Protocol):
         ...
 
 
-STABLE_SDK_EXPORTS: frozenset[str] = frozenset({
-    "AccountSpec",
-    "MT5Client",
-    "Mt5CliError",
-    "Mt5ConnectionError",
-    "Mt5OperationError",
-    "Mt5SchemaError",
-    "OrderFillingMode",
-    "OrderSide",
-    "OrderTimeMode",
-    "PositionSide",
-    "ProjectionMode",
-    "CalibrationStatus",
-    "ClockStatus",
-    "ExecutionStatus",
-    "MarginVolume",
-    "NormalizedTickSnapshot",
-    "OrderExecutionResult",
-    "OrderLimits",
-    "TickClockCalibration",
-    "TickClockNormalizer",
-    "RateTarget",
-    "ThrottledHistoryUpdater",
-    "Dataset",
-    "build_config",
-    "build_rate_targets",
-    "calculate_account_projected_margin_ratio",
-    "calculate_margin_and_volume",
-    "calculate_projected_margin_ratio",
-    "calculate_positions_margin",
-    "calculate_positions_margin_by_symbol",
-    "calculate_positions_margin_safe",
-    "calculate_spread_ratio",
-    "calculate_symbol_group_margin_ratio",
-    "calculate_trailing_stop_updates",
-    "calculate_volume_by_margin",
-    "close_open_positions",
-    "collect_history",
-    "collect_latest_closed_rates_by_granularity",
-    "collect_latest_closed_rates_for_accounts",
-    "collect_latest_rates_for_accounts_with_retries",
-    "detect_position_side",
-    "determine_order_limits",
-    "drop_forming_rate_bar",
-    "ensure_grafana_schema",
-    "ensure_symbol_selected",
-    "estimate_order_margin",
-    "extract_tick_price",
-    "fetch_latest_closed_rates",
-    "fetch_latest_closed_rates_indexed",
-    "get_account_snapshot",
-    "get_positions_frame",
-    "get_symbol_snapshot",
-    "get_tick_snapshot",
-    "load_rate_series_by_granularity",
-    "load_rate_series_from_sqlite",
-    "mt5_session",
-    "normalize_order_volume",
-    "parse_timeframe",
-    "place_market_order",
-    "report_rate_gaps",
-    "resolve_broker_filling_mode",
-    "resolve_account_spec",
-    "resolve_account_specs",
-    "resolve_history_timeframes",
-    "substitute_mapping_values",
-    "update_history",
-    "update_history_with_config",
-    "update_observability",
-    "update_observability_with_config",
-    "update_sltp_for_open_positions",
-    "update_trailing_stop_loss_for_open_positions",
-})
-
-__all__ = ["STABLE_SDK_EXPORTS", "HistoryClient", "ObservabilityClient"]
+__all__ = ["HistoryClient", "ObservabilityClient"]

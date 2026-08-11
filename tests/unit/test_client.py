@@ -551,8 +551,8 @@ class TestMT5ClientMethods:
                 {
                     "symbol": "EURUSD",
                     "timeframe": 16408,
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
-                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
                 },
                 id="copy_rates_range-normalizes-dates-and-timeframe",
             ),
@@ -566,7 +566,7 @@ class TestMT5ClientMethods:
                 "copy_ticks_from_as_df",
                 {
                     "symbol": "EURUSD",
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                     "count": 100,
                     "flags": 1,
                 },
@@ -579,8 +579,8 @@ class TestMT5ClientMethods:
                 ),
                 "history_orders_get_as_df",
                 {
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
-                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
                     "group": None,
                     "symbol": None,
                     "ticket": None,
@@ -612,6 +612,87 @@ class TestMT5ClientMethods:
         result = call()
         assert isinstance(result, pd.DataFrame)
         getattr(mock_client, expected_method).assert_called_once_with(**expected_kwargs)
+
+    @pytest.mark.parametrize(
+        ("method_name", "args", "kwargs"),
+        [
+            (
+                "copy_rates_from",
+                (
+                    "EURUSD",
+                    "M1",
+                    datetime(2024, 1, 1, tzinfo=UTC),
+                    1,
+                ),
+                {},
+            ),
+            (
+                "copy_rates_range",
+                (
+                    "EURUSD",
+                    "M1",
+                    datetime(2024, 1, 1, tzinfo=UTC),
+                    datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None),
+                ),
+                {},
+            ),
+            (
+                "copy_ticks_from",
+                ("EURUSD", datetime(2024, 1, 1, tzinfo=UTC), 1, "ALL"),
+                {},
+            ),
+            (
+                "copy_ticks_range",
+                (
+                    "EURUSD",
+                    datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                    datetime(2024, 1, 2, tzinfo=UTC),
+                    "ALL",
+                ),
+                {},
+            ),
+            (
+                "history_orders",
+                (),
+                {
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_to": datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None),
+                },
+            ),
+            (
+                "history_deals",
+                (),
+                {
+                    "date_from": "2024-01-01T00:00:00+00:00",
+                    "date_to": "2024-01-02T00:00:00",
+                },
+            ),
+        ],
+        ids=[
+            "rates-from-aware",
+            "rates-range-aware",
+            "ticks-from-aware",
+            "ticks-range-aware",
+            "orders-aware",
+            "deals-offset",
+        ],
+    )
+    def test_query_methods_reject_aware_bounds(
+        self,
+        mock_client: MagicMock,
+        method_name: str,
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+    ) -> None:
+        """Query bounds fail before reaching pdmt5 when timezone-aware."""
+        with pytest.raises(ValueError, match="timezone-aware"):
+            getattr(MT5Client(), method_name)(*args, **kwargs)
+        mock_client.copy_rates_range_as_df.assert_not_called()
+        mock_client.copy_rates_from_as_df.assert_not_called()
+        mock_client.copy_ticks_from_as_df.assert_not_called()
+        mock_client.copy_ticks_range_as_df.assert_not_called()
+        mock_client.history_orders_get_as_df.assert_not_called()
+        mock_client.history_deals_get_as_df.assert_not_called()
 
     def test_module_function_delegates_to_client(
         self,
@@ -696,31 +777,24 @@ class TestMT5ClientMethods:
         """Test recent_history_deals calculates date_from from hours."""
         result = recent_history_deals(
             6,
-            date_to="2024-01-02T00:00:00+00:00",
+            date_to="2024-01-02T00:00:00",
             group="*",
             symbol="EURUSD",
         )
         assert isinstance(result, pd.DataFrame)
         mock_client.history_deals_get_as_df.assert_called_once_with(
-            date_from=datetime(2024, 1, 1, 18, tzinfo=UTC),
-            date_to=datetime(2024, 1, 2, tzinfo=UTC),
+            date_from=datetime(2024, 1, 1, 18, tzinfo=UTC).replace(tzinfo=None),
+            date_to=datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None),
             group="*",
             symbol="EURUSD",
             ticket=None,
             position=None,
         )
 
-    def test_recent_history_deals_defaults_date_to_now(
-        self,
-        mock_client: MagicMock,
-    ) -> None:
-        """Test recent_history_deals uses current UTC time when date_to is omitted."""
-        before = datetime.now(UTC)
-        recent_history_deals(1.0)
-        after = datetime.now(UTC)
-        call_kwargs = mock_client.history_deals_get_as_df.call_args.kwargs
-        assert before <= call_kwargs["date_to"] <= after
-        assert call_kwargs["date_from"] == call_kwargs["date_to"] - timedelta(hours=1)
+    def test_recent_history_deals_requires_explicit_server_time(self) -> None:
+        """Test recent_history_deals rejects an unknown server-time end."""
+        with pytest.raises(ValueError, match="date_to is required"):
+            MT5Client().recent_history_deals(1.0)
 
     def test_recent_history_deals_rejects_non_positive_hours(self) -> None:
         """Test recent_history_deals validates hours."""
@@ -847,7 +921,7 @@ class TestRecentTicks:
     ) -> None:
         """Test recent_ticks fetches the requested trailing window."""
         client = MagicMock()
-        end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC).replace(tzinfo=None)
         client.copy_ticks_from_as_df.return_value = pd.DataFrame({
             "time": [end],
             "bid": [1.0],
@@ -877,7 +951,7 @@ class TestRecentTicks:
         """Test recent_ticks anchors the window on the latest tick time."""
         client = MagicMock()
         tick = MagicMock()
-        tick.time = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        tick.time = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC).replace(tzinfo=None)
         client.symbol_info_tick.return_value = tick
         client.copy_ticks_from_as_df.return_value = pd.DataFrame({
             "time": [1, 2],
@@ -898,14 +972,20 @@ class TestRecentTicks:
         assert kwargs["date_from"] == tick.time - timedelta(seconds=30)
         assert kwargs["flags"] == -1
 
+    @pytest.mark.parametrize(
+        "tick_time",
+        [object(), float("nan")],
+        ids=["unsupported", "invalid-numeric"],
+    )
     def test_recent_ticks_rejects_unsupported_tick_time(
         self,
         mocker: MockerFixture,
+        tick_time: object,
     ) -> None:
         """Test recent_ticks raises when the latest tick time is unsupported."""
         client = MagicMock()
         tick = MagicMock()
-        tick.time = object()
+        tick.time = tick_time
         client.symbol_info_tick.return_value = tick
         mocker.patch("mt5cli.client.Mt5DataClient", return_value=client)
         with pytest.raises(TypeError, match="Unsupported tick time value"):
@@ -914,7 +994,7 @@ class TestRecentTicks:
     @pytest.mark.parametrize(
         "tick_time",
         [
-            "2024-01-02T12:00:00+00:00",
+            "2024-01-02T12:00:00",
             1704196800,
         ],
     )
@@ -928,11 +1008,7 @@ class TestRecentTicks:
         tick = MagicMock()
         tick.time = tick_time
         client.symbol_info_tick.return_value = tick
-        expected_end = (
-            datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
-            if isinstance(tick_time, str)
-            else datetime.fromtimestamp(tick_time, tz=UTC)
-        )
+        expected_end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC).replace(tzinfo=None)
         client.copy_ticks_from_as_df.return_value = pd.DataFrame({
             "time": [expected_end],
         })
@@ -947,7 +1023,7 @@ class TestRecentTicks:
     ) -> None:
         """Test non-positive count returns the full range without trimming."""
         client = MagicMock()
-        end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        end = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC).replace(tzinfo=None)
         client.copy_ticks_range_as_df.return_value = pd.DataFrame({
             "time": [1, 2, 3],
             "bid": [1.0, 1.1, 1.2],

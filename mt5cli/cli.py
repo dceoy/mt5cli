@@ -14,12 +14,9 @@ import pandas as pd
 import typer
 
 from .client import MT5Client, build_config, mt5_session
+from .converters import ensure_trade_server_time
 from .history import collect_history as _collect_history
-from .history import (
-    infer_rate_table_granularity_seconds,
-    open_existing_sqlite_database,
-    report_rate_gaps,
-)
+from .history import open_existing_sqlite_database, report_rate_gaps
 from .observability import update_observability_with_config
 from .trading import OrderExecutionResult, close_open_positions
 from .utils import (
@@ -29,14 +26,12 @@ from .utils import (
     OutputFormat,
     detect_format,
     export_dataframe,
-    parse_datetime,
     parse_request,
     parse_tick_flags,
     parse_timeframe,
 )
 
 if TYPE_CHECKING:
-    import sqlite3
     from collections.abc import Callable
 
     from pdmt5 import Mt5Config
@@ -47,8 +42,16 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_datetime_parameter(value: str) -> datetime:
+    """Parse an offset-free trade-server wall-clock CLI datetime.
+
+    Returns:
+        Parsed timezone-naive datetime.
+
+    Raises:
+        typer.BadParameter: If ``value`` is invalid or timezone-aware.
+    """
     try:
-        return parse_datetime(value)
+        return ensure_trade_server_time(value)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
@@ -116,15 +119,6 @@ _CLI_ENV_DEFAULTS: dict[str, str] = {
 
 def _get_export_context(ctx: typer.Context) -> _ExportContext:
     return cast("_ExportContext", ctx.obj)
-
-
-def _default_gap_tables(conn: sqlite3.Connection) -> list[str]:
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master"
-        " WHERE type IN ('table', 'view') AND name GLOB 'rate_*__*'"
-        " ORDER BY name",
-    ).fetchall()
-    return [str(row[0]) for row in rows]
 
 
 def _execute_export(
@@ -593,9 +587,9 @@ def recent_history_deals(
     ctx: typer.Context,
     hours: Annotated[float, typer.Option(help="Lookback window in hours.")],
     date_to: Annotated[
-        datetime | None,
+        datetime,
         typer.Option(parser=_parse_datetime_parameter, help="Window end date."),
-    ] = None,
+    ],
     group: Annotated[str | None, typer.Option(help="Group filter.")] = None,
     symbol: Annotated[str | None, typer.Option(help="Symbol filter.")] = None,
 ) -> None:
@@ -832,12 +826,20 @@ def history_gaps(
         list[str] | None,
         typer.Option(
             "--table",
-            help="Rate table or compatibility view to inspect (repeat for multiple).",
+            help=(
+                "Rate table to inspect (repeat for multiple); defaults to "
+                "the canonical rates table."
+            ),
         ),
     ] = None,
     granularity_seconds: Annotated[
         int | None,
-        typer.Option(help="Explicit bar interval in seconds for custom tables/views."),
+        typer.Option(
+            help=(
+                "Explicit bar interval in seconds for custom tables without "
+                "timeframe metadata."
+            ),
+        ),
     ] = None,
     min_gap_intervals: Annotated[
         int,
@@ -847,46 +849,31 @@ def history_gaps(
     """Export SQLite rate gaps without connecting to MT5.
 
     Raises:
-        typer.BadParameter: If the source database does not exist, if no
-            compatible rate view is available and no explicit table is
-            provided, or if granularity inference fails.
+        typer.BadParameter: If the database, table, or granularity is invalid.
     """
     try:
         conn, _ = open_existing_sqlite_database(sqlite3_path)
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="--sqlite3") from exc
     with closing(conn):
-        tables = list(table) if table else _default_gap_tables(conn)
-        if not tables:
-            msg = (
-                "No managed rate compatibility views found; pass --table for a rate "
-                "table or view."
-            )
-            raise typer.BadParameter(msg, param_hint="--table")
+        tables = list(table) if table else [Dataset.rates.table_name]
         frames: list[pd.DataFrame] = []
         for table_name in tables:
-            interval_seconds = (
-                granularity_seconds or infer_rate_table_granularity_seconds(table_name)
-            )
-            if interval_seconds is None:
-                msg = (
-                    f"Could not infer granularity for {table_name!r}; pass "
-                    "--granularity-seconds."
+            try:
+                frames.append(
+                    report_rate_gaps(
+                        conn,
+                        table_name,
+                        granularity_seconds=granularity_seconds,
+                        min_gap_intervals=min_gap_intervals,
+                    )
                 )
-                raise typer.BadParameter(msg, param_hint="--granularity-seconds")
-            frames.append(
-                report_rate_gaps(
-                    conn,
-                    table_name,
-                    granularity_seconds=interval_seconds,
-                    min_gap_intervals=min_gap_intervals,
-                )
-            )
-    df = (
-        pd.concat(frames, ignore_index=True)
-        if frames
-        else pd.DataFrame(columns=["table"])
-    )
+            except ValueError as exc:
+                raise typer.BadParameter(
+                    str(exc),
+                    param_hint="--granularity-seconds",
+                ) from exc
+    df = pd.concat(frames, ignore_index=True)
     _execute_export(ctx, lambda: df)
 
 

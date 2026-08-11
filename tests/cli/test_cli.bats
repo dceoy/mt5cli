@@ -22,10 +22,15 @@ import sqlite3
 import sys
 
 with sqlite3.connect(sys.argv[1]) as conn:
-    conn.execute('CREATE TABLE "rate_EURUSD__M1_1"(time TEXT, close REAL)')
+    conn.execute(
+        'CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)'
+    )
     conn.executemany(
-        'INSERT INTO "rate_EURUSD__M1_1"(time, close) VALUES (?, ?)',
-        [("2024-01-01T00:00:00+00:00", 1.0), ("2024-01-01T00:02:00+00:00", 1.1)],
+        'INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)',
+        [
+            ("EURUSD", 1, "2024-01-01T00:00:00", 1.0),
+            ("EURUSD", 1, "2024-01-01T00:02:00", 1.1),
+        ],
     )
 PY
   uv run python "${BATS_TEST_TMPDIR}/seed_rates.py" "${database}"

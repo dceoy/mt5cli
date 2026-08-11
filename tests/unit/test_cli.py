@@ -30,10 +30,6 @@ from mt5cli.cli import (
     app,
     main,
 )
-from mt5cli.history import (
-    infer_rate_table_granularity_seconds,
-    timeframe_interval_seconds,
-)
 
 runner = CliRunner()
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -173,7 +169,7 @@ class TestCommands:
                 {
                     "symbol": "EURUSD",
                     "timeframe": 1,
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                     "count": 100,
                 },
             ),
@@ -233,8 +229,8 @@ class TestCommands:
                 {
                     "symbol": "USDJPY",
                     "timeframe": 16408,
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
-                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
                 },
             ),
             (
@@ -252,7 +248,7 @@ class TestCommands:
                 "copy_ticks_from_as_df",
                 {
                     "symbol": "EURUSD",
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
                     "count": 100,
                     "flags": -1,
                 },
@@ -272,8 +268,8 @@ class TestCommands:
                 "copy_ticks_range_as_df",
                 {
                     "symbol": "EURUSD",
-                    "date_from": datetime(2024, 1, 1, tzinfo=UTC),
-                    "date_to": datetime(2024, 2, 1, tzinfo=UTC),
+                    "date_from": datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                    "date_to": datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
                     "flags": 1,
                 },
             ),
@@ -329,7 +325,8 @@ class TestCommands:
         assert result.exit_code == 0, result.output
         mock_client.copy_ticks_from_as_df.assert_called_once_with(
             symbol="EURUSD",
-            date_from=datetime(2024, 1, 2, tzinfo=UTC) - timedelta(seconds=120),
+            date_from=datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None)
+            - timedelta(seconds=120),
             count=500,
             flags=-1,
         )
@@ -414,13 +411,28 @@ class TestCommands:
         )
         assert result.exit_code == 0, result.output
         mock_client.history_deals_get_as_df.assert_called_once_with(
-            date_from=datetime(2024, 1, 1, 18, tzinfo=UTC),
-            date_to=datetime(2024, 1, 2, tzinfo=UTC),
+            date_from=datetime(2024, 1, 1, 18, tzinfo=UTC).replace(tzinfo=None),
+            date_to=datetime(2024, 1, 2, tzinfo=UTC).replace(tzinfo=None),
             group=None,
             symbol="EURUSD",
             ticket=None,
             position=None,
         )
+
+    def test_recent_history_deals_requires_date_to(self, tmp_path: Path) -> None:
+        """Test recent-history-deals requires an explicit server-time end."""
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(tmp_path / "out.csv"),
+                "recent-history-deals",
+                "--hours",
+                "6",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "date-to" in normalize_cli_output(result.output)
 
     @pytest.mark.parametrize(
         ("filename", "reader"),
@@ -1088,11 +1100,6 @@ class TestCallback:
         for env_name in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_PATH"):
             assert env_name in normalized
 
-    def test_gap_granularity_helpers_cover_unknown_cases(self) -> None:
-        """Gap-table granularity helpers should fail cleanly for unknown inputs."""
-        assert timeframe_interval_seconds(49153) is None
-        assert infer_rate_table_granularity_seconds("custom_rates") is None
-
     @pytest.mark.parametrize(
         ("args", "env", "exit_code", "match"),
         [
@@ -1370,8 +1377,8 @@ class TestCollectHistory:
         if verify_ticks_call:
             history_client.copy_ticks_range_as_df.assert_called_once_with(
                 symbol="EURUSD",
-                date_from=datetime(2024, 1, 1, tzinfo=UTC),
-                date_to=datetime(2024, 2, 1, tzinfo=UTC),
+                date_from=datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                date_to=datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
                 flags=-1,
             )
         with sqlite3.connect(output) as conn:
@@ -1411,16 +1418,16 @@ class TestCollectHistory:
         assert history_client.history_orders_get_as_df.call_count == 2
         assert history_client.history_deals_get_as_df.call_count == 2
         history_client.history_orders_get_as_df.assert_any_call(
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
+            date_from=datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            date_to=datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
             group=None,
             symbol="EURUSD",
             ticket=None,
             position=None,
         )
         history_client.history_deals_get_as_df.assert_any_call(
-            date_from=datetime(2024, 1, 1, tzinfo=UTC),
-            date_to=datetime(2024, 2, 1, tzinfo=UTC),
+            date_from=datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            date_to=datetime(2024, 2, 1, tzinfo=UTC).replace(tzinfo=None),
             group=None,
             symbol="GBPUSD",
             ticket=None,
@@ -1523,7 +1530,7 @@ class TestCollectHistory:
             ).fetchone()
         assert row == (
             "EURUSD",
-            "2024-02-01T00:00:00+00:00",
+            "2024-02-01T00:00:00",
             0.00001,
             5,
             100000.0,
@@ -1872,73 +1879,6 @@ class TestCollectHistory:
 class TestHistoryGapsCommand:
     """Tests for the history-gaps CLI command."""
 
-    @pytest.mark.parametrize(
-        ("extra_args", "expected_tables", "expected_rows"),
-        [
-            pytest.param([], {"rate_EURUSD__M1_1", "rate_GBPUSD__M1_1"}, 2, id="all"),
-            pytest.param(
-                ["--table", "rate_EURUSD__M1_1"],
-                {"rate_EURUSD__M1_1"},
-                1,
-                id="explicit-table",
-            ),
-        ],
-    )
-    def test_history_gaps_exports_sqlite_report_without_mt5(
-        self,
-        tmp_path: Path,
-        mock_client: MagicMock,
-        extra_args: list[str],
-        expected_tables: set[str],
-        expected_rows: int,
-    ) -> None:
-        """history-gaps reads SQLite only and exports one row per gap."""
-        database = tmp_path / "history.db"
-        output = tmp_path / "gaps.json"
-        with sqlite3.connect(database) as conn:
-            conn.execute(
-                "CREATE TABLE rates("
-                "symbol TEXT, timeframe INTEGER, time TEXT, close REAL"
-                ")",
-            )
-            conn.executemany(
-                "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
-                [
-                    ("EURUSD", 1, "2024-01-01T00:00:00+00:00", 1.0),
-                    ("EURUSD", 1, "2024-01-01T00:02:00+00:00", 1.1),
-                    ("GBPUSD", 1, "2024-01-01T00:00:00+00:00", 1.2),
-                    ("GBPUSD", 1, "2024-01-01T00:02:00+00:00", 1.3),
-                ],
-            )
-            conn.execute(
-                'CREATE VIEW "rate_EURUSD__M1_1" AS '
-                "SELECT time, close FROM rates "
-                "WHERE symbol = 'EURUSD' AND timeframe = 1",
-            )
-            conn.execute(
-                'CREATE VIEW "rate_GBPUSD__M1_1" AS '
-                "SELECT time, close FROM rates "
-                "WHERE symbol = 'GBPUSD' AND timeframe = 1",
-            )
-
-        result = runner.invoke(
-            app,
-            [
-                "-o",
-                str(output),
-                "history-gaps",
-                "--sqlite3",
-                str(database),
-                *extra_args,
-            ],
-        )
-
-        assert result.exit_code == 0, result.output
-        data = json.loads(output.read_text())
-        assert len(data) == expected_rows
-        assert {row["table"] for row in data} == expected_tables
-        mock_client.initialize_and_login_mt5.assert_not_called()
-
     def test_history_gaps_rejects_missing_database_without_creating_it(
         self,
         tmp_path: Path,
@@ -1955,24 +1895,6 @@ class TestHistoryGapsCommand:
         assert result.exit_code != 0
         assert "SQLite database not found" in result.output
         assert not database.exists()
-
-    def test_history_gaps_requires_compatible_default_views(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Without --table, history-gaps should reject DBs with no managed views."""
-        database = tmp_path / "empty.db"
-        output = tmp_path / "gaps.json"
-        with sqlite3.connect(database):
-            pass
-
-        result = runner.invoke(
-            app,
-            ["-o", str(output), "history-gaps", "--sqlite3", str(database)],
-        )
-
-        assert result.exit_code != 0
-        assert "No managed rate compatibility views found" in result.output
 
     def test_history_gaps_requires_granularity_for_custom_tables(
         self,
@@ -2183,6 +2105,11 @@ class TestTyperParameterParsers:
         """Test that invalid datetimes raise a Typer BadParameter."""
         with pytest.raises(Exception, match="Invalid datetime"):
             _parse_datetime_parameter("bad")
+
+    def test_datetime_parser_rejects_timezone_aware_value(self) -> None:
+        """Test that CLI datetimes reject timezone-aware query bounds."""
+        with pytest.raises(Exception, match="timezone-aware"):
+            _parse_datetime_parameter("2024-01-01T00:00:00+00:00")
 
     def test_timeframe_parser_invalid(self) -> None:
         """Test that invalid timeframes raise a Typer BadParameter."""

@@ -19,7 +19,7 @@ mt5cli provides a stable `MT5Client` Python API, standardized dataset schemas, s
 - **Comprehensive data access**: Rates, ticks, account info, symbols, orders, positions, and trading history
 - **Flexible timeframes**: Named timeframes (M1, H1, D1, etc.) and numeric values
 - **Connection management**: Optional credentials, server, and timeout configuration
-- **SQLite rate loading**: Load mt5cli-managed rate tables/views for offline workflows
+- **SQLite rate loading**: Load canonical normalized `rates` series for offline workflows
 
 ## Installation
 
@@ -38,7 +38,7 @@ pip install "mt5cli[parquet]"
 Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives.
 
 ```python
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from mt5cli import (
@@ -47,7 +47,7 @@ from mt5cli import (
     collect_history,
     mt5_session,
 )
-from mt5cli.history import load_rate_data, resolve_rate_view_name
+from mt5cli import build_rate_targets, load_rate_series_from_sqlite
 from mt5cli.marketdata import minimum_margins, recent_ticks
 from mt5cli.schemas import DataKind, normalize_dataframe
 from mt5cli.utils import Dataset, export_dataframe
@@ -69,9 +69,11 @@ closed_rates = normalize_dataframe(
 )
 export_dataframe(closed_rates, Path("rates.csv"), "csv")
 
-# Offline rate loading from mt5cli-managed SQLite history
-view = resolve_rate_view_name(Path("history.db"), "EURUSD", "M1", require_existing=True)
-offline_rates = load_rate_data(Path("history.db"), view, count=1000)
+# Offline rate loading from canonical normalized SQLite history
+targets = build_rate_targets(["EURUSD"], ["M1"])
+offline_rates = load_rate_series_from_sqlite(Path("history.db"), targets, count=1000)[
+    "EURUSD", 1
+]
 
 # One-off helpers still work without instantiating a client
 ticks = recent_ticks("EURUSD", seconds=300)
@@ -80,11 +82,16 @@ margins = minimum_margins("EURUSD")
 collect_history(
     Path("history.db"),
     symbols=["EURUSD", "GBPUSD"],
-    date_from=datetime(2024, 1, 1, tzinfo=UTC),
-    date_to=datetime(2024, 2, 1, tzinfo=UTC),
+    date_from=datetime(2024, 1, 1),
+    date_to=datetime(2024, 2, 1),
     datasets={Dataset.rates, Dataset.history_deals},
 )
 ```
+
+MT5 query bounds are timezone-naive trade-server wall-clock datetimes, as
+required by pdmt5. Offset-bearing strings and timezone-aware `datetime`
+objects are rejected; mt5cli does not infer or strip offsets to perform a
+conversion.
 
 Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Export and storage helpers are in `mt5cli.utils` (`Dataset`, `export_dataframe`) and `mt5cli.history`.
 
@@ -181,7 +188,7 @@ applications should prefer dedicated closing helpers or their own risk controls.
 | Command           | Description                                                                                                                                                                                                                |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `collect-history` | Collect rates, history-orders, and history-deals (ticks and symbol metadata opt-in via `--dataset ticks` / `--dataset symbols`) for one or more symbols into a single SQLite database (optional cash-event/position views) |
-| `history-gaps`    | Export a SQLite-only one-row-per-gap report from managed rate compatibility views without connecting to MT5                                                                                                                |
+| `history-gaps`    | Export a SQLite-only one-row-per-gap report from the canonical `rates` table or an explicit custom table without connecting to MT5                                                                                         |
 
 ```bash
 mt5cli -o history.db collect-history \

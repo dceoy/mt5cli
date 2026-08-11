@@ -21,7 +21,7 @@ Built on top of [pdmt5](https://github.com/dceoy/pdmt5), a pandas-based data han
 - **Comprehensive data access**: Rates, ticks, account info, symbols, orders, positions, and trading history
 - **Flexible timeframes**: Named timeframes (M1, H1, D1, etc.) and numeric values
 - **Connection management**: Optional credentials, server, and timeout configuration
-- **SQLite rate loading**: Load mt5cli-managed rate tables/views for offline workflows
+- **SQLite rate loading**: Load canonical normalized `rates` storage for offline workflows
 
 ## Installation
 
@@ -40,7 +40,7 @@ pip install -U "mt5cli[parquet]" MetaTrader5
 Import `MT5Client` for generic MT5 data access, schema normalization, and optional order primitives.
 
 ```python
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from mt5cli import (
@@ -74,8 +74,8 @@ export_dataframe(closed_rates, Path("rates.csv"), "csv")
 collect_history(
     Path("history.db"),
     symbols=["EURUSD"],
-    date_from=datetime(2024, 1, 1, tzinfo=UTC),
-    date_to=datetime(2024, 2, 1, tzinfo=UTC),
+    date_from=datetime(2024, 1, 1),
+    date_to=datetime(2024, 2, 1),
     datasets={Dataset.rates, Dataset.history_deals},
 )
 
@@ -84,8 +84,15 @@ update_history_with_config(
     output="history.db",
     symbols=["EURUSD"],
     config=build_config(login=12345),
+    date_to=datetime(2024, 2, 1),
 )
 ```
+
+MT5 query bounds are timezone-naive trade-server wall-clock datetimes, as
+required by pdmt5. Incremental history updates require an explicit `date_to`
+because mt5cli cannot determine the current trade-server time. Offset-bearing
+strings and timezone-aware `datetime` objects are rejected; mt5cli does not
+infer or strip offsets to perform a conversion.
 
 Schema contracts live in `mt5cli.schemas` (`DataKind`, `validate_schema`, `normalize_dataframe`). Export and storage helpers are in `mt5cli.utils` (`Dataset`, `export_dataframe`) and `mt5cli.history`.
 
@@ -306,6 +313,8 @@ OpenTelemetry metrics are documented in [`docs/api/telemetry.md`](docs/api/telem
 For automated pipelines, use the importable incremental API instead of re-fetching fixed date ranges:
 
 ```python
+from datetime import datetime
+
 from pdmt5 import Mt5Config
 from mt5cli import update_history_with_config
 from mt5cli.utils import Dataset
@@ -318,19 +327,17 @@ update_history_with_config(
     datasets={Dataset.rates, Dataset.history_deals},
     timeframes=["M1", "H1"],  # default: all fixed MT5 timeframes
     lookback_hours=24,
-    create_rate_views=True,
+    date_to=datetime(2024, 2, 1),
     with_views=True,
     include_account_events=True,
 )
 ```
 
 - **`collect-history`**: explicit date-range export into SQLite.
-- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`.
+- **`update_history`**: incremental append based on existing SQLite `MAX(time)` per symbol (and timeframe for rates); account-level deals use a separate cursor when `include_account_events=True`. Pass an explicit naive trade-server `date_to`; mt5cli cannot determine the current server time. Rates are persisted only in the canonical normalized `rates` table.
 - **`rates` table**: normalized storage with `symbol` and `timeframe` columns.
-- **Rate compatibility views**: mt5cli manages all `rate_*` views. Naming is `rate_<symbol>__<timeframe>` when a symbol has one timeframe, otherwise `rate_<symbol>__<granularity>_<timeframe>` (for example `rate_EURUSD__M1_1`). Stale `rate_*` views are dropped and recreated when rates change for offline downstream tools.
-- **Rate view resolution**: use `resolve_rate_view_name()` / `resolve_rate_view_names()` to map symbols and granularities to existing SQLite compatibility views without creating databases. Both accept `None` (or a missing path) and return deterministic default names unless `require_existing=True`.
-- **Rate view loading**: use `load_rate_data()` / `load_rate_data_from_connection()` to load a SQLite rate table or view into a `DatetimeIndex` DataFrame.
-- **Multi-series rate loading**: use `build_rate_targets()` to build neutral `RateTarget(symbol, timeframe)` pairs, `resolve_rate_tables()` to map them to table/view names (pass `require_existing=True` for strict resolution), and `load_rate_series_from_sqlite()` to load them into a mapping keyed by `(symbol, integer timeframe)`. The loader requires existing managed views unless `explicit_tables` is supplied, and rejects duplicate `(symbol, timeframe)` targets.
+- **Explicit table loading**: use `load_rate_data()` / `load_rate_data_from_connection()` for intentionally named custom SQLite rate tables.
+- **Multi-series rate loading**: use `build_rate_targets()` to build neutral `RateTarget(symbol, timeframe)` pairs and `load_rate_series_from_sqlite()` to load canonical `rates` rows into a mapping keyed by `(symbol, integer timeframe)`. Pass `explicit_tables` only for intentionally named custom tables; duplicate `(symbol, timeframe)` targets are rejected.
 - **Multi-account latest rates**: use `collect_latest_rates_for_accounts()` with `AccountSpec` to read the latest bars for several account groups, merged into a `(symbol, integer timeframe)` mapping. For long-running pollers, `collect_latest_rates_for_accounts_with_retries()` adds bounded exponential backoff that retries only recoverable MT5 errors and re-raises once `retry_count` is exhausted.
 - **Latest closed bars**: use `collect_latest_closed_rates_for_accounts()` when downstream logic must exclude the still-forming current bar. It fetches `count + 1` bars at `start_pos=0`, drops the last row with `drop_forming_rate_bar()`, and validates each series is non-empty. `collect_latest_closed_rates_by_granularity()` returns the same data keyed by `(symbol, granularity_name)` such as `("EURUSD", "M1")`.
 
@@ -347,7 +354,7 @@ eurusd_m1 = rates["EURUSD", "M1"]  # closed bars only
 ```
 
 - **Credential resolution**: use `resolve_account_spec()` / `resolve_account_specs()` to merge explicit override values over `AccountSpec` fields and expand `${ENV_VAR}` placeholders (via `substitute_env_placeholders()`), raising `ValueError` for missing variables. This keeps secrets out of plan/config files without coupling to any strategy code. For config dicts or nested structures loaded from YAML/TOML, use `substitute_mapping_values(data, keys={"login", "password"})` to expand placeholders only for caller-specified keys — key names are never hard-coded in mt5cli.
-- **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, and `OSError` without advancing the throttle (`AttributeError` / `TypeError` always propagate, since the client passed to `update()` must implement the canonical `HistoryClient` method names). Pass `update_backend` to inject a custom history update callable (same keyword arguments as `update_history`) instead of monkey-patching `mt5cli.history.update_history`.
+- **Throttled history updates**: use `ThrottledHistoryUpdater` to wrap `update_history()` with a minimum `interval_seconds` between successful runs (monotonic clock). Call `should_update()` / `update(client, symbols, date_to=...)` from an application loop; errors propagate by default, or pass `suppress_errors=True` to swallow recoverable `Mt5*Error`, `sqlite3.Error`, `ValueError`, and `OSError` without advancing the throttle (`AttributeError` / `TypeError` always propagate, since the client passed to `update()` must implement the canonical `HistoryClient` method names). Pass `update_backend` to inject a custom history update callable (same keyword arguments as `update_history`) instead of monkey-patching `mt5cli.history.update_history`.
 - **Trading helpers**: use `mt5_session()` for both market data and generic execution helpers. It owns initialization and shutdown for sessions it creates; caller-supplied clients remain caller-owned.
 - **Granularity-keyed rate loading**: `load_rate_series_by_granularity()` builds targets with `build_rate_targets()`, loads them with `load_rate_series_from_sqlite()`, and returns a mapping keyed by `(symbol | None, granularity_name)` such as `("EURUSD", "M1")` to reduce downstream boilerplate.
 - **MT5 session helper**: use the `mt5_session()` context manager to attach to (or, when `Mt5Config.path` is set, launch) an MT5 terminal, log in, and yield a connected `MT5Client` that shuts down on exit.
@@ -405,7 +412,7 @@ updater = ThrottledHistoryUpdater(
     output="history.db", interval_seconds=60, suppress_errors=True
 )
 with mt5_session(Mt5Config(login=login)) as client:
-    updater.update(client, ["EURUSD"])
+    updater.update(client, ["EURUSD"], date_to="2024-02-01")
 ```
 
 Read-only collectors can keep using `mt5_session()` and `MT5Client`.
