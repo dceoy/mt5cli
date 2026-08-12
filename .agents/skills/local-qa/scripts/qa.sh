@@ -32,9 +32,9 @@ case "${OSTYPE}" in
       | xargs -0 -t shellcheck
 
     # GitHub Actions
-    zizmor --fix=safe .github/workflows
+    uvx zizmor --fix=safe .github/workflows
     git ls-files -z -- '.github/workflows/*.yml' | xargs -0 -t actionlint
-    checkov --framework=all --output=github_failed_only --directory=.
+    uvx checkov --framework=all --output=github_failed_only --directory=.
     ;;
   *)
     echo 'GitHub Actions and shell script linting is only supported on Linux and macOS.'
