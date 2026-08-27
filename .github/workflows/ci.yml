@@ -60,8 +60,6 @@ jobs:
     uses: dceoy/gha-for-devops/.github/workflows/bats-test.yml@main  # zizmor: ignore[unpinned-uses]
     with:
       search-path: ./tests/cli/
-      setup-run: |
-        command -v uv >/dev/null 2>&1 || pipx install uv
       runs-on: windows-latest
   python-docs-deploy:
     if: >
