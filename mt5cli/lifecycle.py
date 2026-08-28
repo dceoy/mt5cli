@@ -11,7 +11,6 @@ from .exceptions import Mt5ConnectionError, normalize_mt5_exception
 
 if TYPE_CHECKING:
     from pdmt5 import Mt5DataClient
-    from pydantic import SecretStr
 
 
 def _account_matches(account: Any, *, login: int, server: str | None) -> bool:  # noqa: ANN401
@@ -25,7 +24,7 @@ def switch_account(
     client: MT5Client,
     *,
     login: int,
-    password: str | SecretStr | None = None,
+    password: str | None = None,
     server: str | None = None,
     timeout: int | None = None,
 ) -> None:
