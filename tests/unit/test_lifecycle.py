@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from pdmt5 import Mt5RuntimeError
 
 from mt5cli import MT5Client, Mt5ConnectionError, switch_account
 
@@ -83,6 +84,16 @@ def test_switch_account_normalizes_login_failure() -> None:
     client = _connected_client(raw_client)
 
     with pytest.raises(Mt5ConnectionError, match="authorization failed"):
+        switch_account(client, login=222, server="Demo")
+
+
+def test_switch_account_normalizes_runtime_error() -> None:
+    """Underlying pdmt5 runtime errors use the stable connection exception."""
+    raw_client = MagicMock()
+    raw_client.account_info.side_effect = Mt5RuntimeError("connection lost")
+    client = _connected_client(raw_client)
+
+    with pytest.raises(Mt5ConnectionError, match="connection lost"):
         switch_account(client, login=222, server="Demo")
 
 
