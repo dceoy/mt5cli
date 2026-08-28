@@ -6,11 +6,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pdmt5 import Mt5RuntimeError
 
-from .client import MT5Client
 from .exceptions import Mt5ConnectionError, normalize_mt5_exception
 
 if TYPE_CHECKING:
     from pdmt5 import Mt5DataClient
+
+    from .client import MT5Client
 
 
 def _account_matches(account: Any, *, login: int, server: str | None) -> bool:  # noqa: ANN401
@@ -54,21 +55,23 @@ def switch_account(
         account = connected.account_info()
         if _account_matches(account, login=login, server=server):
             return
-        if not connected.login(
+        login_succeeded = connected.login(
             login=login,
             password=password,
             server=server,
             timeout=timeout,
-        ):
-            error_message = f"MT5 account switch failed: {connected.last_error()}"
-            raise Mt5RuntimeError(error_message)
-        account = connected.account_info()
-        if not _account_matches(account, login=login, server=server):
-            error_message = (
-                "MT5 account switch did not activate the requested account: "
-                f"login={login}, server={server!r}"
-            )
-            raise Mt5RuntimeError(error_message)
+        )
+        last_error = None if login_succeeded else connected.last_error()
+        active_account = connected.account_info() if login_succeeded else None
     except Mt5RuntimeError as exc:
         normalized = normalize_mt5_exception(exc)
         raise normalized from exc
+
+    if not login_succeeded:
+        raise Mt5ConnectionError(f"MT5 account switch failed: {last_error}")
+    if not _account_matches(active_account, login=login, server=server):
+        msg = (
+            "MT5 account switch did not activate the requested account: "
+            f"login={login}, server={server!r}"
+        )
+        raise Mt5ConnectionError(msg)
