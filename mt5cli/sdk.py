@@ -20,6 +20,7 @@ from .history import (
     report_rate_gaps,
     resolve_history_timeframes,
 )
+from .lifecycle import switch_account
 from .marketdata import (
     AccountSpec,
     collect_latest_closed_rates_by_granularity,
