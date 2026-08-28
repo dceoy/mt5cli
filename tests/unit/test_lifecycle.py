@@ -16,27 +16,23 @@ def _connected_client(raw_client: MagicMock) -> MT5Client:
     return MT5Client.from_connected_client(raw_client)
 
 
-def test_switch_account_is_noop_when_requested_account_is_active() -> None:
+@pytest.mark.parametrize(
+    "server",
+    ["Demo", None],
+    ids=["with-server-constraint", "without-server-constraint"],
+)
+def test_switch_account_is_noop_when_requested_account_is_active(
+    server: str | None,
+) -> None:
     """An already-active account does not trigger another MT5 login."""
     raw_client = MagicMock()
     raw_client.account_info.return_value = SimpleNamespace(login=222, server="Demo")
     client = _connected_client(raw_client)
 
-    switch_account(client, login=222, server="Demo")
+    switch_account(client, login=222, server=server)
 
     raw_client.login.assert_not_called()
     raw_client.shutdown.assert_not_called()
-
-
-def test_switch_account_accepts_matching_login_without_server_constraint() -> None:
-    """Omitting server treats the matching login as sufficient."""
-    raw_client = MagicMock()
-    raw_client.account_info.return_value = SimpleNamespace(login=222, server="Demo")
-    client = _connected_client(raw_client)
-
-    switch_account(client, login=222)
-
-    raw_client.login.assert_not_called()
 
 
 def test_switch_account_uses_login_without_reinitializing_terminal() -> None:
