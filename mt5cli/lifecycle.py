@@ -31,10 +31,13 @@ def switch_account(
 ) -> None:
     """Switch an active persistent MT5 session without reinitializing the terminal.
 
-    The configured account on ``client`` is intentionally left unchanged. Exiting and
-    re-entering the client therefore reconnects to its original configuration; this
-    helper only changes the account selected by the currently active process-global
-    MT5 terminal session.
+    The configured account on ``client`` is intentionally left unchanged, but this
+    does not restore the prior account. For a self-owned client
+    (``with MT5Client(...) as client:``), exiting and re-entering reconnects using
+    the original configuration. For clients obtained via ``mt5_session()`` or
+    ``from_connected_client()`` (the common case), exiting and re-entering ``client``
+    has no effect on the connection at all, so the switched account persists for the
+    life of the terminal session.
 
     Args:
         client: An already-entered ``MT5Client`` with a persistent connection.
@@ -73,6 +76,8 @@ def switch_account(
     if not _account_matches(active_account, login=login, server=server):
         msg = (
             "MT5 account switch did not activate the requested account: "
-            f"login={login}, server={server!r}"
+            f"requested login={login}, server={server!r}, "
+            f"active login={getattr(active_account, 'login', None)!r}, "
+            f"server={getattr(active_account, 'server', None)!r}"
         )
         raise Mt5ConnectionError(msg)
