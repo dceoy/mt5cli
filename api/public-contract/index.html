@@ -237,6 +237,10 @@ operational capability still has exactly one owning module:</p>
 <td>Connection lifecycle (<code>build_config</code>, <code>mt5_session</code>, <code>MT5Client</code>); the sole session factory</td>
 </tr>
 <tr>
+<td><code>mt5cli.lifecycle</code></td>
+<td>Account selection within an already-active persistent MT5 session (<code>switch_account</code>)</td>
+</tr>
+<tr>
 <td><code>mt5cli.marketdata</code></td>
 <td>Stateless one-off market-data reads and multi-account rate collection (<code>AccountSpec</code>, <code>collect_latest_rates_for_accounts</code>, etc.)</td>
 </tr>
@@ -307,6 +311,10 @@ telemetry, SQLite orchestration, and CLI-adjacent concerns.</p>
 <tr>
 <td><code>mt5_session</code></td>
 <td>Canonical context manager: initialize/login once, yield <code>MT5Client</code>, shut down once; a supplied <code>client=</code> remains caller-owned.</td>
+</tr>
+<tr>
+<td><code>switch_account</code></td>
+<td>Change the account selected by an already-active persistent <code>MT5Client</code> with MT5 <code>login()</code> only; verifies the requested login/server and does not reinitialize or shut down the terminal</td>
 </tr>
 <tr>
 <td><code>Mt5Config</code></td>
