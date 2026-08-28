@@ -17,21 +17,38 @@ def _connected_client(raw_client: MagicMock) -> MT5Client:
 
 
 @pytest.mark.parametrize(
-    "server",
-    ["Demo", None],
-    ids=["with-server-constraint", "without-server-constraint"],
+    ("active_login", "active_server", "requested_server", "expect_login"),
+    [
+        pytest.param(222, "Demo", "Demo", False, id="same-login-same-server"),
+        pytest.param(222, "Demo", None, False, id="same-login-no-server-constraint"),
+        pytest.param(111, "Demo", "Demo", True, id="different-login"),
+        pytest.param(222, "Other", "Demo", True, id="same-login-different-server"),
+        pytest.param(None, None, "Demo", True, id="no-active-account"),
+    ],
 )
-def test_switch_account_is_noop_when_requested_account_is_active(
-    server: str | None,
+def test_switch_account_pre_switch_match_decision(
+    active_login: int | None,
+    active_server: str | None,
+    requested_server: str | None,
+    expect_login: bool,
 ) -> None:
-    """An already-active account does not trigger another MT5 login."""
+    """The pre-switch account-match check decides whether login() runs."""
     raw_client = MagicMock()
-    raw_client.account_info.return_value = SimpleNamespace(login=222, server="Demo")
+    active_account = (
+        None
+        if active_login is None
+        else SimpleNamespace(login=active_login, server=active_server)
+    )
+    raw_client.account_info.side_effect = [
+        active_account,
+        SimpleNamespace(login=222, server=requested_server or active_server),
+    ]
+    raw_client.login.return_value = True
     client = _connected_client(raw_client)
 
-    switch_account(client, login=222, server=server)
+    switch_account(client, login=222, server=requested_server)
 
-    raw_client.login.assert_not_called()
+    assert raw_client.login.called is expect_login
     raw_client.shutdown.assert_not_called()
 
 
