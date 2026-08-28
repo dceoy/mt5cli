@@ -23,22 +23,17 @@ def _connected_client(raw_client: MagicMock) -> MT5Client:
         pytest.param(222, "Demo", None, False, id="same-login-no-server-constraint"),
         pytest.param(111, "Demo", "Demo", True, id="different-login"),
         pytest.param(222, "Other", "Demo", True, id="same-login-different-server"),
-        pytest.param(None, None, "Demo", True, id="no-active-account"),
     ],
 )
 def test_switch_account_pre_switch_match_decision(
-    active_login: int | None,
+    active_login: int,
     active_server: str | None,
     requested_server: str | None,
     expect_login: bool,
 ) -> None:
     """The pre-switch account-match check decides whether login() runs."""
     raw_client = MagicMock()
-    active_account = (
-        None
-        if active_login is None
-        else SimpleNamespace(login=active_login, server=active_server)
-    )
+    active_account = SimpleNamespace(login=active_login, server=active_server)
     raw_client.account_info.side_effect = [
         active_account,
         SimpleNamespace(login=222, server=requested_server or active_server),
@@ -101,7 +96,14 @@ def test_switch_account_normalizes_login_failure() -> None:
 
 
 def test_switch_account_normalizes_runtime_error() -> None:
-    """Underlying pdmt5 runtime errors use the stable connection exception."""
+    """Underlying pdmt5 runtime errors use the stable connection exception.
+
+    This also covers the no-active-account case: pdmt5's
+    ``Mt5DataClient.account_info()`` raises ``Mt5RuntimeError`` rather than
+    returning ``None`` when MT5 has no active account, so ``switch_account``
+    requires an already-active account and surfaces that failure the same way
+    as any other runtime error.
+    """
     raw_client = MagicMock()
     raw_client.account_info.side_effect = Mt5RuntimeError("connection lost")
     client = _connected_client(raw_client)

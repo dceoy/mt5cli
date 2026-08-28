@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 def _account_matches(account: Any, *, login: int, server: str | None) -> bool:  # noqa: ANN401
     """Return whether an MT5 account snapshot matches the requested account."""
-    if account is None or getattr(account, "login", None) != login:
+    if getattr(account, "login", None) != login:
         return False
     return server is None or getattr(account, "server", None) == server
 
@@ -40,14 +40,16 @@ def switch_account(
     life of the terminal session.
 
     Args:
-        client: An already-entered ``MT5Client`` with a persistent connection.
+        client: An already-entered ``MT5Client`` with a persistent connection and
+            an already-active account.
         login: Target MT5 account login.
         password: Optional target account password.
         server: Optional target trade server.
         timeout: Optional MT5 login timeout in milliseconds.
 
     Raises:
-        Mt5ConnectionError: If the client is not active or the account switch fails.
+        Mt5ConnectionError: If the client is not active, has no active account,
+            or the account switch fails.
     """
     connected = cast("Mt5DataClient | None", getattr(client, "_client", None))
     if connected is None:
