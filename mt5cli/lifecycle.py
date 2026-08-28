@@ -68,7 +68,8 @@ def switch_account(
         raise normalized from exc
 
     if not login_succeeded:
-        raise Mt5ConnectionError(f"MT5 account switch failed: {last_error}")
+        msg = f"MT5 account switch failed: {last_error}"
+        raise Mt5ConnectionError(msg)
     if not _account_matches(active_account, login=login, server=server):
         msg = (
             "MT5 account switch did not activate the requested account: "
