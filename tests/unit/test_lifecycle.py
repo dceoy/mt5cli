@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from pdmt5 import Mt5RuntimeError
+from pdmt5 import Mt5DataClient, Mt5RuntimeError
 
 from mt5cli import MT5Client, Mt5ConnectionError, switch_account
 
@@ -81,6 +81,25 @@ def test_switch_account_requires_active_persistent_session() -> None:
 
     with pytest.raises(Mt5ConnectionError, match="active persistent session"):
         switch_account(client, login=222)
+
+
+def test_switch_account_rejects_inactive_externally_bound_client() -> None:
+    """An uninitialized real client cannot trigger pdmt5's auto-initialization.
+
+    ``MT5Client.from_connected_client()`` accepts any raw client object without
+    validating that it is already connected. pdmt5's ``account_info()``/``login()``
+    silently call ``initialize()`` on an uninitialized client, so this guards the
+    guarantee that ``switch_account`` never (re)initializes the terminal.
+    """
+    mock_mt5 = ModuleType("mock_mt5")
+    mock_mt5.initialize = MagicMock()  # type: ignore[attr-defined]
+    raw_client = Mt5DataClient(mt5=mock_mt5)
+    client = MT5Client.from_connected_client(raw_client)
+
+    with pytest.raises(Mt5ConnectionError, match="active persistent session"):
+        switch_account(client, login=222)
+
+    mock_mt5.initialize.assert_not_called()  # type: ignore[attr-defined]
 
 
 def test_switch_account_normalizes_login_failure() -> None:

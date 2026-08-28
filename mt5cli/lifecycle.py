@@ -52,7 +52,9 @@ def switch_account(
             or the account switch fails.
     """
     connected = cast("Mt5DataClient | None", getattr(client, "_client", None))
-    if connected is None:
+    if connected is None or not getattr(connected, "_is_initialized", True):
+        # pdmt5 auto-initializes on the first call, so an externally-bound
+        # inactive client must be rejected here.
         msg = "MT5 account switching requires an active persistent session."
         raise Mt5ConnectionError(msg)
 
