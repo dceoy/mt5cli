@@ -14,7 +14,8 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 from mt5cli import rates
-from mt5cli.history import RateTarget
+from mt5cli.history import RateTarget, create_history_indexes
+from mt5cli.utils import Dataset
 
 
 def _create_canonical_database(
@@ -378,3 +379,30 @@ def test_canonical_loader_applies_limit_in_sqlite(tmp_path: Path) -> None:
         )["EURUSD", 1]
     assert list(frame["close"]) == [8.0, 9.0]
     assert any("LIMIT 2" in statement for statement in statements)
+
+
+def test_history_indexes_normalized_rate_cursor(tmp_path: Path) -> None:
+    """History index creation accelerates normalized rate cursor queries."""
+    db_path = tmp_path / "indexed.db"
+    _create_canonical_database(
+        db_path,
+        [("EURUSD", 1, "2024-01-01T00:00:00", 1.0)],
+    )
+
+    with sqlite3.connect(db_path) as conn:
+        create_history_indexes(
+            conn,
+            {Dataset.rates: {"symbol", "timeframe", "time"}},
+        )
+        plan = conn.execute(
+            "EXPLAIN QUERY PLAN "
+            "SELECT time FROM rates WHERE "
+            "COALESCE(strftime('%Y-%m-%dT%H:%M:%f', time), "
+            "strftime('%Y-%m-%dT%H:%M:%f', time, 'unixepoch')) IS NOT NULL "
+            "AND symbol = ? AND timeframe = ? ORDER BY "
+            "COALESCE(strftime('%Y-%m-%dT%H:%M:%f', time), "
+            "strftime('%Y-%m-%dT%H:%M:%f', time, 'unixepoch')) DESC, "
+            "ROWID DESC LIMIT 1",
+            ("EURUSD", 1),
+        ).fetchall()
+    assert any("idx_rates_symbol_timeframe_history_cursor" in str(row) for row in plan)
