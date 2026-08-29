@@ -16,8 +16,7 @@ def test_mark_timestamp_contract_creates_cursor_indexes(tmp_path: Path) -> None:
     db_path = tmp_path / "history.db"
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "CREATE TABLE rates("
-            "symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
+            "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
         )
         conn.execute("CREATE TABLE ticks(symbol TEXT, time TEXT, bid REAL)")
         conn.execute(
