@@ -82,7 +82,7 @@ def _ensure_incremental_cursor_indexes(output: Path | str) -> None:
                     time_expression,
                 ]
                 conn.execute(
-                    f"CREATE INDEX IF NOT EXISTS {quoted_index} "  # noqa: S608
+                    f"CREATE INDEX IF NOT EXISTS {quoted_index} "
                     f"ON {quoted_table} ({', '.join(index_columns)})"
                 )
     except sqlite3.Error:
