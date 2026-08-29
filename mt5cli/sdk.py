@@ -20,6 +20,7 @@ from .history import (
     report_rate_gaps,
     resolve_history_timeframes,
 )
+from .history_index import ThrottledHistoryUpdater
 from .lifecycle import switch_account
 from .marketdata import (
     AccountSpec,
@@ -32,7 +33,6 @@ from .marketdata import (
 )
 from .observability import update_observability, update_observability_with_config
 from .rates import (
-    ThrottledHistoryUpdater,
     load_rate_series_by_granularity,
     load_rate_series_from_sqlite,
     update_history,
