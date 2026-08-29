@@ -56,10 +56,22 @@ _MANAGED_TIMESTAMP_DATA_KINDS: tuple[DataKind, ...] = (
     DataKind.symbols,
 )
 _CURSOR_INDEX_SPECS: tuple[tuple[str, DataKind, tuple[str, ...]], ...] = (
-    ("idx_rates_symbol_timeframe_history_cursor", DataKind.rates, ("symbol", "timeframe")),
+    (
+        "idx_rates_symbol_timeframe_history_cursor",
+        DataKind.rates,
+        ("symbol", "timeframe"),
+    ),
     ("idx_ticks_symbol_history_cursor", DataKind.ticks, ("symbol",)),
-    ("idx_history_orders_symbol_history_cursor", DataKind.history_orders, ("symbol",)),
-    ("idx_history_deals_symbol_history_cursor", DataKind.history_deals, ("symbol",)),
+    (
+        "idx_history_orders_symbol_history_cursor",
+        DataKind.history_orders,
+        ("symbol",),
+    ),
+    (
+        "idx_history_deals_symbol_history_cursor",
+        DataKind.history_deals,
+        ("symbol",),
+    ),
     ("idx_history_deals_history_cursor", DataKind.history_deals, ()),
 )
 
