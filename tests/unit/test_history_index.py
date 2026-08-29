@@ -22,9 +22,7 @@ def _create_history_tables(conn: sqlite3.Connection) -> None:
         "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
     )
     conn.execute("CREATE TABLE ticks(symbol TEXT, bid REAL)")
-    conn.execute(
-        "CREATE TABLE history_orders(symbol TEXT, time TEXT, ticket INTEGER)"
-    )
+    conn.execute("CREATE TABLE history_orders(symbol TEXT, time TEXT, ticket INTEGER)")
     conn.execute(
         "CREATE TABLE history_deals("
         "symbol TEXT, time TEXT, type INTEGER, ticket INTEGER)"
@@ -74,8 +72,7 @@ def test_ensure_incremental_cursor_indexes_creates_matching_expression_indexes(
             ("EURUSD", 1),
         ).fetchall()
         assert any(
-            "idx_rates_symbol_timeframe_history_cursor" in str(row)
-            for row in plan
+            "idx_rates_symbol_timeframe_history_cursor" in str(row) for row in plan
         )
 
 
