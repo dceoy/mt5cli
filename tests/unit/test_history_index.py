@@ -32,9 +32,7 @@ def test_mark_timestamp_contract_creates_cursor_indexes(tmp_path: Path) -> None:
             "VALUES ('EURUSD', 1, '2024-01-01T00:00:00', 1.0)"
         )
 
-    rates._mark_rate_timestamp_contract(  # pyright: ignore[reportPrivateUsage]
-        db_path
-    )
+    rates._mark_rate_timestamp_contract(db_path)  # pyright: ignore[reportPrivateUsage]
 
     with sqlite3.connect(db_path) as conn:
         index_names = {
