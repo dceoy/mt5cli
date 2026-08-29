@@ -14,7 +14,8 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 from mt5cli import rates
-from mt5cli.history import RateTarget
+from mt5cli.history import RateTarget, create_history_indexes
+from mt5cli.utils import Dataset
 
 
 def _create_canonical_database(
@@ -30,7 +31,13 @@ def _create_canonical_database(
             "INSERT INTO rates(symbol, timeframe, time, close) VALUES (?, ?, ?, ?)",
             rows,
         )
-    rates._mark_rate_timestamp_contract(path)  # pyright: ignore[reportPrivateUsage]
+        conn.execute(
+            "CREATE TABLE _mt5cli_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        )
+        conn.execute(
+            "INSERT INTO _mt5cli_metadata(key, value) VALUES (?, ?)",
+            ("rates_timestamp_contract", "pdmt5-wall-clock-v1"),
+        )
 
 
 def _create_custom_database(path: Path) -> None:
@@ -374,8 +381,8 @@ def test_canonical_loader_applies_limit_in_sqlite(tmp_path: Path) -> None:
     assert any("LIMIT 2" in statement for statement in statements)
 
 
-def test_canonical_database_indexes_normalized_cursor(tmp_path: Path) -> None:
-    """Canonical finalization indexes the normalized rate cursor expression."""
+def test_history_indexes_normalized_rate_cursor(tmp_path: Path) -> None:
+    """History index creation accelerates normalized rate cursor queries."""
     db_path = tmp_path / "indexed.db"
     _create_canonical_database(
         db_path,
@@ -383,6 +390,10 @@ def test_canonical_database_indexes_normalized_cursor(tmp_path: Path) -> None:
     )
 
     with sqlite3.connect(db_path) as conn:
+        create_history_indexes(
+            conn,
+            {Dataset.rates: {"symbol", "timeframe", "time"}},
+        )
         plan = conn.execute(
             "EXPLAIN QUERY PLAN "
             "SELECT time FROM rates WHERE "
