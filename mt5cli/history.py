@@ -1099,6 +1099,7 @@ def create_history_indexes(
     written_columns: dict[Dataset, set[str]],
 ) -> None:
     """Create useful indexes for collected history tables when present."""
+    time_expr = _sqlite_normalized_time_expression("time")
     if {"symbol", "timeframe", "time"}.issubset(
         written_columns.get(Dataset.rates, set()),
     ):
@@ -1106,9 +1107,35 @@ def create_history_indexes(
             "CREATE INDEX IF NOT EXISTS idx_rates_symbol_timeframe_time"
             " ON rates(symbol, timeframe, time)",
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rates_symbol_timeframe_history_cursor"
+            f" ON rates(symbol, timeframe, {time_expr})",
+        )
     if {"symbol", "time"}.issubset(written_columns.get(Dataset.ticks, set())):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_ticks_symbol_time ON ticks(symbol, time)",
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ticks_symbol_history_cursor"
+            f" ON ticks(symbol, {time_expr})",
+        )
+    if {"symbol", "time"}.issubset(
+        written_columns.get(Dataset.history_orders, set()),
+    ):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_orders_symbol_history_cursor"
+            f" ON history_orders(symbol, {time_expr})",
+        )
+    if {"symbol", "time"}.issubset(
+        written_columns.get(Dataset.history_deals, set()),
+    ):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_deals_symbol_history_cursor"
+            f" ON history_deals(symbol, {time_expr})",
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_deals_history_cursor"
+            f" ON history_deals({time_expr})",
         )
     if {"position_id", "symbol"}.issubset(
         written_columns.get(Dataset.history_deals, set()),
