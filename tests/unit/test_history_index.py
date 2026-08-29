@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
 
-import pytest
-
-import mt5cli.history_index as history_index
-from mt5cli import ThrottledHistoryUpdater
-from mt5cli.contract import HistoryClient
-from mt5cli.history import _sqlite_normalized_time_expression
+from mt5cli import ThrottledHistoryUpdater, history_index
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
+
+    from mt5cli.contract import HistoryClient
 
 
 def _create_history_tables(conn: sqlite3.Connection) -> None:
@@ -23,7 +22,9 @@ def _create_history_tables(conn: sqlite3.Connection) -> None:
         "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
     )
     conn.execute("CREATE TABLE ticks(symbol TEXT, bid REAL)")
-    conn.execute("CREATE TABLE history_orders(symbol TEXT, time TEXT, ticket INTEGER)")
+    conn.execute(
+        "CREATE TABLE history_orders(symbol TEXT, time TEXT, ticket INTEGER)"
+    )
     conn.execute(
         "CREATE TABLE history_deals(symbol TEXT, time TEXT, type INTEGER, ticket INTEGER)"
     )
@@ -60,13 +61,14 @@ def test_ensure_incremental_cursor_indexes_creates_matching_expression_indexes(
             "idx_history_deals_history_cursor",
         }
 
-        time_expr = _sqlite_normalized_time_expression(  # pyright: ignore[reportPrivateUsage]
-            "time"
-        )
         plan = conn.execute(
             "EXPLAIN QUERY PLAN "
-            f"SELECT time FROM rates WHERE {time_expr} IS NOT NULL "  # noqa: S608
-            f"AND symbol = ? AND timeframe = ? ORDER BY {time_expr} DESC, "
+            "SELECT time FROM rates WHERE "
+            "COALESCE(strftime('%Y-%m-%dT%H:%M:%f', time), "
+            "strftime('%Y-%m-%dT%H:%M:%f', time, 'unixepoch')) IS NOT NULL "
+            "AND symbol = ? AND timeframe = ? ORDER BY "
+            "COALESCE(strftime('%Y-%m-%dT%H:%M:%f', time), "
+            "strftime('%Y-%m-%dT%H:%M:%f', time, 'unixepoch')) DESC, "
             "ROWID DESC LIMIT 1",
             ("EURUSD", 1),
         ).fetchall()
@@ -126,7 +128,7 @@ def test_throttled_updater_indexes_only_successful_updates(
         update_backend=backend,
     )
     client = cast("HistoryClient", MagicMock())
-    date_to = datetime(2024, 1, 1)
+    date_to = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
 
     assert updater.update(client, ["EURUSD"], date_to=date_to)
     ensure_indexes.assert_called_once_with(updater.output)
