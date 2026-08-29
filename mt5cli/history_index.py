@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .history import (
-    _sqlite_normalized_time_expression,
+    _sqlite_normalized_time_expression,  # pyright: ignore[reportPrivateUsage]
     get_table_columns,
     quote_sqlite_identifier,
 )
