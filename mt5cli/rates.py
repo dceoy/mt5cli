@@ -13,7 +13,6 @@ import pandas as pd
 from .history import (
     _SQLITE_TEXT_TIME_COLUMNS,
     RateTarget,
-    _sqlite_normalized_time_expression,
     get_table_columns,
     load_rate_data,
     quote_sqlite_identifier,
@@ -54,25 +53,6 @@ _MANAGED_TIMESTAMP_DATA_KINDS: tuple[DataKind, ...] = (
     DataKind.history_orders,
     DataKind.history_deals,
     DataKind.symbols,
-)
-_CURSOR_INDEX_SPECS: tuple[tuple[str, DataKind, tuple[str, ...]], ...] = (
-    (
-        "idx_rates_symbol_timeframe_history_cursor",
-        DataKind.rates,
-        ("symbol", "timeframe"),
-    ),
-    ("idx_ticks_symbol_history_cursor", DataKind.ticks, ("symbol",)),
-    (
-        "idx_history_orders_symbol_history_cursor",
-        DataKind.history_orders,
-        ("symbol",),
-    ),
-    (
-        "idx_history_deals_symbol_history_cursor",
-        DataKind.history_deals,
-        ("symbol",),
-    ),
-    ("idx_history_deals_history_cursor", DataKind.history_deals, ()),
 )
 
 
@@ -180,23 +160,6 @@ def _validate_existing_rate_database(output: Path | str) -> None:
         conn.close()
 
 
-def _create_incremental_cursor_indexes(conn: sqlite3.Connection) -> None:
-    """Create indexes matching normalized incremental timestamp cursors."""
-    time_expression = _sqlite_normalized_time_expression("time")
-    for index_name, kind, prefix_columns in _CURSOR_INDEX_SPECS:
-        columns = get_table_columns(conn, kind.value)
-        if not {"time", *prefix_columns}.issubset(columns):
-            continue
-        index_columns = [
-            *(quote_sqlite_identifier(column) for column in prefix_columns),
-            time_expression,
-        ]
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS {quote_sqlite_identifier(index_name)} "
-            f"ON {quote_sqlite_identifier(kind.value)} ({', '.join(index_columns)})"
-        )
-
-
 def _mark_rate_timestamp_contract(output: Path | str) -> None:
     """Persist the managed history timestamp contract after a successful write.
 
@@ -229,7 +192,6 @@ def _mark_rate_timestamp_contract(output: Path | str) -> None:
             """,
             (_RATE_TIMESTAMP_CONTRACT_KEY, _RATE_TIMESTAMP_CONTRACT_VALUE),
         )
-        _create_incremental_cursor_indexes(conn)
 
 
 def _load_canonical_rate_target(
