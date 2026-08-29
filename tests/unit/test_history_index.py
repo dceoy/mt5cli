@@ -26,7 +26,8 @@ def _create_history_tables(conn: sqlite3.Connection) -> None:
         "CREATE TABLE history_orders(symbol TEXT, time TEXT, ticket INTEGER)"
     )
     conn.execute(
-        "CREATE TABLE history_deals(symbol TEXT, time TEXT, type INTEGER, ticket INTEGER)"
+        "CREATE TABLE history_deals("
+        "symbol TEXT, time TEXT, type INTEGER, ticket INTEGER)"
     )
 
 
