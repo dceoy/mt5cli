@@ -1126,20 +1126,18 @@ def create_history_indexes(
             "CREATE INDEX IF NOT EXISTS idx_history_orders_symbol_history_cursor"
             f" ON history_orders(symbol, {time_expr})",
         )
-    if {"symbol", "time"}.issubset(
-        written_columns.get(Dataset.history_deals, set()),
-    ):
+    deals_columns = written_columns.get(Dataset.history_deals, set())
+    if {"symbol", "time"}.issubset(deals_columns):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_history_deals_symbol_history_cursor"
             f" ON history_deals(symbol, {time_expr})",
         )
+    if "time" in deals_columns:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_history_deals_history_cursor"
             f" ON history_deals({time_expr})",
         )
-    if {"position_id", "symbol"}.issubset(
-        written_columns.get(Dataset.history_deals, set()),
-    ):
+    if {"position_id", "symbol"}.issubset(deals_columns):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_history_deals_position_symbol"
             " ON history_deals(position_id, symbol)",
