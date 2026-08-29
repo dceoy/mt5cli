@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING, overload
 import pandas as pd
 
 from .history import (
-    _sqlite_normalized_time_expression,
     _SQLITE_TEXT_TIME_COLUMNS,
     RateTarget,
+    _sqlite_normalized_time_expression,
     get_table_columns,
     load_rate_data,
     quote_sqlite_identifier,
