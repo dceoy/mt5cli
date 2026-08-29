@@ -68,9 +68,12 @@ def _ensure_incremental_cursor_indexes(output: Path | str) -> None:
     time_expression = _sqlite_normalized_time_expression("time")
     try:
         with sqlite3.connect(path) as conn:
-            for index_name, dataset, required_columns, prefix_columns in (
-                _CURSOR_INDEX_SPECS
-            ):
+            for (
+                index_name,
+                dataset,
+                required_columns,
+                prefix_columns,
+            ) in _CURSOR_INDEX_SPECS:
                 table_name = dataset.table_name
                 columns = get_table_columns(conn, table_name)
                 if not required_columns.issubset(columns):
