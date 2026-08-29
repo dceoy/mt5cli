@@ -89,16 +89,33 @@ timestamp normalization in downstream apps.
 
 ### SQLite history collection and rate loading
 
-| Symbol                                                            | Role                                                                                                             |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `collect_history`                                                 | One-shot date-range export into SQLite                                                                           |
-| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for the canonical rates table or an explicit custom table                     |
-| `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors; explicit naive trade-server `date_to` required                      |
-| `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; explicit `date_to`; optional `update_backend` injection |
-| `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                                                 |
-| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load normalized `rates` series or explicit custom tables; reject invalid targets clearly                         |
+| Symbol                                                            | Role                                                                                                                       |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `collect_history`                                                 | One-shot date-range export into SQLite                                                                                     |
+| `report_rate_gaps`                                                | SQLite-only one-row-per-gap report for the canonical rates table or an explicit custom table                               |
+| `update_history`, `update_history_with_config`                    | Incremental append from `MAX(time)` cursors; explicit naive trade-server `date_to` required                                |
+| `ThrottledHistoryUpdater`                                         | Minimum interval between successful incremental updates; explicit `date_to`; optional `update_backend` injection           |
+| `capture_history_datasets`                                        | MT5-bound half of `update_history`: resolves cursors and fetches MT5 data, returns a `HistoryCapture`, writes nothing      |
+| `persist_history_datasets`                                        | MT5-free half of `update_history`: writes a `HistoryCapture` to SQLite (append/dedup/index/views); owns its own connection |
+| `HistoryCapture`                                                  | Frozen, MT5-independent bundle returned by `capture_history_datasets` and consumed by `persist_history_datasets`           |
+| `RateTarget`, `build_rate_targets`                                | Neutral `(symbol, timeframe)` series descriptors                                                                           |
+| `load_rate_series_from_sqlite`, `load_rate_series_by_granularity` | Load normalized `rates` series or explicit custom tables; reject invalid targets clearly                                   |
 
 See [History Collection (SQLite)](history.md) for the canonical schema, loading contract, and ER diagrams.
+
+`update_history(client=...)` is exactly `capture_history_datasets(client=...)`
+followed by `persist_history_datasets(...)` on the returned capture (skipped
+when it is `None`, i.e. no datasets selected). Downstream applications that
+must keep SQLite writes off an MT5-bound thread — for example a live trading
+loop that cannot block on database I/O — call `capture_history_datasets` on
+the thread holding the connected client, hand the returned `HistoryCapture` to
+a separate persistence worker, and call `persist_history_datasets` there;
+`persist_history_datasets` never accesses MT5 or any connection-scoped MT5
+state. Capturing again for the same `output` before a prior capture has been
+persisted re-reads the same not-yet-advanced incremental cursor and may
+re-fetch an overlapping range (safe under `deduplicate=True`, but wasteful);
+callers that queue persistence work should avoid capturing a new batch for a
+target while one is still pending.
 
 Shared package-root helpers used by downstream adapters include `Dataset`,
 `parse_timeframe`, and `resolve_history_timeframes`. These are stable exports;
@@ -186,16 +203,28 @@ idempotent (`CREATE TABLE IF NOT EXISTS`, `DROP VIEW IF EXISTS` + `CREATE
 VIEW`, `CREATE INDEX IF NOT EXISTS`). Missing source tables are skipped with a
 warning rather than raising an error.
 
-| Symbol                             | Role                                                                                        |
-| ---------------------------------- | ------------------------------------------------------------------------------------------- |
-| `update_observability`             | Append one timestamped snapshot row per data type from a connected client implementation    |
-| `update_observability_with_config` | Standalone wrapper: opens/closes MT5 connection automatically around `update_observability` |
+| Symbol                             | Role                                                                                                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `update_observability`             | Append one timestamped snapshot row per data type from a connected client implementation                                                  |
+| `update_observability_with_config` | Standalone wrapper: opens/closes MT5 connection automatically around `update_observability`                                               |
+| `capture_observability_snapshot`   | MT5-bound half of `update_observability`: reads account/position/order/terminal state, returns an `ObservabilitySnapshot`, writes nothing |
+| `persist_observability_snapshot`   | MT5-free half of `update_observability`: writes an `ObservabilitySnapshot` to SQLite; owns its own connection                             |
+| `ObservabilitySnapshot`            | Frozen, MT5-independent bundle returned by `capture_observability_snapshot` and consumed by `persist_observability_snapshot`              |
 
-Both functions write to the SQLite path given by `output=`. The optional
-`symbols` parameter filters `positions_get` / `orders_get` by symbol.
-`with_grafana_schema=False` (default) skips Grafana view/index setup; run
-`grafana-schema` once to set up the schema, then call `snapshot` repeatedly
-without this flag.
+`update_observability` and `persist_observability_snapshot` write to the
+SQLite path given by `output=`. The optional `symbols` parameter filters
+`positions_get` / `orders_get` by symbol. `with_grafana_schema=False`
+(default) skips Grafana view/index setup; run `grafana-schema` once to set up
+the schema, then call `snapshot` repeatedly without this flag.
+
+`update_observability(client=...)` is exactly
+`capture_observability_snapshot(client=...)` followed by
+`persist_observability_snapshot(...)`. As with history, a downstream
+application that must keep SQLite writes off an MT5-bound thread calls
+`capture_observability_snapshot` on the thread holding the connected client
+and hands the returned `ObservabilitySnapshot` to a separate persistence
+worker; `persist_observability_snapshot` never accesses MT5 or any
+connection-scoped MT5 state.
 
 Pass the `MT5Client` yielded by `mt5_session()` directly to both
 `update_history(client=...)` and `update_observability(client=...)`. These

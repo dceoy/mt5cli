@@ -86,13 +86,35 @@ class TestUpdateObservability:
             row = conn.execute("SELECT status FROM snapshot_runs").fetchone()
         assert row == ("ok",)
 
-    def test_update_observability_records_error_on_failure(
+    def test_update_observability_capture_failure_never_touches_sqlite(
         self,
         mock_client: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """snapshot_runs records 'error' and re-raises when a snapshot fails."""
+        """An MT5 capture failure propagates without creating the output database.
+
+        Capture (MT5-bound) now runs entirely before persistence opens any
+        SQLite connection, so a client failure during capture never reaches
+        ``snapshot_runs`` -- there is no run to record an error against.
+        """
         mock_client.account_info.side_effect = RuntimeError("boom")
+        output = tmp_path / "obs.db"
+        with pytest.raises(RuntimeError, match="boom"):
+            update_observability(client=mock_client, output=output)
+        assert not output.exists()
+
+    def test_update_observability_persist_failure_records_error(
+        self,
+        mock_client: MagicMock,
+        tmp_path: Path,
+        mocker: MockerFixture,
+    ) -> None:
+        """snapshot_runs records 'error' and re-raises when persistence fails."""
+        mocker.patch.object(
+            observability_mod,
+            "insert_position_snapshots",
+            side_effect=RuntimeError("boom"),
+        )
         output = tmp_path / "obs.db"
         with pytest.raises(RuntimeError, match="boom"):
             update_observability(client=mock_client, output=output)
