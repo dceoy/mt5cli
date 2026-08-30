@@ -30,11 +30,20 @@ from .marketdata import (
     resolve_account_spec,
     resolve_account_specs,
 )
-from .observability import update_observability, update_observability_with_config
+from .observability import (
+    ObservabilitySnapshot,
+    capture_observability_snapshot,
+    persist_observability_snapshot,
+    update_observability,
+    update_observability_with_config,
+)
 from .rates import (
+    HistoryCapture,
     ThrottledHistoryUpdater,
+    capture_history_datasets,
     load_rate_series_by_granularity,
     load_rate_series_from_sqlite,
+    persist_history_datasets,
     update_history,
     update_history_with_config,
 )

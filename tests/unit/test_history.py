@@ -1295,9 +1295,11 @@ class TestDeduplication:
             history._record_dedup_scope(  # type: ignore[reportPrivateUsage]
                 dedup_scopes,
                 Dataset.rates,
-                f"symbol = ? AND timeframe = ? AND {time_expr} >= ?",
-                ("EURUSD", 1, boundary.isoformat()),
-                frozenset({"symbol", "timeframe", "time"}),
+                DedupScope(
+                    f"symbol = ? AND timeframe = ? AND {time_expr} >= ?",
+                    ("EURUSD", 1, boundary.isoformat()),
+                    frozenset({"symbol", "timeframe", "time"}),
+                ),
             )
             deduplicate_history_tables(
                 conn,
