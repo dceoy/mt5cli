@@ -321,6 +321,115 @@ def test_incremental_trade_deal_branches(
     assert (Dataset.history_deals in dedup_scopes) is written
 
 
+@pytest.mark.parametrize("written", [False, True])
+def test_write_incremental_ticks_branches(
+    mocker: MockerFixture,
+    written: bool,
+) -> None:
+    """Streaming tick updates cover written and empty responses."""
+    start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+    mocker.patch(
+        "mt5cli.history.load_incremental_start_datetimes",
+        return_value={("EURUSD", None): start},
+    )
+    mocker.patch("mt5cli.history.write_ticks_dataset", return_value=written)
+    written_tables: set[Dataset] = set()
+    dedup_scopes: dict[Dataset, list[history.DedupScope]] = {}
+    with sqlite3.connect(":memory:") as conn:
+        history._write_incremental_ticks(
+            conn,
+            mocker.MagicMock(),
+            ["EURUSD"],
+            0,
+            start,
+            start,
+            {},
+            written_tables,
+            dedup_scopes,
+        )
+    assert (Dataset.ticks in written_tables) is written
+    assert (Dataset.ticks in dedup_scopes) is written
+
+
+@pytest.mark.parametrize("written", [False, True])
+def test_write_incremental_symbols_branches(
+    mocker: MockerFixture,
+    written: bool,
+) -> None:
+    """Streaming symbol snapshots cover written and empty responses."""
+    mocker.patch("mt5cli.history.write_symbols_dataset", return_value=written)
+    written_tables: set[Dataset] = set()
+    with sqlite3.connect(":memory:") as conn:
+        history._write_incremental_symbols(
+            conn,
+            mocker.MagicMock(),
+            ["EURUSD"],
+            datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            {},
+            written_tables,
+        )
+    assert (Dataset.symbols in written_tables) is written
+
+
+@pytest.mark.parametrize("written", [False, True])
+def test_write_incremental_history_orders_branches(
+    mocker: MockerFixture,
+    written: bool,
+) -> None:
+    """Streaming order updates cover written and empty responses."""
+    start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+    mocker.patch(
+        "mt5cli.history.load_incremental_start_datetimes",
+        return_value={("EURUSD", None): start},
+    )
+    mocker.patch("mt5cli.history.write_history_dataset", return_value=written)
+    written_tables: set[Dataset] = set()
+    dedup_scopes: dict[Dataset, list[history.DedupScope]] = {}
+    with sqlite3.connect(":memory:") as conn:
+        history._write_incremental_history_orders(
+            conn,
+            mocker.MagicMock(),
+            ["EURUSD"],
+            start,
+            start,
+            {},
+            written_tables,
+            dedup_scopes,
+        )
+    assert (Dataset.history_orders in written_tables) is written
+    assert (Dataset.history_orders in dedup_scopes) is written
+
+
+@pytest.mark.parametrize("written", [False, True])
+def test_write_incremental_history_deals_symbol_scoped_branches(
+    mocker: MockerFixture,
+    written: bool,
+) -> None:
+    """Streaming symbol-only deal updates cover written and empty responses."""
+    start = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+    mocker.patch(
+        "mt5cli.history.load_incremental_start_datetimes",
+        return_value={("EURUSD", None): start},
+    )
+    mocker.patch("mt5cli.history.write_history_dataset", return_value=written)
+    written_tables: set[Dataset] = set()
+    dedup_scopes: dict[Dataset, list[history.DedupScope]] = {}
+    with sqlite3.connect(":memory:") as conn:
+        history._write_incremental_history_deals(
+            conn,
+            mocker.MagicMock(),
+            ["EURUSD"],
+            start,
+            start,
+            {},
+            written_tables,
+            dedup_scopes,
+            include_account_events=False,
+        )
+    assert (Dataset.history_deals in written_tables) is written
+    assert (Dataset.history_deals in dedup_scopes) is written
+
+
 def test_finalize_incremental_branch_matrix(mocker: MockerFixture) -> None:
     """Finalization covers deduplication and optional derived views."""
     mocker.patch("mt5cli.history.augment_written_columns_from_sqlite")
