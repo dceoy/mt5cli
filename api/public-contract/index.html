@@ -394,6 +394,18 @@ timestamp normalization in downstream apps.</p>
 <td>Minimum interval between successful incremental updates; explicit <code>date_to</code>; optional <code>update_backend</code> injection</td>
 </tr>
 <tr>
+<td><code>capture_history_datasets</code></td>
+<td>MT5-bound half of <code>update_history</code>: resolves cursors and fetches MT5 data, returns a <code>HistoryCapture</code>, writes nothing</td>
+</tr>
+<tr>
+<td><code>persist_history_datasets</code></td>
+<td>MT5-free half of <code>update_history</code>: writes a <code>HistoryCapture</code> to SQLite (append/dedup/index/views); owns its own connection</td>
+</tr>
+<tr>
+<td><code>HistoryCapture</code></td>
+<td>Frozen, MT5-independent bundle returned by <code>capture_history_datasets</code> and consumed by <code>persist_history_datasets</code></td>
+</tr>
+<tr>
 <td><code>RateTarget</code>, <code>build_rate_targets</code></td>
 <td>Neutral <code>(symbol, timeframe)</code> series descriptors</td>
 </tr>
@@ -404,6 +416,19 @@ timestamp normalization in downstream apps.</p>
 </tbody>
 </table>
 <p>See <a href="../history/">History Collection (SQLite)</a> for the canonical schema, loading contract, and ER diagrams.</p>
+<p><code>update_history(client=...)</code> is exactly <code>capture_history_datasets(client=...)</code>
+followed by <code>persist_history_datasets(...)</code> on the returned capture (skipped
+when it is <code>None</code>, i.e. no datasets selected). Downstream applications that
+must keep SQLite writes off an MT5-bound thread — for example a live trading
+loop that cannot block on database I/O — call <code>capture_history_datasets</code> on
+the thread holding the connected client, hand the returned <code>HistoryCapture</code> to
+a separate persistence worker, and call <code>persist_history_datasets</code> there;
+<code>persist_history_datasets</code> never accesses MT5 or any connection-scoped MT5
+state. Capturing again for the same <code>output</code> before a prior capture has been
+persisted re-reads the same not-yet-advanced incremental cursor and may
+re-fetch an overlapping range (safe under <code>deduplicate=True</code>, but wasteful);
+callers that queue persistence work should avoid capturing a new batch for a
+target while one is still pending.</p>
 <p>Shared package-root helpers used by downstream adapters include <code>Dataset</code>,
 <code>parse_timeframe</code>, and <code>resolve_history_timeframes</code>. These are stable exports;
 downstream applications should not import them from <code>mt5cli.utils</code> or
@@ -571,13 +596,33 @@ warning rather than raising an error.</p>
 <td><code>update_observability_with_config</code></td>
 <td>Standalone wrapper: opens/closes MT5 connection automatically around <code>update_observability</code></td>
 </tr>
+<tr>
+<td><code>capture_observability_snapshot</code></td>
+<td>MT5-bound half of <code>update_observability</code>: reads account/position/order/terminal state, returns an <code>ObservabilitySnapshot</code>, writes nothing</td>
+</tr>
+<tr>
+<td><code>persist_observability_snapshot</code></td>
+<td>MT5-free half of <code>update_observability</code>: writes an <code>ObservabilitySnapshot</code> to SQLite; owns its own connection</td>
+</tr>
+<tr>
+<td><code>ObservabilitySnapshot</code></td>
+<td>Frozen, MT5-independent bundle returned by <code>capture_observability_snapshot</code> and consumed by <code>persist_observability_snapshot</code></td>
+</tr>
 </tbody>
 </table>
-<p>Both functions write to the SQLite path given by <code>output=</code>. The optional
-<code>symbols</code> parameter filters <code>positions_get</code> / <code>orders_get</code> by symbol.
-<code>with_grafana_schema=False</code> (default) skips Grafana view/index setup; run
-<code>grafana-schema</code> once to set up the schema, then call <code>snapshot</code> repeatedly
-without this flag.</p>
+<p><code>update_observability</code> and <code>persist_observability_snapshot</code> write to the
+SQLite path given by <code>output=</code>. The optional <code>symbols</code> parameter filters
+<code>positions_get</code> / <code>orders_get</code> by symbol. <code>with_grafana_schema=False</code>
+(default) skips Grafana view/index setup; run <code>grafana-schema</code> once to set up
+the schema, then call <code>snapshot</code> repeatedly without this flag.</p>
+<p><code>update_observability(client=...)</code> is exactly
+<code>capture_observability_snapshot(client=...)</code> followed by
+<code>persist_observability_snapshot(...)</code>. As with history, a downstream
+application that must keep SQLite writes off an MT5-bound thread calls
+<code>capture_observability_snapshot</code> on the thread holding the connected client
+and hands the returned <code>ObservabilitySnapshot</code> to a separate persistence
+worker; <code>persist_observability_snapshot</code> never accesses MT5 or any
+connection-scoped MT5 state.</p>
 <p>Pass the <code>MT5Client</code> yielded by <code>mt5_session()</code> directly to both
 <code>update_history(client=...)</code> and <code>update_observability(client=...)</code>. These
 workflows call the facade's canonical data methods (<code>account_info</code>, <code>positions</code>,
