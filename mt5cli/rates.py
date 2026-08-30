@@ -516,19 +516,11 @@ def capture_history_datasets(
     with_views: bool = False,
     include_account_events: bool = True,
 ) -> HistoryCapture | None:
-    """Capture incremental MT5 history as plain data, without writing SQLite.
+    """Capture canonical history from MT5 without writing SQLite.
 
-    Splits :func:`update_history` into a fast, MT5-bound capture step and a
-    separate :func:`persist_history_datasets` write step. Reads the existing
-    ``output`` database (if any), read-only, only to resolve each dataset's
-    incremental cursor, then fetches MT5 data for the resolved range using
-    ``client``. Performs no SQLite writes and never blocks on database I/O.
-
-    Capturing again before a prior capture for the same ``output`` has been
-    persisted re-reads the same not-yet-advanced cursor and may re-fetch an
-    overlapping range (safe under deduplication, but wasteful); callers that
-    queue persistence work should avoid capturing a new batch while one for
-    the same target is still pending.
+    Splits :func:`update_history` into an MT5-bound capture step and a separate
+    :func:`persist_history_datasets` write step. See
+    :func:`mt5cli.history.capture_history_datasets` for the cursor semantics.
 
     Returns:
         A capture bundle to pass to :func:`persist_history_datasets`, or None
@@ -551,12 +543,10 @@ def capture_history_datasets(
 
 
 def persist_history_datasets(capture: HistoryCapture) -> None:
-    """Persist a :func:`capture_history_datasets` result into SQLite.
+    """Persist a :func:`capture_history_datasets` result into canonical SQLite.
 
-    Opens and owns its own SQLite connection (WAL journal mode,
-    ``synchronous=NORMAL``). Never accesses MT5 or any connection-scoped MT5
-    state, so it is safe to call from a dedicated persistence-writer thread
-    that holds no MT5 client.
+    Opens and owns its own SQLite connection and never accesses MT5, so it is
+    safe to call from a dedicated persistence-writer thread.
     """
     _legacy_persist_history_datasets(capture)
     _mark_rate_timestamp_contract(capture.output)

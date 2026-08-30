@@ -123,13 +123,17 @@ def test_incremental_tick_branches(
     written_tables: set[Dataset] = set()
     dedup_scopes: dict[Dataset, list[history.DedupScope]] = {}
     with sqlite3.connect(":memory:") as conn:
-        history._write_incremental_ticks(
+        group = history._capture_incremental_ticks(
             conn,
             mocker.MagicMock(),
             ["EURUSD"],
             0,
             start,
             start,
+        )
+        history._persist_captured_group(
+            conn,
+            group,
             {},
             written_tables,
             dedup_scopes,
@@ -151,14 +155,12 @@ def test_incremental_symbol_branches(
     mocker.patch("mt5cli.history.write_streamed_frame", return_value=written)
     written_tables: set[Dataset] = set()
     with sqlite3.connect(":memory:") as conn:
-        history._write_incremental_symbols(
-            conn,
+        group = history._capture_incremental_symbols(
             mocker.MagicMock(),
             ["EURUSD"],
             datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None),
-            {},
-            written_tables,
         )
+        history._persist_captured_group(conn, group, {}, written_tables, {})
     assert (Dataset.symbols in written_tables) is written
 
 
@@ -181,12 +183,16 @@ def test_incremental_order_branches(
     written_tables: set[Dataset] = set()
     dedup_scopes: dict[Dataset, list[history.DedupScope]] = {}
     with sqlite3.connect(":memory:") as conn:
-        history._write_incremental_history_orders(
+        group = history._capture_incremental_history_orders(
             conn,
             mocker.MagicMock(),
             ["EURUSD"],
             start,
             start,
+        )
+        history._persist_captured_group(
+            conn,
+            group,
             {},
             written_tables,
             dedup_scopes,
@@ -230,17 +236,15 @@ def test_incremental_account_event_empty_write(mocker: MockerFixture) -> None:
     client = mocker.MagicMock()
     client.history_deals.return_value = pd.DataFrame()
     with sqlite3.connect(":memory:") as conn:
-        history._write_incremental_history_deals(
+        group = history._capture_incremental_history_deals(
             conn,
             client,
             ["EURUSD"],
             start,
             start,
-            {},
-            set(),
-            {},
             include_account_events=True,
         )
+        history._persist_captured_group(conn, group, {}, set(), {})
     assert not record.called
 
 
@@ -266,17 +270,15 @@ def test_incremental_account_event_scope_branches(
     client.history_deals.return_value = pd.DataFrame()
     written_tables: set[Dataset] = set()
     with sqlite3.connect(":memory:") as conn:
-        history._write_incremental_history_deals(
+        group = history._capture_incremental_history_deals(
             conn,
             client,
             ["EURUSD"],
             start,
             start,
-            {},
-            written_tables,
-            {},
             include_account_events=True,
         )
+        history._persist_captured_group(conn, group, {}, written_tables, {})
     assert Dataset.history_deals in written_tables
     assert record.called
 
@@ -300,16 +302,20 @@ def test_incremental_trade_deal_branches(
     written_tables: set[Dataset] = set()
     dedup_scopes: dict[Dataset, list[history.DedupScope]] = {}
     with sqlite3.connect(":memory:") as conn:
-        history._write_incremental_history_deals(
+        group = history._capture_incremental_history_deals(
             conn,
             mocker.MagicMock(),
             ["EURUSD"],
             start,
             start,
+            include_account_events=False,
+        )
+        history._persist_captured_group(
+            conn,
+            group,
             {},
             written_tables,
             dedup_scopes,
-            include_account_events=False,
         )
     assert (Dataset.history_deals in written_tables) is written
     assert (Dataset.history_deals in dedup_scopes) is written

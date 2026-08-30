@@ -1037,13 +1037,9 @@ class DedupScope:
 def _record_dedup_scope(
     dedup_scopes: dict[Dataset, list[DedupScope]],
     dataset: Dataset,
-    scope_where: str,
-    scope_params: tuple[object, ...],
-    required_columns: frozenset[str],
+    scope: DedupScope,
 ) -> None:
-    dedup_scopes.setdefault(dataset, []).append(
-        DedupScope(scope_where, scope_params, required_columns),
-    )
+    dedup_scopes.setdefault(dataset, []).append(scope)
 
 
 def deduplicate_history_tables(
@@ -1495,26 +1491,6 @@ def write_symbols_dataset(
     )
 
 
-def _fetch_history_dataset_account_events_frame(
-    fetch: Callable[..., pd.DataFrame],
-    symbols: Sequence[str],
-    date_from: datetime,
-    date_to: datetime,
-) -> pd.DataFrame:
-    """Fetch one account-scoped history frame from MT5, without touching SQLite.
-
-    Returns:
-        The filtered, account-event-inclusive history frame.
-    """
-    date_from = ensure_trade_server_time(date_from)
-    date_to = ensure_trade_server_time(date_to)
-    return filter_trade_history_frame(
-        fetch(date_from=date_from, date_to=date_to),
-        symbols,
-        include_account_events=True,
-    )
-
-
 def _fetch_history_dataset_frame(
     fetch: Callable[..., pd.DataFrame],
     symbol: str,
@@ -1555,11 +1531,10 @@ def write_history_dataset(
     date_from = ensure_trade_server_time(date_from)
     date_to = ensure_trade_server_time(date_to)
     if include_account_events:
-        frame = _fetch_history_dataset_account_events_frame(
-            fetch,
+        frame = filter_trade_history_frame(
+            fetch(date_from=date_from, date_to=date_to),
             symbols,
-            date_from,
-            date_to,
+            include_account_events=True,
         )
         return write_streamed_frame(
             conn,
@@ -1604,6 +1579,50 @@ class _CapturedDatasetGroup:
     deals_account_event_context: _DealsAccountEventContext | None = None
 
 
+def _symbol_time_dedup_scope(symbol: str, start_date: datetime) -> DedupScope:
+    """Build the symbol/time dedup scope earned by one incremental symbol window.
+
+    Returns:
+        A scope covering rows for ``symbol`` at or after ``start_date``.
+    """
+    time_expr = _sqlite_normalized_time_expression("time")
+    return DedupScope(
+        f"symbol = ? AND {time_expr} >= ?",
+        (symbol, _require_serialized_sqlite_timestamp(start_date)),
+        frozenset({"symbol", "time"}),
+    )
+
+
+def _capture_symbol_scoped_dataset(
+    ref_conn: sqlite3.Connection,
+    dataset: Dataset,
+    symbols: Sequence[str],
+    fallback_start: datetime,
+    fetch_frame: Callable[[str, datetime], pd.DataFrame],
+) -> _CapturedDatasetGroup:
+    """Capture one per-symbol dataset, resuming from its per-symbol SQLite cursor.
+
+    Returns:
+        The captured group, holding one frame and dedup scope per symbol.
+    """
+    start_by_symbol = load_incremental_start_datetimes(
+        ref_conn,
+        dataset,
+        symbols=symbols,
+        fallback_start=fallback_start,
+    )
+    frames: list[_CapturedFrame] = []
+    for symbol in symbols:
+        start_date = start_by_symbol[symbol, None]
+        frames.append(
+            _CapturedFrame(
+                frame=fetch_frame(symbol, start_date),
+                dedup_scope=_symbol_time_dedup_scope(symbol, start_date),
+            ),
+        )
+    return _CapturedDatasetGroup(dataset=dataset, frames=tuple(frames))
+
+
 def _capture_incremental_rates(
     ref_conn: sqlite3.Connection,
     client: HistoryClient,
@@ -1612,6 +1631,11 @@ def _capture_incremental_rates(
     fallback_start: datetime,
     end_date: datetime,
 ) -> _CapturedDatasetGroup:
+    """Capture rates, resuming from each symbol/timeframe SQLite cursor.
+
+    Returns:
+        The captured rates group.
+    """
     start_by_key = load_incremental_start_datetimes(
         ref_conn,
         Dataset.rates,
@@ -1642,26 +1666,24 @@ def _capture_incremental_ticks(
     fallback_start: datetime,
     end_date: datetime,
 ) -> _CapturedDatasetGroup:
-    start_by_symbol = load_incremental_start_datetimes(
+    """Capture ticks, resuming from each symbol's SQLite cursor.
+
+    Returns:
+        The captured ticks group.
+    """
+    return _capture_symbol_scoped_dataset(
         ref_conn,
         Dataset.ticks,
-        symbols=symbols,
-        fallback_start=fallback_start,
+        symbols,
+        fallback_start,
+        lambda symbol, start_date: _fetch_ticks_frame(
+            client,
+            symbol,
+            resolved_tick_flags,
+            start_date,
+            end_date,
+        ),
     )
-    time_expr = _sqlite_normalized_time_expression("time")
-    frames: list[_CapturedFrame] = []
-    for symbol in symbols:
-        start_date = start_by_symbol[symbol, None]
-        frame = _fetch_ticks_frame(
-            client, symbol, resolved_tick_flags, start_date, end_date
-        )
-        scope = DedupScope(
-            f"symbol = ? AND {time_expr} >= ?",
-            (symbol, _require_serialized_sqlite_timestamp(start_date)),
-            frozenset({"symbol", "time"}),
-        )
-        frames.append(_CapturedFrame(frame=frame, dedup_scope=scope))
-    return _CapturedDatasetGroup(dataset=Dataset.ticks, frames=tuple(frames))
 
 
 def _capture_incremental_symbols(
@@ -1669,11 +1691,18 @@ def _capture_incremental_symbols(
     symbols: Sequence[str],
     end_date: datetime,
 ) -> _CapturedDatasetGroup:
-    frames = tuple(
-        _CapturedFrame(frame=_fetch_symbol_metadata_frame(client, symbol, end_date))
-        for symbol in symbols
+    """Capture a symbol-metadata snapshot; this dataset has no incremental cursor.
+
+    Returns:
+        The captured symbols group.
+    """
+    return _CapturedDatasetGroup(
+        dataset=Dataset.symbols,
+        frames=tuple(
+            _CapturedFrame(frame=_fetch_symbol_metadata_frame(client, symbol, end_date))
+            for symbol in symbols
+        ),
     )
-    return _CapturedDatasetGroup(dataset=Dataset.symbols, frames=frames)
 
 
 def _capture_incremental_history_orders(
@@ -1683,29 +1712,23 @@ def _capture_incremental_history_orders(
     fallback_start: datetime,
     end_date: datetime,
 ) -> _CapturedDatasetGroup:
-    start_by_symbol = load_incremental_start_datetimes(
+    """Capture history orders, resuming from each symbol's SQLite cursor.
+
+    Returns:
+        The captured history-orders group.
+    """
+    return _capture_symbol_scoped_dataset(
         ref_conn,
         Dataset.history_orders,
-        symbols=symbols,
-        fallback_start=fallback_start,
-    )
-    time_expr = _sqlite_normalized_time_expression("time")
-    frames: list[_CapturedFrame] = []
-    for symbol in symbols:
-        start_date = start_by_symbol[symbol, None]
-        frame = _fetch_history_dataset_frame(
+        symbols,
+        fallback_start,
+        lambda symbol, start_date: _fetch_history_dataset_frame(
             client.history_orders,
             symbol,
             start_date,
             end_date,
-        )
-        scope = DedupScope(
-            f"symbol = ? AND {time_expr} >= ?",
-            (symbol, _require_serialized_sqlite_timestamp(start_date)),
-            frozenset({"symbol", "time"}),
-        )
-        frames.append(_CapturedFrame(frame=frame, dedup_scope=scope))
-    return _CapturedDatasetGroup(dataset=Dataset.history_orders, frames=tuple(frames))
+        ),
+    )
 
 
 def _capture_incremental_history_deals(
@@ -1717,57 +1740,56 @@ def _capture_incremental_history_deals(
     *,
     include_account_events: bool,
 ) -> _CapturedDatasetGroup:
-    if include_account_events:
-        start_by_symbol = load_incremental_start_datetimes(
+    """Capture history deals, resuming from the per-symbol SQLite cursors.
+
+    With ``include_account_events`` the account-level deal cursor is read too and
+    a single account-wide frame is captured, alongside the cursor state its dedup
+    scopes need once the persisted schema is known.
+
+    Returns:
+        The captured history-deals group.
+    """
+    if not include_account_events:
+        return _capture_symbol_scoped_dataset(
             ref_conn,
             Dataset.history_deals,
-            symbols=symbols,
-            fallback_start=fallback_start,
-        )
-        account_event_start = get_history_deals_account_event_start_datetime(
-            ref_conn,
-            fallback_start=fallback_start,
-        )
-        fetch_start = min([*start_by_symbol.values(), account_event_start])
-        frame = filter_incremental_history_deals_frame(
-            client.history_deals(date_from=fetch_start, date_to=end_date),
             symbols,
-            {symbol: start_by_symbol[symbol, None] for symbol in symbols},
-            account_event_start,
-        )
-        return _CapturedDatasetGroup(
-            dataset=Dataset.history_deals,
-            frames=(_CapturedFrame(frame=frame),),
-            deals_account_event_context=_DealsAccountEventContext(
-                start_by_symbol={
-                    symbol: start_by_symbol[symbol, None] for symbol in symbols
-                },
-                account_event_start=account_event_start,
+            fallback_start,
+            lambda symbol, start_date: _fetch_history_dataset_frame(
+                client.history_deals,
+                symbol,
+                start_date,
+                end_date,
             ),
         )
-    start_by_symbol = load_incremental_start_datetimes(
+    start_by_key = load_incremental_start_datetimes(
         ref_conn,
         Dataset.history_deals,
         symbols=symbols,
         fallback_start=fallback_start,
     )
-    time_expr = _sqlite_normalized_time_expression("time")
-    frames: list[_CapturedFrame] = []
-    for symbol in symbols:
-        start_date = start_by_symbol[symbol, None]
-        frame = _fetch_history_dataset_frame(
-            client.history_deals,
-            symbol,
-            start_date,
-            end_date,
-        )
-        scope = DedupScope(
-            f"symbol = ? AND {time_expr} >= ?",
-            (symbol, _require_serialized_sqlite_timestamp(start_date)),
-            frozenset({"symbol", "time"}),
-        )
-        frames.append(_CapturedFrame(frame=frame, dedup_scope=scope))
-    return _CapturedDatasetGroup(dataset=Dataset.history_deals, frames=tuple(frames))
+    start_by_symbol = {symbol: start_by_key[symbol, None] for symbol in symbols}
+    account_event_start = get_history_deals_account_event_start_datetime(
+        ref_conn,
+        fallback_start=fallback_start,
+    )
+    frame = filter_incremental_history_deals_frame(
+        client.history_deals(
+            date_from=min([*start_by_key.values(), account_event_start]),
+            date_to=end_date,
+        ),
+        symbols,
+        start_by_symbol,
+        account_event_start,
+    )
+    return _CapturedDatasetGroup(
+        dataset=Dataset.history_deals,
+        frames=(_CapturedFrame(frame=frame),),
+        deals_account_event_context=_DealsAccountEventContext(
+            start_by_symbol=start_by_symbol,
+            account_event_start=account_event_start,
+        ),
+    )
 
 
 def _persist_captured_group(
@@ -1778,10 +1800,12 @@ def _persist_captured_group(
     dedup_scopes: dict[Dataset, list[DedupScope]],
 ) -> None:
     """Write a captured dataset group's frames into SQLite; never touches MT5."""
-    if group.deals_account_event_context is not None:
+    ctx = group.deals_account_event_context
+    if ctx is not None:
         _persist_history_deals_account_events(
             conn,
-            group,
+            group.frames[0].frame,
+            ctx,
             written_columns,
             written_tables,
             dedup_scopes,
@@ -1800,21 +1824,18 @@ def _persist_captured_group(
         if table_exists:
             written_tables.add(group.dataset)
             if captured.dedup_scope is not None:
-                dedup_scopes.setdefault(group.dataset, []).append(captured.dedup_scope)
+                _record_dedup_scope(dedup_scopes, group.dataset, captured.dedup_scope)
 
 
 def _persist_history_deals_account_events(
     conn: sqlite3.Connection,
-    group: _CapturedDatasetGroup,
+    frame: pd.DataFrame,
+    ctx: _DealsAccountEventContext,
     written_columns: dict[Dataset, set[str]],
     written_tables: set[Dataset],
     dedup_scopes: dict[Dataset, list[DedupScope]],
 ) -> None:
-    ctx = group.deals_account_event_context
-    if ctx is None:  # pragma: no cover - defensive, callers always pass a context
-        msg = "history_deals account-event persistence requires captured cursor state."
-        raise ValueError(msg)
-    frame = group.frames[0].frame
+    """Write the account-wide deals frame and scope dedup to the persisted schema."""
     if not write_streamed_frame(
         conn,
         frame,
@@ -1827,130 +1848,100 @@ def _persist_history_deals_account_events(
     written_tables.add(Dataset.history_deals)
     columns = get_table_columns(conn, Dataset.history_deals.table_name)
     time_expr = _sqlite_normalized_time_expression("time")
+    account_event_start = _require_serialized_sqlite_timestamp(ctx.account_event_start)
     if "symbol" in columns:
         for symbol, start_date in ctx.start_by_symbol.items():
             _record_dedup_scope(
                 dedup_scopes,
                 Dataset.history_deals,
-                f"symbol = ? AND {time_expr} >= ?",
-                (symbol, _require_serialized_sqlite_timestamp(start_date)),
-                frozenset({"symbol", "time"}),
+                _symbol_time_dedup_scope(symbol, start_date),
             )
     if "type" in columns:
         _record_dedup_scope(
             dedup_scopes,
             Dataset.history_deals,
-            f"type NOT IN {_TRADE_DEAL_TYPES_SQL} AND {time_expr} >= ?",
-            (_require_serialized_sqlite_timestamp(ctx.account_event_start),),
-            frozenset({"type", "time"}),
+            DedupScope(
+                f"type NOT IN {_TRADE_DEAL_TYPES_SQL} AND {time_expr} >= ?",
+                (account_event_start,),
+                frozenset({"type", "time"}),
+            ),
         )
     if "type" not in columns and "symbol" in columns:
         _record_dedup_scope(
             dedup_scopes,
             Dataset.history_deals,
-            f"(symbol IS NULL OR symbol = '') AND {time_expr} >= ?",
-            (_require_serialized_sqlite_timestamp(ctx.account_event_start),),
-            frozenset({"symbol", "time"}),
+            DedupScope(
+                f"(symbol IS NULL OR symbol = '') AND {time_expr} >= ?",
+                (account_event_start,),
+                frozenset({"symbol", "time"}),
+            ),
         )
 
 
-def _write_incremental_rates(
-    conn: sqlite3.Connection,
+def _capture_incremental_groups(
+    ref_conn: sqlite3.Connection,
     client: HistoryClient,
     symbols: Sequence[str],
+    selected_datasets: set[Dataset],
     resolved_timeframes: list[int],
-    fallback_start: datetime,
-    end_date: datetime,
-    written_columns: dict[Dataset, set[str]],
-    written_tables: set[Dataset],
-    dedup_scopes: dict[Dataset, list[DedupScope]],
-) -> None:
-    group = _capture_incremental_rates(
-        conn,
-        client,
-        symbols,
-        resolved_timeframes,
-        fallback_start,
-        end_date,
-    )
-    _persist_captured_group(conn, group, written_columns, written_tables, dedup_scopes)
-
-
-def _write_incremental_ticks(
-    conn: sqlite3.Connection,
-    client: HistoryClient,
-    symbols: Sequence[str],
     resolved_tick_flags: int,
     fallback_start: datetime,
     end_date: datetime,
-    written_columns: dict[Dataset, set[str]],
-    written_tables: set[Dataset],
-    dedup_scopes: dict[Dataset, list[DedupScope]],
-) -> None:
-    group = _capture_incremental_ticks(
-        conn,
-        client,
-        symbols,
-        resolved_tick_flags,
-        fallback_start,
-        end_date,
-    )
-    _persist_captured_group(conn, group, written_columns, written_tables, dedup_scopes)
-
-
-def _write_incremental_symbols(
-    conn: sqlite3.Connection,
-    client: HistoryClient,
-    symbols: Sequence[str],
-    end_date: datetime,
-    written_columns: dict[Dataset, set[str]],
-    written_tables: set[Dataset],
-) -> None:
-    group = _capture_incremental_symbols(client, symbols, end_date)
-    _persist_captured_group(conn, group, written_columns, written_tables, {})
-
-
-def _write_incremental_history_orders(
-    conn: sqlite3.Connection,
-    client: HistoryClient,
-    symbols: Sequence[str],
-    fallback_start: datetime,
-    end_date: datetime,
-    written_columns: dict[Dataset, set[str]],
-    written_tables: set[Dataset],
-    dedup_scopes: dict[Dataset, list[DedupScope]],
-) -> None:
-    group = _capture_incremental_history_orders(
-        conn,
-        client,
-        symbols,
-        fallback_start,
-        end_date,
-    )
-    _persist_captured_group(conn, group, written_columns, written_tables, dedup_scopes)
-
-
-def _write_incremental_history_deals(
-    conn: sqlite3.Connection,
-    client: HistoryClient,
-    symbols: Sequence[str],
-    fallback_start: datetime,
-    end_date: datetime,
-    written_columns: dict[Dataset, set[str]],
-    written_tables: set[Dataset],
-    dedup_scopes: dict[Dataset, list[DedupScope]],
     *,
     include_account_events: bool,
-) -> None:
-    group = _capture_incremental_history_deals(
-        conn,
-        client,
-        symbols,
-        fallback_start,
-        end_date,
-        include_account_events=include_account_events,
-    )
-    _persist_captured_group(conn, group, written_columns, written_tables, dedup_scopes)
+) -> list[_CapturedDatasetGroup]:
+    """Capture every selected dataset, reading ``ref_conn`` only for cursors.
+
+    Returns:
+        One captured group per selected dataset, in persistence order.
+    """
+    groups: list[_CapturedDatasetGroup] = []
+    if Dataset.rates in selected_datasets:
+        groups.append(
+            _capture_incremental_rates(
+                ref_conn,
+                client,
+                symbols,
+                resolved_timeframes,
+                fallback_start,
+                end_date,
+            ),
+        )
+    if Dataset.ticks in selected_datasets:
+        groups.append(
+            _capture_incremental_ticks(
+                ref_conn,
+                client,
+                symbols,
+                resolved_tick_flags,
+                fallback_start,
+                end_date,
+            ),
+        )
+    if Dataset.history_orders in selected_datasets:
+        groups.append(
+            _capture_incremental_history_orders(
+                ref_conn,
+                client,
+                symbols,
+                fallback_start,
+                end_date,
+            ),
+        )
+    if Dataset.history_deals in selected_datasets:
+        groups.append(
+            _capture_incremental_history_deals(
+                ref_conn,
+                client,
+                symbols,
+                fallback_start,
+                end_date,
+                include_account_events=include_account_events,
+            ),
+        )
+    if Dataset.symbols in selected_datasets:
+        groups.append(_capture_incremental_symbols(client, symbols, end_date))
+    return groups
 
 
 def _finalize_incremental_writes(
@@ -2010,61 +2001,24 @@ def write_incremental_datasets(  # noqa: PLR0913
     written_columns: dict[Dataset, set[str]] = {}
     written_tables: set[Dataset] = set()
     dedup_scopes: dict[Dataset, list[DedupScope]] = {}
-    if Dataset.rates in selected_datasets:
-        _write_incremental_rates(
+    groups = _capture_incremental_groups(
+        conn,
+        client,
+        symbols,
+        selected_datasets,
+        resolved_timeframes,
+        resolved_tick_flags,
+        fallback_start,
+        end_date,
+        include_account_events=include_account_events,
+    )
+    for group in groups:
+        _persist_captured_group(
             conn,
-            client,
-            symbols,
-            resolved_timeframes,
-            fallback_start,
-            end_date,
+            group,
             written_columns,
             written_tables,
             dedup_scopes,
-        )
-    if Dataset.ticks in selected_datasets:
-        _write_incremental_ticks(
-            conn,
-            client,
-            symbols,
-            resolved_tick_flags,
-            fallback_start,
-            end_date,
-            written_columns,
-            written_tables,
-            dedup_scopes,
-        )
-    if Dataset.history_orders in selected_datasets:
-        _write_incremental_history_orders(
-            conn,
-            client,
-            symbols,
-            fallback_start,
-            end_date,
-            written_columns,
-            written_tables,
-            dedup_scopes,
-        )
-    if Dataset.history_deals in selected_datasets:
-        _write_incremental_history_deals(
-            conn,
-            client,
-            symbols,
-            fallback_start,
-            end_date,
-            written_columns,
-            written_tables,
-            dedup_scopes,
-            include_account_events=include_account_events,
-        )
-    if Dataset.symbols in selected_datasets:
-        _write_incremental_symbols(
-            conn,
-            client,
-            symbols,
-            end_date,
-            written_columns,
-            written_tables,
         )
     _finalize_incremental_writes(
         conn,
@@ -2465,54 +2419,17 @@ def capture_history_datasets(  # noqa: PLR0913
         return None
     ref_conn = _open_history_cursor_reference(request.output_path)
     try:
-        groups: list[_CapturedDatasetGroup] = []
-        if Dataset.rates in request.selected:
-            groups.append(
-                _capture_incremental_rates(
-                    ref_conn,
-                    client,
-                    symbols,
-                    request.resolved_timeframes,
-                    request.fallback_start,
-                    request.end,
-                ),
-            )
-        if Dataset.ticks in request.selected:
-            groups.append(
-                _capture_incremental_ticks(
-                    ref_conn,
-                    client,
-                    symbols,
-                    request.resolved_tick_flags,
-                    request.fallback_start,
-                    request.end,
-                ),
-            )
-        if Dataset.history_orders in request.selected:
-            groups.append(
-                _capture_incremental_history_orders(
-                    ref_conn,
-                    client,
-                    symbols,
-                    request.fallback_start,
-                    request.end,
-                ),
-            )
-        if Dataset.history_deals in request.selected:
-            groups.append(
-                _capture_incremental_history_deals(
-                    ref_conn,
-                    client,
-                    symbols,
-                    request.fallback_start,
-                    request.end,
-                    include_account_events=include_account_events,
-                ),
-            )
-        if Dataset.symbols in request.selected:
-            groups.append(
-                _capture_incremental_symbols(client, symbols, request.end),
-            )
+        groups = _capture_incremental_groups(
+            ref_conn,
+            client,
+            symbols,
+            request.selected,
+            request.resolved_timeframes,
+            request.resolved_tick_flags,
+            request.fallback_start,
+            request.end,
+            include_account_events=include_account_events,
+        )
     finally:
         ref_conn.close()
     return HistoryCapture(
