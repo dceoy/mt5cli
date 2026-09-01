@@ -11,6 +11,8 @@ import pytest
 from pdmt5 import Mt5RuntimeError
 from pydantic import SecretStr
 
+import mt5cli
+import mt5cli.client
 from mt5cli.client import (
     MT5Client,
     _connected_client,  # pyright: ignore[reportPrivateUsage]
@@ -66,6 +68,63 @@ class _NonCallableSummaryMethodClient:
 
 def _mt5_client_with_injected_client(connected: MagicMock) -> MT5Client:
     return MT5Client.from_connected_client(connected)
+
+
+class TestClientProtocolContracts:
+    """Tests for the client methods required by internal protocols."""
+
+    @pytest.mark.parametrize(
+        "method_name",
+        [
+            "copy_rates_range",
+            "copy_ticks_range",
+            "history_orders",
+            "history_deals",
+            "symbol_info_as_dict",
+        ],
+    )
+    def test_mt5_client_satisfies_history_client_protocol(
+        self,
+        method_name: str,
+    ) -> None:
+        """MT5Client implements every method required by HistoryClient."""
+        assert callable(getattr(MT5Client, method_name))
+
+    @pytest.mark.parametrize(
+        "method_name",
+        ["account_info", "terminal_info", "positions", "orders"],
+    )
+    def test_mt5_client_satisfies_observability_client_protocol(
+        self,
+        method_name: str,
+    ) -> None:
+        """MT5Client implements every method required by ObservabilityClient."""
+        assert callable(getattr(MT5Client, method_name))
+
+
+def test_package_root_mt5_session_is_the_client_module_session() -> None:
+    """The package-root mt5_session is the same object as client.mt5_session."""
+    assert mt5_session is mt5cli.client.mt5_session
+
+
+def test_mt5_session_yields_mt5_client(mocker: MockerFixture) -> None:
+    """The single public session factory always yields an MT5Client."""
+    raw_client = mocker.MagicMock()
+    mocker.patch("mt5cli.client.Mt5DataClient", return_value=raw_client)
+    with mt5cli.mt5_session() as client:
+        assert isinstance(client, MT5Client)
+
+
+def test_caller_owned_client_is_not_initialized_or_shut_down(
+    mocker: MockerFixture,
+) -> None:
+    """A caller-owned client passed to mt5_session is used as-is."""
+    raw_client = mocker.MagicMock()
+    owned_client = MT5Client.from_connected_client(raw_client)
+    with mt5cli.mt5_session(client=owned_client) as client:
+        assert client is owned_client
+    raw_client.initialize_and_login_mt5.assert_not_called()
+    raw_client.shutdown.assert_not_called()
 
 
 def test_order_check_and_order_send_route_through_connected_client(

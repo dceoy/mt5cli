@@ -1,4 +1,5 @@
 """Packaging metadata invariants for mt5cli."""
+# ruff: noqa: INP001
 
 from __future__ import annotations
 

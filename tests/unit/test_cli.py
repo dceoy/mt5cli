@@ -28,6 +28,7 @@ from mt5cli.cli import (
     _parse_timeframe_parameter,  # type: ignore[reportPrivateUsage]
     _sdk_client,  # type: ignore[reportPrivateUsage]
     app,
+    history_gaps,
     main,
 )
 
@@ -2125,3 +2126,25 @@ class TestTyperParameterParsers:
         """Test that invalid requests raise a Typer BadParameter."""
         with pytest.raises(Exception, match="Invalid JSON request"):
             _parse_request_parameter("bad")
+
+
+def test_history_gaps_cli_happy_path(
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    """The canonical history-gaps command exports the concatenated report."""
+    db_path = tmp_path / "history.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
+        )
+    export = mocker.patch("mt5cli.cli._execute_export")
+    history_gaps(
+        mocker.MagicMock(),
+        db_path,
+        table=None,
+        granularity_seconds=60,
+        min_gap_intervals=1,
+    )
+    export.assert_called_once()
+    assert export.call_args.args[1]().empty
