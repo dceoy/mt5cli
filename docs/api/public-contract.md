@@ -404,5 +404,6 @@ their own adapter layer.
 
 `tests/contracts/test_public_api.py` asserts that every name in `STABLE_SDK_EXPORTS` is
 importable from `mt5cli`, that all package-root exports are covered by the
-stable set, and documents key closed-bar, SQLite loading, account-resolution,
-and trading-session behaviors.
+stable set, and that the package-root API exposes only the canonical public
+surface. Module-specific unit tests cover closed-bar, SQLite loading,
+account-resolution, and trading-session behaviors.
