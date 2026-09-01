@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import sqlite3
 from typing import TYPE_CHECKING
@@ -17,6 +18,16 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from pytest_mock import MockerFixture
+
+
+def test_update_observability_does_not_annotate_client_as_object_or_mt5dataclient() -> (
+    None
+):
+    """update_observability uses its protocol rather than the raw client."""
+    annotations = inspect.get_annotations(update_observability, eval_str=False)
+    client_annotation = str(annotations["client"])
+    assert client_annotation != "object"
+    assert "Mt5DataClient" not in client_annotation
 
 
 class TestUpdateObservability:
