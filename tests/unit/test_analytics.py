@@ -120,7 +120,7 @@ class TestAnalyticsTrades:
     """Tests for the canonical analytics_trades view."""
 
     def test_reconstructs_closed_positions_only(self, db: Path) -> None:
-        """Open/partially closed positions, balance rows, and position_id 0 are excluded."""
+        """Open/partial positions, balance rows, and position_id 0 are excluded."""
         trades = _query(db, "SELECT * FROM analytics_trades ORDER BY position_id")
         assert trades["position_id"].tolist() == [100, 101, 102, 103]
 

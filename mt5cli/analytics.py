@@ -119,6 +119,7 @@ def _trades_select_sql(deal_columns: set[str]) -> str:
         " WHERE p.reversal_count > 0 OR p.volume_close >= p.volume_open"
     )
 
+
 _METRICS_SQL = (
     "COUNT(*) AS trade_count,"
     " SUM(CASE WHEN net_profit > 0 THEN 1 ELSE 0 END) AS wins,"
