@@ -9,11 +9,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import pytest
 
-from mt5cli.analytics import (
-    create_analytics_views,
-    publish_dashboard,
-    time_col_expr,
-)
+from mt5cli.analytics import create_analytics_views, publish_dashboard
 from mt5cli.grafana import create_snapshot_tables, start_snapshot_run
 
 if TYPE_CHECKING:
@@ -81,8 +77,11 @@ _DEALS: list[tuple[object, ...]] = [
     # 103: reversal (DEAL_ENTRY_INOUT) closes the original position
     (8, 103, "EURUSD", "2024-01-04 09:00:00", 0, 0, 1.0, 1.1, 0.0, 0.0, 0.0, 0.0, 1),
     (9, 103, "EURUSD", "2024-01-04 10:00:00", 1, 2, 2.0, 1.1, 0.0, 0.0, 0.0, 0.0, 1),
-    # 104: still open, balance row, and position_id 0 are excluded
+    # 104: still open; 105: only partially closed; both are excluded
     (10, 104, "EURUSD", "2024-01-05 09:00:00", 0, 0, 1.0, 1.1, 0.0, 0.0, 0.0, 0.0, 1),
+    (12, 105, "EURUSD", "2024-01-06 09:00:00", 0, 0, 2.0, 1.1, 0.0, 0.0, 0.0, 0.0, 1),
+    (13, 105, "EURUSD", "2024-01-06 10:00:00", 1, 1, 1.0, 1.2, 5.0, 0.0, 0.0, 0.0, 1),
+    # Balance row and position_id 0 are excluded.
     (11, 0, "", "2024-01-05 10:00:00", 2, 0, 0.0, 0.0, 500.0, 0.0, 0.0, 0.0, 0),
 ]
 
@@ -104,6 +103,10 @@ def _query(path: Path, sql: str) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn)  # pyright: ignore[reportUnknownMemberType]
 
 
+def _approx(expected: object) -> object:
+    return _approx(expected)  # pyright: ignore[reportUnknownMemberType]
+
+
 @pytest.fixture
 def db(tmp_path: Path) -> Path:
     """SQLite history database with the shared deal scenarios."""
@@ -113,28 +116,11 @@ def db(tmp_path: Path) -> Path:
     return path
 
 
-class TestTimeColExpr:
-    """Tests for time_col_expr."""
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [(1704103200, 1704103200), ("2024-01-01 10:00:00", 1704103200)],
-        ids=["integer", "text"],
-    )
-    def test_converts_to_epoch(self, value: object, expected: int) -> None:
-        """Integer and TEXT timestamps both become epoch seconds."""
-        with sqlite3.connect(":memory:") as conn:
-            conn.execute("CREATE TABLE t (time)")
-            conn.execute("INSERT INTO t VALUES (?)", (value,))
-            row = conn.execute(f"SELECT {time_col_expr('time')} FROM t").fetchone()  # noqa: S608
-        assert row == (expected,)
-
-
 class TestAnalyticsTrades:
     """Tests for the canonical analytics_trades view."""
 
     def test_reconstructs_closed_positions_only(self, db: Path) -> None:
-        """Open positions, balance rows, and position_id 0 are excluded."""
+        """Open/partially closed positions, balance rows, and position_id 0 are excluded."""
         trades = _query(db, "SELECT * FROM analytics_trades ORDER BY position_id")
         assert trades["position_id"].tolist() == [100, 101, 102, 103]
 
@@ -153,6 +139,8 @@ class TestAnalyticsTrades:
                     "fee": 0.0,
                     "net_profit": 95.0,
                     "holding_seconds": 7200,
+                    "open_time": "2024-01-01 10:00:00",
+                    "close_time": "2024-01-01 12:00:00",
                     "close_date": "2024-01-01",
                     "entry_price": 1.1,
                     "exit_price": 1.2,
@@ -196,7 +184,7 @@ class TestAnalyticsTrades:
             f"SELECT * FROM analytics_trades WHERE position_id = {position_id}",  # noqa: S608
         ).iloc[0]
         for column, value in expected.items():
-            assert row[column] == pytest.approx(value), column
+            assert row[column] == _approx(value), column
 
     def test_missing_optional_columns_default(self, tmp_path: Path) -> None:
         """Missing magic and cost columns become NULL magic and zero costs."""
@@ -215,7 +203,7 @@ class TestAnalyticsTrades:
         row = _query(path, "SELECT * FROM analytics_trades").iloc[0]
         assert pd.isna(row["magic"])
         assert (row["commission"], row["swap"], row["fee"]) == (0, 0, 0)
-        assert row["net_profit"] == pytest.approx(5.0)
+        assert row["net_profit"] == _approx(5.0)
         assert row["holding_seconds"] == 1000
 
     def test_missing_required_columns_skips_views(self, tmp_path: Path) -> None:
@@ -260,21 +248,21 @@ class TestAggregateViews:
         )
         eur = stats["EURUSD"]
         assert (eur["trade_count"], eur["wins"], eur["losses"]) == (3, 2, 0)
-        assert eur["win_rate"] == pytest.approx(2 / 3)
-        assert eur["net_profit"] == pytest.approx(131.5)
-        assert eur["avg_trade"] == pytest.approx(131.5 / 3)
-        assert eur["gross_profit"] == pytest.approx(131.5)
+        assert eur["win_rate"] == _approx(2 / 3)
+        assert eur["net_profit"] == _approx(131.5)
+        assert eur["avg_trade"] == _approx(131.5 / 3)
+        assert eur["gross_profit"] == _approx(131.5)
         assert eur["profit_factor"] is None or pd.isna(eur["profit_factor"])
         gbp = stats["GBPUSD"]
         assert (gbp["wins"], gbp["losses"], gbp["magic"]) == (0, 1, 2)
-        assert gbp["gross_loss"] == pytest.approx(-51.0)
+        assert gbp["gross_loss"] == _approx(-51.0)
         assert gbp["profit_factor"] == 0
-        assert eur["first_open_time"] == 1704103200
+        assert eur["first_open_time"] == "2024-01-01 10:00:00"
 
     def test_equity_is_cumulative_in_close_order(self, db: Path) -> None:
         """Cumulative net profit accumulates by close time."""
         equity = _query(db, "SELECT * FROM analytics_equity ORDER BY time, position_id")
-        assert equity["cumulative_net_profit"].tolist() == pytest.approx([
+        assert equity["cumulative_net_profit"].tolist() == _approx([
             95.0,
             131.5,
             80.5,
@@ -345,6 +333,14 @@ class TestPublishDashboard:
             r[0]
             for r in sqlite3.connect(path).execute("SELECT name FROM sqlite_master")
         }
+
+    def test_rejects_manifest_dataset_collision(self, tmp_path: Path) -> None:
+        """Manifest file names cannot overwrite generated Parquet datasets."""
+        path = _make_db(tmp_path / "history.db")
+        out = tmp_path / "out"
+        with pytest.raises(ValueError, match="collides"):
+            publish_dashboard(path, out, manifest_name="trades.parquet")
+        assert not out.exists()
 
     def test_skips_missing_sources(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture

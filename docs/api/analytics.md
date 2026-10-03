@@ -40,15 +40,18 @@ manifest. The manifest is written last.
 `create_analytics_views(conn)` creates the views idempotently in an existing
 history database (`temporary=True` creates TEMP views for read-only databases).
 
-- `analytics_trades`: one row per closed position, reusing the
-  `positions_reconstructed` reconstruction (partial closes and
-  `DEAL_ENTRY_INOUT` reversals) plus per-position `magic`, `commission`,
-  `swap`, and `fee`. Columns: `position_id`, `symbol`, `magic`, `side`,
-  `open_time`, `close_time` (epoch seconds), `close_date` (UTC),
-  `holding_seconds`, `volume`, `entry_price`, `exit_price` (volume-weighted),
-  `reversal_count`, `deals_count`, `profit`, `commission`, `swap`, `fee`,
-  `net_profit`.
-- `analytics_daily_pnl`: per UTC close `date`, `symbol`, `magic`.
+- `analytics_trades`: one row per fully closed position, reusing the
+  `positions_reconstructed` reconstruction. Partially closed positions remain
+  excluded until their closing volume covers their opening volume; a
+  `DEAL_ENTRY_INOUT` reversal is treated as closing the original side. The
+  view adds per-position `magic`, `commission`, `swap`, and `fee`. Columns:
+  `position_id`, `symbol`, `magic`, `side`, `open_time`, `close_time`,
+  `close_date`, `holding_seconds`, `volume`, `entry_price`, `exit_price`
+  (volume-weighted), `reversal_count`, `deals_count`, `profit`,
+  `commission`, `swap`, `fee`, `net_profit`. Numeric timestamps stay
+  numeric epoch values; textual timestamps remain timezone-naive MT5
+  trade-server wall-clock values. No implicit UTC conversion is performed.
+- `analytics_daily_pnl`: per stored close `date`, `symbol`, `magic`.
 - `analytics_strategy_stats`: per `symbol`, `magic`, plus
   `avg_holding_seconds`, `first_open_time`, `last_close_time`.
 - `analytics_equity`: per closed trade in close order with

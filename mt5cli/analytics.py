@@ -80,13 +80,28 @@ def _trades_select_sql(deal_columns: set[str]) -> str:
         else f'0 AS "{col}"'
         for col in _COST_COLUMNS
     )
+    close_date = (
+        "CASE WHEN typeof(p.close_time) IN ('integer', 'real')"
+        " THEN date(p.close_time, 'unixepoch')"
+        " ELSE date(p.close_time) END"
+    )
+    holding_seconds = (
+        "CASE"
+        " WHEN typeof(p.open_time) IN ('integer', 'real')"
+        " AND typeof(p.close_time) IN ('integer', 'real')"
+        " THEN p.close_time - p.open_time"
+        " WHEN typeof(p.open_time) = 'text' AND typeof(p.close_time) = 'text'"
+        " THEN CAST(ROUND((julianday(p.close_time) - julianday(p.open_time))"
+        " * 86400) AS INTEGER)"
+        " END"
+    )
     return (
         "SELECT p.position_id AS position_id, p.symbol AS symbol,"  # noqa: S608
         " c.magic AS magic,"
         " CASE p.direction WHEN 0 THEN 'buy' WHEN 1 THEN 'sell' END AS side,"
-        " p.open_epoch AS open_time, p.close_epoch AS close_time,"
-        " date(p.close_epoch, 'unixepoch') AS close_date,"
-        " p.close_epoch - p.open_epoch AS holding_seconds,"
+        " p.open_time AS open_time, p.close_time AS close_time,"
+        f" {close_date} AS close_date,"
+        f" {holding_seconds} AS holding_seconds,"
         " p.volume_open AS volume, p.open_price AS entry_price,"
         " p.close_price AS exit_price, p.reversal_count AS reversal_count,"
         " p.deals_count AS deals_count,"
@@ -94,18 +109,15 @@ def _trades_select_sql(deal_columns: set[str]) -> str:
         " c.commission AS commission, c.swap AS swap, c.fee AS fee,"
         " COALESCE(p.total_profit, 0) + COALESCE(c.commission, 0)"
         " + COALESCE(c.swap, 0) + COALESCE(c.fee, 0) AS net_profit"
-        " FROM (SELECT *,"
-        f" {time_col_expr('open_time')} AS open_epoch,"
-        f" {time_col_expr('close_time')} AS close_epoch"
-        " FROM positions_reconstructed) p"
+        " FROM positions_reconstructed p"
         " JOIN (SELECT position_id, symbol,"
         f" {magic} AS magic, {costs}"
         " FROM history_deals"
         f" WHERE type IN {_TRADE_DEAL_TYPES_SQL} AND position_id != 0"
         " GROUP BY position_id, symbol) c"
         " ON c.position_id = p.position_id AND c.symbol IS p.symbol"
+        " WHERE p.reversal_count > 0 OR p.volume_close >= p.volume_open"
     )
-
 
 _METRICS_SQL = (
     "COUNT(*) AS trade_count,"
@@ -150,10 +162,12 @@ def create_analytics_views(
     """Create the canonical ``analytics_*`` views idempotently.
 
     ``analytics_trades`` joins the existing ``positions_reconstructed``
-    reconstruction (partial closes and ``DEAL_ENTRY_INOUT`` included) with
+    reconstruction with completed partial-close sequences and
+    ``DEAL_ENTRY_INOUT`` reversals, plus
     per-position ``magic``, ``commission``, ``swap`` and ``fee`` totals from
     ``history_deals``. ``net_profit`` is ``profit + commission + swap + fee``
-    with NULL treated as zero. ``analytics_daily_pnl`` (UTC close date),
+    with NULL treated as zero. Stored trade-server wall-clock timestamps are
+    preserved without implicit UTC conversion. ``analytics_daily_pnl``,
     ``analytics_strategy_stats`` and ``analytics_equity`` aggregate that view
     by ``symbol`` and ``magic``. A trade is a win when ``net_profit > 0`` and
     a loss when ``net_profit < 0``; break-even trades count as neither.
@@ -244,6 +258,11 @@ def publish_dashboard(
         frames = _collect_dataset_frames(conn)
     if not frames:
         msg = f"No analytics datasets could be built from {source}"
+        raise ValueError(msg)
+    dataset_files = {f"{name}.parquet" for name in frames}
+    manifest_basename = Path(manifest_name).name
+    if manifest_basename in dataset_files:
+        msg = f"Manifest name collides with dashboard dataset: {manifest_basename}"
         raise ValueError(msg)
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
