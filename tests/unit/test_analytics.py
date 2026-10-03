@@ -104,7 +104,7 @@ def _query(path: Path, sql: str) -> pd.DataFrame:
 
 
 def _approx(expected: object) -> object:
-    return _approx(expected)  # pyright: ignore[reportUnknownMemberType]
+    return pytest.approx(expected)  # pyright: ignore[reportUnknownMemberType]
 
 
 @pytest.fixture
