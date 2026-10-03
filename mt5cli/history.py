@@ -1237,8 +1237,16 @@ def create_cash_events_view(
 def create_positions_reconstructed_view(
     conn: sqlite3.Connection,
     deals_columns: set[str],
+    *,
+    temporary: bool = False,
 ) -> bool:
     """Create the positions_reconstructed SQLite view derived from history_deals.
+
+    Args:
+        conn: SQLite connection holding ``history_deals``.
+        deals_columns: Columns available on ``history_deals``.
+        temporary: Create a connection-local TEMP view so a read-only database
+            is never modified.
 
     Returns:
         True if the view was created, False if required columns are missing.
@@ -1250,9 +1258,11 @@ def create_positions_reconstructed_view(
             missing,
         )
         return False
-    conn.execute("DROP VIEW IF EXISTS positions_reconstructed")
     conn.execute(
-        "CREATE VIEW positions_reconstructed AS"  # noqa: S608
+        f"DROP VIEW IF EXISTS {'temp.' if temporary else ''}positions_reconstructed",
+    )
+    conn.execute(
+        f"CREATE {'TEMP ' if temporary else ''}VIEW positions_reconstructed AS"  # noqa: S608
         " SELECT"
         " position_id,"
         " symbol,"

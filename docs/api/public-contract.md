@@ -44,6 +44,7 @@ operational capability still has exactly one owning module:
 | `mt5cli.history`       | Legacy history collection, incremental updates, and SQLite storage (`collect_history`, `update_history`, `write_*_dataset`)                 |
 | `mt5cli.rates`         | Canonical rate persistence/loading and stable update wrappers (`load_rate_series_from_sqlite`, `update_history`, `ThrottledHistoryUpdater`) |
 | `mt5cli.observability` | Observability snapshot orchestration (`update_observability`, `update_observability_with_config`)                                           |
+| `mt5cli.analytics`     | Canonical `analytics_*` views and static-dashboard Parquet publication (`publish_dashboard`)                                                |
 | `mt5cli.grafana`       | Grafana schema, views, and snapshot persistence                                                                                             |
 | `mt5cli.trading`       | Order preparation, broker-facing calculations, and normalized execution receipts                                                            |
 | `mt5cli.contract`      | The internal `HistoryClient` / `ObservabilityClient` protocols                                                                              |
@@ -265,6 +266,11 @@ workflows call the facade's canonical data methods (`account_info`, `positions`,
 | `grafana_realized_pnl` | Cumulative realized PnL per symbol    |
 | `grafana_trade_stats`  | Win/loss counts and profit per symbol |
 
+`publish_dashboard(source, output_dir)` is a stable package-root helper that
+publishes Parquet analytics datasets and `manifest.json` from an offline
+SQLite history database without connecting to MT5 or modifying the source; see
+[Analytics](analytics.md).
+
 `ensure_grafana_schema` is a stable package-root helper for downstream setup.
 Other lower-level helpers (`create_grafana_views`, `create_grafana_indexes`,
 `create_snapshot_tables`, `start_snapshot_run`,
@@ -316,6 +322,7 @@ of the package-root stable surface. Import them directly when needed:
 
 | Module              | Examples                                                                                                                                                                    |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mt5cli.analytics`  | `create_analytics_views`, `time_col_expr`                                                                                                                                   |
 | `mt5cli.grafana`    | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`, `insert_account_snapshot`, `record_snapshot_run` |
 | `mt5cli.marketdata` | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                                              |
 | `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                                          |

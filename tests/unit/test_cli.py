@@ -2148,3 +2148,62 @@ def test_history_gaps_cli_happy_path(
     )
     export.assert_called_once()
     assert export.call_args.args[1]().empty
+
+
+class TestPublishDashboardCommand:
+    """Tests for the publish-dashboard CLI command."""
+
+    def test_publishes_beside_manifest_path(self, tmp_path: Path) -> None:
+        """publish-dashboard writes datasets next to the -o manifest."""
+        source = tmp_path / "history.db"
+        with sqlite3.connect(source) as conn:
+            conn.execute(
+                "CREATE TABLE history_deals (position_id INTEGER, symbol TEXT,"
+                " time INTEGER, type INTEGER, entry INTEGER, volume REAL,"
+                " price REAL, profit REAL)"
+            )
+            conn.executemany(
+                "INSERT INTO history_deals VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "EURUSD", 1, 0, 0, 1.0, 1.1, 0.0),
+                    (1, "EURUSD", 2, 1, 1, 1.0, 1.2, 5.0),
+                ],
+            )
+        manifest = tmp_path / "dist" / "manifest.json"
+        result = runner.invoke(
+            app,
+            ["-o", str(manifest), "publish-dashboard", "--sqlite3", str(source)],
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "dist" / "trades.parquet").exists()
+        assert manifest.exists()
+
+    def test_rejects_non_json_manifest(self, tmp_path: Path) -> None:
+        """A non-JSON -o path is rejected."""
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(tmp_path / "out.csv"),
+                "publish-dashboard",
+                "--sqlite3",
+                "x.db",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "JSON manifest" in result.output
+
+    def test_missing_database_is_a_usage_error(self, tmp_path: Path) -> None:
+        """A missing source database is reported as a bad parameter."""
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(tmp_path / "manifest.json"),
+                "publish-dashboard",
+                "--sqlite3",
+                str(tmp_path / "missing.db"),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "not found" in result.output

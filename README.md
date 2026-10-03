@@ -184,6 +184,7 @@ python -m mt5cli -o account.csv account-info
 | `collect-history`      | Collect rates, history-orders, and history-deals for one or more symbols into a single SQLite database (ticks opt-in via `--dataset ticks`)                              |
 | `history-gaps`         | Export a SQLite-only one-row-per-gap report from managed rate compatibility views without connecting to MT5                                                              |
 | `grafana-schema`       | Create or refresh Grafana-ready views and indexes in an existing SQLite database (idempotent, no MT5 connection)                                                         |
+| `publish-dashboard`    | Publish Parquet analytics datasets and a manifest from a SQLite history database for static dashboards (`--sqlite3`; `-o` is the manifest path; no MT5)                  |
 | `snapshot`             | Snapshot current account, position, order, and terminal state into SQLite for live Grafana dashboards                                                                    |
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
@@ -216,6 +217,10 @@ mt5cli -o history.db collect-history \
 ```
 
 History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `cash_events` view is derived from symbol-filtered `history_deals`, so account-level cash events with empty or non-matching symbols may be excluded. The `rates` table records the requested `timeframe` so appended runs at different timeframes remain distinguishable. The `positions_reconstructed` view aggregates trade deals by `position_id`, excludes positions without closing-side entries, and uses volume-weighted open/close prices; reversal deals (`DEAL_ENTRY_INOUT`) are reported via `volume_reversal` / `reversal_count` columns.
+
+### Static dashboard publication
+
+`mt5cli -o dist/data/manifest.json publish-dashboard --sqlite3 history.db` (or `mt5cli.publish_dashboard("history.db", "dist/data")`) writes `trades`, `daily_pnl`, `strategy_stats`, `equity`, and `account_snapshots` Parquet files plus a `manifest.json` from canonical `analytics_*` views, ready for static hosting and DuckDB-Wasm. It never connects to MT5 and requires the `parquet` extra. See `docs/api/analytics.md`.
 
 ### Grafana-ready SQLite dashboards
 

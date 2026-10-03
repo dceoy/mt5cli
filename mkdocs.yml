@@ -67,6 +67,7 @@ nav:
       - History Collection (SQLite): api/history.md
       - Observability: api/observability.md
       - Telemetry: api/telemetry.md
+      - Analytics: api/analytics.md
       - Grafana: api/grafana.md
       - Utils: api/utils.md
 

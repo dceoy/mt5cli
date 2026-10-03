@@ -125,6 +125,7 @@ def test_stable_sdk_exposes_downstream_adapter_primitives() -> None:
         "build_config",
         "ensure_grafana_schema",
         "parse_timeframe",
+        "publish_dashboard",
         "resolve_history_timeframes",
         "substitute_mapping_values",
     ):

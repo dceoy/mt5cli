@@ -1027,6 +1027,52 @@ def grafana_schema(
         logger.info("Grafana copy published to %s", publish_copy)
 
 
+@app.command("publish-dashboard", rich_help_panel="Collection")
+def publish_dashboard_command(
+    ctx: typer.Context,
+    sqlite3_path: Annotated[
+        Path,
+        typer.Option(
+            "--sqlite3",
+            help="Source SQLite history database to publish from.",
+        ),
+    ],
+) -> None:
+    """Publish Parquet analytics datasets for static dashboards without MT5.
+
+    The global ``--output`` is the manifest path (for example
+    ``dist/data/manifest.json``); ``trades``, ``daily_pnl``,
+    ``strategy_stats``, ``equity`` and ``account_snapshots`` Parquet files are
+    written beside it. Requires the ``parquet`` extra.
+
+    Raises:
+        typer.BadParameter: If the source database is invalid, the manifest path
+            is not JSON, or no dataset can be built.
+    """
+    from .analytics import publish_dashboard  # noqa: PLC0415
+
+    export_ctx = _get_export_context(ctx)
+    if export_ctx.output_format != "json":
+        msg = (
+            "publish-dashboard writes a JSON manifest."
+            " Use a .json extension or --format json."
+        )
+        raise typer.BadParameter(msg)
+    try:
+        manifest = publish_dashboard(
+            sqlite3_path,
+            export_ctx.output.parent,
+            manifest_name=export_ctx.output.name,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--sqlite3") from exc
+    logger.info(
+        "Published %d datasets to %s",
+        len(manifest["datasets"]),
+        export_ctx.output.parent,
+    )
+
+
 @app.command(rich_help_panel="Collection")
 def snapshot(
     ctx: typer.Context,

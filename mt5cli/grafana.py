@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple, cast
 
+from .analytics import time_col_expr
 from .history import get_table_columns
 
 logger = logging.getLogger(__name__)
@@ -42,14 +43,6 @@ def _to_epoch_int(value: object) -> int | None:
     if isinstance(value, (int, float)):
         return int(value)
     return None
-
-
-def _time_col_expr(col: str) -> str:
-    return (
-        f"CASE WHEN typeof(\"{col}\") IN ('integer', 'real')"
-        f' THEN CAST("{col}" AS INTEGER)'
-        f" ELSE CAST(strftime('%s', \"{col}\") AS INTEGER) END"
-    )
 
 
 def _create_view_safe(
@@ -221,7 +214,7 @@ def _build_passthrough_view(
             sorted(spec.required - cols),
         )
         return
-    time_expr = _time_col_expr(spec.time_col)
+    time_expr = time_col_expr(spec.time_col)
     others = _other_cols(cols, {spec.time_col} if spec.exclude_time_col else set())
     other_sql = ", ".join(f'"{c}"' for c in others)
     where_sql = f" WHERE {spec.where}" if spec.where else ""
@@ -264,7 +257,7 @@ def _build_grafana_symbol_pnl(conn: sqlite3.Connection) -> None:
             sorted(required - cols),
         )
         return
-    time_expr = _time_col_expr("time")
+    time_expr = time_col_expr("time")
     select_parts = [f'{time_expr} AS "time"', '"symbol"', '"profit"']
     if "volume" in cols:
         select_parts.append('"volume"')
