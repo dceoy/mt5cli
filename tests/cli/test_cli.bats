@@ -51,26 +51,9 @@ PY
   [[ "${status}" -eq 0 ]]
 }
 
-@test "pass with \"mt5cli grafana-schema\"" {
-  run uv run mt5cli --output "${BATS_TEST_TMPDIR}/grafana.db" grafana-schema
+@test "pass with \"mt5cli publish-dashboard --help\"" {
+  run uv run mt5cli --output "${BATS_TEST_TMPDIR}/manifest.json" publish-dashboard --help
   [[ "${status}" -eq 0 ]]
-  [[ -f "${BATS_TEST_TMPDIR}/grafana.db" ]]
-}
-
-@test "pass with \"mt5cli grafana-schema\" run twice" {
-  run uv run mt5cli --output "${BATS_TEST_TMPDIR}/grafana.db" grafana-schema
-  [[ "${status}" -eq 0 ]]
-  run uv run mt5cli --output "${BATS_TEST_TMPDIR}/grafana.db" grafana-schema
-  [[ "${status}" -eq 0 ]]
-}
-
-@test "pass with \"mt5cli grafana-schema --publish-copy\"" {
-  run uv run mt5cli \
-    --output "${BATS_TEST_TMPDIR}/grafana.db" \
-    grafana-schema \
-    --publish-copy "${BATS_TEST_TMPDIR}/published.db"
-  [[ "${status}" -eq 0 ]]
-  [[ -f "${BATS_TEST_TMPDIR}/published.db" ]]
 }
 
 @test "pass with \"mt5cli history-gaps\"" {

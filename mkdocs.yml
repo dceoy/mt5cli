@@ -68,7 +68,6 @@ nav:
       - Observability: api/observability.md
       - Telemetry: api/telemetry.md
       - Analytics: api/analytics.md
-      - Grafana: api/grafana.md
       - Utils: api/utils.md
 
 markdown_extensions:

@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from mt5cli.analytics import create_analytics_views, publish_dashboard
-from mt5cli.grafana import create_snapshot_tables, start_snapshot_run
+from mt5cli.observability import create_snapshot_tables, start_snapshot_run
 
 if TYPE_CHECKING:
     from pathlib import Path

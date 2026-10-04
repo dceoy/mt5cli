@@ -12,7 +12,6 @@ from .exceptions import (
     Mt5OperationError,
     Mt5SchemaError,
 )
-from .grafana import ensure_grafana_schema
 from .history import (
     RateTarget,
     build_rate_targets,

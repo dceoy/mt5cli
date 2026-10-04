@@ -84,5 +84,3 @@ out of scope.
 Parquet columns with a fixed meaning are written with stable types (`Int64`,
 `float64`, `string`) even for empty tables; time columns keep the stored
 representation.
-
-The existing `grafana_*` views are unchanged.

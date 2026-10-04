@@ -1,9 +1,8 @@
 """Observability snapshot orchestration for account, position, order, terminal state.
 
-Snapshot persistence (SQLite schema and inserts) and Grafana-facing views
-belong to :mod:`mt5cli.grafana`; this module owns *when* and *what* to
-snapshot, using the canonical :class:`~mt5cli.contract.ObservabilityClient`
-contract rather than raw pdmt5 method names.
+This module owns *when* and *what* to snapshot, using the canonical
+:class:`~mt5cli.contract.ObservabilityClient` contract rather than raw pdmt5
+method names, and the SQLite snapshot tables the results are persisted into.
 """
 
 from __future__ import annotations
@@ -17,16 +16,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from .client import mt5_session
-from .grafana import (
-    create_snapshot_tables,
-    ensure_grafana_schema,
-    insert_account_snapshot,
-    insert_order_snapshots,
-    insert_position_snapshots,
-    insert_terminal_snapshot,
-    record_snapshot_run,
-    start_snapshot_run,
-)
 from .telemetry import get_metrics
 
 if TYPE_CHECKING:
@@ -42,10 +31,250 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ObservabilitySnapshot",
     "capture_observability_snapshot",
+    "create_snapshot_tables",
+    "insert_account_snapshot",
+    "insert_order_snapshots",
+    "insert_position_snapshots",
+    "insert_terminal_snapshot",
     "persist_observability_snapshot",
+    "record_snapshot_run",
+    "start_snapshot_run",
     "update_observability",
     "update_observability_with_config",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Snapshot tables
+# ---------------------------------------------------------------------------
+
+_SNAPSHOT_TABLE_DDLS: list[str] = [
+    """CREATE TABLE IF NOT EXISTS snapshot_runs (
+        run_id INTEGER PRIMARY KEY,
+        observed_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        detail TEXT
+    )""",
+    """CREATE TABLE IF NOT EXISTS account_snapshots (
+        run_id INTEGER NOT NULL,
+        login INTEGER,
+        currency TEXT,
+        balance REAL,
+        equity REAL,
+        margin REAL,
+        margin_free REAL,
+        margin_level REAL,
+        profit REAL,
+        leverage INTEGER
+    )""",
+    """CREATE TABLE IF NOT EXISTS position_snapshots (
+        run_id INTEGER NOT NULL,
+        login INTEGER,
+        ticket INTEGER,
+        position_id INTEGER,
+        symbol TEXT,
+        type INTEGER,
+        volume REAL,
+        price_open REAL,
+        price_current REAL,
+        profit REAL,
+        swap REAL,
+        comment TEXT,
+        magic INTEGER
+    )""",
+    """CREATE TABLE IF NOT EXISTS order_snapshots (
+        run_id INTEGER NOT NULL,
+        login INTEGER,
+        ticket INTEGER,
+        symbol TEXT,
+        type INTEGER,
+        volume_current REAL,
+        price_open REAL,
+        price_current REAL,
+        state INTEGER,
+        comment TEXT,
+        magic INTEGER,
+        time_setup INTEGER
+    )""",
+    """CREATE TABLE IF NOT EXISTS terminal_snapshots (
+        run_id INTEGER NOT NULL,
+        name TEXT,
+        connected INTEGER,
+        community_account INTEGER,
+        trade_allowed INTEGER,
+        trade_expert INTEGER,
+        path TEXT,
+        company TEXT,
+        language TEXT
+    )""",
+]
+
+
+def create_snapshot_tables(conn: sqlite3.Connection) -> None:
+    """Create snapshot tables idempotently."""
+    for ddl in _SNAPSHOT_TABLE_DDLS:
+        conn.execute(ddl)
+
+
+def start_snapshot_run(conn: sqlite3.Connection, observed_at: int) -> int:
+    """Insert a snapshot_runs row with status 'running' and return its run_id.
+
+    Returns:
+        The auto-assigned run_id for the new row.
+    """
+    cursor = conn.execute(
+        "INSERT INTO snapshot_runs (observed_at, status) VALUES (?, 'running')",
+        (observed_at,),
+    )
+    return cast("int", cursor.lastrowid)
+
+
+def _to_epoch_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    if isinstance(value, (int, float)):
+        return int(value)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Snapshot insert helpers
+# ---------------------------------------------------------------------------
+
+
+def insert_account_snapshot(
+    conn: sqlite3.Connection,
+    run_id: int,
+    row: dict[str, object],
+) -> None:
+    """Append one account state row to account_snapshots."""
+    conn.execute(
+        "INSERT INTO account_snapshots"
+        " (run_id, login, currency, balance, equity,"
+        "  margin, margin_free, margin_level, profit, leverage)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            run_id,
+            row.get("login"),
+            row.get("currency"),
+            row.get("balance"),
+            row.get("equity"),
+            row.get("margin"),
+            row.get("margin_free"),
+            row.get("margin_level"),
+            row.get("profit"),
+            row.get("leverage"),
+        ),
+    )
+
+
+def insert_position_snapshots(
+    conn: sqlite3.Connection,
+    run_id: int,
+    login: int | None,
+    rows: list[dict[str, object]],
+) -> None:
+    """Append position rows to position_snapshots; no-op when rows is empty."""
+    if not rows:
+        return
+    conn.executemany(
+        "INSERT INTO position_snapshots"
+        " (run_id, login, ticket, position_id, symbol, type, volume,"
+        "  price_open, price_current, profit, swap, comment, magic)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                run_id,
+                login,
+                r.get("ticket"),
+                r.get("position_id"),
+                r.get("symbol"),
+                r.get("type"),
+                r.get("volume"),
+                r.get("price_open"),
+                r.get("price_current"),
+                r.get("profit"),
+                r.get("swap"),
+                r.get("comment"),
+                r.get("magic"),
+            )
+            for r in rows
+        ],
+    )
+
+
+def insert_order_snapshots(
+    conn: sqlite3.Connection,
+    run_id: int,
+    login: int | None,
+    rows: list[dict[str, object]],
+) -> None:
+    """Append order rows to order_snapshots; no-op when rows is empty."""
+    if not rows:
+        return
+    conn.executemany(
+        "INSERT INTO order_snapshots"
+        " (run_id, login, ticket, symbol, type, volume_current,"
+        "  price_open, price_current, state, comment, magic, time_setup)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                run_id,
+                login,
+                r.get("ticket"),
+                r.get("symbol"),
+                r.get("type"),
+                r.get("volume_current"),
+                r.get("price_open"),
+                r.get("price_current"),
+                r.get("state"),
+                r.get("comment"),
+                r.get("magic"),
+                _to_epoch_int(r.get("time_setup")),
+            )
+            for r in rows
+        ],
+    )
+
+
+def insert_terminal_snapshot(
+    conn: sqlite3.Connection,
+    run_id: int,
+    row: dict[str, object],
+) -> None:
+    """Append one terminal state row to terminal_snapshots."""
+    conn.execute(
+        "INSERT INTO terminal_snapshots"
+        " (run_id, name, connected, community_account,"
+        "  trade_allowed, trade_expert, path, company, language)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            run_id,
+            row.get("name"),
+            row.get("connected"),
+            row.get("community_account"),
+            row.get("trade_allowed"),
+            row.get("trade_expert"),
+            row.get("path"),
+            row.get("company"),
+            row.get("language"),
+        ),
+    )
+
+
+def record_snapshot_run(
+    conn: sqlite3.Connection,
+    run_id: int,
+    status: str,
+    detail: str | None = None,
+) -> None:
+    """Finalize a snapshot run by setting its status."""
+    conn.execute(
+        "UPDATE snapshot_runs SET status = ?, detail = ? WHERE run_id = ?",
+        (status, detail, run_id),
+    )
 
 
 def _emit_account_metrics(row: dict[str, object]) -> None:
@@ -226,7 +455,6 @@ def persist_observability_snapshot(
     snapshot: ObservabilitySnapshot,
     *,
     output: Path | str,
-    with_grafana_schema: bool = False,
 ) -> None:
     """Persist a :func:`capture_observability_snapshot` result into SQLite.
 
@@ -238,17 +466,11 @@ def persist_observability_snapshot(
     Args:
         snapshot: A snapshot from :func:`capture_observability_snapshot`.
         output: SQLite database path.
-        with_grafana_schema: Ensure Grafana views and indexes exist. Defaults
-            to ``False``; run ``grafana-schema`` once to set up the schema,
-            then persist snapshots repeatedly without this flag.
     """
     with closing(sqlite3.connect(Path(output))) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
-        if with_grafana_schema:
-            ensure_grafana_schema(conn)
-        else:
-            create_snapshot_tables(conn)
+        create_snapshot_tables(conn)
         with get_metrics().record_snapshot_update():
             run_id = start_snapshot_run(conn, snapshot.observed_at)
             try:
@@ -278,7 +500,6 @@ def update_observability(
     include_positions: bool = True,
     include_orders: bool = True,
     include_terminal: bool = True,
-    with_grafana_schema: bool = False,
 ) -> None:
     """Snapshot current account/position/order/terminal state into SQLite.
 
@@ -294,9 +515,6 @@ def update_observability(
         include_positions: Snapshot open positions into ``position_snapshots``.
         include_orders: Snapshot active orders into ``order_snapshots``.
         include_terminal: Snapshot terminal info into ``terminal_snapshots``.
-        with_grafana_schema: Ensure Grafana views and indexes exist. Defaults
-            to ``False``; run ``grafana-schema`` once to set up the schema,
-            then use ``snapshot`` repeatedly without this flag.
     """
     snapshot = capture_observability_snapshot(
         client=client,
@@ -306,11 +524,7 @@ def update_observability(
         include_orders=include_orders,
         include_terminal=include_terminal,
     )
-    persist_observability_snapshot(
-        snapshot,
-        output=output,
-        with_grafana_schema=with_grafana_schema,
-    )
+    persist_observability_snapshot(snapshot, output=output)
 
 
 def update_observability_with_config(
@@ -322,7 +536,6 @@ def update_observability_with_config(
     include_positions: bool = True,
     include_orders: bool = True,
     include_terminal: bool = True,
-    with_grafana_schema: bool = False,
 ) -> None:
     """Snapshot current MT5 state, opening and closing the MT5 connection.
 
@@ -337,7 +550,6 @@ def update_observability_with_config(
         include_positions: Snapshot open positions.
         include_orders: Snapshot active orders.
         include_terminal: Snapshot terminal info.
-        with_grafana_schema: Ensure Grafana views and indexes exist.
     """
     with mt5_session(config) as client:
         update_observability(
@@ -348,5 +560,4 @@ def update_observability_with_config(
             include_positions=include_positions,
             include_orders=include_orders,
             include_terminal=include_terminal,
-            with_grafana_schema=with_grafana_schema,
         )

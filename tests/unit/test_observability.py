@@ -12,9 +12,20 @@ import pandas as pd
 import pytest
 
 import mt5cli.observability as observability_mod
-from mt5cli.observability import update_observability, update_observability_with_config
+from mt5cli.observability import (
+    create_snapshot_tables,
+    insert_account_snapshot,
+    insert_order_snapshots,
+    insert_position_snapshots,
+    insert_terminal_snapshot,
+    record_snapshot_run,
+    start_snapshot_run,
+    update_observability,
+    update_observability_with_config,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from pytest_mock import MockerFixture
@@ -132,30 +143,6 @@ class TestUpdateObservability:
         with sqlite3.connect(output) as conn:
             row = conn.execute("SELECT status FROM snapshot_runs").fetchone()
         assert row == ("error",)
-
-    @pytest.mark.parametrize(
-        ("with_grafana_schema", "expected_call_count"),
-        [
-            pytest.param(False, 0, id="grafana-schema-disabled"),
-            pytest.param(True, 1, id="grafana-schema-enabled"),
-        ],
-    )
-    def test_update_observability_grafana_schema_gate(
-        self,
-        mock_client: MagicMock,
-        mocker: MockerFixture,
-        tmp_path: Path,
-        with_grafana_schema: bool,
-        expected_call_count: int,
-    ) -> None:
-        """with_grafana_schema controls whether ensure_grafana_schema is called."""
-        spy = mocker.spy(observability_mod, "ensure_grafana_schema")
-        update_observability(
-            client=mock_client,
-            output=tmp_path / "obs.db",
-            with_grafana_schema=with_grafana_schema,
-        )
-        assert spy.call_count == expected_call_count
 
     @pytest.mark.parametrize(
         ("kwarg", "method"),
@@ -489,3 +476,236 @@ class TestUpdateObservability:
         assert abs(float(by_symbol["EURUSD"]["volume"]) - 0.3) < 1e-9
         assert abs(float(by_symbol["GBPUSD"]["profit"]) - 3.0) < 1e-9
         assert abs(float(by_symbol["GBPUSD"]["volume"]) - 0.05) < 1e-9
+
+
+_TIMESTAMP_TIME_SETUP: pd.Timestamp = pd.Timestamp("2024-01-15 10:30:00", tz="UTC")
+
+
+@pytest.fixture
+def conn() -> Iterator[sqlite3.Connection]:
+    """Yield an in-memory SQLite connection for each test."""
+    with sqlite3.connect(":memory:") as c:
+        yield c
+
+
+def _get_names(conn: sqlite3.Connection, type_: str) -> set[str]:
+    return {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type=?",
+            (type_,),
+        ).fetchall()
+    }
+
+
+class TestSnapshotTables:
+    """Tests for create_snapshot_tables."""
+
+    def test_creates_all_five_tables(self, conn: sqlite3.Connection) -> None:
+        """All five snapshot tables are created."""
+        create_snapshot_tables(conn)
+        tables = _get_names(conn, "table")
+        assert "snapshot_runs" in tables
+        assert "account_snapshots" in tables
+        assert "position_snapshots" in tables
+        assert "order_snapshots" in tables
+        assert "terminal_snapshots" in tables
+
+    def test_is_idempotent(self, conn: sqlite3.Connection) -> None:
+        """Calling create_snapshot_tables twice does not raise."""
+        create_snapshot_tables(conn)
+        create_snapshot_tables(conn)
+        tables = _get_names(conn, "table")
+        assert "snapshot_runs" in tables
+
+
+class TestSnapshotInserts:
+    """Tests for snapshot insert helpers."""
+
+    @pytest.fixture(autouse=True)
+    def setup_tables(self, conn: sqlite3.Connection) -> None:
+        """Create snapshot tables before each insert test."""
+        create_snapshot_tables(conn)
+
+    @pytest.mark.parametrize(
+        ("insert_func", "row", "select_sql", "expected"),
+        [
+            (
+                insert_account_snapshot,
+                {
+                    "login": 12345,
+                    "currency": "USD",
+                    "balance": 10000.0,
+                    "equity": 9800.0,
+                    "margin": 200.0,
+                    "margin_free": 9800.0,
+                    "margin_level": 4900.0,
+                    "profit": -200.0,
+                    "leverage": 100,
+                },
+                "SELECT login, currency, balance FROM account_snapshots",
+                (12345, "USD", 10000.0),
+            ),
+            (
+                insert_terminal_snapshot,
+                {
+                    "name": "MetaTrader 5",
+                    "connected": 1,
+                    "community_account": 0,
+                    "trade_allowed": 1,
+                    "trade_expert": 1,
+                    "path": "/mt5",
+                    "company": "Broker",
+                    "language": "en",
+                },
+                "SELECT name, connected FROM terminal_snapshots",
+                ("MetaTrader 5", 1),
+            ),
+        ],
+        ids=["account", "terminal"],
+    )
+    def test_insert_single_snapshot(
+        self,
+        conn: sqlite3.Connection,
+        insert_func: Callable[[sqlite3.Connection, int, dict[str, object]], None],
+        row: dict[str, object],
+        select_sql: str,
+        expected: tuple[object, ...],
+    ) -> None:
+        """insert_account_snapshot and insert_terminal_snapshot append one row."""
+        run_id = start_snapshot_run(conn, 1700000000)
+        insert_func(conn, run_id, row)
+        result = conn.execute(select_sql).fetchone()
+        assert result == expected
+
+    def test_insert_account_snapshot_partial_row(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """insert_account_snapshot works when some fields are missing (uses None)."""
+        run_id = start_snapshot_run(conn, 1700000000)
+        insert_account_snapshot(conn, run_id, {"login": 1})
+        result = conn.execute(
+            "SELECT login, currency FROM account_snapshots"
+        ).fetchone()
+        assert result == (1, None)
+
+    @pytest.mark.parametrize(
+        ("insert_func", "table", "rows", "expected_count"),
+        [
+            (
+                insert_position_snapshots,
+                "position_snapshots",
+                [
+                    {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "profit": 10.0},
+                    {"ticket": 2, "symbol": "GBPUSD", "volume": 0.2, "profit": -5.0},
+                ],
+                2,
+            ),
+            (
+                insert_position_snapshots,
+                "position_snapshots",
+                [],
+                0,
+            ),
+            (
+                insert_order_snapshots,
+                "order_snapshots",
+                [
+                    {
+                        "ticket": 10,
+                        "symbol": "EURUSD",
+                        "type": 2,
+                        "volume_current": 0.1,
+                    },
+                ],
+                1,
+            ),
+            (
+                insert_order_snapshots,
+                "order_snapshots",
+                [],
+                0,
+            ),
+        ],
+        ids=[
+            "positions-with-rows",
+            "positions-empty-noop",
+            "orders-with-rows",
+            "orders-empty-noop",
+        ],
+    )
+    def test_insert_snapshot_rows(
+        self,
+        conn: sqlite3.Connection,
+        insert_func: Callable[
+            [sqlite3.Connection, int, int | None, list[dict[str, object]]],
+            None,
+        ],
+        table: str,
+        rows: list[dict[str, object]],
+        expected_count: int,
+    ) -> None:
+        """insert_*_snapshots appends each row and is a no-op when empty."""
+        run_id = start_snapshot_run(conn, 1700000000)
+        insert_func(conn, run_id, 12345, rows)
+        count = conn.execute(
+            f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+        ).fetchone()[0]
+        assert count == expected_count
+
+    @pytest.mark.parametrize(
+        ("time_setup", "expected_stored"),
+        [
+            (_TIMESTAMP_TIME_SETUP, int(_TIMESTAMP_TIME_SETUP.timestamp())),
+            (1705314600, 1705314600),
+            ("not_a_time", None),
+        ],
+        ids=["timestamp", "int", "unknown-string"],
+    )
+    def test_insert_order_snapshots_normalizes_time_setup(
+        self,
+        conn: sqlite3.Connection,
+        time_setup: object,
+        expected_stored: int | None,
+    ) -> None:
+        """insert_order_snapshots stores epoch int, int as-is, or None for unknown."""
+        run_id = start_snapshot_run(conn, 1700000000)
+        rows: list[dict[str, object]] = [{"ticket": 10, "time_setup": time_setup}]
+        insert_order_snapshots(conn, run_id, 12345, rows)
+        stored = conn.execute("SELECT time_setup FROM order_snapshots").fetchone()[0]
+        assert stored == expected_stored
+
+    def test_start_snapshot_run_returns_incrementing_ids(
+        self,
+        conn: sqlite3.Connection,
+    ) -> None:
+        """start_snapshot_run returns a unique run_id for each call."""
+        run1 = start_snapshot_run(conn, 1700000000)
+        run2 = start_snapshot_run(conn, 1700000000)
+        assert run1 != run2
+
+    @pytest.mark.parametrize(
+        ("status", "detail", "expected"),
+        [
+            pytest.param(
+                "error",
+                "RuntimeError: boom",
+                ("error", "RuntimeError: boom"),
+                id="with-detail",
+            ),
+            pytest.param("ok", None, ("ok", None), id="without-detail"),
+        ],
+    )
+    def test_record_snapshot_run(
+        self,
+        conn: sqlite3.Connection,
+        status: str,
+        detail: str | None,
+        expected: tuple[str, str | None],
+    ) -> None:
+        """record_snapshot_run stores status and optional detail text."""
+        run_id = start_snapshot_run(conn, 1700000000)
+        record_snapshot_run(conn, run_id, status, detail)
+        row = conn.execute("SELECT status, detail FROM snapshot_runs").fetchone()
+        assert row == expected

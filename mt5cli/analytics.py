@@ -93,15 +93,6 @@ _ACCOUNT_SNAPSHOTS_SQL = (
 )
 
 
-def time_col_expr(col: str) -> str:
-    """Return SQL converting a TEXT or numeric time column to epoch seconds."""
-    return (
-        f"CASE WHEN typeof(\"{col}\") IN ('integer', 'real')"
-        f' THEN CAST("{col}" AS INTEGER)'
-        f" ELSE CAST(strftime('%s', \"{col}\") AS INTEGER) END"
-    )
-
-
 def _create_view(
     conn: sqlite3.Connection,
     name: str,
