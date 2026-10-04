@@ -1504,10 +1504,12 @@ class TestDerivedViews:
             assert got == _approx_row(want)
 
 
+def _approx(value: float) -> object:
+    return pytest.approx(value)  # pyright: ignore[reportUnknownMemberType]
+
+
 def _approx_row(row: tuple[object, ...]) -> tuple[object, ...]:
-    return tuple(
-        pytest.approx(value) if isinstance(value, float) else value for value in row
-    )  # pyright: ignore[reportUnknownMemberType]
+    return tuple(_approx(value) if isinstance(value, float) else value for value in row)
 
 
 class TestFilterTradeHistoryFrame:
