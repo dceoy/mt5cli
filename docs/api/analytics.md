@@ -40,11 +40,12 @@ manifest. The manifest is written last.
 `create_analytics_views(conn)` creates the views idempotently in an existing
 history database (`temporary=True` creates TEMP views for read-only databases).
 
-- `analytics_trades`: one row per completed trade leg. A leg is the stretch of
+- `analytics_trades`: one row per completed trade leg (the canonical leg model; `positions_reconstructed` remains the position-level compatibility view over raw deals). A leg is the stretch of
   a `position_id` between reversals: a `DEAL_ENTRY_INOUT` deal closes the
-  current leg and opens the next one (`leg_index`), and its volume and costs
-  are split pro rata between the two legs (profit is realized on the closed
-  part only). A leg is complete once its closing volume covers its opening
+  current leg and opens the next one (`leg_index`). Its volume, commission and
+  fee are split pro rata between the two legs; its swap goes wholly to the
+  closing leg (MT5 reports `DEAL_SWAP` for the position being closed), and
+  profit is realized on the closed part only. A leg is complete once its closing volume covers its opening
   volume (1e-9 lot tolerance), so partially closed legs and the still-open
   leg after a reversal are excluded. For positions without reversals, leg 0
   matches `positions_reconstructed`. Columns: `position_id`, `symbol`,
@@ -54,11 +55,12 @@ history database (`temporary=True` creates TEMP views for read-only databases).
   `net_profit`. Numeric timestamps stay numeric epoch values; textual
   timestamps remain timezone-naive MT5 trade-server wall-clock values. No
   implicit UTC conversion is performed.
-- `analytics_realized_events`: the deal portions of completed legs, each at its
-  own timestamp (cash basis: an entry's commission lands on the entry date and
-  a partial close's profit on the day it is realized). Events of a leg sum to
-  that leg's `net_profit`. Realized results of legs that are still open are
-  not included.
+- `analytics_realized_events`: every deal portion, each at its own timestamp
+  (cash basis: an entry's commission lands on the entry date and a partial
+  close's profit on the day it is realized), including partially closed and
+  still-open legs. Events of a completed leg sum to that leg's `net_profit`,
+  so cumulative equity also reflects entry costs and partial-close profit of
+  legs that have not completed yet.
 - `analytics_daily_pnl`: per `date`, `symbol`, `magic` from the realized
   events: `event_count`, `profit`, `commission`, `swap`, `fee`, `net_profit`.
 - `analytics_strategy_stats`: per `symbol`, `magic` from the trade legs

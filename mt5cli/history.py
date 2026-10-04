@@ -1234,6 +1234,11 @@ def create_cash_events_view(
     return True
 
 
+def has_position_reconstruction_columns(deals_columns: set[str]) -> bool:
+    """Return whether ``history_deals`` can support position reconstruction."""
+    return _POSITIONS_VIEW_REQUIRED_COLUMNS.issubset(deals_columns)
+
+
 def create_positions_reconstructed_view(
     conn: sqlite3.Connection,
     deals_columns: set[str],

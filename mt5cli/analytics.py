@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 from .history import (
-    create_positions_reconstructed_view,
     get_table_columns,
+    has_position_reconstruction_columns,
     open_existing_sqlite_database,
 )
 from .utils import export_dataframe
@@ -109,8 +109,9 @@ def _deal_portions_sql(deal_columns: set[str]) -> str:
 
     An ``DEAL_ENTRY_INOUT`` deal closes the current leg of its ``position_id``
     and opens the next one, so it yields a closing and an opening portion with
-    its volume and costs split pro rata. All other deals stay whole. ``leg``
-    counts the reversals that happened before a portion.
+    its volume, commission and fee split pro rata (swap goes wholly to the
+    closing portion). All other deals stay whole. ``leg`` counts the reversals
+    that happened before a portion.
 
     Returns:
         SELECT statement with one row per deal portion.
@@ -121,9 +122,19 @@ def _deal_portions_sql(deal_columns: set[str]) -> str:
         f'COALESCE("{col}", 0) AS "{col}"' if col in deal_columns else f'0 AS "{col}"'
         for col in _COST_COLUMNS
     )
-    scaled = ", ".join(f"{col} * {{share}}" for col in _COST_COLUMNS)
-    closing = scaled.format(share="closed_vol / volume")
-    opening = scaled.format(share="(volume - closed_vol) / volume")
+    # Commission and fee are split pro rata by volume. DEAL_SWAP accrued on the
+    # position being closed, so a reversal's whole swap goes to the closing
+    # portion (and stays on the opening one only when nothing is visible to close).
+    closing = ", ".join(
+        col if col == "swap" else f"{col} * closed_vol / volume"
+        for col in _COST_COLUMNS
+    )
+    opening = ", ".join(
+        f"CASE WHEN closed_vol > {_VOLUME_EPSILON} THEN 0 ELSE swap END"
+        if col == "swap"
+        else f"{col} * (volume - closed_vol) / volume"
+        for col in _COST_COLUMNS
+    )
     keys = "ticket, position_id, symbol, time, type, price, magic"
     return (
         "WITH d AS (SELECT"  # noqa: S608
@@ -194,17 +205,20 @@ _TRADES_SQL = (
     " HAVING SUM(CASE WHEN role = 'exit' THEN volume ELSE 0 END)"
     f" >= SUM(CASE WHEN role = 'entry' THEN volume ELSE 0 END) - {_VOLUME_EPSILON})"
 )
-# Cash basis: each deal portion of a completed leg lands on its own timestamp.
+# Cash basis: every deal portion lands at its own timestamp, including portions
+# of legs that are still open (trades/strategy stats keep completed legs only).
 _REALIZED_EVENTS_SQL = (
     "SELECT p.time AS time,"  # noqa: S608
     f" {_CLOSE_DATE_SQL.format(col='p.time')} AS date,"
     " p.ticket AS ticket, p.position_id AS position_id, p.symbol AS symbol,"
-    " l.magic AS magic, l.leg_index AS leg_index, p.role AS role,"
+    " p.leg_magic AS magic, p.leg AS leg_index, p.role AS role,"
     " p.profit AS profit, p.commission AS commission, p.swap AS swap,"
     " p.fee AS fee, p.profit + p.commission + p.swap + p.fee AS net_profit"
-    " FROM analytics_deal_portions p JOIN analytics_trades l"
-    " ON l.position_id = p.position_id AND l.symbol IS p.symbol"
-    " AND l.leg_index = p.leg"
+    " FROM (SELECT *,"
+    " COALESCE(MIN(CASE WHEN role = 'entry' THEN magic END) OVER leg_window,"
+    " MIN(magic) OVER leg_window) AS leg_magic"
+    " FROM analytics_deal_portions"
+    " WINDOW leg_window AS (PARTITION BY position_id, symbol, leg)) p"
 )
 
 _METRICS_SQL = (
@@ -253,15 +267,17 @@ def create_analytics_views(
 
     ``analytics_trades`` has one row per completed trade leg. A leg is the
     stretch of a ``position_id`` between reversals: a ``DEAL_ENTRY_INOUT`` deal
-    closes the current leg and opens the next (``leg_index``), and its volume and
-    costs are split pro rata. A leg is complete once its closing volume covers
+    closes the current leg and opens the next (``leg_index``); its volume,
+    commission and fee are split pro rata and its swap goes to the closing leg.
+    A leg is complete once its closing volume covers
     its opening volume, so partially closed legs are excluded. For positions
     without reversals, leg 0 matches ``positions_reconstructed``. ``net_profit``
     is ``profit + commission + swap + fee`` with NULL treated as zero, and
     ``magic``/``commission``/``swap``/``fee`` come from ``history_deals``.
-    ``analytics_realized_events`` lists the deal portions of completed legs at
-    their own timestamps (cash basis) and feeds ``analytics_daily_pnl`` and
-    ``analytics_equity``; ``analytics_strategy_stats`` aggregates the legs by
+    ``analytics_realized_events`` lists every deal portion, including partially
+    closed and still-open legs, at its own timestamp (cash basis) and feeds
+    ``analytics_daily_pnl`` and ``analytics_equity``; events of a completed leg
+    sum to its ``net_profit``. ``analytics_strategy_stats`` aggregates the legs by
     ``symbol`` and ``magic``. Stored trade-server wall-clock timestamps are
     preserved without implicit UTC conversion. A trade is a win when
     ``net_profit > 0`` and a loss when ``net_profit < 0``; break-even trades
@@ -274,10 +290,11 @@ def create_analytics_views(
 
     Returns:
         True if the views were created, False if ``history_deals`` lacks the
-        columns required by the position reconstruction.
+        columns required for position reconstruction.
     """
     deal_columns = get_table_columns(conn, "history_deals")
-    if not create_positions_reconstructed_view(conn, deal_columns, temporary=temporary):
+    if not has_position_reconstruction_columns(deal_columns):
+        logger.warning("Skipping analytics views: history_deals is missing columns")
         return False
     for name, sql in (
         ("analytics_deal_portions", _deal_portions_sql(deal_columns)),

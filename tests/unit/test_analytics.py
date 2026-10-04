@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from mt5cli.analytics import create_analytics_views, publish_dashboard
+from mt5cli.history import create_positions_reconstructed_view, get_table_columns
 from mt5cli.observability import create_snapshot_tables, start_snapshot_run
 
 if TYPE_CHECKING:
@@ -77,7 +78,8 @@ _DEALS: list[tuple[object, ...]] = [
     # 103: reversal (DEAL_ENTRY_INOUT) closes the original position
     (8, 103, "EURUSD", "2024-01-04 09:00:00", 0, 0, 1.0, 1.1, 0.0, 0.0, 0.0, 0.0, 1),
     (9, 103, "EURUSD", "2024-01-04 10:00:00", 1, 2, 2.0, 1.1, 0.0, 0.0, 0.0, 0.0, 1),
-    # 104: still open; 105: only partially closed; both are excluded
+    # 104: still open; 105: only partially closed (no trade leg, but its
+    # realized events still count)
     (10, 104, "EURUSD", "2024-01-05 09:00:00", 0, 0, 1.0, 1.1, 0.0, 0.0, 0.0, 0.0, 1),
     (12, 105, "EURUSD", "2024-01-06 09:00:00", 0, 0, 2.0, 1.1, 0.0, 0.0, 0.0, 0.0, 1),
     (13, 105, "EURUSD", "2024-01-06 10:00:00", 1, 1, 1.0, 1.2, 5.0, 0.0, 0.0, 0.0, 1),
@@ -292,10 +294,66 @@ class TestAggregateViews:
             ["2024-01-03", "EURUSD", 1],
             ["2024-01-03", "GBPUSD", 2],
             ["2024-01-04", "EURUSD", 1],
+            ["2024-01-05", "EURUSD", 1],
+            ["2024-01-06", "EURUSD", 1],
         ]
-        # Position 101 realizes 10 on Jan 2 and 30 on Jan 3, not 40 on Jan 3.
-        assert daily["net_profit"].tolist() == _approx([95.0, 9.0, 27.5, -51.0, 0.0])
-        assert daily["event_count"].tolist() == [2, 2, 1, 2, 2]
+        # Position 101 realizes 10 on Jan 2 and 30 on Jan 3, not 40 on Jan 3, and
+        # position 105 shows its partial-close profit while still open.
+        assert daily["net_profit"].tolist() == _approx([
+            95.0,
+            9.0,
+            27.5,
+            -51.0,
+            0.0,
+            0.0,
+            5.0,
+        ])
+        assert daily["event_count"].tolist() == [2, 2, 1, 2, 3, 1, 2]
+
+    def test_open_leg_events_do_not_wait_for_the_final_close(
+        self, tmp_path: Path
+    ) -> None:
+        """A partial close is realized when it happens, before the leg completes."""
+        rows: list[tuple[object, ...]] = [
+            (
+                1,
+                9,
+                "EURUSD",
+                "2024-02-01 09:00:00",
+                0,
+                0,
+                2.0,
+                1.1,
+                0.0,
+                -1.0,
+                0.0,
+                0.0,
+                3,
+            ),
+            (
+                2,
+                9,
+                "EURUSD",
+                "2024-02-01 10:00:00",
+                1,
+                1,
+                1.0,
+                1.2,
+                5.0,
+                0.0,
+                0.0,
+                0.0,
+                3,
+            ),
+        ]
+        path = _make_db(tmp_path / "open.db", rows=rows)
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        assert _query(path, "SELECT * FROM analytics_trades").empty
+        daily = _query(path, "SELECT * FROM analytics_daily_pnl")
+        assert daily["date"].tolist() == ["2024-02-01"]
+        assert daily["magic"].tolist() == [3]
+        assert daily["net_profit"].tolist() == _approx([4.0])
 
     def test_events_reconcile_with_trade_legs(self, db: Path) -> None:
         """Realized events of completed legs sum to each leg's net profit."""
@@ -333,15 +391,9 @@ class TestAggregateViews:
         """Cumulative net profit accumulates by deal timestamp."""
         equity = _query(db, "SELECT * FROM analytics_equity ORDER BY time, ticket")
         assert equity["cumulative_net_profit"].tolist() == _approx([
-            -2.0,
-            95.0,
-            94.0,
-            104.0,
-            131.5,
-            131.0,
-            80.5,
-            80.5,
-            80.5,
+            *[-2.0, 95.0, 94.0, 104.0, 131.5, 131.0],
+            *[80.5] * 6,
+            85.5,
         ])
 
 
@@ -392,10 +444,10 @@ class TestReversalLegs:
         assert legs["volume"].tolist() == _approx([1.0, 1.0])
         assert legs["close_date"].tolist() == ["2024-01-02", "2024-01-03"]
         assert legs["profit"].tolist() == _approx([10.0, -4.0])
-        # The reversal deal's costs are split pro rata between the two legs.
+        # Commission is split pro rata; the reversal's swap stays on the closed leg.
         assert legs["commission"].tolist() == _approx([-2.0, -1.5])
-        assert legs["swap"].tolist() == _approx([-0.15, -0.35])
-        assert legs["net_profit"].tolist() == _approx([7.85, -5.85])
+        assert legs["swap"].tolist() == _approx([-0.3, -0.2])
+        assert legs["net_profit"].tolist() == _approx([7.7, -5.7])
         assert legs["reversal_count"].tolist() == [1, 1]
         assert legs["deals_count"].tolist() == [2, 2]
 
@@ -409,7 +461,21 @@ class TestReversalLegs:
             ),
         )
         assert legs["leg_index"].tolist() == [0]
-        assert legs["net_profit"].tolist() == _approx([10.0 - 2.0 / 2 - 1.0 - 0.15])
+        assert legs["net_profit"].tolist() == _approx([10.0 - 2.0 / 2 - 1.0 - 0.3])
+
+    def test_reversal_without_visible_prior_volume_keeps_its_swap(
+        self, tmp_path: Path
+    ) -> None:
+        """A reversal with nothing to close in history does not lose its swap."""
+        path = _make_db(
+            tmp_path / "trunc.db",
+            rows=self._rows(("2024-01-02 10:00:00", 1, 2, 2.0, 1.2, 10.0, -2.0, -0.6)),
+        )
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        events = _query(path, "SELECT swap, commission FROM analytics_realized_events")
+        assert events["swap"].sum() == _approx(-0.6)
+        assert events["commission"].sum() == _approx(-2.0)
 
     def test_double_reversal_yields_three_legs(self, tmp_path: Path) -> None:
         """Each INOUT deal starts a new leg."""
@@ -425,21 +491,33 @@ class TestReversalLegs:
         assert legs["side"].tolist() == ["buy", "sell", "buy"]
         assert legs["profit"].tolist() == _approx([5.0, 7.0, 9.0])
 
-    def test_matches_positions_reconstructed_without_reversals(self, db: Path) -> None:
-        """Leg 0 keeps the positions_reconstructed semantics for plain positions."""
+    def test_matches_positions_reconstructed(self, db: Path) -> None:
+        """Leg 0 keeps the positions_reconstructed semantics of the position view."""
+        with sqlite3.connect(db) as conn:
+            columns = get_table_columns(conn, "history_deals")
+            assert create_positions_reconstructed_view(conn, columns)
         compared = _query(
             db,
-            "SELECT t.open_time = p.open_time AS open_ok,"
-            " t.close_time = p.close_time AS close_ok,"
+            "SELECT t.position_id, t.reversal_count,"
+            " t.open_time = p.open_time AS open_ok,"
             " ABS(t.volume - p.volume_open) < 1e-9 AS volume_ok,"
             " ABS(t.entry_price - p.open_price) < 1e-9 AS entry_ok,"
+            " t.close_time = p.close_time AS close_ok,"
             " ABS(t.exit_price - p.close_price) < 1e-9 AS exit_ok,"
             " ABS(t.profit - p.total_profit) < 1e-9 AS profit_ok"
             " FROM analytics_trades t JOIN positions_reconstructed p"
-            " ON p.position_id = t.position_id WHERE t.reversal_count = 0",
+            " ON p.position_id = t.position_id"
+            " WHERE t.leg_index = 0 ORDER BY t.position_id",
         )
-        assert len(compared) == 3
-        assert compared.to_numpy().tolist() == [[1] * 6] * 3
+        assert compared["position_id"].tolist() == [100, 101, 102, 103]
+        # Without reversals every field matches; the reversal position (103)
+        # keeps the same opening side and profit, while its closing fields use the
+        # split INOUT portion instead of the whole deal.
+        plain = compared[compared["reversal_count"] == 0]
+        assert plain.iloc[:, 2:].to_numpy().tolist() == [[1] * 6] * 3
+        reversed_ = compared[compared["reversal_count"] == 1].iloc[0]
+        assert (reversed_["open_ok"], reversed_["volume_ok"]) == (1, 1)
+        assert (reversed_["entry_ok"], reversed_["profit_ok"]) == (1, 1)
 
 
 class TestTemporaryViews:
