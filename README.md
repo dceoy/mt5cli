@@ -183,8 +183,8 @@ python -m mt5cli -o account.csv account-info
 | `close-positions`      | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` available; optional `--filling-mode` / `--deviation` / `--comment` / `--magic`) |
 | `collect-history`      | Collect rates, history-orders, and history-deals for one or more symbols into a single SQLite database (ticks opt-in via `--dataset ticks`)                              |
 | `history-gaps`         | Export a SQLite-only one-row-per-gap report from managed rate compatibility views without connecting to MT5                                                              |
-| `grafana-schema`       | Create or refresh Grafana-ready views and indexes in an existing SQLite database (idempotent, no MT5 connection)                                                         |
-| `snapshot`             | Snapshot current account, position, order, and terminal state into SQLite for live Grafana dashboards                                                                    |
+| `publish-dashboard`    | Publish Parquet analytics datasets and a manifest from a SQLite history database for static dashboards (`--sqlite3`; `-o` is the manifest path; no MT5)                  |
+| `snapshot`             | Snapshot current account, position, order, and terminal state into SQLite                                                                                                |
 
 Use `order-check` to validate a request payload before running `order-send --yes`.
 `close-positions` is the safer high-level alternative that builds correct close
@@ -217,25 +217,20 @@ mt5cli -o history.db collect-history \
 
 History orders and deals are fetched per symbol and concatenated, so the symbol filter is applied consistently across all datasets. The `cash_events` view is derived from symbol-filtered `history_deals`, so account-level cash events with empty or non-matching symbols may be excluded. The `rates` table records the requested `timeframe` so appended runs at different timeframes remain distinguishable. The `positions_reconstructed` view aggregates trade deals by `position_id`, excludes positions without closing-side entries, and uses volume-weighted open/close prices; reversal deals (`DEAL_ENTRY_INOUT`) are reported via `volume_reversal` / `reversal_count` columns.
 
-### Grafana-ready SQLite dashboards
+### Static dashboard publication
 
-mt5cli can prepare a SQLite database for use as a Grafana datasource (via the [SQLite plugin](https://grafana.com/grafana/plugins/frser-sqlite-datasource/) or similar). Most `grafana_*` views expose an integer epoch-second `time` column for use in Grafana time-series panels. Two views (`grafana_realized_pnl`, `grafana_trade_stats`) are static symbol-level summaries with no `time` column — use them in table or stat panels.
+`mt5cli -o dist/data/manifest.json publish-dashboard --sqlite3 history.db` (or `mt5cli.publish_dashboard("history.db", "dist/data")`) writes `trades`, `daily_pnl`, `strategy_stats`, `equity`, and `account_snapshots` Parquet files plus a `manifest.json` from canonical `analytics_*` views, ready for static hosting and DuckDB-Wasm. It never connects to MT5 and requires the `parquet` extra. See `docs/api/analytics.md`.
 
-#### Prepare the schema (idempotent, no MT5 connection needed)
+### Account snapshots (SQLite)
 
-```bash
-mt5cli -o history.db grafana-schema
-```
-
-This creates snapshot tables (`account_snapshots`, `position_snapshots`, `order_snapshots`, `terminal_snapshots`, `snapshot_runs`) and all `grafana_*` views and indexes in the SQLite database. Safe to run repeatedly — all operations are idempotent.
+mt5cli can append timestamped account, position, order, and terminal snapshots to a SQLite database. Snapshot tables (`account_snapshots`, `position_snapshots`, `order_snapshots`, `terminal_snapshots`, `snapshot_runs`) are created automatically and idempotently.
 
 #### Snapshot current account state
 
 ```bash
 mt5cli -o history.db snapshot \
   --symbol JP225 --symbol HK50 --symbol NL25 \
-  --with-account --with-positions --with-orders --with-terminal \
-  --with-grafana-schema
+  --with-account --with-positions --with-orders --with-terminal
 ```
 
 Appends one timestamped row per data type. Never places orders or modifies trading state. Run periodically (e.g. from a cron job or a loop) to build a time-series account history.
@@ -255,56 +250,10 @@ update_observability_with_config(
     include_positions=True,
     include_orders=True,
     include_terminal=True,
-    with_grafana_schema=True,
 )
 ```
 
-#### Available Grafana views
-
-**Time-series views** (integer epoch-second `time` column; snapshot views also expose `run_id`):
-
-| View                         | Source               | Description                                                |
-| ---------------------------- | -------------------- | ---------------------------------------------------------- |
-| `grafana_rates`              | `rates`              | OHLCV bars with integer epoch `time`                       |
-| `grafana_ticks`              | `ticks`              | Tick data with integer epoch `time`                        |
-| `grafana_history_deals`      | `history_deals`      | All deals with epoch `time`                                |
-| `grafana_history_orders`     | `history_orders`     | All historical orders; adds epoch `time` from `time_setup` |
-| `grafana_trade_deals`        | `history_deals`      | Trade deals only (`type IN (0,1)`)                         |
-| `grafana_cash_events`        | `history_deals`      | Non-trade deals (deposits, dividends, etc.)                |
-| `grafana_symbol_pnl`         | `history_deals`      | Per-close-deal profit/loss per symbol                      |
-| `grafana_account_snapshots`  | `account_snapshots`  | Account balance/equity/margin time series                  |
-| `grafana_position_snapshots` | `position_snapshots` | Open position snapshots over time                          |
-| `grafana_order_snapshots`    | `order_snapshots`    | Active order snapshots over time                           |
-| `grafana_terminal_snapshots` | `terminal_snapshots` | Terminal connectivity snapshots                            |
-
-**Static summary views** (no `time` column; use in table or stat panels, not time-series):
-
-| View                   | Source          | Description                           |
-| ---------------------- | --------------- | ------------------------------------- |
-| `grafana_realized_pnl` | `history_deals` | Cumulative realized PnL per symbol    |
-| `grafana_trade_stats`  | `history_deals` | Win/loss counts and profit per symbol |
-
-#### Example Grafana queries
-
-```sql
--- Equity curve over time
-SELECT time, equity FROM grafana_account_snapshots ORDER BY time;
-
--- Rolling balance by account login
-SELECT time, login, balance FROM grafana_account_snapshots
-WHERE login = $login ORDER BY time;
-
--- Open positions at latest successful snapshot
-SELECT symbol, volume, profit FROM grafana_position_snapshots
-WHERE run_id = (SELECT MAX(run_id) FROM snapshot_runs WHERE status = 'ok');
-
--- Realized PnL by symbol
-SELECT symbol, total_profit FROM grafana_trade_stats ORDER BY total_profit DESC;
-```
-
-#### Grafana and telemetry API docs
-
-The shipped Grafana helpers are documented in [`docs/api/grafana.md`](docs/api/grafana.md), including `publish_grafana_copy()` for creating a WAL-safe published SQLite copy for Grafana.
+#### Telemetry API docs
 
 OpenTelemetry metrics are documented in [`docs/api/telemetry.md`](docs/api/telemetry.md), including `enable_otel_metrics()`, `configure_metrics()`, the `mt5cli[otel]` extra, and `OTEL_EXPORTER_OTLP_ENDPOINT`.
 

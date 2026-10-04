@@ -72,6 +72,10 @@ _SYMBOLS_FLOAT_FIELDS: tuple[str, ...] = tuple(
     if field not in {"currency_profit", "digits"}
 )
 
+# Summed REAL lots (e.g. 0.1 + 0.2) differ from the closing lot by float error.
+VOLUME_EPSILON = 1e-9
+_COST_COLUMNS = ("commission", "swap", "fee")
+
 _TRADE_DEAL_TYPES: tuple[int, int] = (0, 1)
 _TRADE_DEAL_TYPES_SQL = f"({', '.join(str(value) for value in _TRADE_DEAL_TYPES)})"
 
@@ -1234,26 +1238,168 @@ def create_cash_events_view(
     return True
 
 
-def create_positions_reconstructed_view(
+def has_position_reconstruction_columns(deals_columns: set[str]) -> bool:
+    """Return whether ``history_deals`` can support position reconstruction."""
+    return _POSITIONS_VIEW_REQUIRED_COLUMNS.issubset(deals_columns)
+
+
+def _deal_portions_select_sql(deal_columns: set[str]) -> str:
+    """Build the deal_portions query: trade deals split at position reversals.
+
+    An ``DEAL_ENTRY_INOUT`` deal closes the current leg of its ``position_id``
+    and opens the next one, so it yields a closing and an opening portion with
+    its volume, commission and fee split pro rata (swap goes wholly to the
+    closing portion). All other deals stay whole. ``leg`` counts the reversals
+    that happened before a portion. The split uses the balance of the visible
+    deals, which is only reliable when the position's first visible deal is an
+    entry-in (``position_start_known = 1``); otherwise ``leg`` and the
+    closing/opening split are approximate (cash totals per deal are preserved).
+    The flag is best-effort: a scale-in cut by the capture window also starts with
+    an entry-in deal and cannot be detected from the deals alone.
+
+    Returns:
+        SELECT statement with one row per deal portion.
+    """
+    ticket = '"ticket"' if "ticket" in deal_columns else "rowid"
+    magic = '"magic"' if "magic" in deal_columns else "NULL"
+    costs = ", ".join(
+        f'COALESCE("{col}", 0) AS "{col}"' if col in deal_columns else f'0 AS "{col}"'
+        for col in _COST_COLUMNS
+    )
+    # Commission and fee are split pro rata by volume. DEAL_SWAP accrued on the
+    # position being closed, so a reversal's whole swap goes to the closing
+    # portion. The closing portion is always emitted (with zero volume when
+    # history holds nothing to close) so profit and swap are never lost.
+    closing = ", ".join(
+        col if col == "swap" else f"{col} * closed_vol / volume"
+        for col in _COST_COLUMNS
+    )
+    opening = ", ".join(
+        "0" if col == "swap" else f"{col} * (volume - closed_vol) / volume"
+        for col in _COST_COLUMNS
+    )
+    keys = "ticket, position_id, symbol, time, type, price, magic, position_start_known"
+    return (
+        "WITH d AS (SELECT"  # noqa: S608
+        f" {ticket} AS ticket, position_id, symbol, time, type, entry, volume,"
+        f" price, {magic} AS magic, COALESCE(profit, 0) AS profit, {costs},"
+        " CASE type WHEN 0 THEN volume ELSE -volume END AS delta"
+        " FROM history_deals"
+        f" WHERE type IN {_TRADE_DEAL_TYPES_SQL} AND position_id != 0),"
+        " w AS (SELECT d.*,"
+        " COALESCE(SUM(delta) OVER win, 0) AS pos_before,"
+        " COALESCE(SUM(entry = 2) OVER win, 0) AS leg_before,"
+        # A position can only begin with an entry-in deal; when the first visible
+        # deal is not one, the opening predates the captured history and the
+        # visible-deals balance (pos_before) does not describe the real position.
+        " CASE WHEN FIRST_VALUE(entry) OVER fv = 0 THEN 1 ELSE 0 END"
+        " AS position_start_known"
+        " FROM d WINDOW part AS (PARTITION BY position_id, symbol"
+        " ORDER BY time, ticket),"
+        " win AS (part ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),"
+        " fv AS (part ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)),"
+        " p AS (SELECT *,"
+        " CASE WHEN entry = 2 THEN MIN(ABS(pos_before), volume) END AS closed_vol"
+        " FROM w)"
+        f" SELECT {keys}, leg_before AS leg,"
+        " CASE WHEN entry = 0 THEN 'entry' ELSE 'exit' END AS role,"
+        " volume, profit, commission, swap, fee, entry"
+        " FROM p WHERE entry != 2"
+        f" UNION ALL SELECT {keys}, leg_before, 'exit', closed_vol, profit,"
+        f" {closing}, entry"
+        " FROM p WHERE entry = 2"
+        f" UNION ALL SELECT {keys}, leg_before + 1, 'entry',"
+        " volume - closed_vol, 0,"
+        f" {opening}, entry"
+        f" FROM p WHERE entry = 2 AND volume - closed_vol > {VOLUME_EPSILON}"
+    )
+
+
+def _create_history_view(
+    conn: sqlite3.Connection,
+    name: str,
+    select_sql: str,
+    *,
+    temporary: bool,
+) -> None:
+    conn.execute(f"DROP VIEW IF EXISTS {'temp.' if temporary else ''}{name}")
+    conn.execute(f"CREATE {'TEMP ' if temporary else ''}VIEW {name} AS {select_sql}")
+
+
+def _warn_missing_position_columns(deals_columns: set[str], view: str) -> None:
+    missing = ", ".join(sorted(_POSITIONS_VIEW_REQUIRED_COLUMNS - deals_columns))
+    logger.warning(
+        "Skipping %s view: history_deals missing columns: %s",
+        view,
+        missing,
+    )
+
+
+def create_deal_portions_view(
     conn: sqlite3.Connection,
     deals_columns: set[str],
+    *,
+    temporary: bool = False,
 ) -> bool:
-    """Create the positions_reconstructed SQLite view derived from history_deals.
+    """Create the deal_portions view, the canonical leg-aware deal layer.
+
+    ``deal_portions`` holds one row per trade deal, except that a
+    ``DEAL_ENTRY_INOUT`` reversal is split into a closing and an opening
+    portion. ``positions_reconstructed`` and the analytics views are derived
+    from it, so position reconstruction exists once.
+
+    Args:
+        conn: SQLite connection holding ``history_deals``.
+        deals_columns: Columns available on ``history_deals``.
+        temporary: Create a connection-local TEMP view so a read-only database
+            is never modified.
 
     Returns:
         True if the view was created, False if required columns are missing.
     """
-    if not _POSITIONS_VIEW_REQUIRED_COLUMNS.issubset(deals_columns):
-        missing = ", ".join(sorted(_POSITIONS_VIEW_REQUIRED_COLUMNS - deals_columns))
-        logger.warning(
-            "Skipping positions_reconstructed view: history_deals missing columns: %s",
-            missing,
-        )
+    if not has_position_reconstruction_columns(deals_columns):
+        _warn_missing_position_columns(deals_columns, "deal_portions")
         return False
-    conn.execute("DROP VIEW IF EXISTS positions_reconstructed")
-    conn.execute(
-        "CREATE VIEW positions_reconstructed AS"  # noqa: S608
-        " SELECT"
+    _create_history_view(
+        conn,
+        "deal_portions",
+        _deal_portions_select_sql(deals_columns),
+        temporary=temporary,
+    )
+    return True
+
+
+def create_positions_reconstructed_view(
+    conn: sqlite3.Connection,
+    deals_columns: set[str],
+    *,
+    temporary: bool = False,
+) -> bool:
+    """Create the positions_reconstructed SQLite view derived from history_deals.
+
+    The view is a position-level summary of the ``deal_portions`` view: a
+    reversal's portions are re-merged through their ``entry`` value, so its
+    columns keep their documented meaning (``volume_close`` and
+    ``volume_reversal`` count the whole reversal volume, ``deals_count`` counts
+    deals).
+
+    Args:
+        conn: SQLite connection holding ``history_deals``.
+        deals_columns: Columns available on ``history_deals``.
+        temporary: Create a connection-local TEMP view so a read-only database
+            is never modified.
+
+    Returns:
+        True if the view was created, False if required columns are missing.
+    """
+    if not has_position_reconstruction_columns(deals_columns):
+        _warn_missing_position_columns(deals_columns, "positions_reconstructed")
+        return False
+    create_deal_portions_view(conn, deals_columns, temporary=temporary)
+    _create_history_view(
+        conn,
+        "positions_reconstructed",
+        "SELECT"
         " position_id,"
         " symbol,"
         " MIN(CASE WHEN entry = 0 THEN time END) AS open_time,"
@@ -1273,12 +1419,12 @@ def create_positions_reconstructed_view(
         " / SUM(CASE WHEN entry IN (1, 2, 3) THEN volume ELSE 0 END)"
         " END AS close_price,"
         " SUM(profit) AS total_profit,"
-        " SUM(CASE WHEN entry = 2 THEN 1 ELSE 0 END) AS reversal_count,"
-        " COUNT(*) AS deals_count"
-        " FROM history_deals"
-        f" WHERE type IN {_TRADE_DEAL_TYPES_SQL} AND position_id != 0"
+        " COUNT(DISTINCT CASE WHEN entry = 2 THEN ticket END) AS reversal_count,"
+        " COUNT(DISTINCT ticket) AS deals_count"
+        " FROM deal_portions"
         " GROUP BY position_id, symbol"
         " HAVING SUM(CASE WHEN entry IN (1, 2, 3) THEN 1 ELSE 0 END) > 0",
+        temporary=temporary,
     )
     return True
 

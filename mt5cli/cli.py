@@ -981,50 +981,50 @@ def collect_history(
     )
 
 
-@app.command(rich_help_panel="Collection")
-def grafana_schema(
+@app.command("publish-dashboard", rich_help_panel="Collection")
+def publish_dashboard_command(
     ctx: typer.Context,
-    publish_copy: Annotated[
-        Path | None,
+    sqlite3_path: Annotated[
+        Path,
         typer.Option(
-            "--publish-copy",
-            help=(
-                "Publish a Grafana-ready SQLite copy to this path"
-                " after schema creation."
-            ),
+            "--sqlite3",
+            help="Source SQLite history database to publish from.",
         ),
-    ] = None,
+    ],
 ) -> None:
-    """Create or refresh Grafana-ready views and indexes in a SQLite database.
+    """Publish Parquet analytics datasets for static dashboards without MT5.
 
-    Idempotent — safe to run repeatedly on the same database. Requires SQLite
-    output. Does not connect to MetaTrader 5.
+    The global ``--output`` is the manifest path (for example
+    ``dist/data/manifest.json``); ``trades``, ``daily_pnl``,
+    ``strategy_stats``, ``equity`` and ``account_snapshots`` Parquet files are
+    written beside it. Requires the ``parquet`` extra.
 
     Raises:
-        typer.BadParameter: If the output format is not SQLite3.
+        typer.BadParameter: If the source database is invalid, the manifest path
+            is not JSON, or no dataset can be built.
     """
-    import sqlite3 as _sqlite3  # noqa: PLC0415
-
-    from .grafana import (  # noqa: PLC0415
-        ensure_grafana_schema,
-        publish_grafana_copy,
-    )
+    from .analytics import publish_dashboard  # noqa: PLC0415
 
     export_ctx = _get_export_context(ctx)
-    if export_ctx.output_format != "sqlite3":
+    if export_ctx.output_format != "json":
         msg = (
-            "grafana-schema requires SQLite3 output."
-            " Use a .db/.sqlite/.sqlite3 extension or --format sqlite3."
+            "publish-dashboard writes a JSON manifest."
+            " Use a .json extension or --format json."
         )
         raise typer.BadParameter(msg)
-    with _sqlite3.connect(export_ctx.output) as conn:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        ensure_grafana_schema(conn)
-    logger.info("Grafana schema applied to %s", export_ctx.output)
-    if publish_copy is not None:
-        publish_grafana_copy(export_ctx.output, publish_copy)
-        logger.info("Grafana copy published to %s", publish_copy)
+    try:
+        manifest = publish_dashboard(
+            sqlite3_path,
+            export_ctx.output.parent,
+            manifest_name=export_ctx.output.name,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--sqlite3") from exc
+    logger.info(
+        "Published %d datasets to %s",
+        len(manifest["datasets"]),
+        export_ctx.output.parent,
+    )
 
 
 @app.command(rich_help_panel="Collection")
@@ -1056,20 +1056,6 @@ def snapshot(
         bool,
         typer.Option("--with-terminal/--no-terminal", help="Snapshot terminal info."),
     ] = True,
-    with_grafana_schema: Annotated[
-        bool,
-        typer.Option(
-            "--with-grafana-schema/--no-grafana-schema",
-            help="Ensure Grafana views and indexes exist.",
-        ),
-    ] = False,
-    publish_copy: Annotated[
-        Path | None,
-        typer.Option(
-            "--publish-copy",
-            help=("Publish a Grafana-ready SQLite copy to this path after snapshot."),
-        ),
-    ] = None,
 ) -> None:
     """Snapshot current account, position, order, and terminal state into SQLite.
 
@@ -1094,14 +1080,8 @@ def snapshot(
         include_positions=with_positions,
         include_orders=with_orders,
         include_terminal=with_terminal,
-        with_grafana_schema=with_grafana_schema,
     )
     logger.info("Snapshot written to %s", export_ctx.output)
-    if publish_copy is not None:
-        from .grafana import publish_grafana_copy  # noqa: PLC0415
-
-        publish_grafana_copy(export_ctx.output, publish_copy)
-        logger.info("Grafana copy published to %s", publish_copy)
 
 
 def main() -> None:

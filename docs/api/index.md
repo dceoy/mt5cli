@@ -18,9 +18,8 @@ responsibilities.
 | [Exceptions](exceptions.md)               | Stable mt5cli exception types and MT5 error normalization                            |
 | [Trading](trading.md)                     | Trading-capable sessions and operational helpers                                     |
 | [History Collection (SQLite)](history.md) | SQLite schema, incremental writes, dedup, and rate views                             |
-| [Observability](observability.md)         | Account/position/order/terminal snapshot orchestration                               |
+| [Observability](observability.md)         | Account/position/order/terminal snapshot orchestration and SQLite snapshot tables    |
 | [Telemetry](telemetry.md)                 | OpenTelemetry metrics setup, meters, and emitted metric names                        |
-| [Grafana](grafana.md)                     | Grafana-ready SQLite schema, views, snapshots, and published copies                  |
 | [CLI](cli.md)                             | Typer commands that delegate to the Python API                                       |
 | [Utils](utils.md)                         | Generic parsing, conversion, and export helpers                                      |
 
@@ -34,7 +33,6 @@ flowchart TD
     MarketData["marketdata"] --> Client
     History["history"] --> Client
     Observability["observability"] --> Client
-    Observability --> Grafana["grafana"]
     History --> Utils["utils export"]
 ```
 

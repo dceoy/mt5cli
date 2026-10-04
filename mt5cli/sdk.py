@@ -4,6 +4,7 @@
 
 from pdmt5.dataframe import Mt5Config
 
+from .analytics import publish_dashboard
 from .client import MT5Client, build_config, mt5_session, substitute_mapping_values
 from .exceptions import (
     Mt5CliError,
@@ -11,7 +12,6 @@ from .exceptions import (
     Mt5OperationError,
     Mt5SchemaError,
 )
-from .grafana import ensure_grafana_schema
 from .history import (
     RateTarget,
     build_rate_targets,

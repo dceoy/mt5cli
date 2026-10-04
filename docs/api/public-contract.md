@@ -25,7 +25,7 @@ in pdmt5 — the name changed, it was not simply moved.
 Downstream packages should import from the package root (`from mt5cli import
 ...`). The authoritative SDK declaration in `mt5cli.sdk` enumerates
 every package-root symbol. Helpers promoted for downstream use, including selected configuration and
-parsing utilities, history timeframe resolution, and Grafana schema setup, are
+parsing utilities, history timeframe resolution, and dashboard publication, are
 part of that root contract. Other low-level
 schema, export, conversion, and implementation helpers remain available only
 from their owning modules.
@@ -43,8 +43,8 @@ operational capability still has exactly one owning module:
 | `mt5cli.marketdata`    | Stateless one-off market-data reads and multi-account rate collection (`AccountSpec`, `collect_latest_rates_for_accounts`, etc.)            |
 | `mt5cli.history`       | Legacy history collection, incremental updates, and SQLite storage (`collect_history`, `update_history`, `write_*_dataset`)                 |
 | `mt5cli.rates`         | Canonical rate persistence/loading and stable update wrappers (`load_rate_series_from_sqlite`, `update_history`, `ThrottledHistoryUpdater`) |
-| `mt5cli.observability` | Observability snapshot orchestration (`update_observability`, `update_observability_with_config`)                                           |
-| `mt5cli.grafana`       | Grafana schema, views, and snapshot persistence                                                                                             |
+| `mt5cli.observability` | Observability snapshot orchestration and SQLite snapshot tables (`update_observability`, `update_observability_with_config`)                |
+| `mt5cli.analytics`     | Canonical `analytics_*` views and static-dashboard Parquet publication (`publish_dashboard`)                                                |
 | `mt5cli.trading`       | Order preparation, broker-facing calculations, and normalized execution receipts                                                            |
 | `mt5cli.contract`      | The internal `HistoryClient` / `ObservabilityClient` protocols                                                                              |
 | `mt5cli.sdk`           | Authoritative stable package-root export declaration; no separate connection lifecycle                                                      |
@@ -196,12 +196,11 @@ client type; `from mt5cli import MT5Client, mt5_session` remains the supported
 way to obtain a connected client. Downstream code should import stable names
 from the package root and capability-specific helpers from their owning modules.
 
-### Grafana observability (SQLite read model)
+### Observability snapshots (SQLite)
 
-These helpers prepare a SQLite database as a Grafana datasource. All DDL is
-idempotent (`CREATE TABLE IF NOT EXISTS`, `DROP VIEW IF EXISTS` + `CREATE
-VIEW`, `CREATE INDEX IF NOT EXISTS`). Missing source tables are skipped with a
-warning rather than raising an error.
+These helpers append timestamped account/position/order/terminal snapshot
+rows to a SQLite database. The snapshot tables are created on demand with
+idempotent DDL (`CREATE TABLE IF NOT EXISTS`).
 
 | Symbol                             | Role                                                                                                                                      |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -213,9 +212,7 @@ warning rather than raising an error.
 
 `update_observability` and `persist_observability_snapshot` write to the
 SQLite path given by `output=`. The optional `symbols` parameter filters
-`positions_get` / `orders_get` by symbol. `with_grafana_schema=False`
-(default) skips Grafana view/index setup; run `grafana-schema` once to set up
-the schema, then call `snapshot` repeatedly without this flag.
+`positions_get` / `orders_get` by symbol.
 
 `update_observability(client=...)` is exactly
 `capture_observability_snapshot(client=...)` followed by
@@ -232,7 +229,7 @@ workflows call the facade's canonical data methods (`account_info`, `positions`,
 `orders`, `terminal_info`, `copy_rates_range`, `copy_ticks_range`,
 `history_orders`, and `history_deals`); callers never need a pdmt5 client.
 
-**Snapshot tables** (created by `create_snapshot_tables` in `mt5cli.grafana`):
+**Snapshot tables** (created by `create_snapshot_tables` in `mt5cli.observability`):
 
 | Table                | Content                                   |
 | -------------------- | ----------------------------------------- |
@@ -242,35 +239,15 @@ workflows call the facade's canonical data methods (`account_info`, `positions`,
 | `terminal_snapshots` | Terminal connectivity and build info      |
 | `snapshot_runs`      | Per-run status (`ok` / `error`) timestamp |
 
-**Grafana time-series views** (integer epoch-second `time` column; snapshot views also expose `run_id`):
+`publish_dashboard(source, output_dir)` is a stable package-root helper that
+publishes Parquet analytics datasets and `manifest.json` from an offline
+SQLite history database without connecting to MT5 or modifying the source; see
+[Analytics](analytics.md).
 
-| View                         | Source                           |
-| ---------------------------- | -------------------------------- |
-| `grafana_rates`              | `rates` table                    |
-| `grafana_ticks`              | `ticks` table                    |
-| `grafana_history_deals`      | `history_deals`                  |
-| `grafana_history_orders`     | `history_orders`                 |
-| `grafana_trade_deals`        | `history_deals` trade types only |
-| `grafana_cash_events`        | `history_deals` non-trade events |
-| `grafana_symbol_pnl`         | Per-close-deal P&L per symbol    |
-| `grafana_account_snapshots`  | `account_snapshots`              |
-| `grafana_position_snapshots` | `position_snapshots`             |
-| `grafana_order_snapshots`    | `order_snapshots`                |
-| `grafana_terminal_snapshots` | `terminal_snapshots`             |
-
-**Grafana static summary views** (no `time` column; use for table/stat panels, not time-series):
-
-| View                   | Source                                |
-| ---------------------- | ------------------------------------- |
-| `grafana_realized_pnl` | Cumulative realized PnL per symbol    |
-| `grafana_trade_stats`  | Win/loss counts and profit per symbol |
-
-`ensure_grafana_schema` is a stable package-root helper for downstream setup.
-Other lower-level helpers (`create_grafana_views`, `create_grafana_indexes`,
-`create_snapshot_tables`, `start_snapshot_run`,
+Lower-level snapshot helpers (`create_snapshot_tables`, `start_snapshot_run`,
 `insert_account_snapshot`, `insert_position_snapshots`, `insert_order_snapshots`,
 `insert_terminal_snapshot`, `record_snapshot_run`) are available directly from
-`mt5cli.grafana` and are not part of the package-root stable surface.
+`mt5cli.observability` and are not part of the package-root stable surface.
 
 ### Errors
 
@@ -314,14 +291,14 @@ names.
 Lower-level helpers are available from their owning modules and are not part
 of the package-root stable surface. Import them directly when needed:
 
-| Module              | Examples                                                                                                                                                                    |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mt5cli.grafana`    | `ensure_grafana_schema`, `create_grafana_views`, `create_grafana_indexes`, `create_snapshot_tables`, `start_snapshot_run`, `insert_account_snapshot`, `record_snapshot_run` |
-| `mt5cli.marketdata` | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`                                                                              |
-| `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                                                                                          |
-| `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`                                                                                    |
-| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `ensure_trade_server_time`, `parse_date_range`, `granularity_name`                                                                        |
-| `mt5cli.exceptions` | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`                                                                                        |
+| Module              | Examples                                                                                             |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| `mt5cli.analytics`  | `create_analytics_views`                                                                             |
+| `mt5cli.marketdata` | `copy_rates_from`, `copy_ticks_from`, `account_info`, `symbols`, `mt5_summary`, `latest_rates`       |
+| `mt5cli.schemas`    | `DataKind`, `normalize_dataframe`, `validate_schema`, `DEDUP_KEYS`                                   |
+| `mt5cli.utils`      | `Dataset`, `IfExists`, `detect_format`, `export_dataframe`, `export_dataframe_to_sqlite`             |
+| `mt5cli.converters` | `normalize_symbol`, `ensure_utc`, `ensure_trade_server_time`, `parse_date_range`, `granularity_name` |
+| `mt5cli.exceptions` | `normalize_mt5_exception`, `call_with_normalized_errors`, `is_recoverable_mt5_error`                 |
 
 ## CLI commands
 
@@ -337,14 +314,10 @@ The Typer application in `mt5cli.cli` exposes file-export commands documented in
 - Delegate to the same Python APIs described here; they are not duplicated
   business logic.
 
-`grafana-schema` initializes Grafana views, indexes, and snapshot tables in the
-target SQLite database without connecting to MT5. It is idempotent and safe to
-run repeatedly.
-
 `snapshot` appends one timestamped row per enabled data type
 (`--with-account`, `--with-positions`, `--with-orders`, `--with-terminal`) and
-never places orders or modifies trading state. Both commands require
-`-o/--output` to point at a `.db` / SQLite file.
+never places orders or modifies trading state. It requires `-o/--output` to
+point at a `.db` / SQLite file.
 
 `order-send` is the expert raw-request path; it requires `--yes` and a fully
 constructed request payload. `close-positions` is the safer high-level helper

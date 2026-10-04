@@ -2,13 +2,11 @@
 
 ::: mt5cli.observability
 
-## Grafana observability (SQLite read model)
+## Snapshot persistence (SQLite)
 
 These helpers append timestamped account/position/order/terminal snapshot
-rows into a SQLite database, preparing it as a Grafana datasource. All DDL is
-idempotent (`CREATE TABLE IF NOT EXISTS`, `DROP VIEW IF EXISTS` + `CREATE
-VIEW`, `CREATE INDEX IF NOT EXISTS`). Missing source tables are skipped with a
-warning rather than raising an error.
+rows into a SQLite database. The snapshot tables are created on demand with
+idempotent DDL (`CREATE TABLE IF NOT EXISTS`).
 
 | Symbol                             | Role                                                                                        |
 | ---------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -17,9 +15,6 @@ warning rather than raising an error.
 
 Both functions write to the SQLite path given by `output=`. The optional
 `symbols` parameter filters `positions` / `orders` by symbol.
-`with_grafana_schema=False` (default) skips Grafana view/index setup; run
-`grafana-schema` once to set up the schema, then call `snapshot` repeatedly
-without this flag.
 
 Pass the `MT5Client` yielded by `mt5_session()` directly to
 `update_observability(client=...)`. This workflow calls the facade's canonical
@@ -34,5 +29,7 @@ with mt5_session() as client:
     update_observability(client=client, output="observability.db")
 ```
 
-Schema and persistence (table DDL, Grafana views, and row inserts) belong to
-[Grafana](grafana.md); this module owns _when_ and _what_ to snapshot.
+The snapshot table DDL and row inserts (`create_snapshot_tables`,
+`start_snapshot_run`, `insert_*_snapshot(s)`, `record_snapshot_run`) live in
+this module alongside the orchestration that decides _when_ and _what_ to
+snapshot.

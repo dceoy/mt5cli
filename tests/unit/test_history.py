@@ -1444,6 +1444,73 @@ class TestDerivedViews:
                 "SELECT position_id FROM positions_reconstructed",
             ).fetchall() == [(100,)]
 
+    def test_positions_reconstructed_matches_raw_deal_aggregation(
+        self, tmp_path: Path
+    ) -> None:
+        """The portions-based view keeps the raw-deal aggregation semantics."""
+        deals = [
+            # plain position with a scale-in and a partial then full close
+            (1, 1, "EURUSD", "2024-01-01 10:00:00", 0, 0, 0.1, 1.1, 0.0, -1.0, 0.0),
+            (2, 1, "EURUSD", "2024-01-01 10:05:00", 0, 0, 0.2, 1.2, 0.0, None, 0.0),
+            (3, 1, "EURUSD", "2024-01-01 11:00:00", 1, 1, 0.1, 1.3, 4.0, -0.5, -0.1),
+            (4, 1, "EURUSD", "2024-01-01 12:00:00", 1, 1, 0.2, 1.4, 9.0, -0.5, -0.2),
+            # reversal followed by a later close of the new side
+            (5, 2, "GBPUSD", "2024-01-02 10:00:00", 0, 0, 1.0, 1.5, 0.0, -1.0, 0.0),
+            (6, 2, "GBPUSD", "2024-01-02 11:00:00", 1, 2, 2.5, 1.6, 7.0, -2.5, -0.4),
+            (7, 2, "GBPUSD", "2024-01-02 12:00:00", 0, 1, 1.5, 1.4, -3.0, -1.5, 0.0),
+            # reversal with nothing visible to close (history starts mid-position)
+            (8, 3, "EURUSD", "2024-01-03 10:00:00", 1, 2, 2.0, 1.2, 10.0, -2.0, -0.6),
+            # still open and the balance row are excluded
+            (9, 4, "EURUSD", "2024-01-04 10:00:00", 0, 0, 1.0, 1.1, 0.0, 0.0, 0.0),
+            (10, 0, "", "2024-01-04 11:00:00", 2, 0, 0.0, 0.0, 500.0, 0.0, 0.0),
+        ]
+        raw = (
+            "SELECT position_id, symbol,"
+            " MIN(CASE WHEN entry = 0 THEN time END),"
+            " MAX(CASE WHEN entry IN (1, 2, 3) THEN time END),"
+            " MIN(CASE WHEN entry = 0 THEN type END),"
+            " SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END),"
+            " SUM(CASE WHEN entry IN (1, 2, 3) THEN volume ELSE 0 END),"
+            " SUM(CASE WHEN entry = 2 THEN volume ELSE 0 END),"
+            " SUM(CASE WHEN entry = 0 THEN price * volume ELSE 0 END)"
+            " / NULLIF(SUM(CASE WHEN entry = 0 THEN volume ELSE 0 END), 0),"
+            " SUM(CASE WHEN entry IN (1, 2, 3) THEN price * volume ELSE 0 END)"
+            " / NULLIF(SUM(CASE WHEN entry IN (1, 2, 3) THEN volume ELSE 0 END), 0),"
+            " SUM(profit), SUM(CASE WHEN entry = 2 THEN 1 ELSE 0 END), COUNT(*)"
+            " FROM history_deals WHERE type IN (0, 1) AND position_id != 0"
+            " GROUP BY position_id, symbol"
+            " HAVING SUM(CASE WHEN entry IN (1, 2, 3) THEN 1 ELSE 0 END) > 0"
+            " ORDER BY position_id, symbol"
+        )
+        with sqlite3.connect(tmp_path / "parity.db") as conn:
+            conn.execute(
+                "CREATE TABLE history_deals(ticket INTEGER, position_id INTEGER,"
+                " symbol TEXT, time TEXT, type INTEGER, entry INTEGER, volume REAL,"
+                " price REAL, profit REAL, commission REAL, swap REAL)",
+            )
+            conn.executemany(
+                "INSERT INTO history_deals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                deals,
+            )
+            columns = get_table_columns(conn, "history_deals")
+            assert create_positions_reconstructed_view(conn, columns)
+            expected = conn.execute(raw).fetchall()
+            actual = conn.execute(
+                "SELECT * FROM positions_reconstructed ORDER BY position_id, symbol",
+            ).fetchall()
+        assert [row[0] for row in actual] == [1, 2, 3]
+        assert len(actual) == len(expected)
+        for want, got in zip(expected, actual, strict=True):
+            assert got == _approx_row(want)
+
+
+def _approx(value: float) -> object:
+    return pytest.approx(value)  # pyright: ignore[reportUnknownMemberType]
+
+
+def _approx_row(row: tuple[object, ...]) -> tuple[object, ...]:
+    return tuple(_approx(value) if isinstance(value, float) else value for value in row)
+
 
 class TestFilterTradeHistoryFrame:
     """Tests for filter_trade_history_frame."""

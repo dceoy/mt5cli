@@ -1934,60 +1934,17 @@ class TestHistoryGapsCommand:
         assert re.search(r"--granularity-\s*seconds", output) is not None
 
 
-class TestGrafanaSchemaCommand:
-    """Tests for the grafana-schema CLI command."""
-
-    def test_grafana_schema_creates_snapshot_tables_in_sqlite(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """grafana-schema applies Grafana schema to a SQLite database."""
-        output = tmp_path / "out.db"
-        result = runner.invoke(app, ["-o", str(output), "grafana-schema"])
-        assert result.exit_code == 0, result.output
-        with sqlite3.connect(output) as conn:
-            tables = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-        assert "snapshot_runs" in tables
-        assert "account_snapshots" in tables
-
-    def test_grafana_schema_is_idempotent(self, tmp_path: Path) -> None:
-        """grafana-schema can be invoked multiple times without error."""
-        output = tmp_path / "out.db"
-        result1 = runner.invoke(app, ["-o", str(output), "grafana-schema"])
-        result2 = runner.invoke(app, ["-o", str(output), "grafana-schema"])
-        assert result1.exit_code == 0, result1.output
-        assert result2.exit_code == 0, result2.output
-
-
 class TestNonSqliteRejection:
     """Tests that SQLite-only commands reject non-SQLite output."""
 
-    @pytest.mark.parametrize(
-        ("command", "match"),
-        [
-            ("grafana-schema", "grafana-schema requires SQLite3 output"),
-            ("snapshot", "snapshot requires SQLite3 output"),
-        ],
-        ids=["grafana-schema", "snapshot"],
-    )
-    def test_rejects_non_sqlite_output(
-        self,
-        tmp_path: Path,
-        command: str,
-        match: str,
-    ) -> None:
-        """grafana-schema and snapshot reject non-SQLite output formats."""
+    def test_snapshot_rejects_non_sqlite_output(self, tmp_path: Path) -> None:
+        """Snapshot rejects non-SQLite output formats."""
         result = runner.invoke(
             app,
-            ["-o", str(tmp_path / "out.csv"), command],
+            ["-o", str(tmp_path / "out.csv"), "snapshot"],
         )
         assert result.exit_code != 0
-        assert match in result.output
+        assert "snapshot requires SQLite3 output" in result.output
 
 
 class TestSnapshotCommand:
@@ -2024,7 +1981,6 @@ class TestSnapshotCommand:
         assert kwargs["include_positions"] is True
         assert kwargs["include_orders"] is True
         assert kwargs["include_terminal"] is True
-        assert kwargs["with_grafana_schema"] is False
 
     @pytest.mark.parametrize(
         ("flag", "kwarg"),
@@ -2033,7 +1989,6 @@ class TestSnapshotCommand:
             ("--no-positions", "include_positions"),
             ("--no-orders", "include_orders"),
             ("--no-terminal", "include_terminal"),
-            ("--no-grafana-schema", "with_grafana_schema"),
         ],
     )
     def test_snapshot_with_no_flag(
@@ -2051,42 +2006,6 @@ class TestSnapshotCommand:
         )
         assert result.exit_code == 0, result.output
         assert updater.call_args.kwargs[kwarg] is False
-
-
-@pytest.mark.parametrize(
-    ("command", "patch_update_observability"),
-    [
-        ("snapshot", True),
-        ("grafana-schema", False),
-    ],
-    ids=["snapshot", "grafana-schema"],
-)
-@pytest.mark.parametrize(
-    ("use_publish_copy", "expect_called"),
-    [(True, True), (False, False)],
-    ids=["with-publish-copy", "no-publish-copy"],
-)
-def test_publish_copy_option_gates_grafana_copy(
-    tmp_path: Path,
-    mocker: MockerFixture,
-    command: str,
-    patch_update_observability: bool,
-    use_publish_copy: bool,
-    expect_called: bool,
-) -> None:
-    """--publish-copy gates publish_grafana_copy for copy-capable commands."""
-    if patch_update_observability:
-        mocker.patch("mt5cli.cli.update_observability_with_config")
-    mock_publish = mocker.patch("mt5cli.grafana.publish_grafana_copy")
-    args = ["-o", str(tmp_path / "out.db"), command]
-    if use_publish_copy:
-        args += ["--publish-copy", str(tmp_path / "grafana.db")]
-    result = runner.invoke(app, args)
-    assert result.exit_code == 0, result.output
-    if expect_called:
-        mock_publish.assert_called_once()
-    else:
-        mock_publish.assert_not_called()
 
 
 class TestMain:
@@ -2148,3 +2067,62 @@ def test_history_gaps_cli_happy_path(
     )
     export.assert_called_once()
     assert export.call_args.args[1]().empty
+
+
+class TestPublishDashboardCommand:
+    """Tests for the publish-dashboard CLI command."""
+
+    def test_publishes_beside_manifest_path(self, tmp_path: Path) -> None:
+        """publish-dashboard writes datasets next to the -o manifest."""
+        source = tmp_path / "history.db"
+        with sqlite3.connect(source) as conn:
+            conn.execute(
+                "CREATE TABLE history_deals (position_id INTEGER, symbol TEXT,"
+                " time INTEGER, type INTEGER, entry INTEGER, volume REAL,"
+                " price REAL, profit REAL)"
+            )
+            conn.executemany(
+                "INSERT INTO history_deals VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "EURUSD", 1, 0, 0, 1.0, 1.1, 0.0),
+                    (1, "EURUSD", 2, 1, 1, 1.0, 1.2, 5.0),
+                ],
+            )
+        manifest = tmp_path / "dist" / "manifest.json"
+        result = runner.invoke(
+            app,
+            ["-o", str(manifest), "publish-dashboard", "--sqlite3", str(source)],
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "dist" / "trades.parquet").exists()
+        assert manifest.exists()
+
+    def test_rejects_non_json_manifest(self, tmp_path: Path) -> None:
+        """A non-JSON -o path is rejected."""
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(tmp_path / "out.csv"),
+                "publish-dashboard",
+                "--sqlite3",
+                "x.db",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "JSON manifest" in result.output
+
+    def test_missing_database_is_a_usage_error(self, tmp_path: Path) -> None:
+        """A missing source database is reported as a bad parameter."""
+        result = runner.invoke(
+            app,
+            [
+                "-o",
+                str(tmp_path / "manifest.json"),
+                "publish-dashboard",
+                "--sqlite3",
+                str(tmp_path / "missing.db"),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "not found" in result.output
