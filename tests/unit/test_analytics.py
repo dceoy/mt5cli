@@ -583,6 +583,166 @@ class TestIncompleteHistoryAndMixedMagic:
         assert daily["magic"].tolist() == [7]
         assert daily["net_profit"].tolist() == _approx([expected_daily_net])
 
+    @pytest.mark.parametrize(
+        "kinds",
+        [
+            # (type, entry, volume): capture starts with a 2-lot long already open
+            pytest.param([(1, 1, 0.5), (1, 2, 2.0), (0, 1, 0.5)], id="partial-close"),
+            # 1-lot long already open: the visible balance would fabricate a trade
+            pytest.param([(1, 1, 0.7), (1, 2, 1.0), (0, 1, 0.7)], id="fabricated"),
+            # first visible deal is an out-by, then a later entry
+            pytest.param([(0, 3, 0.5), (0, 0, 1.0), (1, 1, 1.0)], id="out-by-first"),
+        ],
+    )
+    def test_position_opened_before_capture_is_not_reconstructed(
+        self, tmp_path: Path, kinds: list[tuple[int, int, float]]
+    ) -> None:
+        """Unknown pre-capture exposure keeps cash flows but yields no trade legs."""
+        rows: list[tuple[object, ...]] = [
+            (
+                ticket,
+                70,
+                "EURUSD",
+                f"2024-04-01 1{ticket}:00:00",
+                kind,
+                entry,
+                volume,
+                1.2,
+                10.0 * ticket,
+                -0.5 * ticket,
+                -0.1 * ticket,
+                0.0,
+                7,
+            )
+            for ticket, (kind, entry, volume) in enumerate(kinds, start=1)
+        ]
+        raw_net = sum(10.0 * t - 0.5 * t - 0.1 * t for t in range(1, len(kinds) + 1))
+        path = _make_db(tmp_path / "unseen.db", rows=rows)
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        assert _query(path, "SELECT * FROM analytics_trades").empty
+        assert _query(path, "SELECT * FROM analytics_strategy_stats").empty
+        events = _query(path, "SELECT net_profit FROM analytics_realized_events")
+        assert events["net_profit"].sum() == _approx(raw_net)
+        daily = _query(path, "SELECT net_profit FROM analytics_daily_pnl")
+        assert daily["net_profit"].sum() == _approx(raw_net)
+        equity = _query(
+            path,
+            "SELECT cumulative_net_profit FROM analytics_equity ORDER BY time, ticket",
+        )
+        assert equity["cumulative_net_profit"].iloc[-1] == _approx(raw_net)
+
+    def test_known_start_partial_close_then_reversal_splits_correctly(
+        self, tmp_path: Path
+    ) -> None:
+        """With the opening visible, the same sequence reconstructs two legs."""
+        kinds = [(0, 0, 2.0), (1, 1, 0.5), (1, 2, 2.0), (0, 1, 0.5)]
+        rows: list[tuple[object, ...]] = [
+            (
+                ticket,
+                71,
+                "EURUSD",
+                f"2024-04-01 1{ticket}:00:00",
+                kind,
+                entry,
+                volume,
+                1.2,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                7,
+            )
+            for ticket, (kind, entry, volume) in enumerate(kinds, start=1)
+        ]
+        path = _make_db(tmp_path / "known.db", rows=rows)
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        legs = _query(path, "SELECT * FROM analytics_trades ORDER BY leg_index")
+        assert legs["side"].tolist() == ["buy", "sell"]
+        assert legs["volume"].tolist() == _approx([2.0, 0.5])
+
+    def test_position_start_known_flag(self, tmp_path: Path) -> None:
+        """deal_portions flags positions whose first visible deal is an entry-in."""
+        rows: list[tuple[object, ...]] = [
+            (
+                1,
+                80,
+                "EURUSD",
+                "2024-05-01 10:00:00",
+                0,
+                0,
+                1.0,
+                1.1,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1,
+            ),
+            (
+                2,
+                80,
+                "EURUSD",
+                "2024-05-01 11:00:00",
+                1,
+                1,
+                1.0,
+                1.2,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1,
+            ),
+            # same position_id on another symbol starts with a reversal
+            (
+                3,
+                80,
+                "GBPUSD",
+                "2024-05-01 10:00:00",
+                1,
+                2,
+                1.0,
+                1.2,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1,
+            ),
+            (
+                4,
+                81,
+                "EURUSD",
+                "2024-05-01 12:00:00",
+                1,
+                1,
+                1.0,
+                1.2,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1,
+            ),
+        ]
+        path = _make_db(tmp_path / "flag.db", rows=rows)
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        flags = _query(
+            path,
+            "SELECT DISTINCT position_id, symbol, position_start_known"
+            " FROM deal_portions ORDER BY position_id, symbol",
+        )
+        assert flags.to_numpy().tolist() == [
+            [80, "EURUSD", 1],
+            [80, "GBPUSD", 0],
+            [81, "EURUSD", 0],
+        ]
+        trades = _query(path, "SELECT position_id, symbol FROM analytics_trades")
+        assert trades.to_numpy().tolist() == [[80, "EURUSD"]]
+
     def test_mixed_magic_scale_in(self, tmp_path: Path) -> None:
         """Events keep each deal's magic; the trade leg is marked mixed (NULL)."""
         rows: list[tuple[object, ...]] = [

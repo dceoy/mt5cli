@@ -1250,7 +1250,10 @@ def _deal_portions_select_sql(deal_columns: set[str]) -> str:
     and opens the next one, so it yields a closing and an opening portion with
     its volume, commission and fee split pro rata (swap goes wholly to the
     closing portion). All other deals stay whole. ``leg`` counts the reversals
-    that happened before a portion.
+    that happened before a portion. The split uses the balance of the visible
+    deals, which is only reliable when the position's first visible deal is an
+    entry-in (``position_start_known = 1``); otherwise ``leg`` and the
+    closing/opening split are approximate (cash totals per deal are preserved).
 
     Returns:
         SELECT statement with one row per deal portion.
@@ -1273,7 +1276,7 @@ def _deal_portions_select_sql(deal_columns: set[str]) -> str:
         "0" if col == "swap" else f"{col} * (volume - closed_vol) / volume"
         for col in _COST_COLUMNS
     )
-    keys = "ticket, position_id, symbol, time, type, price, magic"
+    keys = "ticket, position_id, symbol, time, type, price, magic, position_start_known"
     return (
         "WITH d AS (SELECT"  # noqa: S608
         f" {ticket} AS ticket, position_id, symbol, time, type, entry, volume,"
@@ -1283,10 +1286,16 @@ def _deal_portions_select_sql(deal_columns: set[str]) -> str:
         f" WHERE type IN {_TRADE_DEAL_TYPES_SQL} AND position_id != 0),"
         " w AS (SELECT d.*,"
         " COALESCE(SUM(delta) OVER win, 0) AS pos_before,"
-        " COALESCE(SUM(entry = 2) OVER win, 0) AS leg_before"
-        " FROM d WINDOW win AS (PARTITION BY position_id, symbol"
-        " ORDER BY time, ticket"
-        " ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)),"
+        " COALESCE(SUM(entry = 2) OVER win, 0) AS leg_before,"
+        # A position can only begin with an entry-in deal; when the first visible
+        # deal is not one, the opening predates the captured history and the
+        # visible-deals balance (pos_before) does not describe the real position.
+        " CASE WHEN FIRST_VALUE(entry) OVER fv = 0 THEN 1 ELSE 0 END"
+        " AS position_start_known"
+        " FROM d WINDOW part AS (PARTITION BY position_id, symbol"
+        " ORDER BY time, ticket),"
+        " win AS (part ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),"
+        " fv AS (part ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)),"
         " p AS (SELECT *,"
         " CASE WHEN entry = 2 THEN MIN(ABS(pos_before), volume) END AS closed_vol"
         " FROM w)"

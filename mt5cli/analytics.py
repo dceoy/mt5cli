@@ -141,7 +141,10 @@ _TRADES_SQL = (
     " SUM(entry = 2) AS reversal_count, COUNT(DISTINCT ticket) AS deals_count,"
     " SUM(profit) AS profit, SUM(commission) AS commission,"
     " SUM(swap) AS swap, SUM(fee) AS fee"
-    " FROM deal_portions GROUP BY position_id, symbol, leg"
+    # Positions whose first visible deal is not an entry-in opened before the
+    # captured history, so their reversal split and legs are not reconstructable.
+    " FROM deal_portions WHERE position_start_known = 1"
+    " GROUP BY position_id, symbol, leg"
     # A trade needs a visible opening volume and a closing volume covering it.
     " HAVING SUM(CASE WHEN role = 'entry' THEN volume ELSE 0 END)"
     f" > {VOLUME_EPSILON}"
@@ -213,11 +216,13 @@ def create_analytics_views(
     without reversals, leg 0 matches ``positions_reconstructed``. ``net_profit``
     is ``profit + commission + swap + fee`` with NULL treated as zero, and
     ``magic``/``commission``/``swap``/``fee`` come from ``history_deals``.
-    A leg needs a visible opening volume to count as a trade, and its ``magic``
-    is the entry magic, or NULL when its entry deals mix magics (see
-    ``magic_count``). ``analytics_realized_events`` lists every deal portion,
-    including portions of partially closed, still-open and not fully captured
-    legs, at its own timestamp with its own deal's ``magic`` (cash basis) and feeds
+    A leg needs a visible opening volume, and its position must start inside the
+    captured history (its first visible deal is an entry-in), to count as a
+    trade. A leg's ``magic`` is the entry magic, or NULL when its entry deals mix
+    magics (see ``magic_count``). ``analytics_realized_events`` lists every deal
+    portion, including portions of partially closed, still-open and not fully
+    captured legs, at its own timestamp with its own deal's ``magic`` (cash
+    basis) and feeds
     ``analytics_daily_pnl`` and ``analytics_equity``; events of a completed leg
     sum to its ``net_profit``. ``analytics_strategy_stats`` aggregates the legs by
     ``symbol`` and ``magic``. Stored trade-server wall-clock timestamps are

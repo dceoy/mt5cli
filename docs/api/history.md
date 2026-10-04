@@ -129,6 +129,7 @@ erDiagram
         TEXT symbol
         INTEGER leg
         TEXT role
+        INTEGER position_start_known
         REAL volume
         REAL profit
         REAL commission
@@ -173,6 +174,13 @@ erDiagram
 | `cash_events`             | view  | `history_deals`      | Non-trade deal types (deposits, balance ops, etc.). Requires `type` column.                                                                  |
 | `deal_portions`           | view  | `history_deals`      | Canonical leg-aware layer: trade deals, with each reversal (`DEAL_ENTRY_INOUT`) split into a closing and an opening portion (`leg`, `role`). |
 | `positions_reconstructed` | view  | `deal_portions`      | One row per closed `position_id`; volume-weighted prices and reversal stats (reversal volume counted whole).                                 |
+
+The reversal split in `deal_portions` uses the balance of the visible deals, so it
+is reliable only for positions whose first visible deal is an entry-in
+(`position_start_known = 1`). When the captured history starts mid-position
+(`position_start_known = 0`), the `leg` numbering and the closing/opening split of a
+reversal are approximate, though every deal's cash totals are preserved and
+`positions_reconstructed` is unaffected.
 
 Column sets can vary with terminal and pdmt5 version. Views are skipped with a warning
 when required columns are missing.

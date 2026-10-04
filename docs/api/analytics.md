@@ -62,8 +62,10 @@ history database (`temporary=True` creates TEMP views for read-only databases).
   so cumulative equity also reflects entry costs and partial-close profit of
   legs that have not completed yet.
   Each event carries its own deal's `magic`. A leg needs a visible opening
-  volume to count as a trade, so legs opened before the captured history appear
-  only in the events, daily P/L and equity.
+  volume to count as a trade, and its position must start inside the captured
+  history (its first visible deal is an entry-in, since the reversal split cannot
+  be reconstructed otherwise), so positions opened before the captured history
+  appear only in the events, daily P/L and equity.
 - `analytics_daily_pnl`: per `date`, `symbol`, `magic` (the deal-level magic)
   from the realized events: `event_count`, `profit`, `commission`, `swap`, `fee`, `net_profit`.
 - `analytics_strategy_stats`: per `symbol`, `magic` from the trade legs (trade
