@@ -33,7 +33,7 @@ requires the `parquet` extra (`pip install "mt5cli[parquet]"`).
 | `manifest.json`             | `schema_version`, `generated_at`, `mt5cli_version`, and per dataset `name`, `file`, `rows`, `columns` |
 
 Datasets whose source tables are missing are skipped and omitted from the
-manifest. The manifest is written last.
+manifest. The manifest is written last. `manifest_name` must be a plain file name (no `/`, `\\`, drive prefix or `..`) that is not the name of a dataset file; otherwise `ValueError` is raised before anything is written (the CLI reports it as a usage error).
 
 ## Analytics views
 

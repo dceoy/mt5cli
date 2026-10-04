@@ -8,7 +8,7 @@ import tempfile
 from contextlib import closing
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -307,6 +307,28 @@ def _mt5cli_version() -> str | None:
         return None
 
 
+def _validate_manifest_name(manifest_name: str) -> str:
+    """Return ``manifest_name`` if it is a plain file name.
+
+    Returns:
+        The unchanged name.
+
+    Raises:
+        ValueError: If the name has path components under POSIX or Windows rules.
+    """
+    if (
+        manifest_name in {"", ".", ".."}
+        or PurePosixPath(manifest_name).name != manifest_name
+        or PureWindowsPath(manifest_name).name != manifest_name
+    ):
+        msg = (
+            "manifest_name must be a file name without path components: "
+            f"{manifest_name!r}"
+        )
+        raise ValueError(msg)
+    return manifest_name
+
+
 def publish_dashboard(
     source: str | Path,
     output_dir: str | Path,
@@ -325,14 +347,18 @@ def publish_dashboard(
     Args:
         source: Path to the SQLite history database.
         output_dir: Directory receiving the Parquet files and manifest.
-        manifest_name: File name of the manifest inside ``output_dir``.
+        manifest_name: File name (no directory components, and not the name of a
+            dataset file) of the manifest inside ``output_dir``.
 
     Returns:
         The manifest as a dictionary.
 
     Raises:
-        ValueError: If the source database is invalid or no dataset can be built.
+        ValueError: If the source database is invalid, ``manifest_name`` is not a
+            plain file name or collides with a dataset file, or no dataset can be
+            built.
     """
+    manifest_name = _validate_manifest_name(manifest_name)
     conn, _ = open_existing_sqlite_database(source)
     with closing(conn):
         frames = _collect_dataset_frames(conn)
@@ -340,9 +366,8 @@ def publish_dashboard(
         msg = f"No analytics datasets could be built from {source}"
         raise ValueError(msg)
     dataset_files = {f"{name}.parquet" for name in frames}
-    manifest_basename = Path(manifest_name).name
-    if manifest_basename in dataset_files:
-        msg = f"Manifest name collides with dashboard dataset: {manifest_basename}"
+    if manifest_name in dataset_files:
+        msg = f"Manifest name collides with dashboard dataset: {manifest_name}"
         raise ValueError(msg)
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

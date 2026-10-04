@@ -950,6 +950,33 @@ class TestPublishDashboard:
             publish_dashboard(path, out, manifest_name="trades.parquet")
         assert not out.exists()
 
+    @pytest.mark.parametrize(
+        "manifest_name",
+        [
+            "../manifest.json",
+            "sub/manifest.json",
+            "",
+            ".",
+            "..",
+            "manifest.json/",
+            "a\\b.json",
+            "C:evil.json",
+            "ABSOLUTE",
+        ],
+    )
+    def test_rejects_non_basename_manifest_name(
+        self, tmp_path: Path, manifest_name: str
+    ) -> None:
+        """Manifest names with path components are rejected before any I/O."""
+        path = _make_db(tmp_path / "history.db")
+        out = tmp_path / "out"
+        if manifest_name == "ABSOLUTE":
+            manifest_name = str(tmp_path / "evil.json")
+        with pytest.raises(ValueError, match="file name without path components"):
+            publish_dashboard(path, out, manifest_name=manifest_name)
+        assert not out.exists()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["history.db"]
+
     def test_skips_missing_sources(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
