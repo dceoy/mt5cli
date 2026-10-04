@@ -91,7 +91,7 @@
 </li>
                                     
 <li>
-    <a href="grafana/" class="dropdown-item">Grafana</a>
+    <a href="analytics/" class="dropdown-item">Analytics</a>
 </li>
                                     
 <li>
@@ -208,15 +208,11 @@ responsibilities.</p>
 </tr>
 <tr>
 <td><a href="observability/">Observability</a></td>
-<td>Account/position/order/terminal snapshot orchestration</td>
+<td>Account/position/order/terminal snapshot orchestration and SQLite snapshot tables</td>
 </tr>
 <tr>
 <td><a href="telemetry/">Telemetry</a></td>
 <td>OpenTelemetry metrics setup, meters, and emitted metric names</td>
-</tr>
-<tr>
-<td><a href="grafana/">Grafana</a></td>
-<td>Grafana-ready SQLite schema, views, snapshots, and published copies</td>
 </tr>
 <tr>
 <td><a href="cli/">CLI</a></td>
@@ -236,8 +232,7 @@ responsibilities.</p>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    MarketData[&quot;marketdata&quot;] --&gt; Client
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    History[&quot;history&quot;] --&gt; Client
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    Observability[&quot;observability&quot;] --&gt; Client
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    Observability --&gt; Grafana[&quot;grafana&quot;]
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    History --&gt; Utils[&quot;utils export&quot;]
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    History --&gt; Utils[&quot;utils export&quot;]
 </code></pre></div>
 <p>Downstream packages should depend on the package root exports documented in the
 <a href="public-contract/">Public API Contract</a> (<code>MT5Client</code>,

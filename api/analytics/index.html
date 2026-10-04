@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        <meta name="author" content="dceoy">
+        <link rel="canonical" href="https://github.com/dceoy/mt5cli/api/analytics/">
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>Analytics - mt5cli API Documentation</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../../assets/_mkdocstrings.css" rel="stylesheet">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">mt5cli API Documentation</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href="../.." class="nav-link">Home</a>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">API Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../" class="dropdown-item">Overview</a>
+</li>
+                                    
+<li>
+    <a href="../public-contract/" class="dropdown-item">Public API Contract</a>
+</li>
+                                    
+<li>
+    <a href="../client/" class="dropdown-item">Client</a>
+</li>
+                                    
+<li>
+    <a href="../marketdata/" class="dropdown-item">Market Data</a>
+</li>
+                                    
+<li>
+    <a href="../schemas/" class="dropdown-item">Schemas</a>
+</li>
+                                    
+<li>
+    <a href="../converters/" class="dropdown-item">Converters</a>
+</li>
+                                    
+<li>
+    <a href="../exceptions/" class="dropdown-item">Exceptions</a>
+</li>
+                                    
+<li>
+    <a href="../cli/" class="dropdown-item">CLI</a>
+</li>
+                                    
+<li>
+    <a href="../trading/" class="dropdown-item">Trading</a>
+</li>
+                                    
+<li>
+    <a href="../history/" class="dropdown-item">History Collection (SQLite)</a>
+</li>
+                                    
+<li>
+    <a href="../observability/" class="dropdown-item">Observability</a>
+</li>
+                                    
+<li>
+    <a href="../telemetry/" class="dropdown-item">Telemetry</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">Analytics</a>
+</li>
+                                    
+<li>
+    <a href="../utils/" class="dropdown-item">Utils</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href="../telemetry/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../utils/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/dceoy/mt5cli/edit/master/docs/api/analytics.md" class="nav-link">Edit on dceoy/mt5cli
+                                    </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#analytics" class="nav-link">Analytics</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#mt5cli.analytics" class="nav-link">analytics</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#static-dashboard-workflow" class="nav-link">Static dashboard workflow</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#analytics-views" class="nav-link">Analytics views</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="analytics">Analytics<a class="headerlink" href="#analytics" title="Permanent link">&para;</a></h1>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="mt5cli.analytics" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">mt5cli.analytics</span>
+
+
+<a href="#mt5cli.analytics" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Canonical trading analytics views and static-dashboard Parquet publication.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="mt5cli.analytics.MANIFEST_NAME" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">MANIFEST_NAME</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#mt5cli.analytics.MANIFEST_NAME" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">MANIFEST_NAME</span> <span class="o">=</span> <span class="s1">&#39;manifest.json&#39;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="mt5cli.analytics.SCHEMA_VERSION" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">SCHEMA_VERSION</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#mt5cli.analytics.SCHEMA_VERSION" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">SCHEMA_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="mt5cli.analytics.logger" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">logger</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#mt5cli.analytics.logger" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">logger</span> <span class="o">=</span> <span class="n"><span title="logging.getLogger">getLogger</span></span><span class="p">(</span><span class="n"><span title="__name__">__name__</span></span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="mt5cli.analytics.create_analytics_views" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">create_analytics_views</span>
+
+
+<a href="#mt5cli.analytics.create_analytics_views" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">create_analytics_views</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n"><span title="sqlite3.Connection">Connection</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">temporary</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Create the canonical <code>analytics_*</code> views idempotently.</p>
+<p><code>analytics_trades</code> has one row per completed trade leg. A leg is the
+stretch of a <code>position_id</code> between reversals: a <code>DEAL_ENTRY_INOUT</code> deal
+closes the current leg and opens the next (<code>leg_index</code>); its volume,
+commission and fee are split pro rata and its swap goes to the closing leg.
+A leg is complete once its closing volume covers
+its opening volume, so partially closed legs are excluded. For positions
+without reversals, leg 0 matches <code>positions_reconstructed</code>. <code>net_profit</code>
+is <code>profit + commission + swap + fee</code> with NULL treated as zero, and
+<code>magic</code>/<code>commission</code>/<code>swap</code>/<code>fee</code> come from <code>history_deals</code>.
+A leg needs a visible opening volume, and its position must start inside the
+captured history (its first visible deal is an entry-in), to count as a
+trade. A leg's <code>magic</code> is the entry magic, or NULL when its entry deals mix
+magics (see <code>magic_count</code>). <code>analytics_realized_events</code> lists every deal
+portion, including portions of partially closed, still-open and not fully
+captured legs, at its own timestamp with its own deal's <code>magic</code> (cash
+basis) and feeds
+<code>analytics_daily_pnl</code> and <code>analytics_equity</code>; events of a completed leg
+sum to its <code>net_profit</code>. <code>analytics_strategy_stats</code> aggregates the legs by
+<code>symbol</code> and <code>magic</code>. Stored trade-server wall-clock timestamps are
+preserved without implicit UTC conversion. A trade is a win when
+<code>net_profit &gt; 0</code> and a loss when <code>net_profit &lt; 0</code>; break-even trades
+count as neither.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>conn</code>
+            </td>
+            <td>
+                  <code><span title="sqlite3.Connection">Connection</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>SQLite connection holding <code>history_deals</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>temporary</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Create connection-local TEMP views so a read-only database
+is never modified.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>True if the views were created, False if <code>history_deals</code> lacks the</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>columns required for position reconstruction.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>mt5cli/analytics.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span>
+<span class="normal"><a href="#__codelineno-0-206">206</a></span>
+<span class="normal"><a href="#__codelineno-0-207">207</a></span>
+<span class="normal"><a href="#__codelineno-0-208">208</a></span>
+<span class="normal"><a href="#__codelineno-0-209">209</a></span>
+<span class="normal"><a href="#__codelineno-0-210">210</a></span>
+<span class="normal"><a href="#__codelineno-0-211">211</a></span>
+<span class="normal"><a href="#__codelineno-0-212">212</a></span>
+<span class="normal"><a href="#__codelineno-0-213">213</a></span>
+<span class="normal"><a href="#__codelineno-0-214">214</a></span>
+<span class="normal"><a href="#__codelineno-0-215">215</a></span>
+<span class="normal"><a href="#__codelineno-0-216">216</a></span>
+<span class="normal"><a href="#__codelineno-0-217">217</a></span>
+<span class="normal"><a href="#__codelineno-0-218">218</a></span>
+<span class="normal"><a href="#__codelineno-0-219">219</a></span>
+<span class="normal"><a href="#__codelineno-0-220">220</a></span>
+<span class="normal"><a href="#__codelineno-0-221">221</a></span>
+<span class="normal"><a href="#__codelineno-0-222">222</a></span>
+<span class="normal"><a href="#__codelineno-0-223">223</a></span>
+<span class="normal"><a href="#__codelineno-0-224">224</a></span>
+<span class="normal"><a href="#__codelineno-0-225">225</a></span>
+<span class="normal"><a href="#__codelineno-0-226">226</a></span>
+<span class="normal"><a href="#__codelineno-0-227">227</a></span>
+<span class="normal"><a href="#__codelineno-0-228">228</a></span>
+<span class="normal"><a href="#__codelineno-0-229">229</a></span>
+<span class="normal"><a href="#__codelineno-0-230">230</a></span>
+<span class="normal"><a href="#__codelineno-0-231">231</a></span>
+<span class="normal"><a href="#__codelineno-0-232">232</a></span>
+<span class="normal"><a href="#__codelineno-0-233">233</a></span>
+<span class="normal"><a href="#__codelineno-0-234">234</a></span>
+<span class="normal"><a href="#__codelineno-0-235">235</a></span>
+<span class="normal"><a href="#__codelineno-0-236">236</a></span>
+<span class="normal"><a href="#__codelineno-0-237">237</a></span>
+<span class="normal"><a href="#__codelineno-0-238">238</a></span>
+<span class="normal"><a href="#__codelineno-0-239">239</a></span>
+<span class="normal"><a href="#__codelineno-0-240">240</a></span>
+<span class="normal"><a href="#__codelineno-0-241">241</a></span>
+<span class="normal"><a href="#__codelineno-0-242">242</a></span>
+<span class="normal"><a href="#__codelineno-0-243">243</a></span>
+<span class="normal"><a href="#__codelineno-0-244">244</a></span>
+<span class="normal"><a href="#__codelineno-0-245">245</a></span>
+<span class="normal"><a href="#__codelineno-0-246">246</a></span>
+<span class="normal"><a href="#__codelineno-0-247">247</a></span>
+<span class="normal"><a href="#__codelineno-0-248">248</a></span>
+<span class="normal"><a href="#__codelineno-0-249">249</a></span>
+<span class="normal"><a href="#__codelineno-0-250">250</a></span>
+<span class="normal"><a href="#__codelineno-0-251">251</a></span>
+<span class="normal"><a href="#__codelineno-0-252">252</a></span>
+<span class="normal"><a href="#__codelineno-0-253">253</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-203" name="__codelineno-0-203"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_analytics_views</span><span class="p">(</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">,</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-206" name="__codelineno-0-206"></a>    <span class="n">temporary</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create the canonical ``analytics_*`` views idempotently.</span>
+<a id="__codelineno-0-209" name="__codelineno-0-209"></a>
+<a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">    ``analytics_trades`` has one row per completed trade leg. A leg is the</span>
+<a id="__codelineno-0-211" name="__codelineno-0-211"></a><span class="sd">    stretch of a ``position_id`` between reversals: a ``DEAL_ENTRY_INOUT`` deal</span>
+<a id="__codelineno-0-212" name="__codelineno-0-212"></a><span class="sd">    closes the current leg and opens the next (``leg_index``); its volume,</span>
+<a id="__codelineno-0-213" name="__codelineno-0-213"></a><span class="sd">    commission and fee are split pro rata and its swap goes to the closing leg.</span>
+<a id="__codelineno-0-214" name="__codelineno-0-214"></a><span class="sd">    A leg is complete once its closing volume covers</span>
+<a id="__codelineno-0-215" name="__codelineno-0-215"></a><span class="sd">    its opening volume, so partially closed legs are excluded. For positions</span>
+<a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">    without reversals, leg 0 matches ``positions_reconstructed``. ``net_profit``</span>
+<a id="__codelineno-0-217" name="__codelineno-0-217"></a><span class="sd">    is ``profit + commission + swap + fee`` with NULL treated as zero, and</span>
+<a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">    ``magic``/``commission``/``swap``/``fee`` come from ``history_deals``.</span>
+<a id="__codelineno-0-219" name="__codelineno-0-219"></a><span class="sd">    A leg needs a visible opening volume, and its position must start inside the</span>
+<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="sd">    captured history (its first visible deal is an entry-in), to count as a</span>
+<a id="__codelineno-0-221" name="__codelineno-0-221"></a><span class="sd">    trade. A leg&#39;s ``magic`` is the entry magic, or NULL when its entry deals mix</span>
+<a id="__codelineno-0-222" name="__codelineno-0-222"></a><span class="sd">    magics (see ``magic_count``). ``analytics_realized_events`` lists every deal</span>
+<a id="__codelineno-0-223" name="__codelineno-0-223"></a><span class="sd">    portion, including portions of partially closed, still-open and not fully</span>
+<a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="sd">    captured legs, at its own timestamp with its own deal&#39;s ``magic`` (cash</span>
+<a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="sd">    basis) and feeds</span>
+<a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">    ``analytics_daily_pnl`` and ``analytics_equity``; events of a completed leg</span>
+<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">    sum to its ``net_profit``. ``analytics_strategy_stats`` aggregates the legs by</span>
+<a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="sd">    ``symbol`` and ``magic``. Stored trade-server wall-clock timestamps are</span>
+<a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">    preserved without implicit UTC conversion. A trade is a win when</span>
+<a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">    ``net_profit &gt; 0`` and a loss when ``net_profit &lt; 0``; break-even trades</span>
+<a id="__codelineno-0-231" name="__codelineno-0-231"></a><span class="sd">    count as neither.</span>
+<a id="__codelineno-0-232" name="__codelineno-0-232"></a>
+<a id="__codelineno-0-233" name="__codelineno-0-233"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-234" name="__codelineno-0-234"></a><span class="sd">        conn: SQLite connection holding ``history_deals``.</span>
+<a id="__codelineno-0-235" name="__codelineno-0-235"></a><span class="sd">        temporary: Create connection-local TEMP views so a read-only database</span>
+<a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="sd">            is never modified.</span>
+<a id="__codelineno-0-237" name="__codelineno-0-237"></a>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="sd">        True if the views were created, False if ``history_deals`` lacks the</span>
+<a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="sd">        columns required for position reconstruction.</span>
+<a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-242" name="__codelineno-0-242"></a>    <span class="n">deal_columns</span> <span class="o">=</span> <span class="n">get_table_columns</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="s2">&quot;history_deals&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-243" name="__codelineno-0-243"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">create_deal_portions_view</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">deal_columns</span><span class="p">,</span> <span class="n">temporary</span><span class="o">=</span><span class="n">temporary</span><span class="p">):</span>
+<a id="__codelineno-0-244" name="__codelineno-0-244"></a>        <span class="k">return</span> <span class="kc">False</span>
+<a id="__codelineno-0-245" name="__codelineno-0-245"></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">sql</span> <span class="ow">in</span> <span class="p">(</span>
+<a id="__codelineno-0-246" name="__codelineno-0-246"></a>        <span class="p">(</span><span class="s2">&quot;analytics_trades&quot;</span><span class="p">,</span> <span class="n">_TRADES_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-247" name="__codelineno-0-247"></a>        <span class="p">(</span><span class="s2">&quot;analytics_realized_events&quot;</span><span class="p">,</span> <span class="n">_REALIZED_EVENTS_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-248" name="__codelineno-0-248"></a>        <span class="p">(</span><span class="s2">&quot;analytics_daily_pnl&quot;</span><span class="p">,</span> <span class="n">_DAILY_PNL_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-249" name="__codelineno-0-249"></a>        <span class="p">(</span><span class="s2">&quot;analytics_strategy_stats&quot;</span><span class="p">,</span> <span class="n">_STRATEGY_STATS_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-250" name="__codelineno-0-250"></a>        <span class="p">(</span><span class="s2">&quot;analytics_equity&quot;</span><span class="p">,</span> <span class="n">_EQUITY_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-251" name="__codelineno-0-251"></a>    <span class="p">):</span>
+<a id="__codelineno-0-252" name="__codelineno-0-252"></a>        <span class="n">_create_view</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">sql</span><span class="p">,</span> <span class="n">temporary</span><span class="o">=</span><span class="n">temporary</span><span class="p">)</span>
+<a id="__codelineno-0-253" name="__codelineno-0-253"></a>    <span class="k">return</span> <span class="kc">True</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="mt5cli.analytics.publish_dashboard" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">publish_dashboard</span>
+
+
+<a href="#mt5cli.analytics.publish_dashboard" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">publish_dashboard</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">source</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="pathlib.Path">Path</span></span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">output_dir</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="pathlib.Path">Path</span></span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">manifest_name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="n"><a class="autorefs autorefs-internal" title="MANIFEST_NAME
+
+
+  
+      module-attribute
+   (mt5cli.analytics.MANIFEST_NAME)" href="#mt5cli.analytics.MANIFEST_NAME">MANIFEST_NAME</a></span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Publish Parquet datasets and a manifest for static dashboards.</p>
+<p>Reads an existing SQLite history database without modifying it or
+connecting to MetaTrader 5, and writes <code>trades</code>, <code>daily_pnl</code>,
+<code>strategy_stats</code>, <code>equity</code> and <code>account_snapshots</code> Parquet files plus
+a manifest into <code>output_dir</code>. Datasets whose source tables are missing
+are skipped and omitted from the manifest. The manifest is written last
+so readers never see it before the datasets it lists.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>source</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="pathlib.Path">Path</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to the SQLite history database.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="pathlib.Path">Path</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Directory receiving the Parquet files and manifest.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>manifest_name</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>File name (no directory components, and not the name of a
+dataset file) of the manifest inside <code>output_dir</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="MANIFEST_NAME
+
+
+  
+      module-attribute
+   (mt5cli.analytics.MANIFEST_NAME)" href="#mt5cli.analytics.MANIFEST_NAME">MANIFEST_NAME</a></code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The manifest as a dictionary.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If the source database is invalid, <code>manifest_name</code> is not a
+plain file name or collides with a dataset file, or no dataset can be
+built.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>mt5cli/analytics.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-332">332</a></span>
+<span class="normal"><a href="#__codelineno-0-333">333</a></span>
+<span class="normal"><a href="#__codelineno-0-334">334</a></span>
+<span class="normal"><a href="#__codelineno-0-335">335</a></span>
+<span class="normal"><a href="#__codelineno-0-336">336</a></span>
+<span class="normal"><a href="#__codelineno-0-337">337</a></span>
+<span class="normal"><a href="#__codelineno-0-338">338</a></span>
+<span class="normal"><a href="#__codelineno-0-339">339</a></span>
+<span class="normal"><a href="#__codelineno-0-340">340</a></span>
+<span class="normal"><a href="#__codelineno-0-341">341</a></span>
+<span class="normal"><a href="#__codelineno-0-342">342</a></span>
+<span class="normal"><a href="#__codelineno-0-343">343</a></span>
+<span class="normal"><a href="#__codelineno-0-344">344</a></span>
+<span class="normal"><a href="#__codelineno-0-345">345</a></span>
+<span class="normal"><a href="#__codelineno-0-346">346</a></span>
+<span class="normal"><a href="#__codelineno-0-347">347</a></span>
+<span class="normal"><a href="#__codelineno-0-348">348</a></span>
+<span class="normal"><a href="#__codelineno-0-349">349</a></span>
+<span class="normal"><a href="#__codelineno-0-350">350</a></span>
+<span class="normal"><a href="#__codelineno-0-351">351</a></span>
+<span class="normal"><a href="#__codelineno-0-352">352</a></span>
+<span class="normal"><a href="#__codelineno-0-353">353</a></span>
+<span class="normal"><a href="#__codelineno-0-354">354</a></span>
+<span class="normal"><a href="#__codelineno-0-355">355</a></span>
+<span class="normal"><a href="#__codelineno-0-356">356</a></span>
+<span class="normal"><a href="#__codelineno-0-357">357</a></span>
+<span class="normal"><a href="#__codelineno-0-358">358</a></span>
+<span class="normal"><a href="#__codelineno-0-359">359</a></span>
+<span class="normal"><a href="#__codelineno-0-360">360</a></span>
+<span class="normal"><a href="#__codelineno-0-361">361</a></span>
+<span class="normal"><a href="#__codelineno-0-362">362</a></span>
+<span class="normal"><a href="#__codelineno-0-363">363</a></span>
+<span class="normal"><a href="#__codelineno-0-364">364</a></span>
+<span class="normal"><a href="#__codelineno-0-365">365</a></span>
+<span class="normal"><a href="#__codelineno-0-366">366</a></span>
+<span class="normal"><a href="#__codelineno-0-367">367</a></span>
+<span class="normal"><a href="#__codelineno-0-368">368</a></span>
+<span class="normal"><a href="#__codelineno-0-369">369</a></span>
+<span class="normal"><a href="#__codelineno-0-370">370</a></span>
+<span class="normal"><a href="#__codelineno-0-371">371</a></span>
+<span class="normal"><a href="#__codelineno-0-372">372</a></span>
+<span class="normal"><a href="#__codelineno-0-373">373</a></span>
+<span class="normal"><a href="#__codelineno-0-374">374</a></span>
+<span class="normal"><a href="#__codelineno-0-375">375</a></span>
+<span class="normal"><a href="#__codelineno-0-376">376</a></span>
+<span class="normal"><a href="#__codelineno-0-377">377</a></span>
+<span class="normal"><a href="#__codelineno-0-378">378</a></span>
+<span class="normal"><a href="#__codelineno-0-379">379</a></span>
+<span class="normal"><a href="#__codelineno-0-380">380</a></span>
+<span class="normal"><a href="#__codelineno-0-381">381</a></span>
+<span class="normal"><a href="#__codelineno-0-382">382</a></span>
+<span class="normal"><a href="#__codelineno-0-383">383</a></span>
+<span class="normal"><a href="#__codelineno-0-384">384</a></span>
+<span class="normal"><a href="#__codelineno-0-385">385</a></span>
+<span class="normal"><a href="#__codelineno-0-386">386</a></span>
+<span class="normal"><a href="#__codelineno-0-387">387</a></span>
+<span class="normal"><a href="#__codelineno-0-388">388</a></span>
+<span class="normal"><a href="#__codelineno-0-389">389</a></span>
+<span class="normal"><a href="#__codelineno-0-390">390</a></span>
+<span class="normal"><a href="#__codelineno-0-391">391</a></span>
+<span class="normal"><a href="#__codelineno-0-392">392</a></span>
+<span class="normal"><a href="#__codelineno-0-393">393</a></span>
+<span class="normal"><a href="#__codelineno-0-394">394</a></span>
+<span class="normal"><a href="#__codelineno-0-395">395</a></span>
+<span class="normal"><a href="#__codelineno-0-396">396</a></span>
+<span class="normal"><a href="#__codelineno-0-397">397</a></span>
+<span class="normal"><a href="#__codelineno-0-398">398</a></span>
+<span class="normal"><a href="#__codelineno-0-399">399</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-332" name="__codelineno-0-332"></a><span class="k">def</span><span class="w"> </span><span class="nf">publish_dashboard</span><span class="p">(</span>
+<a id="__codelineno-0-333" name="__codelineno-0-333"></a>    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-334" name="__codelineno-0-334"></a>    <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-335" name="__codelineno-0-335"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-336" name="__codelineno-0-336"></a>    <span class="n">manifest_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">MANIFEST_NAME</span><span class="p">,</span>
+<a id="__codelineno-0-337" name="__codelineno-0-337"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<a id="__codelineno-0-338" name="__codelineno-0-338"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Publish Parquet datasets and a manifest for static dashboards.</span>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a><span class="sd">    Reads an existing SQLite history database without modifying it or</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a><span class="sd">    connecting to MetaTrader 5, and writes ``trades``, ``daily_pnl``,</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a><span class="sd">    ``strategy_stats``, ``equity`` and ``account_snapshots`` Parquet files plus</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a><span class="sd">    a manifest into ``output_dir``. Datasets whose source tables are missing</span>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a><span class="sd">    are skipped and omitted from the manifest. The manifest is written last</span>
+<a id="__codelineno-0-345" name="__codelineno-0-345"></a><span class="sd">    so readers never see it before the datasets it lists.</span>
+<a id="__codelineno-0-346" name="__codelineno-0-346"></a>
+<a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-348" name="__codelineno-0-348"></a><span class="sd">        source: Path to the SQLite history database.</span>
+<a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">        output_dir: Directory receiving the Parquet files and manifest.</span>
+<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">        manifest_name: File name (no directory components, and not the name of a</span>
+<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">            dataset file) of the manifest inside ``output_dir``.</span>
+<a id="__codelineno-0-352" name="__codelineno-0-352"></a>
+<a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-354" name="__codelineno-0-354"></a><span class="sd">        The manifest as a dictionary.</span>
+<a id="__codelineno-0-355" name="__codelineno-0-355"></a>
+<a id="__codelineno-0-356" name="__codelineno-0-356"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-357" name="__codelineno-0-357"></a><span class="sd">        ValueError: If the source database is invalid, ``manifest_name`` is not a</span>
+<a id="__codelineno-0-358" name="__codelineno-0-358"></a><span class="sd">            plain file name or collides with a dataset file, or no dataset can be</span>
+<a id="__codelineno-0-359" name="__codelineno-0-359"></a><span class="sd">            built.</span>
+<a id="__codelineno-0-360" name="__codelineno-0-360"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-361" name="__codelineno-0-361"></a>    <span class="n">manifest_name</span> <span class="o">=</span> <span class="n">_validate_manifest_name</span><span class="p">(</span><span class="n">manifest_name</span><span class="p">)</span>
+<a id="__codelineno-0-362" name="__codelineno-0-362"></a>    <span class="n">conn</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">open_existing_sqlite_database</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+<a id="__codelineno-0-363" name="__codelineno-0-363"></a>    <span class="k">with</span> <span class="n">closing</span><span class="p">(</span><span class="n">conn</span><span class="p">):</span>
+<a id="__codelineno-0-364" name="__codelineno-0-364"></a>        <span class="n">frames</span> <span class="o">=</span> <span class="n">_collect_dataset_frames</span><span class="p">(</span><span class="n">conn</span><span class="p">)</span>
+<a id="__codelineno-0-365" name="__codelineno-0-365"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">frames</span><span class="p">:</span>
+<a id="__codelineno-0-366" name="__codelineno-0-366"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;No analytics datasets could be built from </span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-367" name="__codelineno-0-367"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<a id="__codelineno-0-368" name="__codelineno-0-368"></a>    <span class="n">dataset_files</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">frames</span><span class="p">}</span>
+<a id="__codelineno-0-369" name="__codelineno-0-369"></a>    <span class="k">if</span> <span class="n">manifest_name</span> <span class="ow">in</span> <span class="n">dataset_files</span><span class="p">:</span>
+<a id="__codelineno-0-370" name="__codelineno-0-370"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Manifest name collides with dashboard dataset: </span><span class="si">{</span><span class="n">manifest_name</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-371" name="__codelineno-0-371"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<a id="__codelineno-0-372" name="__codelineno-0-372"></a>    <span class="n">out_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+<a id="__codelineno-0-373" name="__codelineno-0-373"></a>    <span class="n">out_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-374" name="__codelineno-0-374"></a>    <span class="n">manifest</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-375" name="__codelineno-0-375"></a>        <span class="s2">&quot;schema_version&quot;</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span>
+<a id="__codelineno-0-376" name="__codelineno-0-376"></a>        <span class="s2">&quot;generated_at&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">UTC</span><span class="p">)</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(</span><span class="n">timespec</span><span class="o">=</span><span class="s2">&quot;seconds&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-377" name="__codelineno-0-377"></a>        <span class="s2">&quot;mt5cli_version&quot;</span><span class="p">:</span> <span class="n">_mt5cli_version</span><span class="p">(),</span>
+<a id="__codelineno-0-378" name="__codelineno-0-378"></a>        <span class="s2">&quot;datasets&quot;</span><span class="p">:</span> <span class="p">[</span>
+<a id="__codelineno-0-379" name="__codelineno-0-379"></a>            <span class="p">{</span>
+<a id="__codelineno-0-380" name="__codelineno-0-380"></a>                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
+<a id="__codelineno-0-381" name="__codelineno-0-381"></a>                <span class="s2">&quot;file&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-382" name="__codelineno-0-382"></a>                <span class="s2">&quot;rows&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">frame</span><span class="p">),</span>
+<a id="__codelineno-0-383" name="__codelineno-0-383"></a>                <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">column</span><span class="p">)</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">frame</span><span class="o">.</span><span class="n">columns</span><span class="p">],</span>
+<a id="__codelineno-0-384" name="__codelineno-0-384"></a>            <span class="p">}</span>
+<a id="__codelineno-0-385" name="__codelineno-0-385"></a>            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">frames</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+<a id="__codelineno-0-386" name="__codelineno-0-386"></a>        <span class="p">],</span>
+<a id="__codelineno-0-387" name="__codelineno-0-387"></a>    <span class="p">}</span>
+<a id="__codelineno-0-388" name="__codelineno-0-388"></a>    <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="nb">dir</span><span class="o">=</span><span class="n">out_dir</span><span class="p">)</span> <span class="k">as</span> <span class="n">tmp</span><span class="p">:</span>
+<a id="__codelineno-0-389" name="__codelineno-0-389"></a>        <span class="n">staged</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tmp</span><span class="p">)</span>
+<a id="__codelineno-0-390" name="__codelineno-0-390"></a>        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">frames</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-391" name="__codelineno-0-391"></a>            <span class="n">export_dataframe</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">staged</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span><span class="p">,</span> <span class="s2">&quot;parquet&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-392" name="__codelineno-0-392"></a>        <span class="p">(</span><span class="n">staged</span> <span class="o">/</span> <span class="n">manifest_name</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span>
+<a id="__codelineno-0-393" name="__codelineno-0-393"></a>            <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">manifest</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-394" name="__codelineno-0-394"></a>            <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-395" name="__codelineno-0-395"></a>        <span class="p">)</span>
+<a id="__codelineno-0-396" name="__codelineno-0-396"></a>        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">frames</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">manifest_name</span><span class="p">]:</span>
+<a id="__codelineno-0-397" name="__codelineno-0-397"></a>            <span class="p">(</span><span class="n">staged</span> <span class="o">/</span> <span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">out_dir</span> <span class="o">/</span> <span class="n">name</span><span class="p">)</span>
+<a id="__codelineno-0-398" name="__codelineno-0-398"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Published </span><span class="si">%d</span><span class="s2"> dashboard datasets to </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">frames</span><span class="p">),</span> <span class="n">out_dir</span><span class="p">)</span>
+<a id="__codelineno-0-399" name="__codelineno-0-399"></a>    <span class="k">return</span> <span class="n">manifest</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="static-dashboard-workflow">Static dashboard workflow<a class="headerlink" href="#static-dashboard-workflow" title="Permanent link">&para;</a></h2>
+<p>mt5cli keeps SQLite as the canonical local store and publishes browser-facing
+Parquet datasets from it, so a static site (for example DuckDB-Wasm) can query
+the data without a live API or direct SQLite access. Visualization stays
+outside mt5cli.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>mt5cli<span class="w"> </span>-o<span class="w"> </span>dist/data/manifest.json<span class="w"> </span>publish-dashboard<span class="w"> </span>--sqlite3<span class="w"> </span>history.db
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli</span><span class="w"> </span><span class="kn">import</span> <span class="n">publish_dashboard</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">manifest</span> <span class="o">=</span> <span class="n">publish_dashboard</span><span class="p">(</span><span class="s2">&quot;history.db&quot;</span><span class="p">,</span> <span class="s2">&quot;dist/data&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Publication never connects to MetaTrader 5 and never modifies the source
+database (analytics views are created as connection-local TEMP views). It
+requires the <code>parquet</code> extra (<code>pip install "mt5cli[parquet]"</code>).</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Source view</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>trades.parquet</code></td>
+<td><code>analytics_trades</code></td>
+</tr>
+<tr>
+<td><code>daily_pnl.parquet</code></td>
+<td><code>analytics_daily_pnl</code></td>
+</tr>
+<tr>
+<td><code>strategy_stats.parquet</code></td>
+<td><code>analytics_strategy_stats</code></td>
+</tr>
+<tr>
+<td><code>equity.parquet</code></td>
+<td><code>analytics_equity</code></td>
+</tr>
+<tr>
+<td><code>account_snapshots.parquet</code></td>
+<td><code>account_snapshots</code> joined to successful runs</td>
+</tr>
+<tr>
+<td><code>manifest.json</code></td>
+<td><code>schema_version</code>, <code>generated_at</code>, <code>mt5cli_version</code>, and per dataset <code>name</code>, <code>file</code>, <code>rows</code>, <code>columns</code></td>
+</tr>
+</tbody>
+</table>
+<p>Datasets whose source tables are missing are skipped and omitted from the
+manifest. The manifest is written last. <code>manifest_name</code> must be a plain file name (no <code>/</code>, <code>\\</code>, drive prefix or <code>..</code>) that is not the name of a dataset file; otherwise <code>ValueError</code> is raised before anything is written (the CLI reports it as a usage error).</p>
+<h2 id="analytics-views">Analytics views<a class="headerlink" href="#analytics-views" title="Permanent link">&para;</a></h2>
+<p><code>create_analytics_views(conn)</code> creates the views idempotently in an existing
+history database (<code>temporary=True</code> creates TEMP views for read-only databases).</p>
+<ul>
+<li><code>analytics_trades</code>: one row per completed trade leg (built on the history layer's <code>deal_portions</code> view, the same source as <code>positions_reconstructed</code>). A leg is the stretch of
+  a <code>position_id</code> between reversals: a <code>DEAL_ENTRY_INOUT</code> deal closes the
+  current leg and opens the next one (<code>leg_index</code>). Its volume, commission and
+  fee are split pro rata between the two legs; its swap goes wholly to the
+  closing leg (MT5 reports <code>DEAL_SWAP</code> for the position being closed), and
+  profit is realized on the closed part only. A leg is complete once its closing volume covers its opening
+  volume (1e-9 lot tolerance), so partially closed legs and the still-open
+  leg after a reversal are excluded. For positions without reversals, leg 0
+  matches <code>positions_reconstructed</code>. Columns: <code>position_id</code>, <code>symbol</code>,
+  <code>leg_index</code>, <code>magic</code>, <code>magic_count</code>, <code>side</code>, <code>open_time</code>, <code>close_time</code>, <code>close_date</code>,
+  <code>holding_seconds</code>, <code>volume</code>, <code>entry_price</code>, <code>exit_price</code> (volume-weighted),
+  <code>reversal_count</code>, <code>deals_count</code>, <code>profit</code>, <code>commission</code>, <code>swap</code>, <code>fee</code>,
+  <code>net_profit</code>. Numeric timestamps stay numeric epoch values; textual
+  timestamps remain timezone-naive MT5 trade-server wall-clock values. No
+  implicit UTC conversion is performed.</li>
+<li><code>analytics_realized_events</code>: every deal portion, each at its own timestamp
+  (cash basis: an entry's commission lands on the entry date and a partial
+  close's profit on the day it is realized), including partially closed and
+  still-open legs. Events of a completed leg sum to that leg's <code>net_profit</code>,
+  so cumulative equity also reflects entry costs and partial-close profit of
+  legs that have not completed yet.
+  Each event carries its own deal's <code>magic</code>. A leg needs a visible opening
+  volume to count as a trade, and its position must start inside the captured
+  history (its first visible deal is an entry-in, since the reversal split cannot
+  be reconstructed otherwise), so positions opened before the captured history
+  appear only in the events, daily P/L and equity. This check is best-effort: a
+  scale-in cut by the capture window looks like a position start and cannot be told
+  apart from one using the deals alone, so collect history from before the oldest
+  open position when exact trade legs matter.</li>
+<li><code>analytics_daily_pnl</code>: per <code>date</code>, <code>symbol</code>, <code>magic</code> (the deal-level magic)
+  from the realized events: <code>event_count</code>, <code>profit</code>, <code>commission</code>, <code>swap</code>, <code>fee</code>, <code>net_profit</code>.</li>
+<li><code>analytics_strategy_stats</code>: per <code>symbol</code>, <code>magic</code> from the trade legs (trade
+  count, wins, losses, win rate, gross profit/loss, profit factor), plus
+  <code>avg_holding_seconds</code>, <code>first_open_time</code>, <code>last_close_time</code>. A leg's <code>magic</code> is
+  its entry magic; legs whose entry deals mix magics have a NULL <code>magic</code> with
+  <code>magic_count &gt; 1</code>, so for such legs daily P/L by magic and the strategy stats
+  by magic can differ.</li>
+<li><code>analytics_equity</code>: one row per realized event in time order with
+  <code>cumulative_net_profit</code> (realized P&amp;L only).</li>
+</ul>
+<p>Net P/L is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>net_profit = COALESCE(profit, 0) + COALESCE(commission, 0)
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>           + COALESCE(swap, 0) + COALESCE(fee, 0)
+</code></pre></div>
+<p>Missing optional deal columns are treated as zero (or NULL for <code>magic</code>). A trade
+is a win when <code>net_profit &gt; 0</code> and a loss when <code>net_profit &lt; 0</code>; break-even
+trades count as neither. <code>gross_profit</code> and <code>gross_loss</code> sum positive and
+negative trade <code>net_profit</code>, and <code>profit_factor = gross_profit / ABS(gross_loss)</code>
+is NULL without losses. Metrics needing unavailable state (such as MAE/MFE) are
+out of scope.</p>
+<p>Parquet columns with a fixed meaning are written with stable types (<code>Int64</code>,
+<code>float64</code>, <code>string</code>) even for empty tables; time columns keep the stored
+representation.</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+        <script src="../../search/main.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
