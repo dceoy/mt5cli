@@ -14,8 +14,9 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 from .history import (
+    VOLUME_EPSILON,
+    create_deal_portions_view,
     get_table_columns,
-    has_position_reconstruction_columns,
     open_existing_sqlite_database,
 )
 from .utils import export_dataframe
@@ -28,10 +29,6 @@ logger = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
 MANIFEST_NAME = "manifest.json"
 
-_TRADE_DEAL_TYPES_SQL = "(0, 1)"
-_COST_COLUMNS = ("commission", "swap", "fee")
-# Summed REAL lots (e.g. 0.1 + 0.2) differ from the closing lot by float error.
-_VOLUME_EPSILON = 1e-9
 # Fixed-type columns are cast so Parquet types do not depend on the data. Time
 # columns stay as stored because they are epoch numbers or naive text.
 _INT_COLUMNS = frozenset({
@@ -104,68 +101,6 @@ def _create_view(
     conn.execute(f'CREATE {"TEMP " if temporary else ""}VIEW "{name}" AS {select_sql}')
 
 
-def _deal_portions_sql(deal_columns: set[str]) -> str:
-    """Build analytics_deal_portions: trade deals split at position reversals.
-
-    An ``DEAL_ENTRY_INOUT`` deal closes the current leg of its ``position_id``
-    and opens the next one, so it yields a closing and an opening portion with
-    its volume, commission and fee split pro rata (swap goes wholly to the
-    closing portion). All other deals stay whole. ``leg`` counts the reversals
-    that happened before a portion.
-
-    Returns:
-        SELECT statement with one row per deal portion.
-    """
-    ticket = '"ticket"' if "ticket" in deal_columns else "rowid"
-    magic = '"magic"' if "magic" in deal_columns else "NULL"
-    costs = ", ".join(
-        f'COALESCE("{col}", 0) AS "{col}"' if col in deal_columns else f'0 AS "{col}"'
-        for col in _COST_COLUMNS
-    )
-    # Commission and fee are split pro rata by volume. DEAL_SWAP accrued on the
-    # position being closed, so a reversal's whole swap goes to the closing
-    # portion (and stays on the opening one only when nothing is visible to close).
-    closing = ", ".join(
-        col if col == "swap" else f"{col} * closed_vol / volume"
-        for col in _COST_COLUMNS
-    )
-    opening = ", ".join(
-        f"CASE WHEN closed_vol > {_VOLUME_EPSILON} THEN 0 ELSE swap END"
-        if col == "swap"
-        else f"{col} * (volume - closed_vol) / volume"
-        for col in _COST_COLUMNS
-    )
-    keys = "ticket, position_id, symbol, time, type, price, magic"
-    return (
-        "WITH d AS (SELECT"  # noqa: S608
-        f" {ticket} AS ticket, position_id, symbol, time, type, entry, volume,"
-        f" price, {magic} AS magic, COALESCE(profit, 0) AS profit, {costs},"
-        " CASE type WHEN 0 THEN volume ELSE -volume END AS delta"
-        " FROM history_deals"
-        f" WHERE type IN {_TRADE_DEAL_TYPES_SQL} AND position_id != 0),"
-        " w AS (SELECT d.*,"
-        " COALESCE(SUM(delta) OVER win, 0) AS pos_before,"
-        " COALESCE(SUM(entry = 2) OVER win, 0) AS leg_before"
-        " FROM d WINDOW win AS (PARTITION BY position_id, symbol"
-        " ORDER BY time, ticket"
-        " ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)),"
-        " p AS (SELECT *,"
-        " CASE WHEN entry = 2 THEN MIN(ABS(pos_before), volume) END AS closed_vol"
-        " FROM w)"
-        f" SELECT {keys}, leg_before AS leg,"
-        " CASE WHEN entry = 0 THEN 'entry' ELSE 'exit' END AS role,"
-        " volume, profit, commission, swap, fee, entry"
-        " FROM p WHERE entry != 2"
-        f" UNION ALL SELECT {keys}, leg_before, 'exit', closed_vol, profit,"
-        f" {closing}, entry"
-        f" FROM p WHERE entry = 2 AND closed_vol > {_VOLUME_EPSILON}"
-        f" UNION ALL SELECT {keys}, leg_before + 1, 'entry',"
-        " volume - closed_vol, 0,"
-        f" {opening}, entry"
-        f" FROM p WHERE entry = 2 AND volume - closed_vol > {_VOLUME_EPSILON}"
-    )
-
-
 _CLOSE_DATE_SQL = (
     "CASE WHEN typeof({col}) IN ('integer', 'real')"
     " THEN date({col}, 'unixepoch') ELSE date({col}) END"
@@ -201,9 +136,9 @@ _TRADES_SQL = (
     " SUM(entry = 2) AS reversal_count, COUNT(DISTINCT ticket) AS deals_count,"
     " SUM(profit) AS profit, SUM(commission) AS commission,"
     " SUM(swap) AS swap, SUM(fee) AS fee"
-    " FROM analytics_deal_portions GROUP BY position_id, symbol, leg"
+    " FROM deal_portions GROUP BY position_id, symbol, leg"
     " HAVING SUM(CASE WHEN role = 'exit' THEN volume ELSE 0 END)"
-    f" >= SUM(CASE WHEN role = 'entry' THEN volume ELSE 0 END) - {_VOLUME_EPSILON})"
+    f" >= SUM(CASE WHEN role = 'entry' THEN volume ELSE 0 END) - {VOLUME_EPSILON})"
 )
 # Cash basis: every deal portion lands at its own timestamp, including portions
 # of legs that are still open (trades/strategy stats keep completed legs only).
@@ -217,7 +152,7 @@ _REALIZED_EVENTS_SQL = (
     " FROM (SELECT *,"
     " COALESCE(MIN(CASE WHEN role = 'entry' THEN magic END) OVER leg_window,"
     " MIN(magic) OVER leg_window) AS leg_magic"
-    " FROM analytics_deal_portions"
+    " FROM deal_portions"
     " WINDOW leg_window AS (PARTITION BY position_id, symbol, leg)) p"
 )
 
@@ -293,11 +228,9 @@ def create_analytics_views(
         columns required for position reconstruction.
     """
     deal_columns = get_table_columns(conn, "history_deals")
-    if not has_position_reconstruction_columns(deal_columns):
-        logger.warning("Skipping analytics views: history_deals is missing columns")
+    if not create_deal_portions_view(conn, deal_columns, temporary=temporary):
         return False
     for name, sql in (
-        ("analytics_deal_portions", _deal_portions_sql(deal_columns)),
         ("analytics_trades", _TRADES_SQL),
         ("analytics_realized_events", _REALIZED_EVENTS_SQL),
         ("analytics_daily_pnl", _DAILY_PNL_SQL),

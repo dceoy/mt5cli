@@ -123,6 +123,19 @@ erDiagram
         REAL profit
     }
 
+    deal_portions {
+        INTEGER ticket
+        INTEGER position_id
+        TEXT symbol
+        INTEGER leg
+        TEXT role
+        REAL volume
+        REAL profit
+        REAL commission
+        REAL swap
+        REAL fee
+    }
+
     positions_reconstructed {
         INTEGER position_id
         TEXT symbol
@@ -144,20 +157,22 @@ erDiagram
     history_orders ||--o{ history_deals : "order ~ ticket (logical)"
     symbols ||--o{ rates : "symbol (logical)"
     history_deals ||--|| cash_events : "VIEW: type NOT IN (0,1)"
-    history_deals ||--o{ positions_reconstructed : "VIEW: GROUP BY position_id"
+    history_deals ||--o{ deal_portions : "VIEW: deals split at reversals"
+    deal_portions ||--o{ positions_reconstructed : "VIEW: GROUP BY position_id"
 ```
 
 ### Tables and views
 
-| Object                    | Kind  | Source               | Notes                                                                                       |
-| ------------------------- | ----- | -------------------- | ------------------------------------------------------------------------------------------- |
-| `rates`                   | table | `copy_rates_range`   | Indexed on `(symbol, timeframe, time)` when columns exist.                                  |
-| `ticks`                   | table | `copy_ticks_range`   | Indexed on `(symbol, time)` when columns exist.                                             |
-| `history_orders`          | table | `history_orders_get` | Fetched per `--symbol`, then concatenated.                                                  |
-| `history_deals`           | table | `history_deals_get`  | Fetched per `--symbol`, then concatenated. Indexed on `(position_id, symbol)` when present. |
-| `symbols`                 | table | `symbol_info`        | Opt-in. One row per symbol per collection/update, snapshotted at `date_to` / update end.    |
-| `cash_events`             | view  | `history_deals`      | Non-trade deal types (deposits, balance ops, etc.). Requires `type` column.                 |
-| `positions_reconstructed` | view  | `history_deals`      | One row per closed `position_id`; volume-weighted prices and reversal stats.                |
+| Object                    | Kind  | Source               | Notes                                                                                                                                        |
+| ------------------------- | ----- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rates`                   | table | `copy_rates_range`   | Indexed on `(symbol, timeframe, time)` when columns exist.                                                                                   |
+| `ticks`                   | table | `copy_ticks_range`   | Indexed on `(symbol, time)` when columns exist.                                                                                              |
+| `history_orders`          | table | `history_orders_get` | Fetched per `--symbol`, then concatenated.                                                                                                   |
+| `history_deals`           | table | `history_deals_get`  | Fetched per `--symbol`, then concatenated. Indexed on `(position_id, symbol)` when present.                                                  |
+| `symbols`                 | table | `symbol_info`        | Opt-in. One row per symbol per collection/update, snapshotted at `date_to` / update end.                                                     |
+| `cash_events`             | view  | `history_deals`      | Non-trade deal types (deposits, balance ops, etc.). Requires `type` column.                                                                  |
+| `deal_portions`           | view  | `history_deals`      | Canonical leg-aware layer: trade deals, with each reversal (`DEAL_ENTRY_INOUT`) split into a closing and an opening portion (`leg`, `role`). |
+| `positions_reconstructed` | view  | `deal_portions`      | One row per closed `position_id`; volume-weighted prices and reversal stats (reversal volume counted whole).                                 |
 
 Column sets can vary with terminal and pdmt5 version. Views are skipped with a warning
 when required columns are missing.

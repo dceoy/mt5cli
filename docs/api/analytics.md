@@ -40,7 +40,7 @@ manifest. The manifest is written last.
 `create_analytics_views(conn)` creates the views idempotently in an existing
 history database (`temporary=True` creates TEMP views for read-only databases).
 
-- `analytics_trades`: one row per completed trade leg (the canonical leg model; `positions_reconstructed` remains the position-level compatibility view over raw deals). A leg is the stretch of
+- `analytics_trades`: one row per completed trade leg (built on the history layer's `deal_portions` view, the same source as `positions_reconstructed`). A leg is the stretch of
   a `position_id` between reversals: a `DEAL_ENTRY_INOUT` deal closes the
   current leg and opens the next one (`leg_index`). Its volume, commission and
   fee are split pro rata between the two legs; its swap goes wholly to the
