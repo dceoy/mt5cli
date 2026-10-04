@@ -1254,6 +1254,8 @@ def _deal_portions_select_sql(deal_columns: set[str]) -> str:
     deals, which is only reliable when the position's first visible deal is an
     entry-in (``position_start_known = 1``); otherwise ``leg`` and the
     closing/opening split are approximate (cash totals per deal are preserved).
+    The flag is best-effort: a scale-in cut by the capture window also starts with
+    an entry-in deal and cannot be detected from the deals alone.
 
     Returns:
         SELECT statement with one row per deal portion.

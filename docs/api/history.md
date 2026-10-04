@@ -180,7 +180,10 @@ is reliable only for positions whose first visible deal is an entry-in
 (`position_start_known = 1`). When the captured history starts mid-position
 (`position_start_known = 0`), the `leg` numbering and the closing/opening split of a
 reversal are approximate, though every deal's cash totals are preserved and
-`positions_reconstructed` is unaffected.
+`positions_reconstructed` is unaffected. The flag is best-effort: a scale-in is also
+an entry-in deal, so if the capture window cuts a position and a later scale-in is
+the first visible deal, the missing earlier exposure cannot be detected from the
+deals alone.
 
 Column sets can vary with terminal and pdmt5 version. Views are skipped with a warning
 when required columns are missing.
