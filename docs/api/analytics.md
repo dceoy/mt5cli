@@ -57,11 +57,22 @@ history database (`temporary=True` creates TEMP views for read-only databases).
 - `analytics_equity`: per closed trade in close order with
   `cumulative_net_profit` (realized P&L only).
 
-Net P/L is `COALESCE(profit, 0) + COALESCE(commission, 0) + COALESCE(swap, 0)
+Net P/L is:
 
-- COALESCE(fee, 0)`. Missing optional deal columns are treated as zero (or NULL
-for `magic`). A trade is a win when `net_profit > 0`and a loss when`net_profit < 0`; break-even trades count as neither. `gross_profit`and`gross_loss`sum positive and negative trade`net_profit`, and
-`profit_factor = gross_profit / ABS(gross_loss)` is NULL without losses.
-  Metrics needing unavailable state (such as MAE/MFE) are out of scope.
+```text
+net_profit = COALESCE(profit, 0) + COALESCE(commission, 0)
+           + COALESCE(swap, 0) + COALESCE(fee, 0)
+```
+
+Missing optional deal columns are treated as zero (or NULL for `magic`). A trade
+is a win when `net_profit > 0` and a loss when `net_profit < 0`; break-even
+trades count as neither. `gross_profit` and `gross_loss` sum positive and
+negative trade `net_profit`, and `profit_factor = gross_profit / ABS(gross_loss)`
+is NULL without losses. Metrics needing unavailable state (such as MAE/MFE) are
+out of scope.
+
+Parquet columns with a fixed meaning are written with stable types (`Int64`,
+`float64`, `string`) even for empty tables; time columns keep the stored
+representation.
 
 The existing `grafana_*` views are unchanged.

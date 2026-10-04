@@ -7,6 +7,8 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from mt5cli.analytics import create_analytics_views, publish_dashboard
@@ -186,6 +188,62 @@ class TestAnalyticsTrades:
         for column, value in expected.items():
             assert row[column] == _approx(value), column
 
+    def test_scale_in_with_float_lots_counts_as_closed(self, tmp_path: Path) -> None:
+        """Lots that sum with float error (0.1 + 0.2 vs 0.3) still close a trade."""
+        rows: list[tuple[object, ...]] = [
+            (
+                1,
+                20,
+                "EURUSD",
+                "2024-01-01 10:00:00",
+                0,
+                0,
+                0.1,
+                1.1,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1,
+            ),
+            (
+                2,
+                20,
+                "EURUSD",
+                "2024-01-01 10:01:00",
+                0,
+                0,
+                0.2,
+                1.1,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1,
+            ),
+            (
+                3,
+                20,
+                "EURUSD",
+                "2024-01-01 11:00:00",
+                1,
+                1,
+                0.3,
+                1.2,
+                9.0,
+                0.0,
+                0.0,
+                0.0,
+                1,
+            ),
+        ]
+        path = _make_db(tmp_path / "float.db", rows=rows)
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        trades = _query(path, "SELECT position_id, net_profit FROM analytics_trades")
+        assert trades["position_id"].tolist() == [20]
+        assert trades["net_profit"].tolist() == pytest.approx([9.0])
+
     def test_missing_optional_columns_default(self, tmp_path: Path) -> None:
         """Missing magic and cost columns become NULL magic and zero costs."""
         ddl = (
@@ -333,6 +391,65 @@ class TestPublishDashboard:
             r[0]
             for r in sqlite3.connect(path).execute("SELECT name FROM sqlite_master")
         }
+
+    @pytest.mark.parametrize(
+        "rows",
+        [
+            pytest.param([], id="empty-table"),
+            pytest.param(
+                [
+                    (
+                        1,
+                        1,
+                        "EURUSD",
+                        "2024-01-01 10:00:00",
+                        0,
+                        0,
+                        1.0,
+                        1.1,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        None,
+                    ),
+                    (
+                        2,
+                        1,
+                        "EURUSD",
+                        "2024-01-01 11:00:00",
+                        1,
+                        1,
+                        1.0,
+                        1.2,
+                        5.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        None,
+                    ),
+                ],
+                id="null-magic",
+            ),
+        ],
+    )
+    def test_parquet_schema_is_stable(
+        self, tmp_path: Path, rows: list[tuple[object, ...]]
+    ) -> None:
+        """Typed Parquet columns do not depend on whether rows or NULLs exist."""
+        path = _make_db(tmp_path / "history.db", rows=rows)
+        out = tmp_path / "out"
+        publish_dashboard(path, out)
+        trades = pq.read_schema(out / "trades.parquet")
+        assert pa.types.is_int64(trades.field("position_id").type)
+        assert pa.types.is_int64(trades.field("magic").type)
+        assert pa.types.is_float64(trades.field("net_profit").type)
+        assert pa.types.is_large_string(trades.field("symbol").type) or (
+            pa.types.is_string(trades.field("symbol").type)
+        )
+        stats = pq.read_schema(out / "strategy_stats.parquet")
+        assert pa.types.is_int64(stats.field("trade_count").type)
+        assert pa.types.is_float64(stats.field("profit_factor").type)
 
     def test_rejects_manifest_dataset_collision(self, tmp_path: Path) -> None:
         """Manifest file names cannot overwrite generated Parquet datasets."""

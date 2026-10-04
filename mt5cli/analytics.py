@@ -30,6 +30,46 @@ MANIFEST_NAME = "manifest.json"
 
 _TRADE_DEAL_TYPES_SQL = "(0, 1)"
 _COST_COLUMNS = ("commission", "swap", "fee")
+# Summed REAL lots (e.g. 0.1 + 0.2) differ from the closing lot by float error.
+_VOLUME_EPSILON = 1e-9
+# Fixed-type columns are cast so Parquet types do not depend on the data. Time
+# columns stay as stored because they are epoch numbers or naive text.
+_INT_COLUMNS = frozenset({
+    "position_id",
+    "magic",
+    "reversal_count",
+    "deals_count",
+    "holding_seconds",
+    "trade_count",
+    "wins",
+    "losses",
+    "run_id",
+    "login",
+    "leverage",
+})
+_FLOAT_COLUMNS = frozenset({
+    "volume",
+    "entry_price",
+    "exit_price",
+    "profit",
+    "commission",
+    "swap",
+    "fee",
+    "net_profit",
+    "win_rate",
+    "avg_trade",
+    "gross_profit",
+    "gross_loss",
+    "profit_factor",
+    "cumulative_net_profit",
+    "avg_holding_seconds",
+    "balance",
+    "equity",
+    "margin",
+    "margin_free",
+    "margin_level",
+})
+_STRING_COLUMNS = frozenset({"symbol", "side", "date", "close_date", "currency"})
 _VIEW_DATASETS: tuple[tuple[str, str], ...] = (
     ("trades", "analytics_trades"),
     ("daily_pnl", "analytics_daily_pnl"),
@@ -116,7 +156,8 @@ def _trades_select_sql(deal_columns: set[str]) -> str:
         f" WHERE type IN {_TRADE_DEAL_TYPES_SQL} AND position_id != 0"
         " GROUP BY position_id, symbol) c"
         " ON c.position_id = p.position_id AND c.symbol IS p.symbol"
-        " WHERE p.reversal_count > 0 OR p.volume_close >= p.volume_open"
+        " WHERE p.reversal_count > 0"
+        f" OR p.volume_close >= p.volume_open - {_VOLUME_EPSILON}"
     )
 
 
@@ -201,20 +242,41 @@ def _account_snapshots_available(conn: sqlite3.Connection) -> bool:
     ) and "run_id" in get_table_columns(conn, "account_snapshots")
 
 
+def _apply_schema(frame: pd.DataFrame) -> pd.DataFrame:
+    """Cast fixed-type columns so empty or NULL-containing frames keep types.
+
+    Returns:
+        The frame with nullable ``Int64``, ``float64`` and ``string`` columns.
+    """
+    dtypes: dict[str, str] = {}
+    for column in frame.columns:
+        if column in _INT_COLUMNS:
+            dtypes[column] = "Int64"
+        elif column in _FLOAT_COLUMNS:
+            dtypes[column] = "float64"
+        elif column in _STRING_COLUMNS:
+            dtypes[column] = "string"
+    return frame.astype(dtypes)
+
+
 def _collect_dataset_frames(conn: sqlite3.Connection) -> dict[str, pd.DataFrame]:
     frames: dict[str, pd.DataFrame] = {}
     if create_analytics_views(conn, temporary=True):
         for dataset, view in _VIEW_DATASETS:
-            frames[dataset] = pd.read_sql_query(  # pyright: ignore[reportUnknownMemberType]
-                f'SELECT * FROM "{view}"',  # noqa: S608
-                conn,
+            frames[dataset] = _apply_schema(
+                pd.read_sql_query(  # pyright: ignore[reportUnknownMemberType]
+                    f'SELECT * FROM "{view}"',  # noqa: S608
+                    conn,
+                ),
             )
     else:
         logger.warning("Skipping trade analytics: history_deals is missing or invalid")
     if _account_snapshots_available(conn):
-        frames["account_snapshots"] = pd.read_sql_query(  # pyright: ignore[reportUnknownMemberType]
-            _ACCOUNT_SNAPSHOTS_SQL,
-            conn,
+        frames["account_snapshots"] = _apply_schema(
+            pd.read_sql_query(  # pyright: ignore[reportUnknownMemberType]
+                _ACCOUNT_SNAPSHOTS_SQL,
+                conn,
+            ),
         )
     else:
         logger.warning("Skipping account_snapshots: snapshot tables are missing")
