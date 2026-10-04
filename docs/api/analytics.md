@@ -40,21 +40,31 @@ manifest. The manifest is written last.
 `create_analytics_views(conn)` creates the views idempotently in an existing
 history database (`temporary=True` creates TEMP views for read-only databases).
 
-- `analytics_trades`: one row per fully closed position, reusing the
-  `positions_reconstructed` reconstruction. Partially closed positions remain
-  excluded until their closing volume covers their opening volume; a
-  `DEAL_ENTRY_INOUT` reversal is treated as closing the original side. The
-  view adds per-position `magic`, `commission`, `swap`, and `fee`. Columns:
-  `position_id`, `symbol`, `magic`, `side`, `open_time`, `close_time`,
-  `close_date`, `holding_seconds`, `volume`, `entry_price`, `exit_price`
-  (volume-weighted), `reversal_count`, `deals_count`, `profit`,
-  `commission`, `swap`, `fee`, `net_profit`. Numeric timestamps stay
-  numeric epoch values; textual timestamps remain timezone-naive MT5
-  trade-server wall-clock values. No implicit UTC conversion is performed.
-- `analytics_daily_pnl`: per stored close `date`, `symbol`, `magic`.
-- `analytics_strategy_stats`: per `symbol`, `magic`, plus
+- `analytics_trades`: one row per completed trade leg. A leg is the stretch of
+  a `position_id` between reversals: a `DEAL_ENTRY_INOUT` deal closes the
+  current leg and opens the next one (`leg_index`), and its volume and costs
+  are split pro rata between the two legs (profit is realized on the closed
+  part only). A leg is complete once its closing volume covers its opening
+  volume (1e-9 lot tolerance), so partially closed legs and the still-open
+  leg after a reversal are excluded. For positions without reversals, leg 0
+  matches `positions_reconstructed`. Columns: `position_id`, `symbol`,
+  `leg_index`, `magic`, `side`, `open_time`, `close_time`, `close_date`,
+  `holding_seconds`, `volume`, `entry_price`, `exit_price` (volume-weighted),
+  `reversal_count`, `deals_count`, `profit`, `commission`, `swap`, `fee`,
+  `net_profit`. Numeric timestamps stay numeric epoch values; textual
+  timestamps remain timezone-naive MT5 trade-server wall-clock values. No
+  implicit UTC conversion is performed.
+- `analytics_realized_events`: the deal portions of completed legs, each at its
+  own timestamp (cash basis: an entry's commission lands on the entry date and
+  a partial close's profit on the day it is realized). Events of a leg sum to
+  that leg's `net_profit`. Realized results of legs that are still open are
+  not included.
+- `analytics_daily_pnl`: per `date`, `symbol`, `magic` from the realized
+  events: `event_count`, `profit`, `commission`, `swap`, `fee`, `net_profit`.
+- `analytics_strategy_stats`: per `symbol`, `magic` from the trade legs
+  (trade count, wins, losses, win rate, gross profit/loss, profit factor), plus
   `avg_holding_seconds`, `first_open_time`, `last_close_time`.
-- `analytics_equity`: per closed trade in close order with
+- `analytics_equity`: one row per realized event in time order with
   `cumulative_net_profit` (realized P&L only).
 
 Net P/L is:

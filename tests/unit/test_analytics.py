@@ -243,15 +243,15 @@ class TestAnalyticsTrades:
         assert trades["net_profit"].tolist() == _approx([9.0])
 
     def test_missing_optional_columns_default(self, tmp_path: Path) -> None:
-        """Missing magic and cost columns become NULL magic and zero costs."""
+        """Missing ticket, magic and cost columns fall back to rowid, NULL and zero."""
         ddl = (
-            "CREATE TABLE history_deals (ticket INTEGER, position_id INTEGER,"
+            "CREATE TABLE history_deals (position_id INTEGER,"
             " symbol TEXT, time INTEGER, type INTEGER, entry INTEGER,"
             " volume REAL, price REAL, profit REAL)"
         )
         rows: list[tuple[object, ...]] = [
-            (1, 7, "EURUSD", 1000, 0, 0, 1.0, 1.1, 0.0),
-            (2, 7, "EURUSD", 2000, 1, 1, 1.0, 1.2, 5.0),
+            (7, "EURUSD", 1000, 0, 0, 1.0, 1.1, 0.0),
+            (7, "EURUSD", 2000, 1, 1, 1.0, 1.2, 5.0),
         ]
         path = _make_db(tmp_path / "old.db", ddl, rows)
         with sqlite3.connect(path) as conn:
@@ -283,17 +283,31 @@ class TestAnalyticsTrades:
 class TestAggregateViews:
     """Tests for daily, strategy, and equity views."""
 
-    def test_daily_pnl_groups_by_date_symbol_magic(self, db: Path) -> None:
-        """Daily rows are split by close date, symbol, and magic."""
+    def test_daily_pnl_is_cash_basis_by_symbol_and_magic(self, db: Path) -> None:
+        """Daily rows hold deal-time cash flows split by symbol and magic."""
         daily = _query(db, "SELECT * FROM analytics_daily_pnl ORDER BY date, symbol")
         assert daily[["date", "symbol", "magic"]].to_numpy().tolist() == [
             ["2024-01-01", "EURUSD", 1],
+            ["2024-01-02", "EURUSD", 1],
             ["2024-01-03", "EURUSD", 1],
             ["2024-01-03", "GBPUSD", 2],
             ["2024-01-04", "EURUSD", 1],
         ]
-        assert daily["net_profit"].tolist() == [95.0, 36.5, -51.0, 0.0]
-        assert daily["trade_count"].tolist() == [1, 1, 1, 1]
+        # Position 101 realizes 10 on Jan 2 and 30 on Jan 3, not 40 on Jan 3.
+        assert daily["net_profit"].tolist() == _approx([95.0, 9.0, 27.5, -51.0, 0.0])
+        assert daily["event_count"].tolist() == [2, 2, 1, 2, 2]
+
+    def test_events_reconcile_with_trade_legs(self, db: Path) -> None:
+        """Realized events of completed legs sum to each leg's net profit."""
+        diff = _query(
+            db,
+            "SELECT t.position_id, t.net_profit - SUM(e.net_profit) AS diff"
+            " FROM analytics_trades t JOIN analytics_realized_events e"
+            " ON e.position_id = t.position_id AND e.leg_index = t.leg_index"
+            " GROUP BY t.position_id, t.leg_index",
+        )
+        assert len(diff) == 4
+        assert diff["diff"].tolist() == _approx([0.0] * 4)
 
     def test_strategy_stats_metrics(self, db: Path) -> None:
         """Strategy rows expose win/loss counts, rates, and profit factor."""
@@ -315,15 +329,117 @@ class TestAggregateViews:
         assert gbp["profit_factor"] == 0
         assert eur["first_open_time"] == "2024-01-01 10:00:00"
 
-    def test_equity_is_cumulative_in_close_order(self, db: Path) -> None:
-        """Cumulative net profit accumulates by close time."""
-        equity = _query(db, "SELECT * FROM analytics_equity ORDER BY time, position_id")
+    def test_equity_is_cumulative_in_event_order(self, db: Path) -> None:
+        """Cumulative net profit accumulates by deal timestamp."""
+        equity = _query(db, "SELECT * FROM analytics_equity ORDER BY time, ticket")
         assert equity["cumulative_net_profit"].tolist() == _approx([
+            -2.0,
             95.0,
+            94.0,
+            104.0,
             131.5,
+            131.0,
+            80.5,
             80.5,
             80.5,
         ])
+
+
+class TestReversalLegs:
+    """Tests for position reversals (DEAL_ENTRY_INOUT) split into trade legs."""
+
+    @staticmethod
+    def _rows(*deals: tuple[object, ...]) -> list[tuple[object, ...]]:
+        return [
+            (
+                i,
+                200,
+                "EURUSD",
+                time,
+                kind,
+                entry,
+                volume,
+                price,
+                profit,
+                comm,
+                swap,
+                0.0,
+                1,
+            )
+            for i, (time, kind, entry, volume, price, profit, comm, swap) in enumerate(
+                deals, start=1
+            )
+        ]
+
+    def _legs(self, tmp_path: Path, rows: list[tuple[object, ...]]) -> pd.DataFrame:
+        path = _make_db(tmp_path / "rev.db", rows=rows)
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        return _query(path, "SELECT * FROM analytics_trades ORDER BY leg_index")
+
+    def test_reversal_then_close_splits_two_legs(self, tmp_path: Path) -> None:
+        """A long reversed into a short and later closed yields two legs."""
+        legs = self._legs(
+            tmp_path,
+            self._rows(
+                ("2024-01-01 10:00:00", 0, 0, 1.0, 1.10, 0.0, -1.0, 0.0),
+                ("2024-01-02 10:00:00", 1, 2, 2.0, 1.20, 10.0, -2.0, -0.3),
+                ("2024-01-03 10:00:00", 0, 1, 1.0, 1.25, -4.0, -0.5, -0.2),
+            ),
+        )
+        assert legs["leg_index"].tolist() == [0, 1]
+        assert legs["side"].tolist() == ["buy", "sell"]
+        assert legs["volume"].tolist() == _approx([1.0, 1.0])
+        assert legs["close_date"].tolist() == ["2024-01-02", "2024-01-03"]
+        assert legs["profit"].tolist() == _approx([10.0, -4.0])
+        # The reversal deal's costs are split pro rata between the two legs.
+        assert legs["commission"].tolist() == _approx([-2.0, -1.5])
+        assert legs["swap"].tolist() == _approx([-0.15, -0.35])
+        assert legs["net_profit"].tolist() == _approx([7.85, -5.85])
+        assert legs["reversal_count"].tolist() == [1, 1]
+        assert legs["deals_count"].tolist() == [2, 2]
+
+    def test_open_leg_after_reversal_is_excluded(self, tmp_path: Path) -> None:
+        """The reopened leg is not a trade until it closes."""
+        legs = self._legs(
+            tmp_path,
+            self._rows(
+                ("2024-01-01 10:00:00", 0, 0, 1.0, 1.10, 0.0, -1.0, 0.0),
+                ("2024-01-02 10:00:00", 1, 2, 2.0, 1.20, 10.0, -2.0, -0.3),
+            ),
+        )
+        assert legs["leg_index"].tolist() == [0]
+        assert legs["net_profit"].tolist() == _approx([10.0 - 2.0 / 2 - 1.0 - 0.15])
+
+    def test_double_reversal_yields_three_legs(self, tmp_path: Path) -> None:
+        """Each INOUT deal starts a new leg."""
+        legs = self._legs(
+            tmp_path,
+            self._rows(
+                ("2024-01-01 10:00:00", 0, 0, 1.0, 1.0, 0.0, 0.0, 0.0),
+                ("2024-01-02 10:00:00", 1, 2, 2.0, 1.1, 5.0, 0.0, 0.0),
+                ("2024-01-03 10:00:00", 0, 2, 2.0, 1.0, 7.0, 0.0, 0.0),
+                ("2024-01-04 10:00:00", 1, 1, 1.0, 1.2, 9.0, 0.0, 0.0),
+            ),
+        )
+        assert legs["side"].tolist() == ["buy", "sell", "buy"]
+        assert legs["profit"].tolist() == _approx([5.0, 7.0, 9.0])
+
+    def test_matches_positions_reconstructed_without_reversals(self, db: Path) -> None:
+        """Leg 0 keeps the positions_reconstructed semantics for plain positions."""
+        compared = _query(
+            db,
+            "SELECT t.open_time = p.open_time AS open_ok,"
+            " t.close_time = p.close_time AS close_ok,"
+            " ABS(t.volume - p.volume_open) < 1e-9 AS volume_ok,"
+            " ABS(t.entry_price - p.open_price) < 1e-9 AS entry_ok,"
+            " ABS(t.exit_price - p.close_price) < 1e-9 AS exit_ok,"
+            " ABS(t.profit - p.total_profit) < 1e-9 AS profit_ok"
+            " FROM analytics_trades t JOIN positions_reconstructed p"
+            " ON p.position_id = t.position_id WHERE t.reversal_count = 0",
+        )
+        assert len(compared) == 3
+        assert compared.to_numpy().tolist() == [[1] * 6] * 3
 
 
 class TestTemporaryViews:
