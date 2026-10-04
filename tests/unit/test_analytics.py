@@ -7,8 +7,6 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 
 from mt5cli.analytics import create_analytics_views, publish_dashboard
@@ -242,7 +240,7 @@ class TestAnalyticsTrades:
             assert create_analytics_views(conn)
         trades = _query(path, "SELECT position_id, net_profit FROM analytics_trades")
         assert trades["position_id"].tolist() == [20]
-        assert trades["net_profit"].tolist() == pytest.approx([9.0])
+        assert trades["net_profit"].tolist() == _approx([9.0])
 
     def test_missing_optional_columns_default(self, tmp_path: Path) -> None:
         """Missing magic and cost columns become NULL magic and zero costs."""
@@ -440,16 +438,14 @@ class TestPublishDashboard:
         path = _make_db(tmp_path / "history.db", rows=rows)
         out = tmp_path / "out"
         publish_dashboard(path, out)
-        trades = pq.read_schema(out / "trades.parquet")
-        assert pa.types.is_int64(trades.field("position_id").type)
-        assert pa.types.is_int64(trades.field("magic").type)
-        assert pa.types.is_float64(trades.field("net_profit").type)
-        assert pa.types.is_large_string(trades.field("symbol").type) or (
-            pa.types.is_string(trades.field("symbol").type)
-        )
-        stats = pq.read_schema(out / "strategy_stats.parquet")
-        assert pa.types.is_int64(stats.field("trade_count").type)
-        assert pa.types.is_float64(stats.field("profit_factor").type)
+        trades = pd.read_parquet(out / "trades.parquet")
+        stats = pd.read_parquet(out / "strategy_stats.parquet")
+        assert str(trades["position_id"].dtype) == "Int64"
+        assert str(trades["magic"].dtype) == "Int64"
+        assert str(trades["net_profit"].dtype) == "float64"
+        assert str(trades["symbol"].dtype) in {"string", "str"}
+        assert str(stats["trade_count"].dtype) == "Int64"
+        assert str(stats["profit_factor"].dtype) == "float64"
 
     def test_rejects_manifest_dataset_collision(self, tmp_path: Path) -> None:
         """Manifest file names cannot overwrite generated Parquet datasets."""
