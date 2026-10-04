@@ -520,6 +520,147 @@ class TestReversalLegs:
         assert (reversed_["entry_ok"], reversed_["profit_ok"]) == (1, 1)
 
 
+class TestIncompleteHistoryAndMixedMagic:
+    """Tests for legs without a visible opening and legs mixing magics."""
+
+    @pytest.mark.parametrize(
+        ("rows", "expected_daily_net"),
+        [
+            pytest.param(
+                [
+                    (
+                        1,
+                        50,
+                        "EURUSD",
+                        "2024-03-01 10:00:00",
+                        1,
+                        1,
+                        1.0,
+                        1.2,
+                        30.0,
+                        -1.0,
+                        0.0,
+                        0.0,
+                        7,
+                    )
+                ],
+                29.0,
+                id="close-only",
+            ),
+            pytest.param(
+                [
+                    (
+                        1,
+                        51,
+                        "EURUSD",
+                        "2024-03-01 10:00:00",
+                        1,
+                        2,
+                        2.0,
+                        1.2,
+                        10.0,
+                        -2.0,
+                        -0.6,
+                        0.0,
+                        7,
+                    )
+                ],
+                7.4,
+                id="reversal-without-visible-opening",
+            ),
+        ],
+    )
+    def test_leg_without_visible_opening_is_not_a_trade(
+        self, tmp_path: Path, rows: list[tuple[object, ...]], expected_daily_net: float
+    ) -> None:
+        """Cash flows stay in events and daily P/L but no trade is invented."""
+        path = _make_db(tmp_path / "close_only.db", rows=rows)
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        assert _query(path, "SELECT * FROM analytics_trades").empty
+        assert _query(path, "SELECT * FROM analytics_strategy_stats").empty
+        daily = _query(path, "SELECT * FROM analytics_daily_pnl")
+        assert daily["magic"].tolist() == [7]
+        assert daily["net_profit"].tolist() == _approx([expected_daily_net])
+
+    def test_mixed_magic_scale_in(self, tmp_path: Path) -> None:
+        """Events keep each deal's magic; the trade leg is marked mixed (NULL)."""
+        rows: list[tuple[object, ...]] = [
+            (
+                1,
+                60,
+                "EURUSD",
+                "2024-03-01 10:00:00",
+                0,
+                0,
+                1.0,
+                1.1,
+                0.0,
+                -1.0,
+                0.0,
+                0.0,
+                100,
+            ),
+            (
+                2,
+                60,
+                "EURUSD",
+                "2024-03-01 11:00:00",
+                0,
+                0,
+                1.0,
+                1.1,
+                0.0,
+                -1.0,
+                0.0,
+                0.0,
+                200,
+            ),
+            (
+                3,
+                60,
+                "EURUSD",
+                "2024-03-02 10:00:00",
+                1,
+                1,
+                2.0,
+                1.2,
+                40.0,
+                -2.0,
+                0.0,
+                0.0,
+                100,
+            ),
+        ]
+        path = _make_db(tmp_path / "mixed.db", rows=rows)
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        events = _query(path, "SELECT * FROM analytics_realized_events ORDER BY ticket")
+        assert events["magic"].tolist() == [100, 200, 100]
+        daily = _query(path, "SELECT * FROM analytics_daily_pnl ORDER BY date, magic")
+        assert daily[["date", "magic"]].to_numpy().tolist() == [
+            ["2024-03-01", 100],
+            ["2024-03-01", 200],
+            ["2024-03-02", 100],
+        ]
+        assert daily["net_profit"].tolist() == _approx([-1.0, -1.0, 38.0])
+        trade = _query(path, "SELECT * FROM analytics_trades").iloc[0]
+        assert pd.isna(trade["magic"])
+        assert trade["magic_count"] == 2
+        assert trade["net_profit"] == _approx(36.0)
+        stats = _query(path, "SELECT * FROM analytics_strategy_stats")
+        assert stats["trade_count"].tolist() == [1]
+        assert pd.isna(stats["magic"].iloc[0])
+
+    def test_single_magic_leg_keeps_its_magic(self, db: Path) -> None:
+        """A leg whose entries share one magic is labeled with it."""
+        trades = _query(
+            db, "SELECT position_id, magic, magic_count FROM analytics_trades"
+        )
+        assert trades["magic_count"].tolist() == [1, 1, 1, 1]
+        assert trades["magic"].tolist() == [1, 1, 2, 1]
+
+
 class TestTemporaryViews:
     """Tests for read-only database support."""
 

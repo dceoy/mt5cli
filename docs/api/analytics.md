@@ -49,7 +49,7 @@ history database (`temporary=True` creates TEMP views for read-only databases).
   volume (1e-9 lot tolerance), so partially closed legs and the still-open
   leg after a reversal are excluded. For positions without reversals, leg 0
   matches `positions_reconstructed`. Columns: `position_id`, `symbol`,
-  `leg_index`, `magic`, `side`, `open_time`, `close_time`, `close_date`,
+  `leg_index`, `magic`, `magic_count`, `side`, `open_time`, `close_time`, `close_date`,
   `holding_seconds`, `volume`, `entry_price`, `exit_price` (volume-weighted),
   `reversal_count`, `deals_count`, `profit`, `commission`, `swap`, `fee`,
   `net_profit`. Numeric timestamps stay numeric epoch values; textual
@@ -61,11 +61,17 @@ history database (`temporary=True` creates TEMP views for read-only databases).
   still-open legs. Events of a completed leg sum to that leg's `net_profit`,
   so cumulative equity also reflects entry costs and partial-close profit of
   legs that have not completed yet.
-- `analytics_daily_pnl`: per `date`, `symbol`, `magic` from the realized
-  events: `event_count`, `profit`, `commission`, `swap`, `fee`, `net_profit`.
-- `analytics_strategy_stats`: per `symbol`, `magic` from the trade legs
-  (trade count, wins, losses, win rate, gross profit/loss, profit factor), plus
-  `avg_holding_seconds`, `first_open_time`, `last_close_time`.
+  Each event carries its own deal's `magic`. A leg needs a visible opening
+  volume to count as a trade, so legs opened before the captured history appear
+  only in the events, daily P/L and equity.
+- `analytics_daily_pnl`: per `date`, `symbol`, `magic` (the deal-level magic)
+  from the realized events: `event_count`, `profit`, `commission`, `swap`, `fee`, `net_profit`.
+- `analytics_strategy_stats`: per `symbol`, `magic` from the trade legs (trade
+  count, wins, losses, win rate, gross profit/loss, profit factor), plus
+  `avg_holding_seconds`, `first_open_time`, `last_close_time`. A leg's `magic` is
+  its entry magic; legs whose entry deals mix magics have a NULL `magic` with
+  `magic_count > 1`, so for such legs daily P/L by magic and the strategy stats
+  by magic can differ.
 - `analytics_equity`: one row per realized event in time order with
   `cumulative_net_profit` (realized P&L only).
 

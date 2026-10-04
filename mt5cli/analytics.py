@@ -35,6 +35,7 @@ _INT_COLUMNS = frozenset({
     "position_id",
     "ticket",
     "leg_index",
+    "magic_count",
     "event_count",
     "magic",
     "reversal_count",
@@ -106,7 +107,8 @@ _CLOSE_DATE_SQL = (
     " THEN date({col}, 'unixepoch') ELSE date({col}) END"
 )
 _TRADES_SQL = (
-    "SELECT position_id, symbol, leg_index, magic, side, open_time, close_time,"  # noqa: S608
+    "SELECT position_id, symbol, leg_index, magic, magic_count, side, open_time,"  # noqa: S608
+    " close_time,"
     f" {_CLOSE_DATE_SQL.format(col='close_time')} AS close_date,"
     " CASE"
     " WHEN typeof(open_time) IN ('integer', 'real')"
@@ -120,8 +122,11 @@ _TRADES_SQL = (
     " profit, commission, swap, fee,"
     " profit + commission + swap + fee AS net_profit"
     " FROM (SELECT position_id, symbol, leg AS leg_index,"
-    " COALESCE(MIN(CASE WHEN role = 'entry' THEN magic END), MIN(magic))"
-    " AS magic,"
+    # A leg has a magic only when all its entry deals share one; mixed legs are NULL.
+    " CASE WHEN MIN(CASE WHEN role = 'entry' THEN magic END)"
+    " IS MAX(CASE WHEN role = 'entry' THEN magic END)"
+    " THEN MIN(CASE WHEN role = 'entry' THEN magic END) END AS magic,"
+    " COUNT(DISTINCT CASE WHEN role = 'entry' THEN magic END) AS magic_count,"
     " CASE MIN(CASE WHEN role = 'entry' THEN type END)"
     " WHEN 0 THEN 'buy' WHEN 1 THEN 'sell' END AS side,"
     " MIN(CASE WHEN role = 'entry' THEN time END) AS open_time,"
@@ -137,23 +142,22 @@ _TRADES_SQL = (
     " SUM(profit) AS profit, SUM(commission) AS commission,"
     " SUM(swap) AS swap, SUM(fee) AS fee"
     " FROM deal_portions GROUP BY position_id, symbol, leg"
-    " HAVING SUM(CASE WHEN role = 'exit' THEN volume ELSE 0 END)"
+    # A trade needs a visible opening volume and a closing volume covering it.
+    " HAVING SUM(CASE WHEN role = 'entry' THEN volume ELSE 0 END)"
+    f" > {VOLUME_EPSILON}"
+    " AND SUM(CASE WHEN role = 'exit' THEN volume ELSE 0 END)"
     f" >= SUM(CASE WHEN role = 'entry' THEN volume ELSE 0 END) - {VOLUME_EPSILON})"
 )
-# Cash basis: every deal portion lands at its own timestamp, including portions
-# of legs that are still open (trades/strategy stats keep completed legs only).
+# Cash basis: every deal portion lands at its own timestamp with its own deal's
+# magic, including portions of legs that are still open or whose opening is not in
+# the captured history (trades/strategy stats keep completed legs only).
 _REALIZED_EVENTS_SQL = (
-    "SELECT p.time AS time,"  # noqa: S608
-    f" {_CLOSE_DATE_SQL.format(col='p.time')} AS date,"
-    " p.ticket AS ticket, p.position_id AS position_id, p.symbol AS symbol,"
-    " p.leg_magic AS magic, p.leg AS leg_index, p.role AS role,"
-    " p.profit AS profit, p.commission AS commission, p.swap AS swap,"
-    " p.fee AS fee, p.profit + p.commission + p.swap + p.fee AS net_profit"
-    " FROM (SELECT *,"
-    " COALESCE(MIN(CASE WHEN role = 'entry' THEN magic END) OVER leg_window,"
-    " MIN(magic) OVER leg_window) AS leg_magic"
+    "SELECT time,"  # noqa: S608
+    f" {_CLOSE_DATE_SQL.format(col='time')} AS date,"
+    " ticket, position_id, symbol, magic, leg AS leg_index, role,"
+    " profit, commission, swap, fee,"
+    " profit + commission + swap + fee AS net_profit"
     " FROM deal_portions"
-    " WINDOW leg_window AS (PARTITION BY position_id, symbol, leg)) p"
 )
 
 _METRICS_SQL = (
@@ -209,8 +213,11 @@ def create_analytics_views(
     without reversals, leg 0 matches ``positions_reconstructed``. ``net_profit``
     is ``profit + commission + swap + fee`` with NULL treated as zero, and
     ``magic``/``commission``/``swap``/``fee`` come from ``history_deals``.
-    ``analytics_realized_events`` lists every deal portion, including partially
-    closed and still-open legs, at its own timestamp (cash basis) and feeds
+    A leg needs a visible opening volume to count as a trade, and its ``magic``
+    is the entry magic, or NULL when its entry deals mix magics (see
+    ``magic_count``). ``analytics_realized_events`` lists every deal portion,
+    including portions of partially closed, still-open and not fully captured
+    legs, at its own timestamp with its own deal's ``magic`` (cash basis) and feeds
     ``analytics_daily_pnl`` and ``analytics_equity``; events of a completed leg
     sum to its ``net_profit``. ``analytics_strategy_stats`` aggregates the legs by
     ``symbol`` and ``magic``. Stored trade-server wall-clock timestamps are
