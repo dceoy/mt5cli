@@ -16,7 +16,7 @@ uv run pyright .
 uv run pytest
 
 # Markdown and JSON
-npx -y prettier --write './**/*.{md,json}'
+pnpm dlx prettier --write './**/*.{md,json}'
 
 # YAML
 git ls-files -z -- '*.yml' \
