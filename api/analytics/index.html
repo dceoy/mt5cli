@@ -386,13 +386,7 @@ is never modified.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/analytics.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-203">203</a></span>
-<span class="normal"><a href="#__codelineno-0-204">204</a></span>
-<span class="normal"><a href="#__codelineno-0-205">205</a></span>
-<span class="normal"><a href="#__codelineno-0-206">206</a></span>
-<span class="normal"><a href="#__codelineno-0-207">207</a></span>
-<span class="normal"><a href="#__codelineno-0-208">208</a></span>
-<span class="normal"><a href="#__codelineno-0-209">209</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-209">209</a></span>
 <span class="normal"><a href="#__codelineno-0-210">210</a></span>
 <span class="normal"><a href="#__codelineno-0-211">211</a></span>
 <span class="normal"><a href="#__codelineno-0-212">212</a></span>
@@ -436,57 +430,63 @@ is never modified.</p>
 <span class="normal"><a href="#__codelineno-0-250">250</a></span>
 <span class="normal"><a href="#__codelineno-0-251">251</a></span>
 <span class="normal"><a href="#__codelineno-0-252">252</a></span>
-<span class="normal"><a href="#__codelineno-0-253">253</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-203" name="__codelineno-0-203"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_analytics_views</span><span class="p">(</span>
-<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">,</span>
-<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-206" name="__codelineno-0-206"></a>    <span class="n">temporary</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create the canonical ``analytics_*`` views idempotently.</span>
-<a id="__codelineno-0-209" name="__codelineno-0-209"></a>
-<a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">    ``analytics_trades`` has one row per completed trade leg. A leg is the</span>
-<a id="__codelineno-0-211" name="__codelineno-0-211"></a><span class="sd">    stretch of a ``position_id`` between reversals: a ``DEAL_ENTRY_INOUT`` deal</span>
-<a id="__codelineno-0-212" name="__codelineno-0-212"></a><span class="sd">    closes the current leg and opens the next (``leg_index``); its volume,</span>
-<a id="__codelineno-0-213" name="__codelineno-0-213"></a><span class="sd">    commission and fee are split pro rata and its swap goes to the closing leg.</span>
-<a id="__codelineno-0-214" name="__codelineno-0-214"></a><span class="sd">    A leg is complete once its closing volume covers</span>
-<a id="__codelineno-0-215" name="__codelineno-0-215"></a><span class="sd">    its opening volume, so partially closed legs are excluded. For positions</span>
-<a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">    without reversals, leg 0 matches ``positions_reconstructed``. ``net_profit``</span>
-<a id="__codelineno-0-217" name="__codelineno-0-217"></a><span class="sd">    is ``profit + commission + swap + fee`` with NULL treated as zero, and</span>
-<a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">    ``magic``/``commission``/``swap``/``fee`` come from ``history_deals``.</span>
-<a id="__codelineno-0-219" name="__codelineno-0-219"></a><span class="sd">    A leg needs a visible opening volume, and its position must start inside the</span>
-<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="sd">    captured history (its first visible deal is an entry-in), to count as a</span>
-<a id="__codelineno-0-221" name="__codelineno-0-221"></a><span class="sd">    trade. A leg&#39;s ``magic`` is the entry magic, or NULL when its entry deals mix</span>
-<a id="__codelineno-0-222" name="__codelineno-0-222"></a><span class="sd">    magics (see ``magic_count``). ``analytics_realized_events`` lists every deal</span>
-<a id="__codelineno-0-223" name="__codelineno-0-223"></a><span class="sd">    portion, including portions of partially closed, still-open and not fully</span>
-<a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="sd">    captured legs, at its own timestamp with its own deal&#39;s ``magic`` (cash</span>
-<a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="sd">    basis) and feeds</span>
-<a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">    ``analytics_daily_pnl`` and ``analytics_equity``; events of a completed leg</span>
-<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">    sum to its ``net_profit``. ``analytics_strategy_stats`` aggregates the legs by</span>
-<a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="sd">    ``symbol`` and ``magic``. Stored trade-server wall-clock timestamps are</span>
-<a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">    preserved without implicit UTC conversion. A trade is a win when</span>
-<a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">    ``net_profit &gt; 0`` and a loss when ``net_profit &lt; 0``; break-even trades</span>
-<a id="__codelineno-0-231" name="__codelineno-0-231"></a><span class="sd">    count as neither.</span>
-<a id="__codelineno-0-232" name="__codelineno-0-232"></a>
-<a id="__codelineno-0-233" name="__codelineno-0-233"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-234" name="__codelineno-0-234"></a><span class="sd">        conn: SQLite connection holding ``history_deals``.</span>
-<a id="__codelineno-0-235" name="__codelineno-0-235"></a><span class="sd">        temporary: Create connection-local TEMP views so a read-only database</span>
-<a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="sd">            is never modified.</span>
-<a id="__codelineno-0-237" name="__codelineno-0-237"></a>
-<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="sd">        True if the views were created, False if ``history_deals`` lacks the</span>
-<a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="sd">        columns required for position reconstruction.</span>
-<a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-242" name="__codelineno-0-242"></a>    <span class="n">deal_columns</span> <span class="o">=</span> <span class="n">get_table_columns</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="s2">&quot;history_deals&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-243" name="__codelineno-0-243"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">create_deal_portions_view</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">deal_columns</span><span class="p">,</span> <span class="n">temporary</span><span class="o">=</span><span class="n">temporary</span><span class="p">):</span>
-<a id="__codelineno-0-244" name="__codelineno-0-244"></a>        <span class="k">return</span> <span class="kc">False</span>
-<a id="__codelineno-0-245" name="__codelineno-0-245"></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">sql</span> <span class="ow">in</span> <span class="p">(</span>
-<a id="__codelineno-0-246" name="__codelineno-0-246"></a>        <span class="p">(</span><span class="s2">&quot;analytics_trades&quot;</span><span class="p">,</span> <span class="n">_TRADES_SQL</span><span class="p">),</span>
-<a id="__codelineno-0-247" name="__codelineno-0-247"></a>        <span class="p">(</span><span class="s2">&quot;analytics_realized_events&quot;</span><span class="p">,</span> <span class="n">_REALIZED_EVENTS_SQL</span><span class="p">),</span>
-<a id="__codelineno-0-248" name="__codelineno-0-248"></a>        <span class="p">(</span><span class="s2">&quot;analytics_daily_pnl&quot;</span><span class="p">,</span> <span class="n">_DAILY_PNL_SQL</span><span class="p">),</span>
-<a id="__codelineno-0-249" name="__codelineno-0-249"></a>        <span class="p">(</span><span class="s2">&quot;analytics_strategy_stats&quot;</span><span class="p">,</span> <span class="n">_STRATEGY_STATS_SQL</span><span class="p">),</span>
-<a id="__codelineno-0-250" name="__codelineno-0-250"></a>        <span class="p">(</span><span class="s2">&quot;analytics_equity&quot;</span><span class="p">,</span> <span class="n">_EQUITY_SQL</span><span class="p">),</span>
-<a id="__codelineno-0-251" name="__codelineno-0-251"></a>    <span class="p">):</span>
-<a id="__codelineno-0-252" name="__codelineno-0-252"></a>        <span class="n">_create_view</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">sql</span><span class="p">,</span> <span class="n">temporary</span><span class="o">=</span><span class="n">temporary</span><span class="p">)</span>
-<a id="__codelineno-0-253" name="__codelineno-0-253"></a>    <span class="k">return</span> <span class="kc">True</span>
+<span class="normal"><a href="#__codelineno-0-253">253</a></span>
+<span class="normal"><a href="#__codelineno-0-254">254</a></span>
+<span class="normal"><a href="#__codelineno-0-255">255</a></span>
+<span class="normal"><a href="#__codelineno-0-256">256</a></span>
+<span class="normal"><a href="#__codelineno-0-257">257</a></span>
+<span class="normal"><a href="#__codelineno-0-258">258</a></span>
+<span class="normal"><a href="#__codelineno-0-259">259</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-209" name="__codelineno-0-209"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_analytics_views</span><span class="p">(</span>
+<a id="__codelineno-0-210" name="__codelineno-0-210"></a>    <span class="n">conn</span><span class="p">:</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">,</span>
+<a id="__codelineno-0-211" name="__codelineno-0-211"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-212" name="__codelineno-0-212"></a>    <span class="n">temporary</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-213" name="__codelineno-0-213"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<a id="__codelineno-0-214" name="__codelineno-0-214"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create the canonical ``analytics_*`` views idempotently.</span>
+<a id="__codelineno-0-215" name="__codelineno-0-215"></a>
+<a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">    ``analytics_trades`` has one row per completed trade leg. A leg is the</span>
+<a id="__codelineno-0-217" name="__codelineno-0-217"></a><span class="sd">    stretch of a ``position_id`` between reversals: a ``DEAL_ENTRY_INOUT`` deal</span>
+<a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">    closes the current leg and opens the next (``leg_index``); its volume,</span>
+<a id="__codelineno-0-219" name="__codelineno-0-219"></a><span class="sd">    commission and fee are split pro rata and its swap goes to the closing leg.</span>
+<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="sd">    A leg is complete once its closing volume covers</span>
+<a id="__codelineno-0-221" name="__codelineno-0-221"></a><span class="sd">    its opening volume, so partially closed legs are excluded. For positions</span>
+<a id="__codelineno-0-222" name="__codelineno-0-222"></a><span class="sd">    without reversals, leg 0 matches ``positions_reconstructed``. ``net_profit``</span>
+<a id="__codelineno-0-223" name="__codelineno-0-223"></a><span class="sd">    is ``profit + commission + swap + fee`` with NULL treated as zero, and</span>
+<a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="sd">    ``magic``/``commission``/``swap``/``fee`` come from ``history_deals``.</span>
+<a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="sd">    A leg needs a visible opening volume, and its position must start inside the</span>
+<a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">    captured history (its first visible deal is an entry-in), to count as a</span>
+<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">    trade. A leg&#39;s ``magic`` is the entry magic, or NULL when its entry deals mix</span>
+<a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="sd">    magics (see ``magic_count``). ``analytics_realized_events`` lists every deal</span>
+<a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">    portion, including portions of partially closed, still-open and not fully</span>
+<a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">    captured legs, at its own timestamp with its own deal&#39;s ``magic`` (cash</span>
+<a id="__codelineno-0-231" name="__codelineno-0-231"></a><span class="sd">    basis) and feeds</span>
+<a id="__codelineno-0-232" name="__codelineno-0-232"></a><span class="sd">    ``analytics_daily_pnl`` and ``analytics_equity``; events of a completed leg</span>
+<a id="__codelineno-0-233" name="__codelineno-0-233"></a><span class="sd">    sum to its ``net_profit``. ``analytics_strategy_stats`` aggregates the legs by</span>
+<a id="__codelineno-0-234" name="__codelineno-0-234"></a><span class="sd">    ``symbol`` and ``magic``. Stored trade-server wall-clock timestamps are</span>
+<a id="__codelineno-0-235" name="__codelineno-0-235"></a><span class="sd">    preserved without implicit UTC conversion. A trade is a win when</span>
+<a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="sd">    ``net_profit &gt; 0`` and a loss when ``net_profit &lt; 0``; break-even trades</span>
+<a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="sd">    count as neither.</span>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="sd">        conn: SQLite connection holding ``history_deals``.</span>
+<a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="sd">        temporary: Create connection-local TEMP views so a read-only database</span>
+<a id="__codelineno-0-242" name="__codelineno-0-242"></a><span class="sd">            is never modified.</span>
+<a id="__codelineno-0-243" name="__codelineno-0-243"></a>
+<a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="sd">        True if the views were created, False if ``history_deals`` lacks the</span>
+<a id="__codelineno-0-246" name="__codelineno-0-246"></a><span class="sd">        columns required for position reconstruction.</span>
+<a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-248" name="__codelineno-0-248"></a>    <span class="n">deal_columns</span> <span class="o">=</span> <span class="n">get_table_columns</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="s2">&quot;history_deals&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-249" name="__codelineno-0-249"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">create_deal_portions_view</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">deal_columns</span><span class="p">,</span> <span class="n">temporary</span><span class="o">=</span><span class="n">temporary</span><span class="p">):</span>
+<a id="__codelineno-0-250" name="__codelineno-0-250"></a>        <span class="k">return</span> <span class="kc">False</span>
+<a id="__codelineno-0-251" name="__codelineno-0-251"></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">sql</span> <span class="ow">in</span> <span class="p">(</span>
+<a id="__codelineno-0-252" name="__codelineno-0-252"></a>        <span class="p">(</span><span class="s2">&quot;analytics_trades&quot;</span><span class="p">,</span> <span class="n">_TRADES_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-253" name="__codelineno-0-253"></a>        <span class="p">(</span><span class="s2">&quot;analytics_realized_events&quot;</span><span class="p">,</span> <span class="n">_REALIZED_EVENTS_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-254" name="__codelineno-0-254"></a>        <span class="p">(</span><span class="s2">&quot;analytics_daily_pnl&quot;</span><span class="p">,</span> <span class="n">_DAILY_PNL_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-255" name="__codelineno-0-255"></a>        <span class="p">(</span><span class="s2">&quot;analytics_strategy_stats&quot;</span><span class="p">,</span> <span class="n">_STRATEGY_STATS_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-256" name="__codelineno-0-256"></a>        <span class="p">(</span><span class="s2">&quot;analytics_equity&quot;</span><span class="p">,</span> <span class="n">_EQUITY_SQL</span><span class="p">),</span>
+<a id="__codelineno-0-257" name="__codelineno-0-257"></a>    <span class="p">):</span>
+<a id="__codelineno-0-258" name="__codelineno-0-258"></a>        <span class="n">_create_view</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">sql</span><span class="p">,</span> <span class="n">temporary</span><span class="o">=</span><span class="n">temporary</span><span class="p">)</span>
+<a id="__codelineno-0-259" name="__codelineno-0-259"></a>    <span class="k">return</span> <span class="kc">True</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -644,13 +644,7 @@ built.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>mt5cli/analytics.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-332">332</a></span>
-<span class="normal"><a href="#__codelineno-0-333">333</a></span>
-<span class="normal"><a href="#__codelineno-0-334">334</a></span>
-<span class="normal"><a href="#__codelineno-0-335">335</a></span>
-<span class="normal"><a href="#__codelineno-0-336">336</a></span>
-<span class="normal"><a href="#__codelineno-0-337">337</a></span>
-<span class="normal"><a href="#__codelineno-0-338">338</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-338">338</a></span>
 <span class="normal"><a href="#__codelineno-0-339">339</a></span>
 <span class="normal"><a href="#__codelineno-0-340">340</a></span>
 <span class="normal"><a href="#__codelineno-0-341">341</a></span>
@@ -711,74 +705,80 @@ built.</p>
 <span class="normal"><a href="#__codelineno-0-396">396</a></span>
 <span class="normal"><a href="#__codelineno-0-397">397</a></span>
 <span class="normal"><a href="#__codelineno-0-398">398</a></span>
-<span class="normal"><a href="#__codelineno-0-399">399</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-332" name="__codelineno-0-332"></a><span class="k">def</span><span class="w"> </span><span class="nf">publish_dashboard</span><span class="p">(</span>
-<a id="__codelineno-0-333" name="__codelineno-0-333"></a>    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
-<a id="__codelineno-0-334" name="__codelineno-0-334"></a>    <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
-<a id="__codelineno-0-335" name="__codelineno-0-335"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-336" name="__codelineno-0-336"></a>    <span class="n">manifest_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">MANIFEST_NAME</span><span class="p">,</span>
-<a id="__codelineno-0-337" name="__codelineno-0-337"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<a id="__codelineno-0-338" name="__codelineno-0-338"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Publish Parquet datasets and a manifest for static dashboards.</span>
-<a id="__codelineno-0-339" name="__codelineno-0-339"></a>
-<a id="__codelineno-0-340" name="__codelineno-0-340"></a><span class="sd">    Reads an existing SQLite history database without modifying it or</span>
-<a id="__codelineno-0-341" name="__codelineno-0-341"></a><span class="sd">    connecting to MetaTrader 5, and writes ``trades``, ``daily_pnl``,</span>
-<a id="__codelineno-0-342" name="__codelineno-0-342"></a><span class="sd">    ``strategy_stats``, ``equity`` and ``account_snapshots`` Parquet files plus</span>
-<a id="__codelineno-0-343" name="__codelineno-0-343"></a><span class="sd">    a manifest into ``output_dir``. Datasets whose source tables are missing</span>
-<a id="__codelineno-0-344" name="__codelineno-0-344"></a><span class="sd">    are skipped and omitted from the manifest. The manifest is written last</span>
-<a id="__codelineno-0-345" name="__codelineno-0-345"></a><span class="sd">    so readers never see it before the datasets it lists.</span>
-<a id="__codelineno-0-346" name="__codelineno-0-346"></a>
-<a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-348" name="__codelineno-0-348"></a><span class="sd">        source: Path to the SQLite history database.</span>
-<a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">        output_dir: Directory receiving the Parquet files and manifest.</span>
-<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">        manifest_name: File name (no directory components, and not the name of a</span>
-<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">            dataset file) of the manifest inside ``output_dir``.</span>
+<span class="normal"><a href="#__codelineno-0-399">399</a></span>
+<span class="normal"><a href="#__codelineno-0-400">400</a></span>
+<span class="normal"><a href="#__codelineno-0-401">401</a></span>
+<span class="normal"><a href="#__codelineno-0-402">402</a></span>
+<span class="normal"><a href="#__codelineno-0-403">403</a></span>
+<span class="normal"><a href="#__codelineno-0-404">404</a></span>
+<span class="normal"><a href="#__codelineno-0-405">405</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-338" name="__codelineno-0-338"></a><span class="k">def</span><span class="w"> </span><span class="nf">publish_dashboard</span><span class="p">(</span>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a>    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a>    <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a>    <span class="n">manifest_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">MANIFEST_NAME</span><span class="p">,</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Publish Parquet datasets and a manifest for static dashboards.</span>
+<a id="__codelineno-0-345" name="__codelineno-0-345"></a>
+<a id="__codelineno-0-346" name="__codelineno-0-346"></a><span class="sd">    Reads an existing SQLite history database without modifying it or</span>
+<a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="sd">    connecting to MetaTrader 5, and writes ``trades``, ``daily_pnl``,</span>
+<a id="__codelineno-0-348" name="__codelineno-0-348"></a><span class="sd">    ``strategy_stats``, ``equity`` and ``account_snapshots`` Parquet files plus</span>
+<a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">    a manifest into ``output_dir``. Datasets whose source tables are missing</span>
+<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">    are skipped and omitted from the manifest. The manifest is written last</span>
+<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">    so readers never see it before the datasets it lists.</span>
 <a id="__codelineno-0-352" name="__codelineno-0-352"></a>
-<a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-354" name="__codelineno-0-354"></a><span class="sd">        The manifest as a dictionary.</span>
-<a id="__codelineno-0-355" name="__codelineno-0-355"></a>
-<a id="__codelineno-0-356" name="__codelineno-0-356"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-357" name="__codelineno-0-357"></a><span class="sd">        ValueError: If the source database is invalid, ``manifest_name`` is not a</span>
-<a id="__codelineno-0-358" name="__codelineno-0-358"></a><span class="sd">            plain file name or collides with a dataset file, or no dataset can be</span>
-<a id="__codelineno-0-359" name="__codelineno-0-359"></a><span class="sd">            built.</span>
-<a id="__codelineno-0-360" name="__codelineno-0-360"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-361" name="__codelineno-0-361"></a>    <span class="n">manifest_name</span> <span class="o">=</span> <span class="n">_validate_manifest_name</span><span class="p">(</span><span class="n">manifest_name</span><span class="p">)</span>
-<a id="__codelineno-0-362" name="__codelineno-0-362"></a>    <span class="n">conn</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">open_existing_sqlite_database</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
-<a id="__codelineno-0-363" name="__codelineno-0-363"></a>    <span class="k">with</span> <span class="n">closing</span><span class="p">(</span><span class="n">conn</span><span class="p">):</span>
-<a id="__codelineno-0-364" name="__codelineno-0-364"></a>        <span class="n">frames</span> <span class="o">=</span> <span class="n">_collect_dataset_frames</span><span class="p">(</span><span class="n">conn</span><span class="p">)</span>
-<a id="__codelineno-0-365" name="__codelineno-0-365"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">frames</span><span class="p">:</span>
-<a id="__codelineno-0-366" name="__codelineno-0-366"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;No analytics datasets could be built from </span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-367" name="__codelineno-0-367"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
-<a id="__codelineno-0-368" name="__codelineno-0-368"></a>    <span class="n">dataset_files</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">frames</span><span class="p">}</span>
-<a id="__codelineno-0-369" name="__codelineno-0-369"></a>    <span class="k">if</span> <span class="n">manifest_name</span> <span class="ow">in</span> <span class="n">dataset_files</span><span class="p">:</span>
-<a id="__codelineno-0-370" name="__codelineno-0-370"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Manifest name collides with dashboard dataset: </span><span class="si">{</span><span class="n">manifest_name</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-371" name="__codelineno-0-371"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
-<a id="__codelineno-0-372" name="__codelineno-0-372"></a>    <span class="n">out_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
-<a id="__codelineno-0-373" name="__codelineno-0-373"></a>    <span class="n">out_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-374" name="__codelineno-0-374"></a>    <span class="n">manifest</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-375" name="__codelineno-0-375"></a>        <span class="s2">&quot;schema_version&quot;</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span>
-<a id="__codelineno-0-376" name="__codelineno-0-376"></a>        <span class="s2">&quot;generated_at&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">UTC</span><span class="p">)</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(</span><span class="n">timespec</span><span class="o">=</span><span class="s2">&quot;seconds&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-377" name="__codelineno-0-377"></a>        <span class="s2">&quot;mt5cli_version&quot;</span><span class="p">:</span> <span class="n">_mt5cli_version</span><span class="p">(),</span>
-<a id="__codelineno-0-378" name="__codelineno-0-378"></a>        <span class="s2">&quot;datasets&quot;</span><span class="p">:</span> <span class="p">[</span>
-<a id="__codelineno-0-379" name="__codelineno-0-379"></a>            <span class="p">{</span>
-<a id="__codelineno-0-380" name="__codelineno-0-380"></a>                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
-<a id="__codelineno-0-381" name="__codelineno-0-381"></a>                <span class="s2">&quot;file&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-382" name="__codelineno-0-382"></a>                <span class="s2">&quot;rows&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">frame</span><span class="p">),</span>
-<a id="__codelineno-0-383" name="__codelineno-0-383"></a>                <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">column</span><span class="p">)</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">frame</span><span class="o">.</span><span class="n">columns</span><span class="p">],</span>
-<a id="__codelineno-0-384" name="__codelineno-0-384"></a>            <span class="p">}</span>
-<a id="__codelineno-0-385" name="__codelineno-0-385"></a>            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">frames</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-<a id="__codelineno-0-386" name="__codelineno-0-386"></a>        <span class="p">],</span>
-<a id="__codelineno-0-387" name="__codelineno-0-387"></a>    <span class="p">}</span>
-<a id="__codelineno-0-388" name="__codelineno-0-388"></a>    <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="nb">dir</span><span class="o">=</span><span class="n">out_dir</span><span class="p">)</span> <span class="k">as</span> <span class="n">tmp</span><span class="p">:</span>
-<a id="__codelineno-0-389" name="__codelineno-0-389"></a>        <span class="n">staged</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tmp</span><span class="p">)</span>
-<a id="__codelineno-0-390" name="__codelineno-0-390"></a>        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">frames</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-<a id="__codelineno-0-391" name="__codelineno-0-391"></a>            <span class="n">export_dataframe</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">staged</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span><span class="p">,</span> <span class="s2">&quot;parquet&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-392" name="__codelineno-0-392"></a>        <span class="p">(</span><span class="n">staged</span> <span class="o">/</span> <span class="n">manifest_name</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span>
-<a id="__codelineno-0-393" name="__codelineno-0-393"></a>            <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">manifest</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-394" name="__codelineno-0-394"></a>            <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-395" name="__codelineno-0-395"></a>        <span class="p">)</span>
-<a id="__codelineno-0-396" name="__codelineno-0-396"></a>        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">frames</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">manifest_name</span><span class="p">]:</span>
-<a id="__codelineno-0-397" name="__codelineno-0-397"></a>            <span class="p">(</span><span class="n">staged</span> <span class="o">/</span> <span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">out_dir</span> <span class="o">/</span> <span class="n">name</span><span class="p">)</span>
-<a id="__codelineno-0-398" name="__codelineno-0-398"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Published </span><span class="si">%d</span><span class="s2"> dashboard datasets to </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">frames</span><span class="p">),</span> <span class="n">out_dir</span><span class="p">)</span>
-<a id="__codelineno-0-399" name="__codelineno-0-399"></a>    <span class="k">return</span> <span class="n">manifest</span>
+<a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-354" name="__codelineno-0-354"></a><span class="sd">        source: Path to the SQLite history database.</span>
+<a id="__codelineno-0-355" name="__codelineno-0-355"></a><span class="sd">        output_dir: Directory receiving the Parquet files and manifest.</span>
+<a id="__codelineno-0-356" name="__codelineno-0-356"></a><span class="sd">        manifest_name: File name (no directory components, and not the name of a</span>
+<a id="__codelineno-0-357" name="__codelineno-0-357"></a><span class="sd">            dataset file) of the manifest inside ``output_dir``.</span>
+<a id="__codelineno-0-358" name="__codelineno-0-358"></a>
+<a id="__codelineno-0-359" name="__codelineno-0-359"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-360" name="__codelineno-0-360"></a><span class="sd">        The manifest as a dictionary.</span>
+<a id="__codelineno-0-361" name="__codelineno-0-361"></a>
+<a id="__codelineno-0-362" name="__codelineno-0-362"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-363" name="__codelineno-0-363"></a><span class="sd">        ValueError: If the source database is invalid, ``manifest_name`` is not a</span>
+<a id="__codelineno-0-364" name="__codelineno-0-364"></a><span class="sd">            plain file name or collides with a dataset file, or no dataset can be</span>
+<a id="__codelineno-0-365" name="__codelineno-0-365"></a><span class="sd">            built.</span>
+<a id="__codelineno-0-366" name="__codelineno-0-366"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-367" name="__codelineno-0-367"></a>    <span class="n">manifest_name</span> <span class="o">=</span> <span class="n">_validate_manifest_name</span><span class="p">(</span><span class="n">manifest_name</span><span class="p">)</span>
+<a id="__codelineno-0-368" name="__codelineno-0-368"></a>    <span class="n">conn</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">open_existing_sqlite_database</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+<a id="__codelineno-0-369" name="__codelineno-0-369"></a>    <span class="k">with</span> <span class="n">closing</span><span class="p">(</span><span class="n">conn</span><span class="p">):</span>
+<a id="__codelineno-0-370" name="__codelineno-0-370"></a>        <span class="n">frames</span> <span class="o">=</span> <span class="n">_collect_dataset_frames</span><span class="p">(</span><span class="n">conn</span><span class="p">)</span>
+<a id="__codelineno-0-371" name="__codelineno-0-371"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">frames</span><span class="p">:</span>
+<a id="__codelineno-0-372" name="__codelineno-0-372"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;No analytics datasets could be built from </span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-373" name="__codelineno-0-373"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<a id="__codelineno-0-374" name="__codelineno-0-374"></a>    <span class="n">dataset_files</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">frames</span><span class="p">}</span>
+<a id="__codelineno-0-375" name="__codelineno-0-375"></a>    <span class="k">if</span> <span class="n">manifest_name</span> <span class="ow">in</span> <span class="n">dataset_files</span><span class="p">:</span>
+<a id="__codelineno-0-376" name="__codelineno-0-376"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Manifest name collides with dashboard dataset: </span><span class="si">{</span><span class="n">manifest_name</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-377" name="__codelineno-0-377"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<a id="__codelineno-0-378" name="__codelineno-0-378"></a>    <span class="n">out_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+<a id="__codelineno-0-379" name="__codelineno-0-379"></a>    <span class="n">out_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-380" name="__codelineno-0-380"></a>    <span class="n">manifest</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-381" name="__codelineno-0-381"></a>        <span class="s2">&quot;schema_version&quot;</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span>
+<a id="__codelineno-0-382" name="__codelineno-0-382"></a>        <span class="s2">&quot;generated_at&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">UTC</span><span class="p">)</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(</span><span class="n">timespec</span><span class="o">=</span><span class="s2">&quot;seconds&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-383" name="__codelineno-0-383"></a>        <span class="s2">&quot;mt5cli_version&quot;</span><span class="p">:</span> <span class="n">_mt5cli_version</span><span class="p">(),</span>
+<a id="__codelineno-0-384" name="__codelineno-0-384"></a>        <span class="s2">&quot;datasets&quot;</span><span class="p">:</span> <span class="p">[</span>
+<a id="__codelineno-0-385" name="__codelineno-0-385"></a>            <span class="p">{</span>
+<a id="__codelineno-0-386" name="__codelineno-0-386"></a>                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
+<a id="__codelineno-0-387" name="__codelineno-0-387"></a>                <span class="s2">&quot;file&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-388" name="__codelineno-0-388"></a>                <span class="s2">&quot;rows&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">frame</span><span class="p">),</span>
+<a id="__codelineno-0-389" name="__codelineno-0-389"></a>                <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">column</span><span class="p">)</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">frame</span><span class="o">.</span><span class="n">columns</span><span class="p">],</span>
+<a id="__codelineno-0-390" name="__codelineno-0-390"></a>            <span class="p">}</span>
+<a id="__codelineno-0-391" name="__codelineno-0-391"></a>            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">frames</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+<a id="__codelineno-0-392" name="__codelineno-0-392"></a>        <span class="p">],</span>
+<a id="__codelineno-0-393" name="__codelineno-0-393"></a>    <span class="p">}</span>
+<a id="__codelineno-0-394" name="__codelineno-0-394"></a>    <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="nb">dir</span><span class="o">=</span><span class="n">out_dir</span><span class="p">)</span> <span class="k">as</span> <span class="n">tmp</span><span class="p">:</span>
+<a id="__codelineno-0-395" name="__codelineno-0-395"></a>        <span class="n">staged</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tmp</span><span class="p">)</span>
+<a id="__codelineno-0-396" name="__codelineno-0-396"></a>        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">frames</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-397" name="__codelineno-0-397"></a>            <span class="n">export_dataframe</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">staged</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span><span class="p">,</span> <span class="s2">&quot;parquet&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-398" name="__codelineno-0-398"></a>        <span class="p">(</span><span class="n">staged</span> <span class="o">/</span> <span class="n">manifest_name</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span>
+<a id="__codelineno-0-399" name="__codelineno-0-399"></a>            <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">manifest</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-400" name="__codelineno-0-400"></a>            <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-401" name="__codelineno-0-401"></a>        <span class="p">)</span>
+<a id="__codelineno-0-402" name="__codelineno-0-402"></a>        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.parquet&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">frames</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">manifest_name</span><span class="p">]:</span>
+<a id="__codelineno-0-403" name="__codelineno-0-403"></a>            <span class="p">(</span><span class="n">staged</span> <span class="o">/</span> <span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">out_dir</span> <span class="o">/</span> <span class="n">name</span><span class="p">)</span>
+<a id="__codelineno-0-404" name="__codelineno-0-404"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Published </span><span class="si">%d</span><span class="s2"> dashboard datasets to </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">frames</span><span class="p">),</span> <span class="n">out_dir</span><span class="p">)</span>
+<a id="__codelineno-0-405" name="__codelineno-0-405"></a>    <span class="k">return</span> <span class="n">manifest</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
