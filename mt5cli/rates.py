@@ -100,6 +100,9 @@ def _table_contains_aware_timestamp_text(
     time_columns = TIME_COLUMNS[kind] & _SQLITE_TEXT_TIME_COLUMNS & columns
     for column in sorted(time_columns):
         quoted_column = quote_sqlite_identifier(column)
+        # Only quoted table/column identifiers are interpolated; SQLite cannot
+        # bind identifiers, and every SQL value here is a fixed literal.
+        # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
         row = conn.execute(
             f"""
             SELECT 1

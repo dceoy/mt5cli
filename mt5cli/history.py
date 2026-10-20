@@ -581,9 +581,11 @@ def build_rate_targets(
 
 def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     """Return existing SQLite columns for a table."""
-    quoted_table = quote_sqlite_identifier(table)
-    rows = conn.execute(f"PRAGMA table_info({quoted_table})").fetchall()
-    return {str(row[1]) for row in rows}
+    rows = conn.execute(
+        "SELECT name FROM pragma_table_info(?)",
+        (table,),
+    ).fetchall()
+    return {str(row[0]) for row in rows}
 
 
 def _parse_string_sqlite_timestamp(value: str) -> datetime | None:
@@ -704,7 +706,12 @@ def _load_latest_parseable_time(
     if where_clause:
         query += f" AND {where_clause}"
     query += f" ORDER BY {time_expr} DESC, ROWID DESC LIMIT 1"
-    row = conn.execute(query, tuple(params)).fetchone()
+    # Identifiers are quoted above; predicates are internal SQL fragments and
+    # all external filter values are bound through params.
+    row = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
+        query,
+        tuple(params),
+    ).fetchone()
     return parse_sqlite_timestamp(row[0] if row else None)
 
 
@@ -1322,7 +1329,12 @@ def _create_history_view(
     *,
     temporary: bool,
 ) -> None:
+    name = quote_sqlite_identifier(name)
+    # SQLite cannot bind identifiers or view bodies. Callers supply internal
+    # SELECT templates, and the view name is escaped above.
+    # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
     conn.execute(f"DROP VIEW IF EXISTS {'temp.' if temporary else ''}{name}")
+    # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
     conn.execute(f"CREATE {'TEMP ' if temporary else ''}VIEW {name} AS {select_sql}")
 
 

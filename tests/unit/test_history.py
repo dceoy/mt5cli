@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from pdmt5 import TIMEFRAME_MAP, Mt5RuntimeError
 
-from mt5cli import history
+from mt5cli import analytics, history
 from mt5cli.exceptions import Mt5ConnectionError
 from mt5cli.history import (
     DEFAULT_HISTORY_DATASETS,
@@ -156,6 +156,53 @@ class TestQuoteSqliteIdentifier:
         quoted = quote_sqlite_identifier(f"rate_{symbol}")
         assert quoted.startswith('"')
         assert quoted.endswith('"')
+
+
+class TestSqliteDynamicIdentifiers:
+    """Exercise SQL identifiers without interpreting their contents as SQL."""
+
+    @pytest.mark.parametrize("name", ["ordinary", 'a"quoted"; DROP TABLE sentinel; --'])
+    @pytest.mark.parametrize("object_type", ["TABLE", "VIEW"])
+    def test_table_columns(self, name: str, object_type: str) -> None:
+        """Introspect tables and views with bound names."""
+        with sqlite3.connect(":memory:") as conn:
+            conn.execute("CREATE TABLE sentinel (value INTEGER)")
+            quoted = quote_sqlite_identifier(name)
+            definition = {
+                "TABLE": "(value INTEGER)",
+                "VIEW": "AS SELECT value FROM sentinel",
+            }[object_type]
+            conn.execute(f"CREATE {object_type} {quoted} {definition}")
+            assert get_table_columns(conn, name) == {"value"}
+            assert get_table_columns(conn, "missing") == set()
+            assert get_table_columns(conn, "sentinel") == {"value"}
+
+    @pytest.mark.parametrize(
+        "create_view",
+        [analytics._create_view, history._create_history_view],
+        ids=["analytics", "history"],
+    )
+    @pytest.mark.parametrize("temporary", [False, True])
+    @pytest.mark.parametrize("name", ["ordinary", 'a"quoted"; DROP TABLE sentinel; --'])
+    def test_view_replacement(
+        self,
+        create_view: Callable[..., None],
+        temporary: bool,
+        name: str,
+    ) -> None:
+        """Replace quoted views while preserving persistent views under TEMP."""
+        with sqlite3.connect(":memory:") as conn:
+            conn.execute("CREATE TABLE sentinel (value INTEGER)")
+            create_view(conn, name, "SELECT 1 AS value", temporary=False)
+            create_view(conn, name, "SELECT 2 AS value", temporary=temporary)
+            create_view(conn, name, "SELECT 3 AS value", temporary=temporary)
+            quoted = quote_sqlite_identifier(name)
+            query = f"SELECT value FROM {quoted}"  # noqa: S608
+            assert conn.execute(query).fetchone() == (3,)
+            expected = 1 if temporary else 3
+            query = f"SELECT value FROM main.{quoted}"  # noqa: S608
+            assert conn.execute(query).fetchone() == (expected,)
+            assert get_table_columns(conn, "sentinel") == {"value"}
 
 
 class TestLoadRateData:
