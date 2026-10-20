@@ -18,6 +18,7 @@ from .history import (
     create_deal_portions_view,
     get_table_columns,
     open_existing_sqlite_database,
+    quote_sqlite_identifier,
 )
 from .utils import export_dataframe
 
@@ -98,8 +99,13 @@ def _create_view(
     *,
     temporary: bool,
 ) -> None:
-    conn.execute(f'DROP VIEW IF EXISTS {"temp." if temporary else ""}"{name}"')
-    conn.execute(f'CREATE {"TEMP " if temporary else ""}VIEW "{name}" AS {select_sql}')
+    name = quote_sqlite_identifier(name)
+    # SQLite cannot bind identifiers or view bodies. The SELECT is built only
+    # from module-owned SQL templates; the view name is escaped above.
+    # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+    conn.execute(f"DROP VIEW IF EXISTS {'temp.' if temporary else ''}{name}")
+    # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+    conn.execute(f"CREATE {'TEMP ' if temporary else ''}VIEW {name} AS {select_sql}")
 
 
 _CLOSE_DATE_SQL = (
