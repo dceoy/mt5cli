@@ -226,13 +226,13 @@ responsibilities.</p>
 </table>
 <h2 id="architecture-overview">Architecture overview<a class="headerlink" href="#architecture-overview" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>flowchart TD
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    App[&quot;Downstream application&quot;] --&gt; Client[&quot;MT5Client / mt5_session&quot;]
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    CLI[&quot;mt5cli CLI&quot;] --&gt; Client
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    Client --&gt; PDMT5[&quot;pdmt5.Mt5DataClient&quot;]
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    MarketData[&quot;marketdata&quot;] --&gt; Client
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    History[&quot;history&quot;] --&gt; Client
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    Observability[&quot;observability&quot;] --&gt; Client
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    History --&gt; Utils[&quot;utils export&quot;]
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    App["Downstream application"] --&gt; Client["MT5Client / mt5_session"]
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    CLI["mt5cli CLI"] --&gt; Client
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    Client --&gt; PDMT5["pdmt5.Mt5DataClient"]
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    MarketData["marketdata"] --&gt; Client
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    History["history"] --&gt; Client
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    Observability["observability"] --&gt; Client
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    History --&gt; Utils["utils export"]
 </code></pre></div>
 <p>Downstream packages should depend on the package root exports documented in the
 <a href="public-contract/">Public API Contract</a> (<code>MT5Client</code>,
@@ -243,7 +243,7 @@ modules. Lower-level helpers are accessible directly from their owning modules.<
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli</span><span class="w"> </span><span class="kn">import</span> <span class="n">MT5Client</span><span class="p">,</span> <span class="n">build_config</span><span class="p">,</span> <span class="n">mt5_session</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">with</span> <span class="n">mt5_session</span><span class="p">(</span><span class="n">build_config</span><span class="p">(</span><span class="n">login</span><span class="o">=</span><span class="mi">12345</span><span class="p">))</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">rates</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">copy_rates_range</span><span class="p">(</span><span class="s2">&quot;EURUSD&quot;</span><span class="p">,</span> <span class="s2">&quot;H1&quot;</span><span class="p">,</span> <span class="s2">&quot;2024-01-01&quot;</span><span class="p">,</span> <span class="s2">&quot;2024-02-01&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">rates</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">copy_rates_range</span><span class="p">(</span><span class="s2">"EURUSD"</span><span class="p">,</span> <span class="s2">"H1"</span><span class="p">,</span> <span class="s2">"2024-01-01"</span><span class="p">,</span> <span class="s2">"2024-02-01"</span><span class="p">)</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">positions</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">positions</span><span class="p">()</span>
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>mt5cli<span class="w"> </span>-o<span class="w"> </span>account.csv<span class="w"> </span>account-info

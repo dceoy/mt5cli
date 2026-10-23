@@ -207,7 +207,7 @@
   </span>
 
 <a href="#mt5cli.telemetry.logger" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">logger</span> <span class="o">=</span> <span class="n"><span title="logging.getLogger">getLogger</span></span><span class="p">(</span><span class="n"><span title="__name__">__name__</span></span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">logger</span> <span class="o">=</span> <span class="n"><span title="logging">logging</span></span><span class="o">.</span><span class="n"><span title="logging.getLogger">getLogger</span></span><span class="p">(</span><span class="n"><span title="__name__">__name__</span></span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -274,12 +274,12 @@
 <span class="normal"><a href="#__codelineno-0-329">329</a></span>
 <span class="normal"><a href="#__codelineno-0-330">330</a></span>
 <span class="normal"><a href="#__codelineno-0-331">331</a></span>
-<span class="normal"><a href="#__codelineno-0-332">332</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-326" name="__codelineno-0-326"></a><span class="k">def</span><span class="w"> </span><span class="nf">configure_metrics</span><span class="p">(</span><span class="n">meter</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>  <span class="c1"># noqa: ANN401</span>
-<a id="__codelineno-0-327" name="__codelineno-0-327"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Configure MT5 metrics using the provided meter.</span>
+<span class="normal"><a href="#__codelineno-0-332">332</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-326" name="__codelineno-0-326"></a><span class="k">def</span><span class="w"> </span><span class="nf">configure_metrics</span><span class="p">(</span><span class="n">meter</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>  <span class="c1"># ruff: ignore[any-type]</span>
+<a id="__codelineno-0-327" name="__codelineno-0-327"></a><span class="w">    </span><span class="sd">"""Configure MT5 metrics using the provided meter.</span>
 <a id="__codelineno-0-328" name="__codelineno-0-328"></a>
 <a id="__codelineno-0-329" name="__codelineno-0-329"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-330" name="__codelineno-0-330"></a><span class="sd">        meter: An OpenTelemetry ``Meter`` or duck-typed compatible object.</span>
-<a id="__codelineno-0-331" name="__codelineno-0-331"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-331" name="__codelineno-0-331"></a><span class="sd">    """</span>
 <a id="__codelineno-0-332" name="__codelineno-0-332"></a>    <span class="n">_metrics</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">meter</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
@@ -296,7 +296,7 @@
 
 <a href="#mt5cli.telemetry.enable_otel_metrics" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">enable_otel_metrics</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">service_name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;mt5cli&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">service_name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">"mt5cli"</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">readers</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
@@ -433,13 +433,13 @@ to override.</p>
 <span class="normal"><a href="#__codelineno-0-377">377</a></span>
 <span class="normal"><a href="#__codelineno-0-378">378</a></span>
 <span class="normal"><a href="#__codelineno-0-379">379</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-335" name="__codelineno-0-335"></a><span class="k">def</span><span class="w"> </span><span class="nf">enable_otel_metrics</span><span class="p">(</span>
-<a id="__codelineno-0-336" name="__codelineno-0-336"></a>    <span class="n">service_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mt5cli&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-336" name="__codelineno-0-336"></a>    <span class="n">service_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"mt5cli"</span><span class="p">,</span>
 <a id="__codelineno-0-337" name="__codelineno-0-337"></a>    <span class="n">readers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-338" name="__codelineno-0-338"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-339" name="__codelineno-0-339"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Enable OTel metrics by wiring up an SDK ``MeterProvider`` pipeline.</span>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a><span class="w">    </span><span class="sd">"""Enable OTel metrics by wiring up an SDK ``MeterProvider`` pipeline.</span>
 <a id="__codelineno-0-340" name="__codelineno-0-340"></a>
 <a id="__codelineno-0-341" name="__codelineno-0-341"></a><span class="sd">    Requires the ``otel`` optional dependency group:</span>
-<a id="__codelineno-0-342" name="__codelineno-0-342"></a><span class="sd">    ``pip install &quot;mt5cli[otel]&quot;``.</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a><span class="sd">    ``pip install "mt5cli[otel]"``.</span>
 <a id="__codelineno-0-343" name="__codelineno-0-343"></a>
 <a id="__codelineno-0-344" name="__codelineno-0-344"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-345" name="__codelineno-0-345"></a><span class="sd">        service_name: OTel meter/service name used for the ``Resource`` and</span>
@@ -455,24 +455,24 @@ to override.</p>
 <a id="__codelineno-0-355" name="__codelineno-0-355"></a><span class="sd">        ImportError: If ``opentelemetry-api`` is not installed, or if</span>
 <a id="__codelineno-0-356" name="__codelineno-0-356"></a><span class="sd">            ``readers`` is *None* and</span>
 <a id="__codelineno-0-357" name="__codelineno-0-357"></a><span class="sd">            ``opentelemetry-exporter-otlp-proto-http`` is not installed.</span>
-<a id="__codelineno-0-358" name="__codelineno-0-358"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-358" name="__codelineno-0-358"></a><span class="sd">    """</span>
 <a id="__codelineno-0-359" name="__codelineno-0-359"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">_OTEL_AVAILABLE</span><span class="p">:</span>
 <a id="__codelineno-0-360" name="__codelineno-0-360"></a>        <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-361" name="__codelineno-0-361"></a>            <span class="s2">&quot;opentelemetry-api is not installed. &quot;</span>
-<a id="__codelineno-0-362" name="__codelineno-0-362"></a>            <span class="s1">&#39;Install it with: pip install &quot;mt5cli[otel]&quot;&#39;</span>
+<a id="__codelineno-0-361" name="__codelineno-0-361"></a>            <span class="s2">"opentelemetry-api is not installed. "</span>
+<a id="__codelineno-0-362" name="__codelineno-0-362"></a>            <span class="s1">'Install it with: pip install "mt5cli[otel]"'</span>
 <a id="__codelineno-0-363" name="__codelineno-0-363"></a>        <span class="p">)</span>
 <a id="__codelineno-0-364" name="__codelineno-0-364"></a>        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
 <a id="__codelineno-0-365" name="__codelineno-0-365"></a>    <span class="k">if</span> <span class="n">readers</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-366" name="__codelineno-0-366"></a>        <span class="k">if</span> <span class="n">_OtelOTLPExporter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-367" name="__codelineno-0-367"></a>            <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-368" name="__codelineno-0-368"></a>                <span class="s2">&quot;opentelemetry-exporter-otlp-proto-http is required for the &quot;</span>
-<a id="__codelineno-0-369" name="__codelineno-0-369"></a>                <span class="s2">&quot;default OTLP export pipeline. &quot;</span>
-<a id="__codelineno-0-370" name="__codelineno-0-370"></a>                <span class="s1">&#39;Install it with: pip install &quot;mt5cli[otel]&quot; or pass a &#39;</span>
-<a id="__codelineno-0-371" name="__codelineno-0-371"></a>                <span class="s2">&quot;custom readers list.&quot;</span>
+<a id="__codelineno-0-368" name="__codelineno-0-368"></a>                <span class="s2">"opentelemetry-exporter-otlp-proto-http is required for the "</span>
+<a id="__codelineno-0-369" name="__codelineno-0-369"></a>                <span class="s2">"default OTLP export pipeline. "</span>
+<a id="__codelineno-0-370" name="__codelineno-0-370"></a>                <span class="s1">'Install it with: pip install "mt5cli[otel]" or pass a '</span>
+<a id="__codelineno-0-371" name="__codelineno-0-371"></a>                <span class="s2">"custom readers list."</span>
 <a id="__codelineno-0-372" name="__codelineno-0-372"></a>            <span class="p">)</span>
 <a id="__codelineno-0-373" name="__codelineno-0-373"></a>            <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
 <a id="__codelineno-0-374" name="__codelineno-0-374"></a>        <span class="n">readers</span> <span class="o">=</span> <span class="p">[</span><span class="n">_OtelPeriodicReader</span><span class="p">(</span><span class="n">_OtelOTLPExporter</span><span class="p">())]</span>  <span class="c1"># type: ignore[misc]</span>
-<a id="__codelineno-0-375" name="__codelineno-0-375"></a>    <span class="n">resource</span> <span class="o">=</span> <span class="n">_OtelResource</span><span class="o">.</span><span class="n">create</span><span class="p">({</span><span class="s2">&quot;service.name&quot;</span><span class="p">:</span> <span class="n">service_name</span><span class="p">})</span>  <span class="c1"># type: ignore[union-attr]</span>
+<a id="__codelineno-0-375" name="__codelineno-0-375"></a>    <span class="n">resource</span> <span class="o">=</span> <span class="n">_OtelResource</span><span class="o">.</span><span class="n">create</span><span class="p">({</span><span class="s2">"service.name"</span><span class="p">:</span> <span class="n">service_name</span><span class="p">})</span>  <span class="c1"># type: ignore[union-attr]</span>
 <a id="__codelineno-0-376" name="__codelineno-0-376"></a>    <span class="n">provider</span> <span class="o">=</span> <span class="n">_OtelMeterProvider</span><span class="p">(</span><span class="n">resource</span><span class="o">=</span><span class="n">resource</span><span class="p">,</span> <span class="n">metric_readers</span><span class="o">=</span><span class="n">readers</span><span class="p">)</span>  <span class="c1"># type: ignore[misc]</span>
 <a id="__codelineno-0-377" name="__codelineno-0-377"></a>    <span class="n">_otel_metrics_mod</span><span class="o">.</span><span class="n">set_meter_provider</span><span class="p">(</span><span class="n">provider</span><span class="p">)</span>  <span class="c1"># type: ignore[union-attr]</span>
 <a id="__codelineno-0-378" name="__codelineno-0-378"></a>    <span class="n">meter</span> <span class="o">=</span> <span class="n">provider</span><span class="o">.</span><span class="n">get_meter</span><span class="p">(</span><span class="n">service_name</span><span class="p">)</span>
@@ -542,12 +542,12 @@ to override.</p>
 <span class="normal"><a href="#__codelineno-0-387">387</a></span>
 <span class="normal"><a href="#__codelineno-0-388">388</a></span>
 <span class="normal"><a href="#__codelineno-0-389">389</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-382" name="__codelineno-0-382"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_metrics</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">_Mt5Metrics</span><span class="p">:</span>
-<a id="__codelineno-0-383" name="__codelineno-0-383"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the global :class:`_Mt5Metrics` instance.</span>
+<a id="__codelineno-0-383" name="__codelineno-0-383"></a><span class="w">    </span><span class="sd">"""Return the global :class:`_Mt5Metrics` instance.</span>
 <a id="__codelineno-0-384" name="__codelineno-0-384"></a>
 <a id="__codelineno-0-385" name="__codelineno-0-385"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-386" name="__codelineno-0-386"></a><span class="sd">        The global metric registry (no-op until :func:`configure_metrics` is</span>
 <a id="__codelineno-0-387" name="__codelineno-0-387"></a><span class="sd">        called).</span>
-<a id="__codelineno-0-388" name="__codelineno-0-388"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-388" name="__codelineno-0-388"></a><span class="sd">    """</span>
 <a id="__codelineno-0-389" name="__codelineno-0-389"></a>    <span class="k">return</span> <span class="n">_metrics</span>
 </code></pre></div></td></tr></table></div>
             </details>
@@ -563,12 +563,12 @@ to override.</p>
 
 </div><h2 id="enabling-opentelemetry-metrics">Enabling OpenTelemetry metrics<a class="headerlink" href="#enabling-opentelemetry-metrics" title="Permanent link">&para;</a></h2>
 <p>Install the optional exporter dependencies with:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s1">&#39;mt5cli[otel]&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s1">'mt5cli[otel]'</span>
 </code></pre></div>
 <p>Then enable the default OTLP HTTP pipeline:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mt5cli.telemetry</span><span class="w"> </span><span class="kn">import</span> <span class="n">enable_otel_metrics</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">enable_otel_metrics</span><span class="p">(</span><span class="n">service_name</span><span class="o">=</span><span class="s2">&quot;mt5cli&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">enable_otel_metrics</span><span class="p">(</span><span class="n">service_name</span><span class="o">=</span><span class="s2">"mt5cli"</span><span class="p">)</span>
 </code></pre></div>
 <p>When <code>readers=None</code>, <code>enable_otel_metrics()</code> builds a
 <code>PeriodicExportingMetricReader</code> backed by the OTLP HTTP exporter and reads the
