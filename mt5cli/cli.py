@@ -6,8 +6,8 @@ import json
 import logging
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime  # noqa: TC003
-from pathlib import Path  # noqa: TC003
+from datetime import datetime  # ruff: ignore[typing-only-standard-library-import]
+from pathlib import Path  # ruff: ignore[typing-only-standard-library-import]
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pandas as pd
@@ -1003,7 +1003,7 @@ def publish_dashboard_command(
         typer.BadParameter: If the source database is invalid, the manifest path
             is not JSON, or no dataset can be built.
     """
-    from .analytics import publish_dashboard  # noqa: PLC0415
+    from .analytics import publish_dashboard  # ruff: ignore[import-outside-top-level]
 
     export_ctx = _get_export_context(ctx)
     if export_ctx.output_format != "json":

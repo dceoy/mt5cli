@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .client import MT5Client
 
 
-def _account_matches(account: Any, *, login: int, server: str | None) -> bool:  # noqa: ANN401
+def _account_matches(account: Any, *, login: int, server: str | None) -> bool:  # ruff: ignore[any-type]
     """Return whether an MT5 account snapshot matches the requested account."""
     if getattr(account, "login", None) != login:
         return False

@@ -79,7 +79,7 @@ class Dataset(StrEnum):
 
     @property
     def table_name(self) -> str:
-        """Return the SQLite table name for this dataset."""
+        """SQLite table name for this dataset."""
         return self.value.replace("-", "_")
 
 
@@ -171,7 +171,7 @@ def export_dataframe_to_sqlite(
             index_label=index_label,
         )
         if deduplicate_on:
-            from .history import drop_duplicates_in_table  # noqa: PLC0415
+            from .history import drop_duplicates_in_table  # ruff: ignore[import-outside-top-level]
 
             drop_duplicates_in_table(
                 conn.cursor(),

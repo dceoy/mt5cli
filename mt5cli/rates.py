@@ -1,5 +1,5 @@
 """Canonical normalized-rate persistence and loading APIs."""
-# ruff: noqa: PLR0913
+# ruff: file-ignore[too-many-arguments]
 # pyright: reportPrivateUsage=false
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ def _table_contains_aware_timestamp_text(
                 OR instr(substr(trim({quoted_column}), 20), '-') > 0
               )
             LIMIT 1
-            """  # noqa: S608
+            """  # ruff: ignore[hardcoded-sql-expression]
         ).fetchone()
         if row is not None:
             return True
@@ -419,7 +419,7 @@ def load_rate_series_by_granularity(
     Raises:
         TypeError: If explicit table loading returns a single DataFrame.
     """
-    from .history import build_rate_targets  # noqa: PLC0415
+    from .history import build_rate_targets  # ruff: ignore[import-outside-top-level]
 
     targets = build_rate_targets(
         symbols,

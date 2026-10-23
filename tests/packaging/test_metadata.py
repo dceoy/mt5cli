@@ -1,5 +1,5 @@
 """Packaging metadata invariants for mt5cli."""
-# ruff: noqa: INP001
+# ruff: file-ignore[implicit-namespace-package]
 
 from __future__ import annotations
 

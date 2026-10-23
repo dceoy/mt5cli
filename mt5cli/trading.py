@@ -18,7 +18,7 @@ from .exceptions import Mt5OperationError
 from .history import drop_forming_rate_bar
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Hashable, Mapping, Sequence
     from typing import Any
 
 _logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class _Mt5ClientProtocol(Protocol):
     """
 
     @property
-    def mt5(self) -> Any:  # noqa: ANN401
+    def mt5(self) -> Any:  # ruff: ignore[any-type]
         """MT5 module with trading constants (POSITION_TYPE_*, ORDER_TYPE_*, etc.)."""
         ...
 
@@ -75,11 +75,11 @@ class _Mt5ClientProtocol(Protocol):
 
     def order_calc_margin(
         self, /, action: int, symbol: str, volume: float, price: float
-    ) -> Any:  # noqa: ANN401
+    ) -> Any:  # ruff: ignore[any-type]
         """Calculate required margin for an order."""
         ...
 
-    def order_send(self, request: dict[str, Any], /) -> Any:  # noqa: ANN401
+    def order_send(self, request: dict[str, Any], /) -> Any:  # ruff: ignore[any-type]
         """Send an order request and return the response."""
         ...
 
@@ -645,7 +645,7 @@ def _success_retcodes(mt5: object) -> frozenset[int]:
     return frozenset(values) or _SUCCESS_RETCODE_FALLBACKS
 
 
-def _plain_value(value: object) -> object:  # noqa: PLR0911
+def _plain_value(value: object) -> object:  # ruff: ignore[too-many-return-statements]
     """Convert broker values into JSON-compatible diagnostic data.
 
     Returns:
@@ -2073,6 +2073,23 @@ def _ensure_rate_time_column(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def _parse_rate_time_index(series: pd.Series) -> pd.DatetimeIndex:
+    arr = series.to_numpy()
+    non_null = series.dropna()
+    object_numbers = (
+        pd.api.types.is_object_dtype(series)
+        and non_null.map(
+            lambda value: type(value) is not bool and isinstance(value, Real),
+        ).all()
+    )
+    numeric_dtype = pd.api.types.is_numeric_dtype(
+        series
+    ) and not pd.api.types.is_bool_dtype(series)
+    if numeric_dtype or object_numbers:
+        return cast("pd.DatetimeIndex", pd.to_datetime(arr, unit="s", utc=True))
+    return cast("pd.DatetimeIndex", pd.to_datetime(arr, utc=True))
+
+
 def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
     """Convert MT5 epoch or datetime-like rate timestamps to UTC.
 
@@ -2083,21 +2100,7 @@ def _rate_time_to_utc(series: pd.Series, symbol: str) -> pd.DatetimeIndex:
         ValueError: If timestamp data cannot be normalized.
     """
     try:
-        arr = series.to_numpy()
-        non_null = series.dropna()
-        object_numbers = (
-            pd.api.types.is_object_dtype(series)
-            and non_null.map(
-                lambda value: type(value) is not bool and isinstance(value, Real),
-            ).all()
-        )
-        numeric_dtype = pd.api.types.is_numeric_dtype(
-            series
-        ) and not pd.api.types.is_bool_dtype(series)
-        if numeric_dtype or object_numbers:
-            idx = pd.to_datetime(arr, unit="s", utc=True)
-        else:
-            idx = pd.to_datetime(arr, utc=True)
+        idx = _parse_rate_time_index(series)
     except Exception as exc:
         msg = f"Rate data for {symbol!r} has invalid or unparseable time data."
         raise ValueError(msg) from exc
@@ -2650,7 +2653,46 @@ def determine_order_limits(
     }
 
 
-def place_market_order(  # noqa: C901, PLR0913
+def _market_order_constants(
+    mt5: Any,  # ruff: ignore[any-type]
+    side: OrderSide,
+    order_filling_mode: OrderFillingMode,
+    order_time_mode: OrderTimeMode,
+) -> dict[str, object]:
+    return {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "type": mt5.ORDER_TYPE_BUY if side == "BUY" else mt5.ORDER_TYPE_SELL,
+        "type_filling": _resolve_mt5_constant(
+            mt5, "ORDER_FILLING", order_filling_mode, _ORDER_FILLING_MODES
+        ),
+        "type_time": _resolve_mt5_constant(
+            mt5, "ORDER_TIME", order_time_mode, _ORDER_TIME_MODES
+        ),
+    }
+
+
+def _market_order_price(
+    client: _Mt5ClientProtocol,
+    symbol: str,
+    side: OrderSide,
+) -> float:
+    tick = get_tick_snapshot(client, symbol)
+    price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
+    return _require_tick_price(price, symbol)
+
+
+def _send_market_order_request(
+    client: _Mt5ClientProtocol,
+    request: dict[str, object],
+    symbol: str,
+    side: OrderSide,
+) -> Any:  # ruff: ignore[any-type]
+    ensure_symbol_selected(client, symbol)
+    request["price"] = _market_order_price(client, symbol, side)
+    return client.order_send(request)
+
+
+def place_market_order(  # ruff: ignore[complex-structure, too-many-arguments]
     client: _Mt5ClientProtocol,
     *,
     symbol: str,
@@ -2712,20 +2754,11 @@ def place_market_order(  # noqa: C901, PLR0913
     mt5: Any = object()
     try:
         mt5 = client.mt5
-        request.update({
-            "action": mt5.TRADE_ACTION_DEAL,
-            "type": mt5.ORDER_TYPE_BUY if side == "BUY" else mt5.ORDER_TYPE_SELL,
-            "type_filling": _resolve_mt5_constant(
-                mt5, "ORDER_FILLING", order_filling_mode, _ORDER_FILLING_MODES
-            ),
-            "type_time": _resolve_mt5_constant(
-                mt5, "ORDER_TIME", order_time_mode, _ORDER_TIME_MODES
-            ),
-        })
+        request.update(
+            _market_order_constants(mt5, side, order_filling_mode, order_time_mode),
+        )
         if dry_run:
-            tick = get_tick_snapshot(client, symbol)
-            price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
-            request["price"] = _require_tick_price(price, symbol)
+            request["price"] = _market_order_price(client, symbol, side)
             return _execution_receipt(
                 mt5=mt5,
                 symbol=symbol,
@@ -2733,12 +2766,8 @@ def place_market_order(  # noqa: C901, PLR0913
                 request=request,
                 dry_run=True,
             )
-        ensure_symbol_selected(client, symbol)
-        tick = get_tick_snapshot(client, symbol)
-        price = extract_tick_price(tick, "ask" if side == "BUY" else "bid")
-        request["price"] = _require_tick_price(price, symbol)
-        response = client.order_send(request)
-    except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
+        response = _send_market_order_request(client, request, symbol, side)
+    except Exception as exc:  # ruff: ignore[blind-except] - receipt is the execution contract
         return _execution_receipt(
             mt5=mt5,
             symbol=symbol,
@@ -2774,6 +2803,22 @@ def _filter_positions(
             return frame.iloc[0:0].copy()
         frame = frame.loc[frame["magic"] == magic]
     return frame
+
+
+def _cached_close_filling_mode(
+    client: _Mt5ClientProtocol,
+    symbol: str,
+    order_filling_mode: OrderFillingMode | None,
+    resolved_filling_modes: dict[str, OrderFillingMode],
+) -> OrderFillingMode:
+    if order_filling_mode is not None:
+        return order_filling_mode
+    if symbol not in resolved_filling_modes:
+        resolved_filling_modes[symbol] = resolve_broker_filling_mode(
+            client,
+            symbol=symbol,
+        )
+    return resolved_filling_modes[symbol]
 
 
 def close_open_positions(
@@ -2812,16 +2857,13 @@ def close_open_positions(
         try:
             mt5 = client.mt5
             side = "SELL" if pos_type == mt5.POSITION_TYPE_BUY else "BUY"
-            if order_filling_mode is None:
-                if symbol not in resolved_filling_modes:
-                    resolved_filling_modes[symbol] = resolve_broker_filling_mode(
-                        client,
-                        symbol=symbol,
-                    )
-                filling_mode = resolved_filling_modes[symbol]
-            else:
-                filling_mode = order_filling_mode
-        except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
+            filling_mode = _cached_close_filling_mode(
+                client,
+                symbol,
+                order_filling_mode,
+                resolved_filling_modes,
+            )
+        except Exception as exc:  # ruff: ignore[blind-except] - receipt is the execution contract
             results.append(
                 _execution_receipt(
                     mt5=mt5,
@@ -2979,6 +3021,28 @@ def update_trailing_stop_loss_for_open_positions(
     return results
 
 
+def _populate_sltp_request(
+    request: dict[str, object],
+    mt5: Any,  # ruff: ignore[any-type]
+    row: Mapping[Hashable, Any],
+    *,
+    stop_loss: float | None,
+    take_profit: float | None,
+) -> OrderSide:
+    request.update({
+        "action": mt5.TRADE_ACTION_SLTP,
+        "symbol": row["symbol"],
+        "position": row["ticket"],
+    })
+    sl = _optional_price(row.get("sl") if stop_loss is None else stop_loss)
+    tp = _optional_price(row.get("tp") if take_profit is None else take_profit)
+    if sl is not None:
+        request["sl"] = sl
+    if tp is not None:
+        request["tp"] = tp
+    return "BUY" if row["type"] == mt5.POSITION_TYPE_BUY else "SELL"
+
+
 def update_sltp_for_open_positions(
     client: _Mt5ClientProtocol,
     *,
@@ -3008,19 +3072,14 @@ def update_sltp_for_open_positions(
         request: dict[str, object] = {}
         try:
             mt5 = client.mt5
-            request = {
-                "action": mt5.TRADE_ACTION_SLTP,
-                "symbol": row["symbol"],
-                "position": row["ticket"],
-            }
-            sl = _optional_price(row.get("sl") if stop_loss is None else stop_loss)
-            tp = _optional_price(row.get("tp") if take_profit is None else take_profit)
-            if sl is not None:
-                request["sl"] = sl
-            if tp is not None:
-                request["tp"] = tp
-            side = "BUY" if row["type"] == mt5.POSITION_TYPE_BUY else "SELL"
-        except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
+            side = _populate_sltp_request(
+                request,
+                mt5,
+                row,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            )
+        except Exception as exc:  # ruff: ignore[blind-except] - receipt is the execution contract
             results.append(
                 _execution_receipt(
                     mt5=mt5,
@@ -3046,7 +3105,7 @@ def update_sltp_for_open_positions(
         try:
             ensure_symbol_selected(client, symbol)
             response = client.order_send(request)
-        except Exception as exc:  # noqa: BLE001 - receipt is the execution contract
+        except Exception as exc:  # ruff: ignore[blind-except] - receipt is the execution contract
             results.append(
                 _execution_receipt(
                     mt5=mt5,

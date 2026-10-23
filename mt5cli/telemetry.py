@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
 
@@ -181,10 +181,10 @@ class _Mt5Metrics:
             (spec.key for spec in _INSTRUMENT_SPECS), _NOOP
         )
 
-    def _instrument(self, key: str) -> Any:  # noqa: ANN401
+    def _instrument(self, key: str) -> Any:  # ruff: ignore[any-type]
         return self._instruments[key]
 
-    def configure(self, meter: Any) -> None:  # noqa: ANN401
+    def configure(self, meter: Any) -> None:  # ruff: ignore[any-type]
         """Set up metric instruments from a meter object.
 
         Args:
@@ -207,7 +207,7 @@ class _Mt5Metrics:
         self,
         *,
         dataset: str,
-    ) -> Iterator[None]:
+    ) -> Generator[None, None, None]:
         """Context manager recording history update duration and failures.
 
         Args:
@@ -236,7 +236,7 @@ class _Mt5Metrics:
         self._instrument("history_rows").add(count, {"dataset": dataset})
 
     @contextmanager
-    def record_snapshot_update(self) -> Iterator[None]:
+    def record_snapshot_update(self) -> Generator[None, None, None]:
         """Context manager recording snapshot update duration and failures.
 
         Yields:
@@ -323,7 +323,7 @@ class _Mt5Metrics:
 _metrics = _Mt5Metrics()
 
 
-def configure_metrics(meter: Any) -> None:  # noqa: ANN401
+def configure_metrics(meter: Any) -> None:  # ruff: ignore[any-type]
     """Configure MT5 metrics using the provided meter.
 
     Args:

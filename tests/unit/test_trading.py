@@ -3434,7 +3434,7 @@ class TestVolumeAndExecution:
 
         class _RaisingMt5Client(MagicMock):
             @property
-            def mt5(self) -> Any:  # noqa: ANN401
+            def mt5(self) -> Any:  # ruff: ignore[any-type]
                 message = "mt5 constants unavailable"
                 raise RuntimeError(message)
 

@@ -611,7 +611,7 @@ class TestResolveAccountSpec:
         resolved = resolve_account_spec(account)
 
         assert resolved.login == "999"
-        assert resolved.password == "secret"  # noqa: S105
+        assert resolved.password == "secret"  # ruff: ignore[hardcoded-password-string]
         assert resolved.symbols == ["EURUSD"]
 
     def test_explicit_overrides_take_precedence(self) -> None:

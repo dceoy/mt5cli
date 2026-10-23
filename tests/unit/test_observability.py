@@ -224,7 +224,7 @@ class TestUpdateObservability:
         update_observability(client=mock_client, output=output)
         with sqlite3.connect(output) as conn:
             count = conn.execute(
-                f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+                f"SELECT COUNT(*) FROM {table}"  # ruff: ignore[hardcoded-sql-expression]
             ).fetchone()[0]
         assert count == expected_count
 
@@ -269,7 +269,7 @@ class TestUpdateObservability:
         assert getattr(client, method).call_count == 1
         with sqlite3.connect(output) as conn:
             count = conn.execute(
-                f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+                f"SELECT COUNT(*) FROM {table}"  # ruff: ignore[hardcoded-sql-expression]
             ).fetchone()[0]
         assert count == 1
 
@@ -343,7 +343,7 @@ class TestUpdateObservability:
         assert message in caplog.text
         with sqlite3.connect(tmp_path / "obs.db") as conn:
             count = conn.execute(
-                f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+                f"SELECT COUNT(*) FROM {table}"  # ruff: ignore[hardcoded-sql-expression]
             ).fetchone()[0]
         assert count == 0
 
@@ -519,10 +519,11 @@ class TestSnapshotTables:
         assert "snapshot_runs" in tables
 
 
+@pytest.mark.usefixtures("setup_tables")
 class TestSnapshotInserts:
     """Tests for snapshot insert helpers."""
 
-    @pytest.fixture(autouse=True)
+    @pytest.fixture
     def setup_tables(self, conn: sqlite3.Connection) -> None:
         """Create snapshot tables before each insert test."""
         create_snapshot_tables(conn)
@@ -650,7 +651,7 @@ class TestSnapshotInserts:
         run_id = start_snapshot_run(conn, 1700000000)
         insert_func(conn, run_id, 12345, rows)
         count = conn.execute(
-            f"SELECT COUNT(*) FROM {table}"  # noqa: S608
+            f"SELECT COUNT(*) FROM {table}"  # ruff: ignore[hardcoded-sql-expression]
         ).fetchone()[0]
         assert count == expected_count
 

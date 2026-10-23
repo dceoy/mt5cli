@@ -197,10 +197,10 @@ class TestSqliteDynamicIdentifiers:
             create_view(conn, name, "SELECT 2 AS value", temporary=temporary)
             create_view(conn, name, "SELECT 3 AS value", temporary=temporary)
             quoted = quote_sqlite_identifier(name)
-            query = f"SELECT value FROM {quoted}"  # noqa: S608
+            query = f"SELECT value FROM {quoted}"  # ruff: ignore[hardcoded-sql-expression]
             assert conn.execute(query).fetchone() == (3,)
             expected = 1 if temporary else 3
-            query = f"SELECT value FROM main.{quoted}"  # noqa: S608
+            query = f"SELECT value FROM main.{quoted}"  # ruff: ignore[hardcoded-sql-expression]
             assert conn.execute(query).fetchone() == (expected,)
             assert get_table_columns(conn, "sentinel") == {"value"}
 
@@ -265,7 +265,7 @@ class TestLoadRateData:
         with sqlite3.connect(db_path) as conn:
             conn.execute(f"CREATE TABLE {quoted}(time TEXT, close REAL)")
             conn.execute(
-                f"INSERT INTO {quoted}(time, close) VALUES (?, ?)",  # noqa: S608
+                f"INSERT INTO {quoted}(time, close) VALUES (?, ?)",  # ruff: ignore[hardcoded-sql-expression]
                 ("2024-01-01T00:00:00+00:00", 1.0),
             )
             frame = load_rate_data_from_connection(conn, table)
@@ -1282,7 +1282,7 @@ class TestDeduplication:
             conn.executemany(insert_sql, rows)
             deduplicate_history_tables(conn, {dataset: columns}, {dataset})
             assert conn.execute(
-                f"SELECT COUNT(*) FROM {dataset.table_name}",  # noqa: S608
+                f"SELECT COUNT(*) FROM {dataset.table_name}",  # ruff: ignore[hardcoded-sql-expression]
             ).fetchone() == (1,)
 
     def test_scoped_dedup_preserves_older_rows(self, tmp_path: Path) -> None:
@@ -2631,7 +2631,7 @@ class TestCollectHistory:
     def test_collect_history_with_views(
         self,
         tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
+        history_client: MagicMock,  # ruff: ignore[unused-method-argument]
     ) -> None:
         """Test that with_views creates cash_events and positions views."""
         output = tmp_path / "history.db"
@@ -2661,7 +2661,7 @@ class TestCollectHistory:
     def test_collect_history_rates_table_has_timeframe(
         self,
         tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
+        history_client: MagicMock,  # ruff: ignore[unused-method-argument]
     ) -> None:
         """Test that the rates table carries the requested timeframe value."""
         output = tmp_path / "history.db"

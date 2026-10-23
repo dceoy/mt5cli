@@ -26,7 +26,7 @@ from .utils import coerce_login as _coerce_login
 from .utils import parse_tick_flags, parse_timeframe
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Collection, Iterator, Sequence
+    from collections.abc import Callable, Collection, Generator, Sequence
 
 T = TypeVar("T")
 
@@ -373,7 +373,7 @@ def _connected_client(
     config: Mt5Config,
     *,
     retry_count: int | None = None,
-) -> Iterator[Mt5DataClient]:
+) -> Generator[Mt5DataClient, None, None]:
     """Initialize MT5, yield a connected client, and always shut down.
 
     Private lifecycle primitive owned by this module. Other mt5cli modules
@@ -479,7 +479,7 @@ class _BaseMT5Client:
 
     @property
     def config(self) -> Mt5Config:
-        """Return the underlying MT5 configuration."""
+        """Underlying MT5 configuration."""
         return self._config
 
     def __enter__(self) -> Self:
@@ -964,8 +964,8 @@ class MT5Client(_BaseMT5Client):
         return cls._from_connected_client(client)
 
     @property
-    def mt5(self) -> Any:  # noqa: ANN401
-        """Return MT5 constants required by operational helpers.
+    def mt5(self) -> Any:  # ruff: ignore[any-type]
+        """MT5 constants required by operational helpers.
 
         This intentionally exposes constants only, never the pdmt5 client.
         """
@@ -1042,7 +1042,7 @@ class MT5Client(_BaseMT5Client):
 @contextmanager
 def mt5_session(
     config: Mt5Config | None = None, *, client: MT5Client | None = None
-) -> Iterator[MT5Client]:
+) -> Generator[MT5Client, None, None]:
     """Open an MT5 terminal session and yield a connected :class:`MT5Client`.
 
     This is the sole public MT5 session factory. It is the only supported way
@@ -1063,6 +1063,6 @@ def mt5_session(
         return
     mt5_config = config or build_config()
     with _connected_client(mt5_config) as raw_client:
-        yield MT5Client._from_connected_client(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        yield MT5Client._from_connected_client(  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[private-member-access]
             raw_client
         )
