@@ -311,7 +311,7 @@ def _iter_rate_gap_groups(frame: pd.DataFrame) -> list[pd.DataFrame]:
     ]
 
 
-def report_rate_gaps(  # noqa: C901, PLR0914
+def report_rate_gaps(  # ruff: ignore[complex-structure, too-many-locals]
     conn: sqlite3.Connection,
     table: str,
     *,
@@ -341,7 +341,7 @@ def report_rate_gaps(  # noqa: C901, PLR0914
     frame = cast(
         "pd.DataFrame",
         pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
-            f"SELECT * FROM {quoted_table} ORDER BY time ASC",  # noqa: S608
+            f"SELECT * FROM {quoted_table} ORDER BY time ASC",  # ruff: ignore[hardcoded-sql-expression]
             conn,
         ),
     )
@@ -475,7 +475,7 @@ def load_rate_data_from_connection(
         frame = cast(
             "pd.DataFrame",
             pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
-                f"SELECT * FROM {quoted_table} ORDER BY time ASC",  # noqa: S608
+                f"SELECT * FROM {quoted_table} ORDER BY time ASC",  # ruff: ignore[hardcoded-sql-expression]
                 connection,
             ),
         )
@@ -483,7 +483,7 @@ def load_rate_data_from_connection(
         frame = cast(
             "pd.DataFrame",
             pd.read_sql_query(  # type: ignore[reportUnknownMemberType]
-                f"SELECT * FROM {quoted_table} ORDER BY time DESC LIMIT ?",  # noqa: S608
+                f"SELECT * FROM {quoted_table} ORDER BY time DESC LIMIT ?",  # ruff: ignore[hardcoded-sql-expression]
                 connection,
                 params=(count,),
             ),
@@ -538,7 +538,7 @@ class RateTarget:
 
     @property
     def timeframe_int(self) -> int:
-        """Return the timeframe as its integer MT5 value."""
+        """Integer MT5 timeframe value."""
         return cast("int", self.timeframe)
 
 
@@ -702,7 +702,7 @@ def _load_latest_parseable_time(
 ) -> datetime | None:
     quoted_table = quote_sqlite_identifier(table)
     time_expr = _sqlite_normalized_time_expression("time")
-    query = f"SELECT time FROM {quoted_table} WHERE {time_expr} IS NOT NULL"  # noqa: S608
+    query = f"SELECT time FROM {quoted_table} WHERE {time_expr} IS NOT NULL"  # ruff: ignore[hardcoded-sql-expression]
     if where_clause:
         query += f" AND {where_clause}"
     query += f" ORDER BY {time_expr} DESC, ROWID DESC LIMIT 1"
@@ -1017,14 +1017,14 @@ def drop_duplicates_in_table(
     )
     if scope_where:
         delete_sql = (
-            f"DELETE FROM {table} WHERE {scope_where} AND ROWID NOT IN"  # noqa: S608
+            f"DELETE FROM {table} WHERE {scope_where} AND ROWID NOT IN"  # ruff: ignore[hardcoded-sql-expression]
             f" (SELECT {rowid_selector}(ROWID) FROM {table} WHERE {scope_where}"
             f" GROUP BY {ids_csv})"
         )
         cursor.execute(delete_sql, prepared_scope_params + prepared_scope_params)
         return
     cursor.execute(
-        f"DELETE FROM {table} WHERE ROWID NOT IN"  # noqa: S608
+        f"DELETE FROM {table} WHERE ROWID NOT IN"  # ruff: ignore[hardcoded-sql-expression]
         f" (SELECT {rowid_selector}(ROWID) FROM {table} GROUP BY {ids_csv})",
     )
 
@@ -1239,7 +1239,7 @@ def create_cash_events_view(
         return False
     conn.execute("DROP VIEW IF EXISTS cash_events")
     conn.execute(
-        "CREATE VIEW cash_events AS"  # noqa: S608
+        "CREATE VIEW cash_events AS"  # ruff: ignore[hardcoded-sql-expression]
         f" SELECT * FROM history_deals WHERE type NOT IN {_TRADE_DEAL_TYPES_SQL}",
     )
     return True
@@ -1287,7 +1287,7 @@ def _deal_portions_select_sql(deal_columns: set[str]) -> str:
     )
     keys = "ticket, position_id, symbol, time, type, price, magic, position_start_known"
     return (
-        "WITH d AS (SELECT"  # noqa: S608
+        "WITH d AS (SELECT"  # ruff: ignore[hardcoded-sql-expression]
         f" {ticket} AS ticket, position_id, symbol, time, type, entry, volume,"
         f" price, {magic} AS magic, COALESCE(profit, 0) AS profit, {costs},"
         " CASE type WHEN 0 THEN volume ELSE -volume END AS delta"
@@ -2367,7 +2367,7 @@ def _finalize_incremental_writes(
             )
 
 
-def write_incremental_datasets(  # noqa: PLR0913
+def write_incremental_datasets(  # ruff: ignore[too-many-arguments]
     conn: sqlite3.Connection,
     client: HistoryClient,
     symbols: Sequence[str],
@@ -2646,7 +2646,7 @@ def _resolve_update_history_request(
     )
 
 
-def update_history(  # noqa: PLR0913
+def update_history(  # ruff: ignore[too-many-arguments]
     *,
     client: HistoryClient,
     output: Path | str,
@@ -2728,7 +2728,7 @@ def update_history(  # noqa: PLR0913
             m.add_history_rows(conn.total_changes - before, dataset="history")
 
 
-def update_history_with_config(  # noqa: PLR0913
+def update_history_with_config(  # ruff: ignore[too-many-arguments]
     *,
     output: Path | str,
     symbols: Sequence[str],
@@ -2802,7 +2802,7 @@ def _open_history_cursor_reference(output_path: Path) -> sqlite3.Connection:
     return sqlite3.connect(":memory:")
 
 
-def capture_history_datasets(  # noqa: PLR0913
+def capture_history_datasets(  # ruff: ignore[too-many-arguments]
     *,
     client: HistoryClient,
     output: Path | str,
@@ -2986,7 +2986,7 @@ class ThrottledHistoryUpdater:
 
     @property
     def last_update_monotonic(self) -> float | None:
-        """Return the monotonic timestamp of the last successful update."""
+        """Monotonic timestamp of the last successful update."""
         return self._last_update_monotonic
 
     def should_update(self) -> bool:

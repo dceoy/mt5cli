@@ -1296,7 +1296,7 @@ class TestBuildConfigWholeDollarEnv:
 
     def test_build_config_none_params_not_substituted(
         self,
-        monkeypatch: pytest.MonkeyPatch,  # noqa: ARG002
+        monkeypatch: pytest.MonkeyPatch,  # ruff: ignore[unused-method-argument]
     ) -> None:
         """Test build_config with None params does not raise even with opt-in."""
         config = build_config(allow_whole_dollar_env=True)

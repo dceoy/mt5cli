@@ -113,7 +113,7 @@ _CLOSE_DATE_SQL = (
     " THEN date({col}, 'unixepoch') ELSE date({col}) END"
 )
 _TRADES_SQL = (
-    "SELECT position_id, symbol, leg_index, magic, magic_count, side, open_time,"  # noqa: S608
+    "SELECT position_id, symbol, leg_index, magic, magic_count, side, open_time,"  # ruff: ignore[hardcoded-sql-expression]
     " close_time,"
     f" {_CLOSE_DATE_SQL.format(col='close_time')} AS close_date,"
     " CASE"
@@ -161,7 +161,7 @@ _TRADES_SQL = (
 # magic, including portions of legs that are still open or whose opening is not in
 # the captured history (trades/strategy stats keep completed legs only).
 _REALIZED_EVENTS_SQL = (
-    "SELECT time,"  # noqa: S608
+    "SELECT time,"  # ruff: ignore[hardcoded-sql-expression]
     f" {_CLOSE_DATE_SQL.format(col='time')} AS date,"
     " ticket, position_id, symbol, magic, leg AS leg_index, role,"
     " profit, commission, swap, fee,"
@@ -192,7 +192,7 @@ _DAILY_PNL_SQL = (
     " GROUP BY date, symbol, magic"
 )
 _STRATEGY_STATS_SQL = (
-    f"SELECT symbol, magic, {_METRICS_SQL},"  # noqa: S608
+    f"SELECT symbol, magic, {_METRICS_SQL},"  # ruff: ignore[hardcoded-sql-expression]
     " AVG(holding_seconds) AS avg_holding_seconds,"
     " MIN(open_time) AS first_open_time, MAX(close_time) AS last_close_time"
     " FROM analytics_trades GROUP BY symbol, magic"
@@ -288,7 +288,7 @@ def _collect_dataset_frames(conn: sqlite3.Connection) -> dict[str, pd.DataFrame]
         for dataset, view in _VIEW_DATASETS:
             frames[dataset] = _apply_schema(
                 pd.read_sql_query(  # pyright: ignore[reportUnknownMemberType]
-                    f'SELECT * FROM "{view}"',  # noqa: S608
+                    f'SELECT * FROM "{view}"',  # ruff: ignore[hardcoded-sql-expression]
                     conn,
                 ),
             )

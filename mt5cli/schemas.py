@@ -222,6 +222,13 @@ def _parse_mt5_time_value(value: object, *, unit: Literal["s", "ms"]) -> object:
     )
 
 
+def _parse_mixed_mt5_time_value(value: object) -> pd.Timestamp:
+    return cast(
+        "pd.Timestamp",
+        pd.to_datetime(cast("Any", value), errors="coerce", format="mixed"),
+    )
+
+
 def _mt5_time_sort_key(series: pd.Series) -> pd.Series:
     """Build UTC sort keys without changing stored MT5 timestamp values.
 
@@ -251,19 +258,16 @@ def _coerce_mt5_time_column(series: pd.Series, column: str) -> pd.Series:
     if pd.api.types.is_numeric_dtype(series):
         return pd.to_datetime(series, unit=unit, errors="coerce")
     if pd.api.types.is_object_dtype(series.dtype):
-        parsed = series.map(
-            lambda value: _parse_mt5_time_value(value, unit=unit),
-        )
+
+        def parse_value(value: object) -> object:
+            return _parse_mt5_time_value(value, unit=unit)
+
+        parsed = series.map(parse_value)
         return _normalize_parsed_mt5_times(parsed)
     try:
         parsed = pd.to_datetime(series, errors="coerce", format="mixed")
     except ValueError:
-        parsed = series.map(
-            lambda value: cast(
-                "pd.Timestamp",
-                pd.to_datetime(value, errors="coerce", format="mixed"),
-            ),
-        )
+        parsed = series.map(_parse_mixed_mt5_time_value)
     return _normalize_parsed_mt5_times(parsed)
 
 

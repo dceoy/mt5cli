@@ -96,7 +96,7 @@ def _make_db(
         data = _DEALS if rows is None else rows
         if data:
             marks = ", ".join("?" * len(data[0]))
-            conn.executemany(f"INSERT INTO history_deals VALUES ({marks})", data)  # noqa: S608
+            conn.executemany(f"INSERT INTO history_deals VALUES ({marks})", data)  # ruff: ignore[hardcoded-sql-expression]
     return path
 
 
@@ -183,7 +183,7 @@ class TestAnalyticsTrades:
         """Trade rows carry weighted prices, costs, and fee-inclusive net P/L."""
         row = _query(
             db,
-            f"SELECT * FROM analytics_trades WHERE position_id = {position_id}",  # noqa: S608
+            f"SELECT * FROM analytics_trades WHERE position_id = {position_id}",  # ruff: ignore[hardcoded-sql-expression]
         ).iloc[0]
         for column, value in expected.items():
             assert row[column] == _approx(value), column

@@ -1,5 +1,5 @@
 """Shared pytest fixtures for all mt5cli tests."""
-# ruff: noqa: INP001
+# ruff: file-ignore[implicit-namespace-package]
 
 from __future__ import annotations
 
@@ -33,13 +33,13 @@ class ClosingSqliteConnection(sqlite3.Connection):
         return False
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def close_sqlite_context_connections(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make test SQLite context managers close their connection handles."""
 
     def connect(
-        *args: Any,  # noqa: ANN401
-        **kwargs: Any,  # noqa: ANN401
+        *args: Any,  # ruff: ignore[any-type]
+        **kwargs: Any,  # ruff: ignore[any-type]
     ) -> sqlite3.Connection:
         kwargs.setdefault("factory", ClosingSqliteConnection)
         return _ORIGINAL_SQLITE_CONNECT(*args, **kwargs)

@@ -6,7 +6,7 @@ the stable SDK contract, CLI surface, internal modules, and out-of-scope
 strategy responsibilities.
 """
 # pyright: reportUnusedImport=false, reportUnsupportedDunderAll=false
-# ruff: noqa: F403
+# ruff: file-ignore[undefined-local-with-import-star]
 
 from importlib.metadata import version as _package_version
 
@@ -15,4 +15,4 @@ from .sdk import STABLE_SDK_EXPORTS
 from .sdk import __all__ as _sdk_exports
 
 __version__ = _package_version(__package__) if __package__ else None
-__all__ = [*_sdk_exports, "STABLE_SDK_EXPORTS"]  # noqa: PLE0604
+__all__ = [*_sdk_exports, "STABLE_SDK_EXPORTS"]  # ruff: ignore[invalid-all-object]

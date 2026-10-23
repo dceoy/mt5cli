@@ -41,13 +41,16 @@ def normalize_cli_output(output: str) -> str:
     return " ".join(_ANSI_ESCAPE_RE.sub("", output).split())
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def _mock_mt5_data_client(mocker: MockerFixture) -> None:  # pyright: ignore[reportUnusedFunction]
     """Auto-mock Mt5DataClient for all test_cli.py tests."""
     mocker.patch(
         "mt5cli.client.Mt5DataClient",
         return_value=MagicMock(),
     )
+
+
+pytestmark = pytest.mark.usefixtures("_mock_mt5_data_client")
 
 
 # ---------------------------------------------------------------------------
@@ -542,7 +545,7 @@ class TestCommands:
     def test_order_invalid_request(
         self,
         tmp_path: Path,
-        mock_client: MagicMock,  # noqa: ARG002
+        mock_client: MagicMock,  # ruff: ignore[unused-method-argument]
         command: str,
         raw_request: str,
         match: str,
@@ -559,7 +562,7 @@ class TestCommands:
     def test_order_check_missing_request_file(
         self,
         tmp_path: Path,
-        mock_client: MagicMock,  # noqa: ARG002
+        mock_client: MagicMock,  # ruff: ignore[unused-method-argument]
     ) -> None:
         """Test order-check rejects a missing request file."""
         output = tmp_path / "out.csv"
@@ -763,7 +766,7 @@ class TestClosePositions:
     def test_close_positions_filter(
         self,
         tmp_path: Path,
-        trading_client: MagicMock,  # noqa: ARG002
+        trading_client: MagicMock,  # ruff: ignore[unused-method-argument]
         extra_args: list[str],
         expected_symbols: set[str],
     ) -> None:
@@ -795,7 +798,7 @@ class TestClosePositions:
     def test_output_export_dry_run(
         self,
         tmp_path: Path,
-        trading_client: MagicMock,  # noqa: ARG002
+        trading_client: MagicMock,  # ruff: ignore[unused-method-argument]
     ) -> None:
         """Test dry-run results export with status=dry_run."""
         output = tmp_path / "close.json"
@@ -1155,7 +1158,7 @@ class TestCallback:
     def test_explicit_format(
         self,
         tmp_path: Path,
-        mock_client: MagicMock,  # noqa: ARG002
+        mock_client: MagicMock,  # ruff: ignore[unused-method-argument]
     ) -> None:
         """Test explicit --format flag."""
         output = tmp_path / "out.txt"
@@ -1227,7 +1230,7 @@ _DEALS_FIXTURE: dict[str, list[object]] = {
         "GBPUSD",
     ],
     "time": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
-    # type: 0=BUY, 1=SELL, 2=BALANCE
+    # Position types: 0=BUY, 1=SELL, 2=BALANCE.
     "type": [0, 0, 1, 2, 0, 1, 0, 0, 2, 0, 1, 0, 1, 1],
     # entry: 0=IN, 1=OUT, 2=INOUT (reversal), 3=OUT_BY
     "entry": [0, 0, 1, 0, 0, 1, 0, 0, 2, 0, 3, 0, 2, 1],
@@ -1502,7 +1505,7 @@ class TestCollectHistory:
     def test_collect_history_symbols_dataset_writes_snapshot_metadata(
         self,
         tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
+        history_client: MagicMock,  # ruff: ignore[unused-method-argument]
     ) -> None:
         """Test --dataset symbols writes the mocked per-symbol metadata."""
         output = tmp_path / "history.db"
@@ -1546,7 +1549,7 @@ class TestCollectHistory:
     def test_collect_history_rates_table_has_timeframe(
         self,
         tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
+        history_client: MagicMock,  # ruff: ignore[unused-method-argument]
     ) -> None:
         """Test that the rates table carries the requested timeframe value."""
         output = tmp_path / "history.db"
@@ -1585,7 +1588,7 @@ class TestCollectHistory:
     def test_collect_history_if_exists(
         self,
         tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
+        history_client: MagicMock,  # ruff: ignore[unused-method-argument]
         if_exists: str,
         second_exit_code: int,
         expected_count: int,
@@ -1616,7 +1619,7 @@ class TestCollectHistory:
     def test_collect_history_with_views(
         self,
         tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
+        history_client: MagicMock,  # ruff: ignore[unused-method-argument]
     ) -> None:
         """Test that --with-views creates cash_events and positions views."""
         output = tmp_path / "history.db"
@@ -1742,7 +1745,7 @@ class TestCollectHistory:
     def test_collect_history_validation_failures(
         self,
         tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
+        history_client: MagicMock,  # ruff: ignore[unused-method-argument]
         output_name: str,
         extra_args: list[str],
         expected_fragment: str | None,
@@ -1850,7 +1853,7 @@ class TestCollectHistory:
     def test_collect_history_warns_when_views_requested_without_deals(
         self,
         tmp_path: Path,
-        history_client: MagicMock,  # noqa: ARG002
+        history_client: MagicMock,  # ruff: ignore[unused-method-argument]
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that --with-views warns when history_deals is not written."""
