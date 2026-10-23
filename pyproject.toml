@@ -56,7 +56,7 @@ dev = [
   "opentelemetry-sdk >= 1.23.0",
   "mkdocs >= 1.6.1",
   "mkdocs-material >= 9.7.6",
-  "mkdocstrings[python] >= 1.0.4",
+  "mkdocstrings[python] >= 1.0.7",
   "pymdown-extensions >= 10.21.2",
 ]
 
