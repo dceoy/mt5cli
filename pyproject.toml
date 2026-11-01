@@ -90,6 +90,7 @@ ignore = [
   "assert",     # Use of assert (acceptable in tests)
   "hardcoded-password-func-arg",     # Possible hardcoded password
   "private-member-access",   # Private member accessed
+  "shared-clock-mock",  # Tests intentionally monkeypatch the process clock
 ]
 
 [tool.ruff.lint.pydocstyle]
