@@ -5,18 +5,12 @@ description: Run local QA including formatting, linting, and testing for the rep
 
 # Local QA (format, lint, and test)
 
-Run `scripts/qa.sh` relative to this skill's directory, not the shell's current working directory. The script changes to the repository root itself.
+Run `scripts/qa.sh` by its path relative to this skill's directory; the script changes to the repository root itself.
 
 ## Procedure
 
-- Execute `scripts/qa.sh` from the skill directory when this skill is triggered (it formats and fixes files in place, so check `git status` afterward).
-- Capture and summarize key output (success/failure, major warnings, and any files modified).
-- If the script fails due to missing tooling (`command not found`, missing executable, or equivalent), install the missing tool(s) and rerun `scripts/qa.sh` from the skill directory.
-- Install tools using this order of preference:
-  1. Use the project's package manager when applicable (`uv`/`poetry` for Python, package manager scripts/dependencies for Node.js).
-  2. Use a system package manager (`brew` on macOS, `apt` on Debian/Ubuntu) when project-local install is not applicable.
-  3. Use language-specific installers as fallback (`pipx`/`pip`, `npm`, `go install`, etc.).
-- If multiple tools are missing, repeat install -> rerun until QA completes or you hit a blocker.
-- If installation fails or requires unavailable privileges, report what was attempted, the exact failure, and stop.
-- If QA fails for another reason, fix the root cause and rerun until QA passes or a blocker is reached. Do not bypass or weaken checks.
-- Do not run unrelated commands; only run commands needed for QA, fixes, and missing-tool installation.
+1. Run `scripts/qa.sh`. It formats and fixes files in place, so check `git status` afterward.
+2. Summarize the result: pass or fail, major warnings, and the files it modified.
+3. If a tool is missing, install it with the project's package manager first (`uv`, `pnpm`), then a system package manager, then a language-specific installer, and rerun. If installation fails or needs privileges you lack, report what you tried and the exact error, then stop.
+4. If QA fails for another reason, fix the root cause and rerun until it passes or you hit a blocker. Do not bypass or weaken checks.
+5. Run only commands needed for QA, fixes, and tool installation.

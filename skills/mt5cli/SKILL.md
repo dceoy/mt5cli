@@ -12,9 +12,10 @@ command. Output format is auto-detected from the file extension (`.csv`,
 
 ## Requirements
 
-MT5 terminal).
-
-- Install: `pip install -U mt5cli MetaTrader5`.
+- Windows with a MetaTrader 5 terminal installed (required by the MetaTrader5
+  Python package).
+- Install: `pip install -U mt5cli MetaTrader5`. Add the `parquet` extra
+  (`pip install -U "mt5cli[parquet]" MetaTrader5`) for Parquet output.
 - In this repo, run via `uv run mt5cli ...` or `uv run python -m mt5cli ...`.
 
 ## Invocation shape
@@ -23,7 +24,8 @@ MT5 terminal).
 mt5cli [GLOBAL OPTIONS] -o OUTPUT COMMAND [COMMAND OPTIONS]
 ```
 
-Global options MUST precede the subcommand.
+Put global options before the subcommand; they belong to the top-level
+command, and `-o` is required.
 
 ### Global options (apply to every subcommand)
 
@@ -52,22 +54,22 @@ Global options MUST precede the subcommand.
 
 ## Commands
 
-| Command           | Required options                                      | Optional options                                                                                                                                                                                                                 |
-| ----------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rates-from`      | `--symbol`, `--timeframe`, `--date-from`, `--count`   | —                                                                                                                                                                                                                                |
-| `rates-from-pos`  | `--symbol`, `--timeframe`, `--start-pos`, `--count`   | —                                                                                                                                                                                                                                |
-| `rates-range`     | `--symbol`, `--timeframe`, `--date-from`, `--date-to` | —                                                                                                                                                                                                                                |
-| `ticks-from`      | `--symbol`, `--date-from`, `--count`, `--flags`       | —                                                                                                                                                                                                                                |
-| `ticks-range`     | `--symbol`, `--date-from`, `--date-to`, `--flags`     | —                                                                                                                                                                                                                                |
-| `account-info`    | —                                                     | —                                                                                                                                                                                                                                |
-| `terminal-info`   | —                                                     | —                                                                                                                                                                                                                                |
-| `symbols`         | —                                                     | `--group` (e.g., `*USD*`)                                                                                                                                                                                                        |
-| `symbol-info`     | `--symbol`                                            | —                                                                                                                                                                                                                                |
-| `orders`          | —                                                     | `--symbol`, `--group`, `--ticket`                                                                                                                                                                                                |
-| `positions`       | —                                                     | `--symbol`, `--group`, `--ticket`                                                                                                                                                                                                |
-| `history-orders`  | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position`                                                                                                                                                      |
-| `history-deals`   | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position`                                                                                                                                                      |
-| `collect-history` | `--symbol` (repeatable), `--date-from`, `--date-to`   | `--dataset` (repeatable; rates/ticks/history-orders/history-deals; default all), `--timeframe` (M1; recorded on rates), `--flags` (ALL), `--if-exists` (append/replace/fail; default fail), `--with-views` (SQLite3 output only) |
+| Command           | Required options                                      | Optional options                                                                                                                                                                                                                                           |
+| ----------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rates-from`      | `--symbol`, `--timeframe`, `--date-from`, `--count`   | —                                                                                                                                                                                                                                                          |
+| `rates-from-pos`  | `--symbol`, `--timeframe`, `--start-pos`, `--count`   | —                                                                                                                                                                                                                                                          |
+| `rates-range`     | `--symbol`, `--timeframe`, `--date-from`, `--date-to` | —                                                                                                                                                                                                                                                          |
+| `ticks-from`      | `--symbol`, `--date-from`, `--count`, `--flags`       | —                                                                                                                                                                                                                                                          |
+| `ticks-range`     | `--symbol`, `--date-from`, `--date-to`, `--flags`     | —                                                                                                                                                                                                                                                          |
+| `account-info`    | —                                                     | —                                                                                                                                                                                                                                                          |
+| `terminal-info`   | —                                                     | —                                                                                                                                                                                                                                                          |
+| `symbols`         | —                                                     | `--group` (e.g., `*USD*`)                                                                                                                                                                                                                                  |
+| `symbol-info`     | `--symbol`                                            | —                                                                                                                                                                                                                                                          |
+| `orders`          | —                                                     | `--symbol`, `--group`, `--ticket`                                                                                                                                                                                                                          |
+| `positions`       | —                                                     | `--symbol`, `--group`, `--ticket`                                                                                                                                                                                                                          |
+| `history-orders`  | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position`                                                                                                                                                                                |
+| `history-deals`   | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position`                                                                                                                                                                                |
+| `collect-history` | `--symbol` (repeatable), `--date-from`, `--date-to`   | `--dataset` (repeatable; rates/history-orders/history-deals by default, `ticks` and `symbols` are opt-in), `--timeframe` (M1; recorded on rates), `--flags` (ALL), `--if-exists` (append/replace/fail; default fail), `--with-views` (SQLite3 output only) |
 
 ## Examples
 
@@ -100,6 +102,11 @@ mt5cli -o history.db collect-history \
 
 ## Guidelines
 
+- The table lists the common export commands. Run `mt5cli COMMAND --help` for
+  exact options and for commands not listed here (for example `ticks-recent`,
+  `history-gaps`).
+- `collect-history` writes SQLite3 only (`.db`/`.sqlite`/`.sqlite3` or
+  `--format sqlite3`).
 - Pick the output extension to avoid passing `--format`.
 - Use `--table` only with SQLite3 outputs; it is otherwise ignored.
 - `--count` is required for `rates-from`, `rates-from-pos`, and `ticks-from`.
