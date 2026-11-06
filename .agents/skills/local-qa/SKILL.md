@@ -5,12 +5,13 @@ description: Run local QA including formatting, linting, and testing for the rep
 
 # Local QA (format, lint, and test)
 
-Run `scripts/qa.sh` by its path relative to this skill's directory; the script changes to the repository root itself.
+Run `scripts/qa.sh` relative to this skill's directory, not the shell's current working directory. The script changes to the repository root itself. It formats and fixes files in place, so check `git status` afterward.
 
-## Procedure
+After the run, summarize the outcome: success or failure, major warnings, and any files modified.
 
-1. Run `scripts/qa.sh`. It formats and fixes files in place, so check `git status` afterward.
-2. Summarize the result: pass or fail, major warnings, and the files it modified.
-3. If a tool is missing, install it with the project's package manager first (`uv`, `pnpm`), then a system package manager, then a language-specific installer, and rerun. If installation fails or needs privileges you lack, report what you tried and the exact error, then stop.
-4. If QA fails for another reason, fix the root cause and rerun until it passes or you hit a blocker. Do not bypass or weaken checks.
-5. Run only commands needed for QA, fixes, and tool installation.
+## When something fails
+
+- **Missing tooling** (`command not found` or equivalent): install the tool, preferring the project's package manager (`uv`, `pnpm`), then a system package manager, then a language-specific installer (`pipx`, `npm`, `go install`). Rerun `scripts/qa.sh` and repeat until QA completes. If installation fails or needs privileges you lack, report what was attempted and the exact failure, then stop.
+- **Any other failure**: fix the root cause and rerun until QA passes or you hit a blocker. Do not bypass or weaken checks, because the script is the repository's quality gate.
+
+Run only commands needed for QA, fixes, and tool installation.
