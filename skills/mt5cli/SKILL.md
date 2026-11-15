@@ -69,7 +69,7 @@ command, and `-o` is required.
 | `positions`       | —                                                     | `--symbol`, `--group`, `--ticket`                                                                                                                                                                                                                          |
 | `history-orders`  | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position`                                                                                                                                                                                |
 | `history-deals`   | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position`                                                                                                                                                                                |
-| `collect-history` | `--symbol` (repeatable), `--date-from`, `--date-to`   | `--dataset` (repeatable; rates/history-orders/history-deals by default, `ticks` and `symbols` are opt-in), `--timeframe` (M1; recorded on rates), `--flags` (ALL), `--if-exists` (append/replace/fail; default fail), `--with-views` (SQLite3 output only) |
+| `collect-history` | `--symbol` (repeatable), `--date-from`, `--date-to`   | `--dataset` (repeatable; rates/history-orders/history-deals by default, `ticks` and `symbols` are opt-in), `--timeframe` (M1; recorded on rates), `--flags` (ALL), `--if-exists` (append/replace/fail; default fail), `--with-views` (needs history-deals) |
 
 ## Examples
 
