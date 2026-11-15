@@ -4199,3 +4199,105 @@ def test_managed_update_opens_session_and_delegates(
         with_views=False,
         include_account_events=True,
     )
+
+
+def test_report_rate_gaps_skips_timeframes_without_fixed_interval(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """MN1 series are skipped while other series still report their gaps."""
+    with sqlite3.connect(":memory:") as conn:
+        conn.execute(
+            "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
+        )
+        conn.executemany(
+            "INSERT INTO rates VALUES (?, ?, ?, ?)",
+            [
+                ("EURUSD", 49153, "2024-01-01T00:00:00", 1.0),
+                ("EURUSD", 49153, "2024-04-01T00:00:00", 1.1),
+                ("EURUSD", 1, "2024-01-01T00:00:00", 1.0),
+                ("EURUSD", 1, "2024-01-01T00:03:00", 1.1),
+            ],
+        )
+        with caplog.at_level("WARNING", logger="mt5cli.history"):
+            gaps = history.report_rate_gaps(conn, "rates")
+
+    assert gaps["granularity"].tolist() == ["M1"]
+    assert gaps["missing_intervals"].tolist() == [2]
+    assert "MN1 has no fixed interval" in caplog.text
+
+
+_ORDERS_DDL = (
+    "CREATE TABLE history_orders("
+    " ticket INTEGER, symbol TEXT, time_setup TEXT, time_done TEXT)"
+)
+
+
+@pytest.mark.parametrize(
+    ("ddl", "rows", "expected_eurusd_start"),
+    [
+        (
+            _ORDERS_DDL,
+            [
+                (1, "EURUSD", "2024-01-05T00:00:00", "2024-10-01T00:00:00"),
+                (2, "EURUSD", "2024-09-01T00:00:00", "2024-09-01T00:00:01"),
+            ],
+            datetime(2024, 10, 1, tzinfo=UTC).replace(tzinfo=None),
+        ),
+        (
+            _ORDERS_DDL,
+            [
+                (1, "EURUSD", "2024-01-05T00:00:00", "1970-01-01T00:00:00"),
+                (2, "EURUSD", "2024-09-01T00:00:00", None),
+            ],
+            datetime(2024, 9, 1, tzinfo=UTC).replace(tzinfo=None),
+        ),
+        (
+            "CREATE TABLE history_orders(ticket INTEGER, symbol TEXT, time_setup TEXT)",
+            [
+                (1, "EURUSD", "2024-01-05T00:00:00"),
+                (2, "EURUSD", "2024-09-01T00:00:00"),
+            ],
+            datetime(2024, 9, 1, tzinfo=UTC).replace(tzinfo=None),
+        ),
+        (
+            "CREATE TABLE history_orders(ticket INTEGER, time_setup, time_done)",
+            [
+                (1, "2024-01-05T00:00:00", "2024-10-01T00:00:00"),
+            ],
+            datetime(2024, 10, 1, tzinfo=UTC).replace(tzinfo=None),
+        ),
+    ],
+    ids=[
+        "long-lived-pending-order-resumes-from-time-done",
+        "unusable-time-done-falls-back-to-time-setup",
+        "missing-time-done-column-falls-back-to-time-setup",
+        "table-without-symbol-shares-time-done-cursor",
+    ],
+)
+def test_load_incremental_start_datetimes_resumes_history_orders_without_time(
+    tmp_path: Path,
+    ddl: str,
+    rows: list[tuple[object, ...]],
+    expected_eurusd_start: datetime,
+) -> None:
+    """History orders without a ``time`` column resume from completion time."""
+    fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+    has_symbol = "symbol" in ddl
+    with sqlite3.connect(tmp_path / "orders.db") as conn:
+        conn.execute(ddl)
+        marks = ", ".join("?" * len(rows[0]))
+        conn.executemany(
+            f"INSERT INTO history_orders VALUES ({marks})",  # ruff: ignore[hardcoded-sql-expression]
+            rows,
+        )
+        starts = load_incremental_start_datetimes(
+            conn,
+            Dataset.history_orders,
+            symbols=["EURUSD", "USDJPY"],
+            fallback_start=fallback,
+        )
+
+    assert starts == {
+        ("EURUSD", None): expected_eurusd_start,
+        ("USDJPY", None): expected_eurusd_start if has_symbol is False else fallback,
+    }

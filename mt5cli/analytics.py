@@ -200,7 +200,7 @@ _STRATEGY_STATS_SQL = (
 _EQUITY_SQL = (
     "SELECT time, date, ticket, position_id, symbol, magic, leg_index, role,"
     " net_profit,"
-    " SUM(net_profit) OVER (ORDER BY time, ticket, role, leg_index)"
+    " SUM(net_profit) OVER (ORDER BY time, ticket, leg_index, role)"
     " AS cumulative_net_profit"
     " FROM analytics_realized_events"
 )

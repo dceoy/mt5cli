@@ -21,7 +21,7 @@ import pandas as pd
 from pdmt5 import Mt5Config, Mt5DataClient, Mt5RuntimeError
 
 from .converters import ensure_trade_server_time, recent_window
-from .exceptions import normalize_mt5_exception
+from .exceptions import Mt5OperationError, normalize_mt5_exception
 from .utils import coerce_login as _coerce_login
 from .utils import parse_tick_flags, parse_timeframe
 
@@ -270,6 +270,22 @@ def _fetch_recent_ticks(
     if count > 0 and len(frame) > count:
         return frame.tail(count).reset_index(drop=True)
     return frame
+
+
+def _fetch_market_book(client: Mt5DataClient, symbol: str) -> pd.DataFrame:
+    # MT5 only serves market depth for symbols subscribed via market_book_add,
+    # which reports failure by returning False rather than raising.
+    if not client.market_book_add(symbol):
+        msg = f"Failed to subscribe to market depth for {symbol!r}."
+        raise Mt5OperationError(msg)
+    try:
+        return client.market_book_get_as_df(symbol=symbol)
+    finally:
+        if not client.market_book_release(symbol):
+            logger.warning(
+                "Failed to release market depth subscription for %s.",
+                symbol,
+            )
 
 
 def _fetch_minimum_margins(client: Mt5DataClient, symbol: str) -> pd.DataFrame:
@@ -822,7 +838,7 @@ class _BaseMT5Client:
 
     def market_book(self, symbol: str) -> pd.DataFrame:
         """Return market depth for a symbol."""
-        return self._fetch(lambda c: c.market_book_get_as_df(symbol=symbol))
+        return self._fetch(lambda c: _fetch_market_book(c, symbol))
 
     def recent_ticks(
         self,
