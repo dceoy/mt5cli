@@ -34,7 +34,7 @@ command, and `-o` is required.
 | `-o, --output PATH`   | Output file path (required).                                  |
 | `-f, --format FORMAT` | `csv`, `json`, `parquet`, or `sqlite3` (auto from extension). |
 | `--table NAME`        | Table name for SQLite3 output (default: `data`).              |
-| `--login INT`         | MT5 trading account login (`MT5_LOGIN`).                      |
+| `--login TEXT`        | MT5 trading account login (`MT5_LOGIN`).                      |
 | `--password TEXT`     | MT5 trading account password (`MT5_PASSWORD`).                |
 | `--server TEXT`       | MT5 trading server name (`MT5_SERVER`).                       |
 | `--path TEXT`         | Path to MetaTrader 5 terminal EXE (`MT5_PATH`).               |
