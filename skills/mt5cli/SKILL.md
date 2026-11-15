@@ -34,7 +34,7 @@ command, and `-o` is required.
 | `-o, --output PATH`   | Output file path (required).                                  |
 | `-f, --format FORMAT` | `csv`, `json`, `parquet`, or `sqlite3` (auto from extension). |
 | `--table NAME`        | Table name for SQLite3 output (default: `data`).              |
-| `--login INT`         | MT5 trading account login (`MT5_LOGIN`).                      |
+| `--login TEXT`        | MT5 trading account login (`MT5_LOGIN`).                      |
 | `--password TEXT`     | MT5 trading account password (`MT5_PASSWORD`).                |
 | `--server TEXT`       | MT5 trading server name (`MT5_SERVER`).                       |
 | `--path TEXT`         | Path to MetaTrader 5 terminal EXE (`MT5_PATH`).               |
@@ -69,7 +69,7 @@ command, and `-o` is required.
 | `positions`       | —                                                     | `--symbol`, `--group`, `--ticket`                                                                                                                                                                                                                          |
 | `history-orders`  | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position`                                                                                                                                                                                |
 | `history-deals`   | —                                                     | `--date-from`, `--date-to`, `--group`, `--symbol`, `--ticket`, `--position`                                                                                                                                                                                |
-| `collect-history` | `--symbol` (repeatable), `--date-from`, `--date-to`   | `--dataset` (repeatable; rates/history-orders/history-deals by default, `ticks` and `symbols` are opt-in), `--timeframe` (M1; recorded on rates), `--flags` (ALL), `--if-exists` (append/replace/fail; default fail), `--with-views` (SQLite3 output only) |
+| `collect-history` | `--symbol` (repeatable), `--date-from`, `--date-to`   | `--dataset` (repeatable; rates/history-orders/history-deals by default, `ticks` and `symbols` are opt-in), `--timeframe` (M1; recorded on rates), `--flags` (ALL), `--if-exists` (append/replace/fail; default fail), `--with-views` (needs history-deals) |
 
 ## Examples
 
