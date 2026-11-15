@@ -201,6 +201,13 @@ skipped). Use `--table` with `--granularity-seconds` for custom tables or views.
 
 ```bash
 mt5cli -o gaps.json history-gaps --sqlite3 history.db
+```
+
+`--table` targets a custom table or view that you create yourself. Such tables
+carry no `timeframe` metadata, so pass the bar interval explicitly:
+
+```bash
+sqlite3 history.db "CREATE VIEW eurusd_m1 AS SELECT time, close FROM rates WHERE symbol = 'EURUSD' AND timeframe = 1"
 mt5cli -o eurusd.csv history-gaps --sqlite3 history.db --table eurusd_m1 --granularity-seconds 60
 ```
 
