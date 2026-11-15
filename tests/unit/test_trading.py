@@ -904,6 +904,9 @@ class TestNormalizeOrderVolume:
             (16.016, 0.01, 0.0, 0.001, 16.016),
             (256.03, 0.01, 0.0, 0.01, 256.03),
             (2048.2, 0.1, 0.0, 0.1, 2048.2),
+            (0.29999999999, 0.1, 1.0, 0.1, 0.2),
+            (16.0159999, 0.01, 0.0, 0.001, 16.015),
+            (0.7 - 0.4, 0.1, 1.0, 0.1, 0.3),
         ],
         ids=[
             "exact-minimum",
@@ -918,6 +921,9 @@ class TestNormalizeOrderVolume:
             "large-on-step-milli-lot",
             "large-on-step-centi-lot",
             "large-on-step-deci-lot",
+            "sub-step-request-stays-floored",
+            "large-sub-step-request-stays-floored",
+            "float-noise-below-step-stays-on-step",
         ],
     )
     def test_normalize_order_volume_deterministic(

@@ -6,7 +6,7 @@ import logging
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from inspect import signature
-from math import floor, isfinite
+from math import floor, isclose, isfinite
 from numbers import Integral, Real
 from time import sleep
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
@@ -461,6 +461,9 @@ def _is_positive_finite_number(value: object) -> bool:
     return float(cast("float | int", value)) > 0
 
 
+_VOLUME_STEP_REL_TOLERANCE = 1e-12
+
+
 def normalize_order_volume(
     volume: float,
     *,
@@ -473,8 +476,11 @@ def normalize_order_volume(
     Returns:
         Volume floored to the nearest valid broker step from ``volume_min``,
         capped at ``volume_max`` when finite and positive, and rounded
-        deterministically. Returns ``0.0`` when inputs or constraints are
-        invalid, non-finite, or the capped request is below ``volume_min``.
+        deterministically. The result never exceeds the capped request except
+        by floating-point noise (a relative tolerance of ``1e-12``), which
+        keeps on-step requests on their step. Returns ``0.0`` when inputs or
+        constraints are invalid, non-finite, or the capped request is below
+        ``volume_min``.
     """
     if not _is_finite_number(volume):
         return 0.0
@@ -486,10 +492,16 @@ def normalize_order_volume(
     capped = min(volume, volume_max) if has_volume_cap else volume
     if capped < volume_min:
         return 0.0
-    # Round the quotient before flooring: float division error grows with the
-    # step count, so a fixed tiny epsilon drops on-step volumes by one step.
-    steps = floor(round((capped - volume_min) / volume_step, 8))
-    normalized = volume_min + max(0, steps) * volume_step
+    steps = max(0, floor((capped - volume_min) / volume_step))
+    # Float division can land just below an on-step request and floor it one
+    # step short. Take the next step only when it does not exceed the request
+    # beyond float noise, so genuinely sub-step requests are still floored.
+    next_step = round(volume_min + (steps + 1) * volume_step, 10)
+    if next_step <= capped or isclose(
+        next_step, capped, rel_tol=_VOLUME_STEP_REL_TOLERANCE, abs_tol=0.0
+    ):
+        steps += 1
+    normalized = volume_min + steps * volume_step
     if has_volume_cap:
         normalized = min(normalized, volume_max)
     return round(normalized, 10)

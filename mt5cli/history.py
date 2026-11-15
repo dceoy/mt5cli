@@ -36,6 +36,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_UNIX_EPOCH = datetime(1970, 1, 1)  # ruff: ignore[call-datetime-without-tzinfo]
+_HISTORY_ORDER_CURSOR_COLUMNS = ("time_done", "time_setup")
+
 
 _SQLITE_TEXT_TIME_COLUMNS: frozenset[str] = frozenset({
     "time",
@@ -819,15 +822,46 @@ def _load_grouped_rate_start_datetimes(
     return result
 
 
+def _load_latest_cursor_time(
+    conn: sqlite3.Connection,
+    table: str,
+    time_columns: Sequence[str],
+    *,
+    where_clause: str | None = None,
+    params: Sequence[object] = (),
+) -> datetime | None:
+    """Return the latest usable cursor time from the first column that has one.
+
+    ``time_columns`` are tried in order; a later column is used only when the
+    earlier ones hold no parseable timestamp. The Unix epoch is MT5's "unset"
+    sentinel (for example ``time_done`` of an unfinished order), so a latest
+    value at the epoch counts as missing.
+    """
+    for time_column in time_columns:
+        parsed = _load_latest_parseable_time(
+            conn,
+            table,
+            where_clause=where_clause,
+            params=params,
+            time_column=time_column,
+        )
+        if parsed is not None and parsed.replace(tzinfo=None) != _UNIX_EPOCH:
+            return parsed
+    return None
+
+
 def _load_symbol_start_datetimes(
     conn: sqlite3.Connection,
     table: str,
     *,
     symbols: Sequence[str],
     fallback_start: datetime,
-    time_column: str = "time",
+    time_columns: Sequence[str] = ("time",),
 ) -> dict[tuple[str, int | None], datetime]:
     """Load per-symbol cursors while preserving raw timestamp semantics.
+
+    ``time_columns`` are tried in order per symbol; see
+    ``_load_latest_cursor_time``.
 
     Returns:
         Start datetime keyed by ``(symbol, None)``.
@@ -835,12 +869,12 @@ def _load_symbol_start_datetimes(
     fallback_start = ensure_trade_server_time(fallback_start)
     result: dict[tuple[str, int | None], datetime] = {}
     for symbol in symbols:
-        parsed = _load_latest_parseable_time(
+        parsed = _load_latest_cursor_time(
             conn,
             table,
+            time_columns,
             where_clause="symbol = ?",
             params=(symbol,),
-            time_column=time_column,
         )
         result[symbol, None] = (
             ensure_trade_server_time(parsed) if parsed is not None else fallback_start
@@ -864,17 +898,18 @@ def load_incremental_start_datetimes(
         _validate_rates_schema(columns)
 
     # MT5 history orders carry ``time_setup``/``time_done`` instead of ``time``.
-    # Resume from ``time_setup``: it never exceeds ``time_done``, so the cursor
-    # stays conservative and overlapping rows are deduplicated by ticket.
-    time_column = "time"
-    if (
-        dataset is Dataset.history_orders
-        and "time" not in columns
-        and "time_setup" in columns
-    ):
-        time_column = "time_setup"
+    # MT5 selects history orders by completion time, so resume from the latest
+    # ``time_done`` (inclusive; the overlap is deduplicated by ticket). Resuming
+    # from ``time_setup`` would re-read everything completed since a long-lived
+    # pending order was placed, so it is only a fallback when no usable
+    # ``time_done`` exists.
+    time_columns: tuple[str, ...] = ("time",) if "time" in columns else ()
+    if dataset is Dataset.history_orders and not time_columns:
+        time_columns = tuple(
+            column for column in _HISTORY_ORDER_CURSOR_COLUMNS if column in columns
+        )
 
-    if time_column not in columns:
+    if not time_columns:
         if dataset is Dataset.rates and timeframes is not None:
             return {
                 (symbol, timeframe): fallback_start
@@ -902,10 +937,10 @@ def load_incremental_start_datetimes(
             table,
             symbols=symbols,
             fallback_start=fallback_start,
-            time_column=time_column,
+            time_columns=time_columns,
         )
 
-    parsed = _load_latest_parseable_time(conn, table, time_column=time_column)
+    parsed = _load_latest_cursor_time(conn, table, time_columns)
     shared_start = (
         ensure_trade_server_time(parsed) if parsed is not None else fallback_start
     )

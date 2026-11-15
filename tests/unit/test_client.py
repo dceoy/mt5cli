@@ -22,7 +22,7 @@ from mt5cli.client import (
     substitute_env_placeholders,
     substitute_mapping_values,
 )
-from mt5cli.exceptions import Mt5ConnectionError
+from mt5cli.exceptions import Mt5ConnectionError, Mt5OperationError
 from mt5cli.marketdata import (
     collect_latest_rates,
     copy_rates_range,
@@ -1559,25 +1559,48 @@ class TestSubstituteMappingValues:
         assert result == {"accounts": ({"mt5_login": "${MT5_LOGIN}"},)}
 
 
-@pytest.mark.parametrize(
-    ("subscribed", "expected_release_calls"),
-    [(True, 1), (False, 0)],
-    ids=["subscribed-releases", "subscription-failed-skips-release"],
-)
 def test_market_book_subscribes_before_reading_and_releases(
     mock_client: MagicMock,
-    subscribed: bool,
-    expected_release_calls: int,
 ) -> None:
     """Market depth requires market_book_add before market_book_get."""
-    mock_client.market_book_add.return_value = subscribed
-
     result = MT5Client(config=build_config(login=123)).market_book("EURUSD")
 
     assert isinstance(result, pd.DataFrame)
+    assert [name for name, _, _ in mock_client.method_calls if "book" in name] == [
+        "market_book_add",
+        "market_book_get_as_df",
+        "market_book_release",
+    ]
     mock_client.market_book_add.assert_called_once_with("EURUSD")
     mock_client.market_book_get_as_df.assert_called_once_with(symbol="EURUSD")
-    assert mock_client.market_book_release.call_count == expected_release_calls
+    mock_client.market_book_release.assert_called_once_with("EURUSD")
+
+
+def test_market_book_rejects_failed_subscription_without_reading(
+    mock_client: MagicMock,
+) -> None:
+    """A failed market_book_add raises instead of reading unsubscribed depth."""
+    mock_client.market_book_add.return_value = False
+
+    with pytest.raises(Mt5OperationError, match="subscribe to market depth"):
+        MT5Client(config=build_config(login=123)).market_book("EURUSD")
+
+    mock_client.market_book_get_as_df.assert_not_called()
+    mock_client.market_book_release.assert_not_called()
+
+
+def test_market_book_reports_failed_release(
+    mock_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed market_book_release is logged while the depth is still returned."""
+    mock_client.market_book_release.return_value = False
+
+    with caplog.at_level("WARNING", logger="mt5cli.client"):
+        result = MT5Client(config=build_config(login=123)).market_book("EURUSD")
+
+    assert isinstance(result, pd.DataFrame)
+    assert "Failed to release market depth subscription for EURUSD" in caplog.text
 
 
 def test_market_book_releases_subscription_when_read_fails(
