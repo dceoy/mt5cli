@@ -1557,3 +1557,36 @@ class TestSubstituteMappingValues:
         result = substitute_mapping_values(data, keys={"mt5_login"})
         # tuple is returned as-is; inner dict is NOT visited
         assert result == {"accounts": ({"mt5_login": "${MT5_LOGIN}"},)}
+
+
+@pytest.mark.parametrize(
+    ("subscribed", "expected_release_calls"),
+    [(True, 1), (False, 0)],
+    ids=["subscribed-releases", "subscription-failed-skips-release"],
+)
+def test_market_book_subscribes_before_reading_and_releases(
+    mock_client: MagicMock,
+    subscribed: bool,
+    expected_release_calls: int,
+) -> None:
+    """Market depth requires market_book_add before market_book_get."""
+    mock_client.market_book_add.return_value = subscribed
+
+    result = MT5Client(config=build_config(login=123)).market_book("EURUSD")
+
+    assert isinstance(result, pd.DataFrame)
+    mock_client.market_book_add.assert_called_once_with("EURUSD")
+    mock_client.market_book_get_as_df.assert_called_once_with(symbol="EURUSD")
+    assert mock_client.market_book_release.call_count == expected_release_calls
+
+
+def test_market_book_releases_subscription_when_read_fails(
+    mock_client: MagicMock,
+) -> None:
+    """The market depth subscription is released even when the read raises."""
+    mock_client.market_book_get_as_df.side_effect = RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        MT5Client(config=build_config(login=123)).market_book("EURUSD")
+
+    mock_client.market_book_release.assert_called_once_with("EURUSD")

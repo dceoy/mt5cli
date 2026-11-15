@@ -4199,3 +4199,58 @@ def test_managed_update_opens_session_and_delegates(
         with_views=False,
         include_account_events=True,
     )
+
+
+def test_report_rate_gaps_skips_timeframes_without_fixed_interval(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """MN1 series are skipped while other series still report their gaps."""
+    with sqlite3.connect(":memory:") as conn:
+        conn.execute(
+            "CREATE TABLE rates(symbol TEXT, timeframe INTEGER, time TEXT, close REAL)"
+        )
+        conn.executemany(
+            "INSERT INTO rates VALUES (?, ?, ?, ?)",
+            [
+                ("EURUSD", 49153, "2024-01-01T00:00:00", 1.0),
+                ("EURUSD", 49153, "2024-04-01T00:00:00", 1.1),
+                ("EURUSD", 1, "2024-01-01T00:00:00", 1.0),
+                ("EURUSD", 1, "2024-01-01T00:03:00", 1.1),
+            ],
+        )
+        with caplog.at_level("WARNING", logger="mt5cli.history"):
+            gaps = history.report_rate_gaps(conn, "rates")
+
+    assert gaps["granularity"].tolist() == ["M1"]
+    assert gaps["missing_intervals"].tolist() == [2]
+    assert "MN1 has no fixed interval" in caplog.text
+
+
+def test_load_incremental_start_datetimes_resumes_history_orders_from_time_setup(
+    tmp_path: Path,
+) -> None:
+    """History orders without a ``time`` column resume from ``time_setup``."""
+    fallback = datetime(2024, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+    with sqlite3.connect(tmp_path / "orders.db") as conn:
+        conn.execute(
+            "CREATE TABLE history_orders("
+            " ticket INTEGER, symbol TEXT, time_setup TEXT, time_done TEXT)"
+        )
+        conn.executemany(
+            "INSERT INTO history_orders VALUES (?, ?, ?, ?)",
+            [
+                (1, "EURUSD", "2024-01-02T00:00:00", "2024-01-02T00:00:01"),
+                (2, "EURUSD", "2024-01-03T00:00:00", "2024-01-04T00:00:00"),
+            ],
+        )
+        starts = load_incremental_start_datetimes(
+            conn,
+            Dataset.history_orders,
+            symbols=["EURUSD", "USDJPY"],
+            fallback_start=fallback,
+        )
+
+    assert starts == {
+        ("EURUSD", None): datetime(2024, 1, 3, tzinfo=UTC).replace(tzinfo=None),
+        ("USDJPY", None): fallback,
+    }

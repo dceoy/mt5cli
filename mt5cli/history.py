@@ -311,6 +311,41 @@ def _iter_rate_gap_groups(frame: pd.DataFrame) -> list[pd.DataFrame]:
     ]
 
 
+def _infer_rate_gap_interval_seconds(
+    table_name: str,
+    metadata: dict[str, object],
+) -> int | None:
+    """Infer a series bar interval from its timeframe metadata.
+
+    Returns:
+        Interval seconds, or ``None`` when the timeframe is known but has no
+        fixed bar interval (``MN1``) and so cannot be gap-checked.
+
+    Raises:
+        ValueError: If the timeframe is missing or unsupported.
+    """
+    timeframe = metadata["timeframe"]
+    if not isinstance(timeframe, int):
+        msg = (
+            f"Could not infer granularity for {table_name!r}; "
+            "pass granularity_seconds for a custom table."
+        )
+        raise ValueError(msg)  # ruff: ignore[type-check-without-type-error]
+    interval_seconds = timeframe_interval_seconds(timeframe)
+    if interval_seconds is not None:
+        return interval_seconds
+    granularity = resolve_granularity_name(timeframe)
+    if granularity == str(timeframe):
+        msg = f"Unsupported rate timeframe: {timeframe}."
+        raise ValueError(msg)
+    logger.warning(
+        "Skipping rate gap detection for %s: %s has no fixed interval.",
+        metadata["symbol"],
+        granularity,
+    )
+    return None
+
+
 def report_rate_gaps(  # ruff: ignore[complex-structure, too-many-locals]
     conn: sqlite3.Connection,
     table: str,
@@ -358,19 +393,11 @@ def report_rate_gaps(  # ruff: ignore[complex-structure, too-many-locals]
     rows: list[dict[str, object]] = []
     for group in _iter_rate_gap_groups(series_frame):
         metadata = _rate_gap_metadata(table_name, group)
-        interval_seconds = granularity_seconds
+        interval_seconds = granularity_seconds or _infer_rate_gap_interval_seconds(
+            table_name, metadata
+        )
         if interval_seconds is None:
-            timeframe = metadata["timeframe"]
-            if not isinstance(timeframe, int):
-                msg = (
-                    f"Could not infer granularity for {table_name!r}; "
-                    "pass granularity_seconds for a custom table."
-                )
-                raise ValueError(msg)
-            interval_seconds = timeframe_interval_seconds(timeframe)
-            if interval_seconds is None:
-                msg = f"Unsupported rate timeframe: {timeframe}."
-                raise ValueError(msg)
+            continue
 
         unique_times = group["time"].drop_duplicates()
         awareness = [
@@ -699,10 +726,12 @@ def _load_latest_parseable_time(
     *,
     where_clause: str | None = None,
     params: Sequence[object] = (),
+    time_column: str = "time",
 ) -> datetime | None:
     quoted_table = quote_sqlite_identifier(table)
-    time_expr = _sqlite_normalized_time_expression("time")
-    query = f"SELECT time FROM {quoted_table} WHERE {time_expr} IS NOT NULL"  # ruff: ignore[hardcoded-sql-expression]
+    quoted_time = quote_sqlite_identifier(time_column)
+    time_expr = _sqlite_normalized_time_expression(time_column)
+    query = f"SELECT {quoted_time} FROM {quoted_table} WHERE {time_expr} IS NOT NULL"  # ruff: ignore[hardcoded-sql-expression]
     if where_clause:
         query += f" AND {where_clause}"
     query += f" ORDER BY {time_expr} DESC, ROWID DESC LIMIT 1"
@@ -796,6 +825,7 @@ def _load_symbol_start_datetimes(
     *,
     symbols: Sequence[str],
     fallback_start: datetime,
+    time_column: str = "time",
 ) -> dict[tuple[str, int | None], datetime]:
     """Load per-symbol cursors while preserving raw timestamp semantics.
 
@@ -810,6 +840,7 @@ def _load_symbol_start_datetimes(
             table,
             where_clause="symbol = ?",
             params=(symbol,),
+            time_column=time_column,
         )
         result[symbol, None] = (
             ensure_trade_server_time(parsed) if parsed is not None else fallback_start
@@ -832,7 +863,18 @@ def load_incremental_start_datetimes(
     if dataset is Dataset.rates and columns:
         _validate_rates_schema(columns)
 
-    if "time" not in columns:
+    # MT5 history orders carry ``time_setup``/``time_done`` instead of ``time``.
+    # Resume from ``time_setup``: it never exceeds ``time_done``, so the cursor
+    # stays conservative and overlapping rows are deduplicated by ticket.
+    time_column = "time"
+    if (
+        dataset is Dataset.history_orders
+        and "time" not in columns
+        and "time_setup" in columns
+    ):
+        time_column = "time_setup"
+
+    if time_column not in columns:
         if dataset is Dataset.rates and timeframes is not None:
             return {
                 (symbol, timeframe): fallback_start
@@ -860,9 +902,10 @@ def load_incremental_start_datetimes(
             table,
             symbols=symbols,
             fallback_start=fallback_start,
+            time_column=time_column,
         )
 
-    parsed = _load_latest_parseable_time(conn, table)
+    parsed = _load_latest_parseable_time(conn, table, time_column=time_column)
     shared_start = (
         ensure_trade_server_time(parsed) if parsed is not None else fallback_start
     )

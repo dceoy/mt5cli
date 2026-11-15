@@ -486,7 +486,9 @@ def normalize_order_volume(
     capped = min(volume, volume_max) if has_volume_cap else volume
     if capped < volume_min:
         return 0.0
-    steps = floor(((capped - volume_min) / volume_step) + 1e-12)
+    # Round the quotient before flooring: float division error grows with the
+    # step count, so a fixed tiny epsilon drops on-step volumes by one step.
+    steps = floor(round((capped - volume_min) / volume_step, 8))
     normalized = volume_min + max(0, steps) * volume_step
     if has_volume_cap:
         normalized = min(normalized, volume_max)
@@ -2616,8 +2618,12 @@ def determine_order_limits(
     except (AttributeError, KeyError, TypeError, ValueError):
         symbol_info = {}
     try:
-        digits = int(symbol_info.get("digits") or 8)
+        raw_digits = symbol_info.get("digits")
+        # ``0`` is a valid precision (integer-priced symbols), not "unknown".
+        digits = 8 if raw_digits is None else int(raw_digits)
     except (TypeError, ValueError):
+        digits = 8
+    if digits < 0:
         digits = 8
     min_distance = _minimum_stop_distance(symbol_info)
 

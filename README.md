@@ -182,7 +182,7 @@ python -m mt5cli -o account.csv account-info
 | `order-send`           | Send a raw trade request to the trade server (`--yes` required; expert path)                                                                                             |
 | `close-positions`      | Close open positions by `--symbol` or `--ticket` (`--yes` required for live; `--dry-run` available; optional `--filling-mode` / `--deviation` / `--comment` / `--magic`) |
 | `collect-history`      | Collect rates, history-orders, and history-deals for one or more symbols into a single SQLite database (ticks opt-in via `--dataset ticks`)                              |
-| `history-gaps`         | Export a SQLite-only one-row-per-gap report from managed rate compatibility views without connecting to MT5                                                              |
+| `history-gaps`         | Export a SQLite-only one-row-per-gap report from the collected `rates` table (or custom rate tables) without connecting to MT5                                           |
 | `publish-dashboard`    | Publish Parquet analytics datasets and a manifest from a SQLite history database for static dashboards (`--sqlite3`; `-o` is the manifest path; no MT5)                  |
 | `snapshot`             | Snapshot current account, position, order, and terminal state into SQLite                                                                                                |
 
@@ -194,13 +194,14 @@ and `MT5_PATH` when unset, and explicit CLI values still win.
 
 ### `history-gaps`
 
-Inspect collected SQLite rate views offline and export one row per detected gap.
-For managed compatibility views, the command infers bar spacing from the view
-name. Use `--granularity-seconds` for custom tables or views.
+Inspect collected SQLite rates offline and export one row per detected gap.
+For the canonical `rates` table, the command infers bar spacing from each
+series' `timeframe` column (series without a fixed interval, such as `MN1`, are
+skipped). Use `--table` with `--granularity-seconds` for custom tables or views.
 
 ```bash
 mt5cli -o gaps.json history-gaps --sqlite3 history.db
-mt5cli -o eurusd.csv history-gaps --sqlite3 history.db --table rate_EURUSD__M1_1
+mt5cli -o eurusd.csv history-gaps --sqlite3 history.db --table eurusd_m1 --granularity-seconds 60
 ```
 
 ### `collect-history`

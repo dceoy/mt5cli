@@ -710,3 +710,25 @@ class TestSnapshotInserts:
         record_snapshot_run(conn, run_id, status, detail)
         row = conn.execute("SELECT status, detail FROM snapshot_runs").fetchone()
         assert row == expected
+
+
+@pytest.mark.parametrize(
+    ("row", "expected_position_id"),
+    [
+        ({"ticket": 1, "identifier": 7}, 7),
+        ({"ticket": 1, "position_id": 9, "identifier": 7}, 9),
+        ({"ticket": 1}, None),
+    ],
+    ids=["mt5-identifier", "explicit-position-id-wins", "missing"],
+)
+def test_insert_position_snapshots_reads_mt5_position_identifier(
+    row: dict[str, object],
+    expected_position_id: int | None,
+) -> None:
+    """MT5 positions expose the position ID through the ``identifier`` field."""
+    with sqlite3.connect(":memory:") as conn:
+        create_snapshot_tables(conn)
+        insert_position_snapshots(conn, 1, 123, [row])
+        stored = conn.execute("SELECT position_id FROM position_snapshots").fetchone()
+
+    assert stored == (expected_position_id,)

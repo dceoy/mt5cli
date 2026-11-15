@@ -429,6 +429,33 @@ class TestReversalLegs:
             assert create_analytics_views(conn)
         return _query(path, "SELECT * FROM analytics_trades ORDER BY leg_index")
 
+    def test_reversal_equity_realizes_closed_leg_before_new_leg(
+        self, tmp_path: Path
+    ) -> None:
+        """The reversal deal's exit portion accumulates before its new-leg entry."""
+        path = _make_db(
+            tmp_path / "equity.db",
+            rows=self._rows(
+                ("2024-01-01 10:00:00", 0, 0, 1.0, 1.10, 0.0, -1.0, 0.0),
+                ("2024-01-02 10:00:00", 1, 2, 3.0, 1.20, 10.0, -3.0, -1.0),
+                ("2024-01-03 10:00:00", 0, 1, 2.0, 1.25, 0.0, -2.0, 0.0),
+            ),
+        )
+        with sqlite3.connect(path) as conn:
+            assert create_analytics_views(conn)
+        equity = _query(
+            path,
+            "SELECT role, leg_index, cumulative_net_profit FROM analytics_equity"
+            " ORDER BY cumulative_net_profit IS NULL, time, ticket, leg_index, role",
+        )
+        assert equity["role"].tolist() == ["entry", "exit", "entry", "exit"]
+        assert equity["cumulative_net_profit"].tolist() == _approx([
+            -1.0,
+            7.0,
+            5.0,
+            3.0,
+        ])
+
     def test_reversal_then_close_splits_two_legs(self, tmp_path: Path) -> None:
         """A long reversed into a short and later closed yields two legs."""
         legs = self._legs(

@@ -189,7 +189,8 @@ def insert_position_snapshots(
                 run_id,
                 login,
                 r.get("ticket"),
-                r.get("position_id"),
+                # MT5 positions expose the position ID as ``identifier``.
+                r.get("position_id", r.get("identifier")),
                 r.get("symbol"),
                 r.get("type"),
                 r.get("volume"),

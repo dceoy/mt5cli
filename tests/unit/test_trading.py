@@ -373,6 +373,36 @@ class TestDetermineOrderLimits:
             )
 
     @pytest.mark.parametrize(
+        ("digits", "expected_stop_loss", "expected_take_profit"),
+        [
+            (0, 37984.0, 39357.0),
+            (-1, 37983.9789, 39356.8938),
+        ],
+        ids=["zero-digits-rounds-to-integer", "negative-digits-use-default"],
+    )
+    def test_rounds_with_zero_or_invalid_negative_digits(
+        self,
+        digits: int,
+        expected_stop_loss: float,
+        expected_take_profit: float,
+    ) -> None:
+        """Test digits=0 is honored while negative digits fall back to 8."""
+        client = MagicMock()
+        client.symbol_info_tick_as_dict.return_value = {"ask": 38457.0, "bid": 38456.0}
+        client.symbol_info_as_dict.return_value = {"digits": digits}
+
+        result = determine_order_limits(
+            client,
+            "JP225",
+            "long",
+            stop_loss_limit_ratio=0.0123,
+            take_profit_limit_ratio=0.0234,
+        )
+
+        assert result["stop_loss"] == expected_stop_loss
+        assert result["take_profit"] == expected_take_profit
+
+    @pytest.mark.parametrize(
         ("return_value", "side_effect"),
         [
             ({"digits": "invalid"}, None),
@@ -871,6 +901,9 @@ class TestNormalizeOrderVolume:
             (2.5, 0.1, 0.0, 0.1, 2.5),
             (0.5, 0.1, 0.34, 0.12, 0.34),
             (2.5, 0.1, float("nan"), 0.1, 2.5),
+            (16.016, 0.01, 0.0, 0.001, 16.016),
+            (256.03, 0.01, 0.0, 0.01, 256.03),
+            (2048.2, 0.1, 0.0, 0.1, 2048.2),
         ],
         ids=[
             "exact-minimum",
@@ -882,6 +915,9 @@ class TestNormalizeOrderVolume:
             "non-positive-max-no-cap",
             "max-reapplied-after-step",
             "non-finite-max-no-cap",
+            "large-on-step-milli-lot",
+            "large-on-step-centi-lot",
+            "large-on-step-deci-lot",
         ],
     )
     def test_normalize_order_volume_deterministic(
