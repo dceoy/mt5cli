@@ -538,6 +538,14 @@ strategy entries, exits, Kelly sizing, or signal logic.</p>
 </tr>
 </tbody>
 </table>
+<p><code>calculate_positions_margin_safe</code> intentionally omits symbols whose margin
+estimates fail. The returned sum is <strong>not</strong> a verified upper bound on exposure
+and must not be used to approve risk-limited entries or enforce exposure caps.
+For risk guards, use the strict <code>calculate_positions_margin</code> helper with errors
+propagated, or reject the entry when any required estimate is unavailable.
+Similarly, call <code>calculate_symbol_group_margin_ratio(..., suppress_errors=False)</code>
+for exposure-limit decisions; its default <code>suppress_errors=True</code> can omit
+failed per-symbol estimates.</p>
 <p><code>calculate_symbol_group_margin_ratio</code> accepts an optional <code>projection_mode</code>
 parameter (<code>"add"</code> by default). Pass <code>projection_mode="replace_symbol"</code> to
 subtract current exposure for <code>new_symbol</code> before adding the candidate margin —
