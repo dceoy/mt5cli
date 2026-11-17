@@ -158,6 +158,9 @@ estimates fail. The returned sum is **not** a verified upper bound on exposure
 and must not be used to approve risk-limited entries or enforce exposure caps.
 For risk guards, use the strict `calculate_positions_margin` helper with errors
 propagated, or reject the entry when any required estimate is unavailable.
+Similarly, call `calculate_symbol_group_margin_ratio(..., suppress_errors=False)`
+for exposure-limit decisions; its default `suppress_errors=True` can omit
+failed per-symbol estimates.
 
 `calculate_symbol_group_margin_ratio` accepts an optional `projection_mode`
 parameter (`"add"` by default). Pass `projection_mode="replace_symbol"` to
