@@ -4072,9 +4072,9 @@ def _clock_client(live_ticks: list[dict[str, object]]) -> MagicMock:
     """Build an MT5 client mock returning ``live_ticks`` in call order.
 
     ``copy_ticks_range`` is intentionally left as a bare, unconfigured mock:
-    the redesigned calibration never calls it (that was the root cause of
-    the dceoy/mteor#428 ``no_matching_event`` failure), so any test that
-    still exercised it would be silently exercising the wrong contract.
+    the redesigned calibration never calls it, preventing a historical
+    ``no_matching_event`` regression. Any test exercising it would be
+    silently testing the wrong contract.
     """
     client = MagicMock()
     client.symbol_info_tick_as_dict.side_effect = live_ticks
@@ -4084,7 +4084,7 @@ def _clock_client(live_ticks: list[dict[str, object]]) -> MagicMock:
 class TestTickClockNormalizer:
     """Tests for TickClockNormalizer host-clock-based calibration.
 
-    In production (see dceoy/mteor#428) ``symbol_info_tick()`` returned a
+    On offset-labeled brokers, ``symbol_info_tick()`` can return a
     non-UTC server-labeled epoch, and a ``copy_ticks_range()`` lookup whose
     window was built from the host clock missed the live event by roughly the
     broker's offset, which is why v1.3.2 still failed calibration with
@@ -6044,8 +6044,8 @@ class TestTickClockNormalizer:
     ) -> None:
         """The redesigned calibration never depends on copy_ticks_range.
 
-        This is the direct regression guard for dceoy/mteor#428: v1.3.2
-        still queried ``copy_ticks_range()`` for calibration evidence and
+        This guards against the earlier calibration behavior, which
+        queried ``copy_ticks_range()`` for calibration evidence and
         centered the window on the host clock, so an OANDA-style +3h server
         label always put the matching copied event outside the queried
         range. The fix removes that dependency entirely.
