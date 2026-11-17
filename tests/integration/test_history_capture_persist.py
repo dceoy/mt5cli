@@ -1,4 +1,4 @@
-"""Tests for the MT5-independent history capture/persist split (mteor #466)."""
+"""Tests for the MT5-independent history capture/persist split."""
 
 from __future__ import annotations
 
