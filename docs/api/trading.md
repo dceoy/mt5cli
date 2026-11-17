@@ -219,11 +219,10 @@ strip `tzinfo` to simulate a conversion. Copied-history timestamps remain
 broker/terminal-dependent for downstream interpretation.
 
 mt5cli does not call `copy_ticks_range()` or `copy_rates_range()` to calibrate
-the live tick clock. In production on at least one OANDA-style
-broker/terminal, `symbol_info_tick()` returned epochs carrying the broker's
-own wall-clock label (UTC+3), not true UTC; treating copied history as an
-independent UTC reference was the direct cause of a production calibration
-failure (see [dceoy/mteor#428](https://github.com/dceoy/mteor/issues/428)).
+the live tick clock. Some brokers label `symbol_info_tick()` epochs with the
+trade-server wall clock (for example, UTC+3), not true UTC. Treating copied
+history as an independent UTC reference can therefore cause calibration to
+fail when the server clock has an offset.
 
 `get_tick_snapshot()` preserves the numeric MT5 epoch value in `time`; it does
 not expose pdmt5's timezone-naive `Timestamp` conversion or alter the instant,
