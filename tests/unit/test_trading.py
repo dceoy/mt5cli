@@ -224,7 +224,7 @@ class TestCalculateMarginAndVolume:
         mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "SELL")
 
     @pytest.mark.parametrize("unit_ratio", [-0.1, 1.1])
-    def test_rejects_invalid_ratios(self, unit_ratio: float) -> None:
+    def test_rejects_invalid_unit_margin_ratios(self, unit_ratio: float) -> None:
         """Test out-of-range unit margin ratios raise ValueError."""
         with pytest.raises(ValueError, match="must be between 0 and 1"):
             calculate_margin_and_volume(
@@ -1424,7 +1424,12 @@ class TestVolumeAndExecution:
         _assert_close(result["sell_volume"], 0.5)
 
     @pytest.mark.parametrize(
-        ("margin_free", "order_calc_margins", "expected_buy_volume", "expected_sell_volume"),
+        (
+            "margin_free",
+            "order_calc_margins",
+            "expected_buy_volume",
+            "expected_sell_volume",
+        ),
         [
             (100.0, [10.0, 20.0], 0.1, 0.1),
             (15.0, [10.0, 20.0], 0.1, 0.0),
