@@ -345,9 +345,7 @@ from mt5cli import (
 
 with mt5_session(Mt5Config(path=terminal_path, login=login)) as client:
     side = detect_position_side(client, symbol)
-    sizing = calculate_margin_and_volume(
-        client, symbol, unit_margin_ratio=0.5
-    )
+    sizing = calculate_margin_and_volume(client, symbol, unit_margin_ratio=0.5)
     if side is not None:
         limits = determine_order_limits(
             client,
