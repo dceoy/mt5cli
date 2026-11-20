@@ -2452,21 +2452,18 @@ def calculate_margin_and_volume(
     client: _Mt5ClientProtocol,
     symbol: str,
     unit_margin_ratio: float,
-    preserved_margin_ratio: float,
 ) -> MarginVolume:
     """Calculate tradable margin and volumes from account free margin.
 
-    Applies ``preserved_margin_ratio`` to keep a reserve off ``margin_free``,
-    then allocates ``unit_margin_ratio`` of the remainder as the margin budget
-    for proportional volume sizing on both buy and sell sides. A
-    ``unit_margin_ratio`` of ``0`` requests exactly one minimum valid unit per
-    side when the post-reserve margin can afford it.
+    Allocates ``unit_margin_ratio`` of nonnegative ``margin_free`` as the
+    margin budget for proportional volume sizing on both buy and sell sides.
+    A ``unit_margin_ratio`` of ``0`` requests exactly one minimum valid unit per
+    side when free margin can afford it.
 
     Args:
         client: Connected MT5 client instance.
         symbol: Symbol used for minimum-lot margin and volume calculations.
-        unit_margin_ratio: Fraction of post-reserve margin to allocate per unit.
-        preserved_margin_ratio: Fraction of ``margin_free`` to preserve.
+        unit_margin_ratio: Fraction of free margin to allocate per unit.
 
     Returns:
         Dictionary with ``margin_free``, ``available_margin``, ``trade_margin``,
@@ -2474,11 +2471,10 @@ def calculate_margin_and_volume(
         clamped to ``0.0`` before sizing.
     """
     _require_unit_ratio(unit_margin_ratio, "unit_margin_ratio")
-    _require_unit_ratio(preserved_margin_ratio, "preserved_margin_ratio")
 
     account = client.account_info_as_dict()
     margin_free = max(0.0, float(account.get("margin_free") or 0.0))
-    available_margin = margin_free * (1.0 - preserved_margin_ratio)
+    available_margin = margin_free
     trade_margin = available_margin * unit_margin_ratio
     if unit_margin_ratio == 0:
         buy_volume = _calculate_min_volume_if_affordable(
