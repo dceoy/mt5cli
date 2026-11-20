@@ -331,7 +331,7 @@ Replace local MT5 lifecycle and trading helper code with mt5cli imports:
 # Before (local application helpers)
 # with local_mt5_session(config) as client:
 #     side = local_detect_position_side(client, symbol)
-#     sizing = local_calculate_margin_and_volume(client, symbol, unit_ratio, preserved_ratio)
+#     sizing = local_calculate_margin_and_volume(client, symbol, unit_ratio)
 #     limits = local_determine_order_limits(client, symbol, side, sl_ratio, tp_ratio)
 
 # After (mt5cli shared layer)
@@ -345,9 +345,7 @@ from mt5cli import (
 
 with mt5_session(Mt5Config(path=terminal_path, login=login)) as client:
     side = detect_position_side(client, symbol)
-    sizing = calculate_margin_and_volume(
-        client, symbol, unit_margin_ratio=0.5, preserved_margin_ratio=0.2
-    )
+    sizing = calculate_margin_and_volume(client, symbol, unit_margin_ratio=0.5)
     if side is not None:
         limits = determine_order_limits(
             client,

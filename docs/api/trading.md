@@ -74,7 +74,6 @@ sizing = calculate_margin_and_volume(
     client,
     "EURUSD",
     unit_margin_ratio=0.5,
-    preserved_margin_ratio=0.2,
 )
 limits = determine_order_limits(
     client,
@@ -115,10 +114,10 @@ acceptance because live validation can still depend on price movement, bid/ask
 side, freeze levels, and server-side rules, and it does not validate
 `trade_freeze_level`. When symbol metadata cannot be loaded, protective prices
 still round with `digits=8` and stop-level validation is skipped.
-`unit_margin_ratio` and `preserved_margin_ratio` for `calculate_margin_and_volume()`
-accept `0 <= ratio <= 1`; `unit_margin_ratio=0` requests one minimum valid unit
-when the post-reserve margin can afford it. Negative `margin_free` is clamped to
-`0.0` before sizing. Execution helpers return frozen, typed
+`unit_margin_ratio` for `calculate_margin_and_volume()` accepts
+`0 <= ratio <= 1`; a value of `0` requests one minimum valid unit when free
+margin can afford it. Negative `margin_free` is clamped to `0.0` before
+sizing. Execution helpers return frozen, typed
 `OrderExecutionResult` receipts. Access fields directly and call `to_dict()`
 only when serializing; `dry_run=True` never sends an order or mutates Market
 Watch visibility.
@@ -149,7 +148,6 @@ sizing: MarginVolume = calculate_margin_and_volume(
     client,
     "EURUSD",
     unit_margin_ratio=0.5,
-    preserved_margin_ratio=0.2,
 )
 limits: OrderLimits = determine_order_limits(
     client,

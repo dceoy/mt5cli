@@ -172,21 +172,20 @@ class TestCalculateMarginAndVolume:
             client,
             "EURUSD",
             unit_margin_ratio=0.5,
-            preserved_margin_ratio=0.2,
         )
 
         assert result == {
             "margin_free": 1000.0,
-            "available_margin": 800.0,
-            "trade_margin": 400.0,
+            "available_margin": 1000.0,
+            "trade_margin": 500.0,
             "buy_volume": 0.3,
             "sell_volume": 0.2,
             "volume_min": 0.0,
             "volume_max": 0.0,
             "volume_step": 0.0,
         }
-        mock_calc_vol.assert_any_call(client, "EURUSD", 400.0, "BUY")
-        mock_calc_vol.assert_any_call(client, "EURUSD", 400.0, "SELL")
+        mock_calc_vol.assert_any_call(client, "EURUSD", 500.0, "BUY")
+        mock_calc_vol.assert_any_call(client, "EURUSD", 500.0, "SELL")
 
     @pytest.mark.parametrize(
         ("account_dict", "expected_margin_free"),
@@ -216,7 +215,6 @@ class TestCalculateMarginAndVolume:
             client,
             "EURUSD",
             unit_margin_ratio=0.5,
-            preserved_margin_ratio=0.2,
         )
 
         assert result["margin_free"] == expected_margin_free
@@ -225,27 +223,14 @@ class TestCalculateMarginAndVolume:
         mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "BUY")
         mock_calc_vol.assert_any_call(client, "EURUSD", 0.0, "SELL")
 
-    @pytest.mark.parametrize(
-        ("unit_ratio", "preserved_ratio"),
-        [
-            (-0.1, 0.0),
-            (1.1, 0.0),
-            (0.5, -0.1),
-            (0.5, 1.1),
-        ],
-    )
-    def test_rejects_invalid_ratios(
-        self,
-        unit_ratio: float,
-        preserved_ratio: float,
-    ) -> None:
-        """Test invalid ratio values raise ValueError."""
+    @pytest.mark.parametrize("unit_ratio", [-0.1, 1.1])
+    def test_rejects_invalid_unit_margin_ratios(self, unit_ratio: float) -> None:
+        """Test out-of-range unit margin ratios raise ValueError."""
         with pytest.raises(ValueError, match="must be between 0 and 1"):
             calculate_margin_and_volume(
                 MagicMock(),
                 "EURUSD",
                 unit_margin_ratio=unit_ratio,
-                preserved_margin_ratio=preserved_ratio,
             )
 
 
@@ -1433,7 +1418,6 @@ class TestVolumeAndExecution:
             cast("_Mt5ClientProtocol", ClientWithoutNative()),
             "EURUSD",
             unit_margin_ratio=0.5,
-            preserved_margin_ratio=0.0,
         )
 
         _assert_close(result["buy_volume"], 0.5)
@@ -1442,33 +1426,29 @@ class TestVolumeAndExecution:
     @pytest.mark.parametrize(
         (
             "margin_free",
-            "preserved_margin_ratio",
             "order_calc_margins",
-            "expected_available_margin",
             "expected_buy_volume",
             "expected_sell_volume",
         ),
         [
-            (100.0, 0.0, [10.0, 20.0], 100.0, 0.1, 0.1),
-            (15.0, 0.0, [10.0, 20.0], 15.0, 0.1, 0.0),
-            (100.0, 0.9, [11.0, 9.0], 10.0, 0.0, 0.1),
+            (100.0, [10.0, 20.0], 0.1, 0.1),
+            (15.0, [10.0, 20.0], 0.1, 0.0),
+            (10.0, [11.0, 9.0], 0.0, 0.1),
         ],
         ids=[
             "uses-minimum-volume",
-            "rejects-unaffordable-side",
-            "preserves-margin-first",
+            "rejects-unaffordable-sell-side",
+            "rejects-unaffordable-buy-side",
         ],
     )
     def test_calculate_margin_and_volume_zero_ratio_sizes_minimum_lots(
         self,
         margin_free: float,
-        preserved_margin_ratio: float,
         order_calc_margins: list[float],
-        expected_available_margin: float,
         expected_buy_volume: float,
         expected_sell_volume: float,
     ) -> None:
-        """Test zero unit ratio sizes minimum lots against available margin."""
+        """Test zero unit ratio sizes minimum lots against full free margin."""
         client = _mock_trade_client()
         client.account_info_as_dict.return_value = {"margin_free": margin_free}
         client.symbol_info_as_dict.return_value = {
@@ -1483,10 +1463,9 @@ class TestVolumeAndExecution:
             client,
             "EURUSD",
             unit_margin_ratio=0.0,
-            preserved_margin_ratio=preserved_margin_ratio,
         )
 
-        _assert_close(result["available_margin"], expected_available_margin)
+        _assert_close(result["available_margin"], margin_free)
         _assert_close(result["buy_volume"], expected_buy_volume)
         _assert_close(result["sell_volume"], expected_sell_volume)
         client.calculate_volume_by_margin.assert_not_called()
@@ -1494,9 +1473,9 @@ class TestVolumeAndExecution:
     def test_calculate_margin_and_volume_zero_ratio_without_available_margin(
         self,
     ) -> None:
-        """Test zero unit ratio returns zero when preserved margin consumes funds."""
+        """Test zero unit ratio returns zero with no free margin."""
         client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"margin_free": 100.0}
+        client.account_info_as_dict.return_value = {"margin_free": 0.0}
         client.symbol_info_as_dict.return_value = {
             "volume_min": 0.1,
             "volume_max": 1.0,
@@ -1507,7 +1486,6 @@ class TestVolumeAndExecution:
             client,
             "EURUSD",
             unit_margin_ratio=0.0,
-            preserved_margin_ratio=1.0,
         )
 
         _assert_close(result["buy_volume"], 0.0)
@@ -1531,7 +1509,6 @@ class TestVolumeAndExecution:
                 client,
                 "EURUSD",
                 unit_margin_ratio=0.0,
-                preserved_margin_ratio=0.0,
             )
 
     def test_calculate_margin_and_volume_zero_ratio_rejects_bad_tick(self) -> None:
@@ -1550,7 +1527,6 @@ class TestVolumeAndExecution:
                 client,
                 "EURUSD",
                 unit_margin_ratio=0.0,
-                preserved_margin_ratio=0.0,
             )
 
     def test_calculate_margin_and_volume_positive_ratio_avoids_oversized_native_volume(
@@ -1564,7 +1540,7 @@ class TestVolumeAndExecution:
         0.3 (margin=30.0), which is safe.
         """
         client = _mock_trade_client()
-        client.account_info_as_dict.return_value = {"margin_free": 100.0}
+        client.account_info_as_dict.return_value = {"margin_free": 80.0}
         client.symbol_info_as_dict.return_value = {
             "volume_min": 0.1,
             "volume_max": 1.0,
@@ -1586,7 +1562,6 @@ class TestVolumeAndExecution:
             client,
             "EURUSD",
             unit_margin_ratio=0.5,
-            preserved_margin_ratio=0.2,
         )
 
         _assert_close(result["trade_margin"], 40.0)
@@ -1607,7 +1582,6 @@ class TestVolumeAndExecution:
                 client,
                 "EURUSD",
                 unit_margin_ratio=0.5,
-                preserved_margin_ratio=0.2,
             )
 
     def test_projected_margin_ratio_empty_positions(self) -> None:
