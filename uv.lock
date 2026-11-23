@@ -1458,16 +1458,16 @@ wheels = [
 
 [[package]]
 name = "pdmt5"
-version = "1.2.4"
+version = "1.2.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "metatrader5", marker = "sys_platform == 'win32'" },
     { name = "pandas" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/9d/1089af789e1ecb4d050ce2fe211e656bfb362585c44b26ef8b540a7e03fb/pdmt5-1.2.4.tar.gz", hash = "sha256:438fcb00acf787581dc146dd2e0f0947923664f85727fe998c4db8b1beb17fa4", size = 23428, upload-time = "2026-11-06T15:04:42.421Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e4/5d/dcfb1657b0e954a79e8dc8eff3f521fe3847c98993718a61ca4f04cb413f/pdmt5-1.2.5.tar.gz", hash = "sha256:be9bce7365912fdc4683b8f40049add7344a2c7b51f0ab6dfd80bc95b4d67c90", size = 23425, upload-time = "2026-11-15T18:22:01.392Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a9/ed/4b5f2d54930d7ecb46de23f0ab81dbcf4f5bc04e6f5538de390543e69d63/pdmt5-1.2.4-py3-none-any.whl", hash = "sha256:82bed2e9a41050172f3189c68bc1790192d2cf82aaa8fd35df5431ad87a7bc5b", size = 22672, upload-time = "2026-11-06T15:04:41.074Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/32/71651b4832a3528471fde9170e9f082d0dc9ec24193d4ce21629cc6e411f/pdmt5-1.2.5-py3-none-any.whl", hash = "sha256:d66d8356e877e6807c3c08a1b5c87be1fa5b61c646bd546e76ab7029e00bcca4", size = 22672, upload-time = "2026-11-15T18:22:00.085Z" },
 ]
 
 [[package]]
